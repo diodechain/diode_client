@@ -111,6 +111,7 @@ func parseBlockHeader(rawHeader []byte) (*BlockHeader, error) {
 	blockHash, _, _, _ := jsonparser.Get(rawHeader, "block_hash")
 	prevBlock, _, _, _ := jsonparser.Get(rawHeader, "previous_block")
 	minerSig, _, _, _ := jsonparser.Get(rawHeader, "miner_signature")
+	minerPubkey, _, _, _ := jsonparser.Get(rawHeader, "miner_pubkey")
 	timestamp, _, _, _ := jsonparser.Get(rawHeader, "timestamp")
 	// miner was removed
 	// miner, _, _, _ := jsonparser.Get(rawHeader, "miner")
@@ -127,6 +128,10 @@ func parseBlockHeader(rawHeader []byte) (*BlockHeader, error) {
 	if err != nil {
 		return nil, err
 	}
+	dminerPubkey, err := DecodeString(string(minerPubkey[:]))
+	if err != nil {
+		return nil, err
+	}
 	dprevBlock, err := DecodeString(string(prevBlock[:]))
 	if err != nil {
 		return nil, err
@@ -139,27 +144,18 @@ func parseBlockHeader(rawHeader []byte) (*BlockHeader, error) {
 	if err != nil {
 		return nil, err
 	}
-	// dminer, err := DecodeString(string(miner[:]))
-	// if err != nil {
-	// 	return nil, err
-	// }
+	// also can decompress pubkey and marshal to pubkey bytes
+	dcminerPubkey := secp256k1.DecompressPubkeyBytes(dminerPubkey)
 	blockHeader := &BlockHeader{
-		TxHash:    dtxHash,
-		StateHash: dstateHash,
-		PrevBlock: dprevBlock,
-		MinerSig:  dminerSig,
-		BlockHash: dblockHash,
-		Timestamp: dtimestamp,
+		TxHash:      dtxHash,
+		StateHash:   dstateHash,
+		PrevBlock:   dprevBlock,
+		MinerSig:    dminerSig,
+		MinerPubkey: dminerPubkey,
+		BlockHash:   dblockHash,
+		Timestamp:   dtimestamp,
+		Miner:       dcminerPubkey,
 	}
-	hashWithoutSig, err := blockHeader.HashWithoutSig()
-	if err != nil {
-		return nil, err
-	}
-	dminer, err := secp256k1.RecoverPubkey(hashWithoutSig, dminerSig)
-	if err != nil {
-		return nil, err
-	}
-	blockHeader.Miner = dminer
 	return blockHeader, nil
 }
 

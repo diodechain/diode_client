@@ -26,7 +26,6 @@ import "C"
 
 import (
 	"errors"
-	"fmt"
 	"math/big"
 	"unsafe"
 )
@@ -120,14 +119,31 @@ func RecoverPubkey(msg []byte, sig []byte) ([]byte, error) {
 // VerifySignature checks that the given pubkey created signature over message.
 // The signature should be in [R || S] format.
 func VerifySignature(pubkey, msg, signature []byte) bool {
-	if len(msg) != 32 || len(signature) != 64 || len(pubkey) == 0 {
-		fmt.Println("QQ")
+	if len(msg) != 32 || len(signature) != 64 || len(pubkey) == 0 || len(pubkey) != 65 {
 		return false
 	}
 	sigdata := (*C.uchar)(unsafe.Pointer(&signature[0]))
 	msgdata := (*C.uchar)(unsafe.Pointer(&msg[0]))
 	keydata := (*C.uchar)(unsafe.Pointer(&pubkey[0]))
 	return C.secp256k1_ext_ecdsa_verify(context, sigdata, msgdata, keydata, C.size_t(len(pubkey))) != 0
+}
+
+// DecompressPubkeyBytes parses public key bytes in the 33-byte compressed format.
+func DecompressPubkeyBytes(pubkey []byte) []byte {
+	if len(pubkey) != 33 {
+		return nil
+	}
+	var (
+		pubkeydata = (*C.uchar)(unsafe.Pointer(&pubkey[0]))
+		pubkeylen  = C.size_t(len(pubkey))
+		out        = make([]byte, 65)
+		outdata    = (*C.uchar)(unsafe.Pointer(&out[0]))
+		outlen     = C.size_t(len(out))
+	)
+	if C.secp256k1_ext_reencode_pubkey(context, outdata, outlen, pubkeydata, pubkeylen) == 0 {
+		return nil
+	}
+	return out
 }
 
 // DecompressPubkey parses a public key in the 33-byte compressed format.

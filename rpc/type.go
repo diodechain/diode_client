@@ -74,13 +74,14 @@ type Error struct {
 }
 
 type BlockHeader struct {
-	TxHash    []byte
-	StateHash []byte
-	PrevBlock []byte
-	MinerSig  []byte
-	Miner     []byte
-	BlockHash []byte
-	Timestamp int64
+	TxHash      []byte
+	StateHash   []byte
+	PrevBlock   []byte
+	MinerSig    []byte
+	Miner       []byte
+	MinerPubkey []byte
+	BlockHash   []byte
+	Timestamp   int64
 }
 
 type PortOpen struct {
@@ -487,7 +488,7 @@ func (conn *ConnectedConn) writeToTCP(data []byte) {
 
 // Hash returns sha3 of bert encoded block header
 func (blockHeader *BlockHeader) Hash() ([]byte, error) {
-	encHeader, err := bert.Encode([5]bert.Term{blockHeader.PrevBlock, blockHeader.StateHash, blockHeader.TxHash, blockHeader.Timestamp, blockHeader.MinerSig})
+	encHeader, err := bert.Encode([6]bert.Term{blockHeader.PrevBlock, blockHeader.MinerPubkey, blockHeader.StateHash, blockHeader.TxHash, blockHeader.Timestamp, blockHeader.MinerSig})
 	if err != nil {
 		return nil, err
 	}
@@ -496,7 +497,7 @@ func (blockHeader *BlockHeader) Hash() ([]byte, error) {
 
 // HashWithoutSig returns sha3 of bert encoded block header without miner signature
 func (blockHeader *BlockHeader) HashWithoutSig() ([]byte, error) {
-	encHeader, err := bert.Encode([4]bert.Term{blockHeader.PrevBlock, blockHeader.StateHash, blockHeader.TxHash, blockHeader.Timestamp})
+	encHeader, err := bert.Encode([5]bert.Term{blockHeader.PrevBlock, blockHeader.MinerPubkey, blockHeader.StateHash, blockHeader.TxHash, blockHeader.Timestamp})
 	if err != nil {
 		return nil, err
 	}
