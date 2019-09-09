@@ -31,8 +31,6 @@ $ go test
 Usage of:
   -debug
     	turn on debug mode
-  -key2path string
-    	another ssl client key (default "device2_key.pem")
   -keypath string
     	ssl client key (default "device_key.pem")
   -pempath string

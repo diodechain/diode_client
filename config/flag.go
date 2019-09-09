@@ -13,7 +13,6 @@ var AppConfig *Config
 type Config struct {
 	PemPath          string
 	KeyPath          string
-	Key2Path         string
 	RemoteRPCAddrs   []string
 	RemoteRPCTimeout time.Duration
 	RunRPCServer     bool
@@ -54,7 +53,6 @@ func stringsContain(src []string, pivot *string) bool {
 func parseFlag() *Config {
 	pemPath := flag.String("pempath", "device_certificate.pem", "ssl client certificate")
 	keyPath := flag.String("keypath", "device_key.pem", "ssl client key")
-	key2Path := flag.String("key2path", "device2_key.pem", "another ssl client key")
 	remoteRPCAddr := flag.String("remoterpcaddr", "127.0.0.1:41043", "remote rpc address")
 	remoteRPCTimeout := flag.Int("remoterpctimeout", 1, "timeout seconds to connect to the remote rpc server")
 	runRPCServer := flag.Bool("runrpc", false, "run rpc server")
@@ -95,7 +93,6 @@ func parseFlag() *Config {
 	config := &Config{
 		PemPath:          *pemPath,
 		KeyPath:          *keyPath,
-		Key2Path:         *key2Path,
 		RemoteRPCAddrs:   remoteRPCAddrs,
 		RemoteRPCTimeout: remoteRPCTimeoutTime,
 		RunRPCServer:     *runRPCServer,
