@@ -39,6 +39,8 @@ type SSL struct {
 	keepAliveIdle     time.Duration
 	keepAliveInterval time.Duration
 	closed            bool
+	totalConnections  int
+	totalBytes        int
 	rm                sync.Mutex
 }
 
@@ -121,6 +123,16 @@ func (s *SSL) reconnect() error {
 func (s *SSL) LocalAddr() net.Addr {
 	conn := s.UnderlyingConn()
 	return conn.LocalAddr()
+}
+
+// TotalConnections returns total connections of device
+func (s *SSL) TotalConnections() int {
+	return s.totalConnections
+}
+
+// TotalBytes returns total bytes that sent from device
+func (s *SSL) TotalBytes() int {
+	return s.totalBytes
 }
 
 // UnderlyingConn returns connection of ssl
@@ -570,7 +582,7 @@ func (s *SSL) GetNode(withResponse bool, nodeID []byte) (*ServerObj, error) {
 	return parseServerObj(rawNode.RawData[0])
 }
 
-func (s *SSL) helloMsg(blockHash []byte) ([]byte, error) {
+func (s *SSL) ticketMsg(blockHash []byte, fleetAddr []byte, localAddr []byte) ([]byte, error) {
 	serverPubKey, err := s.GetServerPubKey()
 	if err != nil {
 		return nil, err
@@ -580,8 +592,8 @@ func (s *SSL) helloMsg(blockHash []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	// send hello rpc
-	val, err := bert.Encode([2]bert.Term{serverID, blockHash})
+	// send ticket rpc
+	val, err := bert.Encode([6]bert.Term{serverID, blockHash, fleetAddr, s.totalConnections, s.totalBytes, localAddr})
 	if err != nil {
 		return nil, err
 	}
@@ -602,23 +614,31 @@ func (s *SSL) helloMsg(blockHash []byte) ([]byte, error) {
 	return sig, nil
 }
 
-// Hello call hello RPC
-// Send encode blockhash and signature
-func (s *SSL) Hello(withResponse bool, blockHash []byte) (*Response, error) {
+// Ticket send ticket to node
+// Send blockhash, fleet contract, total connections, total bytes, local address, signature
+func (s *SSL) Ticket(withResponse bool, blockHash []byte, fleetAddr []byte, localAddr []byte) (*Response, error) {
 	if len(blockHash) != 32 {
 		return nil, fmt.Errorf("Blockhash must be 32 bytes")
 	}
-	sig, err := s.helloMsg(blockHash)
+	if len(fleetAddr) != 20 {
+		return nil, fmt.Errorf("Fleet contract address must be 20 bytes")
+	}
+	if len(localAddr) != 20 {
+		return nil, fmt.Errorf("Local contract address must be 20 bytes")
+	}
+	sig, err := s.ticketMsg(blockHash, fleetAddr, localAddr)
 	if err != nil {
 		return nil, err
 	}
 	encBlockHash := EncodeToString(blockHash)
+	encFleetAddr := EncodeToString(fleetAddr)
+	encLocalAddr := EncodeToString(localAddr)
 	encSig := EncodeToString(sig)
-	rawHello, err := s.CallContext("hello", withResponse, encBlockHash, encSig)
+	rawTicket, err := s.CallContext("ticket", withResponse, encBlockHash, encFleetAddr, s.totalConnections, s.totalBytes, encLocalAddr, encSig)
 	if err != nil || !withResponse {
 		return nil, err
 	}
-	return rawHello, err
+	return rawTicket, err
 }
 
 // PortOpen call portopen RPC

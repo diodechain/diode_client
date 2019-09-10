@@ -2,6 +2,7 @@ package config
 
 import (
 	"flag"
+	"poc-client/util"
 	"strconv"
 	"strings"
 	"time"
@@ -30,8 +31,8 @@ type Config struct {
 	DBPath              string
 	RegistryAddr        string
 	FleetAddr           string
-	DecodedRegistryAddr []byte
-	DecodedFleetAddr    []byte
+	DecRegistryAddr []byte
+	DecFleetAddr    []byte
 }
 
 func init() {
@@ -69,8 +70,8 @@ func parseFlag() *Config {
 	skipHostValidation := flag.Bool("skiphostvalidation", false, "skip host validation")
 	enableKeepAlive := flag.Bool("enablekeepalive", true, "enable tcp keepalive")
 	DBPath := flag.String("dbpath", "./db/private.db", "file path to db file")
-	registryAddr := flag.String("registry", "registrycontractaddress", "registry contract address")
-	fleetAddr := flag.String("fleet", "fleetcontractaddress", "fleet contract address")
+	registryAddr := flag.String("registry", "0x5000000000000000000000000000000000000000", "registry contract address")
+	fleetAddr := flag.String("fleet", "0x5000000000000000000000000000000000000000", "fleet contract address")
 	flag.Parse()
 	parsedRPCAddr := strings.Split(*remoteRPCAddr, ",")
 	remoteRPCAddrs := []string{}
@@ -81,12 +82,19 @@ func parseFlag() *Config {
 			remoteRPCAddrs = append(remoteRPCAddrs, RPCAddr)
 		}
 	}
-	// should remove
 	retryWaitTime, err := time.ParseDuration(strconv.Itoa(*retryWait) + "s")
 	if err != nil {
 		panic(err)
 	}
 	remoteRPCTimeoutTime, err := time.ParseDuration(strconv.Itoa(*remoteRPCTimeout) + "s")
+	if err != nil {
+		panic(err)
+	}
+	decRegistryAddr, err := util.DecodeString(*registryAddr)
+	if err != nil {
+		panic(err)
+	}
+	decFleetAddr, err := util.DecodeString(*fleetAddr)
 	if err != nil {
 		panic(err)
 	}
@@ -97,19 +105,21 @@ func parseFlag() *Config {
 		RemoteRPCTimeout: remoteRPCTimeoutTime,
 		RunRPCServer:     *runRPCServer,
 		// RPCServerAddr:      *rpcServerAddr,
-		RunSocksServer:     *runSocksServer,
-		SocksServerAddr:    *socksServerAddr,
-		RunSocksWSServer:   *runSocksWSServer,
-		WSServerAddr:       *WSServerAddr,
-		Debug:              *debug,
-		BlockQuickLimit:    *blockQuickLimit,
-		SkipHostValidation: *skipHostValidation,
-		RetryTimes:         *retryTimes,
-		RetryWait:          retryWaitTime,
-		EnableKeepAlive:    *enableKeepAlive,
-		DBPath:             *DBPath,
-		RegistryAddr:       *registryAddr,
-		FleetAddr:          *fleetAddr,
+		RunSocksServer:      *runSocksServer,
+		SocksServerAddr:     *socksServerAddr,
+		RunSocksWSServer:    *runSocksWSServer,
+		WSServerAddr:        *WSServerAddr,
+		Debug:               *debug,
+		BlockQuickLimit:     *blockQuickLimit,
+		SkipHostValidation:  *skipHostValidation,
+		RetryTimes:          *retryTimes,
+		RetryWait:           retryWaitTime,
+		EnableKeepAlive:     *enableKeepAlive,
+		DBPath:              *DBPath,
+		RegistryAddr:        *registryAddr,
+		FleetAddr:           *fleetAddr,
+		DecRegistryAddr: decRegistryAddr,
+		DecFleetAddr:    decFleetAddr,
 	}
 	return config
 }

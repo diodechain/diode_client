@@ -128,14 +128,14 @@ func main() {
 		return
 	}
 
-	// // send hello rpc
+	// // send ticket rpc
 	dbh := rpc.ValidBlockHeaders[rpc.LVBN].BlockHash
-	res, err := client.Hello(true, dbh)
+	res, err := client.Ticket(true, dbh, config.DecFleetAddr, config.DecRegistryAddr)
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	log.Println("Hello had sent: " + string(res.Raw))
+	log.Println("Ticket had sent: " + string(res.Raw))
 
 	// listen to signal
 	sigChan := make(chan os.Signal, 1)
