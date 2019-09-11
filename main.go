@@ -128,7 +128,23 @@ func main() {
 		return
 	}
 
-	// // send ticket rpc
+	// check device access to fleet contract and registry
+	clientAddr, err := client.GetClientAddress()
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+	isAccessWhitelisted, err := client.IsAccessWhitelisted(true, config.DecFleetAddr, clientAddr)
+	if err != nil {
+		log.Fatal(err)
+		return
+	}
+	if !isAccessWhitelisted {
+		log.Println("Access was not whitelisted")
+		return
+	}
+
+	// send ticket rpc
 	dbh := rpc.ValidBlockHeaders[rpc.LVBN].BlockHash
 	res, err := client.Ticket(true, dbh, config.DecFleetAddr, config.DecRegistryAddr)
 	if err != nil {

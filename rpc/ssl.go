@@ -737,34 +737,38 @@ func (s *SSL) GetAccountRoots(withResponse bool, blockNumber int, account []byte
  *
  * TODO: should refactor this
  */
-// IsDeviceBlacklisted returns is given address blacklisted
-// TODO: check merkle proof of account value (need to fetch accont roots)
-func (s *SSL) IsDeviceBlacklisted(contractAddr []byte, addr []byte) (bool, error) {
+// IsDeviceWhitelisted returns is given address whitelisted
+func (s *SSL) IsDeviceWhitelisted(withResponse bool, contractAddr []byte, addr []byte) (bool, error) {
+	var err error
+	var raw []byte
+	var acv *AccountValue
+	var acr *AccountRoots
 	if len(contractAddr) != 20 {
 		return false, fmt.Errorf("Contract address must be 20 bytes")
 	}
 	if len(addr) != 20 {
-		return false, fmt.Errorf("Account address must be 20 bytes")
+		return false, fmt.Errorf("Device address must be 20 bytes")
 	}
-	var err error
-	var raw []byte
-	key := contract.DeviceBlacklistKey(addr)
-	_, err = s.GetAccountValue(false, BN, contractAddr, key)
+	key := contract.DeviceWhitelistKey(addr)
+	acv, err = s.GetAccountValue(withResponse, BN, contractAddr, key)
 	if err != nil {
 		return false, err
 	}
-	acv := <-AccountValueChan
+	if !withResponse {
+		acv = <-AccountValueChan
+	}
 	// get account roots
-	_, err = s.GetAccountRoots(false, BN, contractAddr)
+	acr, err = s.GetAccountRoots(withResponse, BN, contractAddr)
 	if err != nil {
 		return false, err
 	}
-	acr := <-AccountRootsChan
+	if !withResponse {
+		acr = <-AccountRootsChan
+	}
 	acvTree := acv.AccountTree()
 	acvInd := acr.Find(acv.AccountRoot())
-	// check account root existed
+	// check account root existed, empty key
 	if acvInd == -1 {
-		log.Println("The account root wasn't existed, was data corrupcted?")
 		return false, nil
 	}
 	raw, err = acvTree.Get(key)
@@ -775,34 +779,38 @@ func (s *SSL) IsDeviceBlacklisted(contractAddr []byte, addr []byte) (bool, error
 	return (util.BytesToInt(raw) == 1), nil
 }
 
-// IsAccessBlacklisted returns is given address blacklisted
-// TODO: check merkle proof of account value (need to fetch accont roots)
-func (s *SSL) IsAccessBlacklisted(contractAddr []byte, addr []byte) (bool, error) {
+// IsAccessWhitelisted returns is given address whitelisted
+func (s *SSL) IsAccessWhitelisted(withResponse bool, contractAddr []byte, addr []byte) (bool, error) {
+	var err error
+	var raw []byte
+	var acv *AccountValue
+	var acr *AccountRoots
 	if len(contractAddr) != 20 {
 		return false, fmt.Errorf("Contract address must be 20 bytes")
 	}
 	if len(addr) != 20 {
 		return false, fmt.Errorf("Account address must be 20 bytes")
 	}
-	var err error
-	var raw []byte
-	key := contract.AccessBlacklistKey(addr)
-	_, err = s.GetAccountValue(false, BN, contractAddr, key)
+	key := contract.AccessWhitelistKey(addr)
+	acv, err = s.GetAccountValue(withResponse, BN, contractAddr, key)
 	if err != nil {
 		return false, err
 	}
-	acv := <-AccountValueChan
+	if !withResponse {
+		acv = <-AccountValueChan
+	}
 	// get account roots
-	_, err = s.GetAccountRoots(false, BN, contractAddr)
+	acr, err = s.GetAccountRoots(withResponse, BN, contractAddr)
 	if err != nil {
 		return false, err
 	}
-	acr := <-AccountRootsChan
+	if !withResponse {
+		acr = <-AccountRootsChan
+	}
 	acvTree := acv.AccountTree()
 	acvInd := acr.Find(acv.AccountRoot())
-	// check account root existed
+	// check account root existed, empty key
 	if acvInd == -1 {
-		log.Println("The account root wasn't existed, was data corrupcted?")
 		return false, nil
 	}
 	raw, err = acvTree.Get(key)

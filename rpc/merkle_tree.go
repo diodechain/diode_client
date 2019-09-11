@@ -6,6 +6,7 @@ import (
 	"log"
 	"math"
 	"math/big"
+	"strings"
 
 	"github.com/buger/jsonparser"
 	bert "github.com/exosite/gobert"
@@ -70,34 +71,30 @@ func (mt *MerkleTree) parseProof(proof []byte) ([]byte, error) {
 	var prefix interface{}
 	var proofKey string
 	// proof is array
-	bytPrefix, _, _, err := jsonparser.Get(proof, "[0]")
-	proofLen = JSONArrLen(proof)
+	// bytPrefix, _, _, err := jsonparser.Get(proof, "[0]")
+	hexPrefix, err := jsonparser.GetString(proof, "[0]")
 	if err != nil {
 		return nil, err
 	}
+	bytPrefix, err := DecodeString(hexPrefix)
+	if err != nil {
+		return nil, err
+	}
+	proofLen = JSONArrLen(proof)
 	if len(bytPrefix) > 0 {
-		bitsPrefix := []byte{}
-		var intPrefix int
-		for _, byt := range bytPrefix {
-			bitsPrefix = append(bitsPrefix, (byt - 48))
-		}
-		for i := len(bytPrefix); i < 8; i++ {
-			bitsPrefix = append(bitsPrefix, 0)
-		}
-		for i, byt := range bitsPrefix {
-			intPrefix += int(byt) * int(math.Pow(2, float64(7-i)))
-		}
+		// turn bytes to bits string
+		bitsString := fmt.Sprintf("%b", bytPrefix)
+		bitsString = strings.ReplaceAll(bitsString, " ", "")
+		bitsString = strings.ReplaceAll(bitsString, "0", "")
+		bitsString = bitsString[1:len(bitsString)-1]
+		bitsLength := uint8(len(bitsString))
 		// decode prefix bitstring
 		prefix = bert.Bitstring{
-			Bytes: []byte{byte(intPrefix)},
-			Bits:  uint8(len(bytPrefix)),
+			Bytes: bytPrefix,
+			Bits:  bitsLength,
 		}
 	} else {
 		prefix = []byte("")
-		// prefix = bert.Bitstring{
-		// 	Bytes: []byte(strPrefix),
-		// 	Bits:  0,
-		// }
 	}
 	hexModule, err := jsonparser.GetString(proof, "[1]")
 	if err != nil {
@@ -107,6 +104,7 @@ func (mt *MerkleTree) parseProof(proof []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	log.Println(hexModule, moduleByt)
 	module := big.Int{}
 	module.SetBytes(moduleByt)
 	mt.Module = module.Int64()
@@ -167,6 +165,7 @@ func (mt *MerkleTree) rparse(proof []byte) ([]byte, error) {
 			if err != nil {
 				return nil, err
 			}
+			log.Println(left)
 			// TODO: the better way to find hexed int/bitstring
 			if bytes.Equal(leftRaw, left) && (len(left) > 0) {
 				bitsPrefix := []byte{}
