@@ -221,52 +221,31 @@ func (socksServer *SocksServer) pipeWebsocket(w http.ResponseWriter, r *http.Req
 			log.Println("couldn't find device object")
 			return
 		}
-		if !deviceObj.ValidateSig() {
-			log.Println("wrong signature in device object")
-			return
-		}
+		// if !deviceObj.ValidateSig() {
+		// 	log.Println("wrong signature in device object")
+		// 	return
+		// }
 		// get server id
-		serverID, err := socksServer.s.GetServerID()
+		// serverID, err := socksServer.s.GetServerID()
+		// if err != nil {
+		// 	log.Println(err)
+		// 	return
+		// }
+		// if !bytes.Equal(deviceObj.ServerID, serverID) {
+		// 	// device not exist in the node, change ssl connection?!
+		// 	log.Println("device wasn't existed, please change node")
+		// 	return
+		// }
+		// check access
+		fleetAddr := socksServer.Config.FleetAddr
+		isDeviceWhitelisted, err := socksServer.s.IsDeviceWhitelisted(false, fleetAddr, dDeviceID)
 		if err != nil {
 			log.Println(err)
+		}
+		if !isDeviceWhitelisted {
+			log.Println("Device wan not white listed")
 			return
 		}
-		if !bytes.Equal(deviceObj.ServerID, serverID) {
-			// device not exist in the node, change ssl connection?!
-			log.Println("device wasn't existed, please change node")
-			return
-		}
-		// check access
-		// registryAddr := config.AppConfig.DecodedRegistryAddr
-		// fleetAddr := config.AppConfig.DecodedFleetAddr
-		// clientAddr, err := socksServer.s.GetClientAddress()
-		// if err != nil {
-		// 	log.Println(err)
-		// 	return
-		// }
-		// isAccessBlacklisted, err := socksServer.s.IsAccessBlacklisted(fleetAddr, clientAddr)
-		// if err != nil {
-		// 	log.Println(err)
-		// }
-		// if isAccessBlacklisted {
-		// 	log.Println("Cannot access device")
-		// 	return
-		// }
-		// // check connection ticket
-		// nodeAddr, err := socksServer.s.GetServerID()
-		// if err != nil {
-		// 	log.Println(err)
-		// 	return
-		// }
-		// existed, err := socksServer.s.IsConnectionTicketExisted(registryAddr, clientAddr, nodeAddr)
-		// if err != nil {
-		// 	log.Println(err)
-		// 	return
-		// }
-		// if !existed {
-		// 	log.Println("TODO: sign connection ticket here, and reconnect to diode network")
-		// 	return
-		// }
 		if !bytes.Equal(prefixBytes, []byte(deviceID[0:prefixLength])) {
 			deviceID = prefix + deviceID
 		}

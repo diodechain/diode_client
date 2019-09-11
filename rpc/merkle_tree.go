@@ -104,7 +104,6 @@ func (mt *MerkleTree) parseProof(proof []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	log.Println(hexModule, moduleByt)
 	module := big.Int{}
 	module.SetBytes(moduleByt)
 	mt.Module = module.Int64()

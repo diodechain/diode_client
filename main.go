@@ -134,6 +134,7 @@ func main() {
 		log.Fatal(err)
 		return
 	}
+	log.Println(rpc.EncodeToString(clientAddr))
 	isAccessWhitelisted, err := client.IsAccessWhitelisted(true, config.DecFleetAddr, clientAddr)
 	if err != nil {
 		log.Fatal(err)
@@ -183,6 +184,7 @@ func main() {
 		socksConfig := &rpc.SocksConfig{
 			Addr:    config.SocksServerAddr,
 			Verbose: config.Debug,
+			FleetAddr: config.DecFleetAddr,
 		}
 		// start socks server
 		socksServer = client.NewSocksServer(socksConfig)

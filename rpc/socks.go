@@ -67,6 +67,7 @@ type SocksConfig struct {
 	WSServerAddr string
 	Verbose      bool
 	EnableWS     bool
+	FleetAddr []byte
 }
 
 // type SocksWSConfig struct {
@@ -263,61 +264,36 @@ func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID strin
 			conn.Write(rep[:])
 			return
 		}
-		if !deviceObj.ValidateSig() {
-			log.Println("wrong signature in device object")
-			rep[1] = socksRepServerFailed
-			conn.Write(rep[:])
-			return
-		}
+		// if !deviceObj.ValidateSig() {
+		// 	log.Println("wrong signature in device object")
+		// 	rep[1] = socksRepServerFailed
+		// 	conn.Write(rep[:])
+		// 	return
+		// }
 		// get server id
-		serverID, err := socksServer.s.GetServerID()
+		// serverID, err := socksServer.s.GetServerID()
+		// if err != nil {
+		// 	log.Println(err)
+		// 	return
+		// }
+		// if !bytes.Equal(deviceObj.ServerID, serverID) {
+		// 	// device not exist in the node, change ssl connection?!
+		// 	log.Println("device wasn't existed, please change node")
+		// 	rep[1] = socksRepNetworkUnreachable
+		// 	conn.Write(rep[:])
+		// 	return
+		// }
+		// check access
+		fleetAddr := socksServer.Config.FleetAddr
+		isDeviceWhitelisted, err := socksServer.s.IsDeviceWhitelisted(false, fleetAddr, dDeviceID)
 		if err != nil {
 			log.Println(err)
-			return
 		}
-		if !bytes.Equal(deviceObj.ServerID, serverID) {
-			// device not exist in the node, change ssl connection?!
-			log.Println("device wasn't existed, please change node")
-			rep[1] = socksRepNetworkUnreachable
+		if !isDeviceWhitelisted {
+			log.Println("Device wan not white listed")
 			conn.Write(rep[:])
 			return
 		}
-		// check access
-		// registryAddr := config.AppConfig.DecodedRegistryAddr
-		// fleetAddr := config.AppConfig.DecodedFleetAddr
-		// clientAddr, err := socksServer.s.GetClientAddress()
-		// if err != nil {
-		// 	log.Println(err)
-		// 	conn.Write(rep[:])
-		// 	return
-		// }
-		// isAccessBlacklisted, err := socksServer.s.IsAccessBlacklisted(fleetAddr, clientAddr)
-		// if err != nil {
-		// 	log.Println(err)
-		// }
-		// if isAccessBlacklisted {
-		// 	log.Println("Cannot access device")
-		// 	conn.Write(rep[:])
-		// 	return
-		// }
-		// // check connection ticket
-		// nodeAddr, err := socksServer.s.GetServerID()
-		// if err != nil {
-		// 	log.Println(err)
-		// 	conn.Write(rep[:])
-		// 	return
-		// }
-		// existed, err := socksServer.s.IsConnectionTicketExisted(registryAddr, clientAddr, nodeAddr)
-		// if err != nil {
-		// 	log.Println(err)
-		// 	conn.Write(rep[:])
-		// 	return
-		// }
-		// if !existed {
-		// 	log.Println("TODO: sign connection ticket here, and reconnect to diode network")
-		// 	conn.Write(rep[:])
-		// 	return
-		// }
 		if !bytes.Equal(prefixBytes, []byte(deviceID[0:prefixLength])) {
 			deviceID = prefix + deviceID
 		}
