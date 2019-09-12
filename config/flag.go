@@ -18,21 +18,21 @@ type Config struct {
 	RemoteRPCTimeout time.Duration
 	RunRPCServer     bool
 	// RPCServerAddr      string
-	RunSocksServer      bool
-	SocksServerAddr     string
-	RunSocksWSServer    bool
-	WSServerAddr        string
-	Debug               bool
-	BlockQuickLimit     int
-	SkipHostValidation  bool
-	RetryTimes          int
-	RetryWait           time.Duration
-	EnableKeepAlive     bool
-	DBPath              string
-	RegistryAddr        string
-	FleetAddr           string
-	DecRegistryAddr []byte
-	DecFleetAddr    []byte
+	RunSocksServer     bool
+	SocksServerAddr    string
+	RunSocksWSServer   bool
+	WSServerAddr       string
+	Debug              bool
+	BlockQuickLimit    int
+	SkipHostValidation bool
+	RetryTimes         int
+	RetryWait          time.Duration
+	EnableKeepAlive    bool
+	DBPath             string
+	RegistryAddr       string
+	FleetAddr          string
+	DecRegistryAddr    []byte
+	DecFleetAddr       []byte
 }
 
 func init() {
@@ -105,21 +105,21 @@ func parseFlag() *Config {
 		RemoteRPCTimeout: remoteRPCTimeoutTime,
 		RunRPCServer:     *runRPCServer,
 		// RPCServerAddr:      *rpcServerAddr,
-		RunSocksServer:      *runSocksServer,
-		SocksServerAddr:     *socksServerAddr,
-		RunSocksWSServer:    *runSocksWSServer,
-		WSServerAddr:        *WSServerAddr,
-		Debug:               *debug,
-		BlockQuickLimit:     *blockQuickLimit,
-		SkipHostValidation:  *skipHostValidation,
-		RetryTimes:          *retryTimes,
-		RetryWait:           retryWaitTime,
-		EnableKeepAlive:     *enableKeepAlive,
-		DBPath:              *DBPath,
-		RegistryAddr:        *registryAddr,
-		FleetAddr:           *fleetAddr,
-		DecRegistryAddr: decRegistryAddr,
-		DecFleetAddr:    decFleetAddr,
+		RunSocksServer:     *runSocksServer,
+		SocksServerAddr:    *socksServerAddr,
+		RunSocksWSServer:   *runSocksWSServer,
+		WSServerAddr:       *WSServerAddr,
+		Debug:              *debug,
+		BlockQuickLimit:    *blockQuickLimit,
+		SkipHostValidation: *skipHostValidation,
+		RetryTimes:         *retryTimes,
+		RetryWait:          retryWaitTime,
+		EnableKeepAlive:    *enableKeepAlive,
+		DBPath:             *DBPath,
+		RegistryAddr:       *registryAddr,
+		FleetAddr:          *fleetAddr,
+		DecRegistryAddr:    decRegistryAddr,
+		DecFleetAddr:       decFleetAddr,
 	}
 	return config
 }

@@ -74,7 +74,7 @@ func BytesAddOne(src []byte) []byte {
 
 // SplitBytesByN returns split bytes
 func SplitBytesByN(a []byte, n int) [][]byte {
-	splitLength := len(a) / n + 1
+	splitLength := len(a)/n + 1
 	splitPrefix := make([][]byte, int(splitLength))
 	for i := 0; i < int(splitLength); i++ {
 		last := 0
@@ -83,9 +83,8 @@ func SplitBytesByN(a []byte, n int) [][]byte {
 		} else {
 			last = len(a)
 		}
-		partPrefix := a[i*8:last]
+		partPrefix := a[i*8 : last]
 		splitPrefix[i] = partPrefix
 	}
 	return splitPrefix
 }
-

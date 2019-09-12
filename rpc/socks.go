@@ -67,7 +67,7 @@ type SocksConfig struct {
 	WSServerAddr string
 	Verbose      bool
 	EnableWS     bool
-	FleetAddr []byte
+	FleetAddr    []byte
 }
 
 // type SocksWSConfig struct {

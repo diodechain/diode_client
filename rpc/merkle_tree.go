@@ -91,7 +91,7 @@ func (mt *MerkleTree) parseProof(proof []byte) ([]byte, error) {
 				pow := pLen - j - 1
 				byt := p[j] - 48
 				prefixByt += int(byt) * int(math.Pow(2, float64(pow)))
-				bitsLength ++
+				bitsLength++
 			}
 			bitsPrefix = append(bitsPrefix, byte(prefixByt))
 		}

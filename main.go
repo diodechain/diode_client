@@ -182,8 +182,8 @@ func main() {
 			return
 		}
 		socksConfig := &rpc.SocksConfig{
-			Addr:    config.SocksServerAddr,
-			Verbose: config.Debug,
+			Addr:      config.SocksServerAddr,
+			Verbose:   config.Debug,
 			FleetAddr: config.DecFleetAddr,
 		}
 		// start socks server
