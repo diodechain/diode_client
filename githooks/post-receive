@@ -1,0 +1,6 @@
+#!/bin/sh
+unset GIT_DIR
+export GOPTH=/home/pi/go
+export PATH=/usr/local/go/bin:$PATH
+cd /home/pi/diode_go_client && git checkout -f && go build
+pkill poc-client
