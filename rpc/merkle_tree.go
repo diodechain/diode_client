@@ -187,7 +187,7 @@ func (mt *MerkleTree) rparse(proof []byte) ([]byte, error) {
 			// parseProof
 			return mt.parseProof(proof)
 		}
-	} else if IsHex(proof) {
+	} else if IsHex(proof) || IsHexNumber(proof) {
 		return DecodeString(string(proof))
 	} else {
 		log.Println("JSON of merkle proof must be hex and array")
