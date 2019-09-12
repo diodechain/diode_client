@@ -5,11 +5,12 @@ import (
 	"fmt"
 	"log"
 	"math"
-	"math/big"
-	"strings"
+	//"math/big"
+	//"strings"
 
 	"github.com/buger/jsonparser"
 	bert "github.com/exosite/gobert"
+	"poc-client/util"
 )
 
 var errorWrongTree = fmt.Errorf("Wrong merkle tree data")
@@ -35,7 +36,8 @@ type MerkleTree struct {
 	Module   int64
 }
 
-// NewMerkleTree returns merkle tree of given byte
+// NewMerkleTree returns merkle tree of given byte of json
+// eg: ["0x", "0x1", ["0x2bbfda354b607b8cdd7d52c29344c76c17d76bb7d9187874a994144b55eaf931","0x0000000000000000000000000000000000000000000000000000000000000001"]]
 func NewMerkleTree(rawTree []byte) (*MerkleTree, error) {
 	if !isJSONArr(rawTree) {
 		return nil, errorWrongTree
@@ -66,32 +68,42 @@ func (mt *MerkleTree) parse() ([]byte, error) {
 }
 
 // parseProof returns bert hash of [proof]
+// proof: [<prefix>, <modulo>, <values>] | {<proof>, <proof>} | <hash>
 func (mt *MerkleTree) parseProof(proof []byte) ([]byte, error) {
-	var proofLen int
+	var proofLen, prefixByt, bitsLength int
 	var prefix interface{}
+	var bitsPrefix []byte
 	var proofKey string
-	// proof is array
-	// bytPrefix, _, _, err := jsonparser.Get(proof, "[0]")
-	hexPrefix, err := jsonparser.GetString(proof, "[0]")
-	if err != nil {
-		return nil, err
-	}
-	bytPrefix, err := DecodeString(hexPrefix)
-	if err != nil {
-		return nil, err
-	}
 	proofLen = JSONArrLen(proof)
+	bytPrefix, _, _, err := jsonparser.Get(proof, "[0]")
+	if err != nil {
+		return nil, err
+	}
+	if IsHex(bytPrefix) || IsHexNumber(bytPrefix) {
+		bytPrefix, err = DecodeString(string(bytPrefix))
+	} else {
+		// bits string
+		splitPrefix := util.SplitBytesByN(bytPrefix, 8)
+		for _, p := range splitPrefix {
+			prefixByt = 0
+			pLen := len(p)
+			for j := 0; j < pLen; j++ {
+				pow := pLen - j - 1
+				byt := p[j] - 48
+				prefixByt += int(byt) * int(math.Pow(2, float64(pow)))
+				bitsLength ++
+			}
+			bitsPrefix = append(bitsPrefix, byte(prefixByt))
+		}
+	}
+	if err != nil {
+		return nil, err
+	}
 	if len(bytPrefix) > 0 {
-		// turn bytes to bits string
-		bitsString := fmt.Sprintf("%b", bytPrefix)
-		bitsString = strings.ReplaceAll(bitsString, " ", "")
-		bitsString = strings.ReplaceAll(bitsString, "0", "")
-		bitsString = bitsString[1:len(bitsString)-1]
-		bitsLength := uint8(len(bitsString))
 		// decode prefix bitstring
 		prefix = bert.Bitstring{
-			Bytes: bytPrefix,
-			Bits:  bitsLength,
+			Bytes: bitsPrefix,
+			Bits:  uint8(bitsLength),
 		}
 	} else {
 		prefix = []byte("")
@@ -100,17 +112,15 @@ func (mt *MerkleTree) parseProof(proof []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	moduleByt, err := DecodeString(string(hexModule))
+	module, err := DecodeStringToInt(string(hexModule))
 	if err != nil {
 		return nil, err
 	}
-	module := big.Int{}
-	module.SetBytes(moduleByt)
-	mt.Module = module.Int64()
+	mt.Module = module
 	bertProof := bert.List{
 		Items: []bert.Term{
 			prefix,
-			mt.Module,
+			module,
 		},
 	}
 	for i := 2; i < proofLen; i++ {
@@ -157,68 +167,17 @@ func (mt *MerkleTree) rparse(proof []byte) ([]byte, error) {
 		if proofLen == 1 {
 			return DecodeString(string(proof[1 : len(proof)-1]))
 		} else if proofLen == 2 {
-			var leftItem interface{}
-			var rightItem interface{}
+			// var leftItem interface{}
+			// var rightItem interface{}
 			leftRaw, _, _, _ := jsonparser.Get(proof, "[0]")
-			left, err := mt.rparse(leftRaw)
+			leftItem, err := mt.rparse(leftRaw)
 			if err != nil {
 				return nil, err
-			}
-			log.Println(left)
-			// TODO: the better way to find hexed int/bitstring
-			if bytes.Equal(leftRaw, left) && (len(left) > 0) {
-				bitsPrefix := []byte{}
-				var intPrefix int
-				for _, byt := range left {
-					bitsPrefix = append(bitsPrefix, (byt - 48))
-				}
-				for i := len(left); i < 8; i++ {
-					bitsPrefix = append(bitsPrefix, 0)
-				}
-				for i, byt := range bitsPrefix {
-					intPrefix += int(byt) * int(math.Pow(2, float64(7-i)))
-				}
-				// decode prefix bitstring
-				leftItem = bert.Bitstring{
-					Bytes: []byte{byte(intPrefix)},
-					Bits:  uint8(len(left)),
-				}
-			} else if (len(left) < 32) && (len(left) > 0) && IsHexNumber(leftRaw) {
-				leftBig := big.Int{}
-				leftBig.SetBytes(left)
-				leftItem = leftBig.Int64()
-			} else {
-				leftItem = left
 			}
 			rightRaw, _, _, _ := jsonparser.Get(proof, "[1]")
-			right, err := mt.rparse(rightRaw)
+			rightItem, err := mt.rparse(rightRaw)
 			if err != nil {
 				return nil, err
-			}
-			// TODO: the better way to find hexed int/bitstring
-			if bytes.Equal(rightRaw, right) && (len(right) > 0) {
-				bitsPrefix := []byte{}
-				var intPrefix int
-				for _, byt := range right {
-					bitsPrefix = append(bitsPrefix, (byt - 48))
-				}
-				for i := len(right); i < 8; i++ {
-					bitsPrefix = append(bitsPrefix, 0)
-				}
-				for i, byt := range bitsPrefix {
-					intPrefix += int(byt) * int(math.Pow(2, float64(7-i)))
-				}
-				// decode prefix bitstring
-				rightItem = bert.Bitstring{
-					Bytes: []byte{byte(intPrefix)},
-					Bits:  uint8(len(right)),
-				}
-			} else if (len(right) < 32) && (len(right) > 0) && IsHexNumber(rightRaw) {
-				rightBig := big.Int{}
-				rightBig.SetBytes(right)
-				rightItem = rightBig.Int64()
-			} else {
-				rightItem = right
 			}
 			tree := [2]bert.Term{}
 			tree[0] = leftItem
@@ -230,21 +189,9 @@ func (mt *MerkleTree) rparse(proof []byte) ([]byte, error) {
 		}
 	} else if IsHex(proof) {
 		return DecodeString(string(proof))
-	} else if isJSONStr(proof) {
-		// bitstring, string hex number, hash
-		log.Println("JSON is string")
-		return DecodeString(string(proof[1 : len(proof)-1]))
-	} else if isJSONObj(proof) {
-		log.Println("JSON is object")
-		return parsedProof, nil
 	} else {
-		log.Println("JSON maybe bitstring, number, bool, nil?")
-		if len(proof) == 0 {
-			parsedProof = []byte("")
-		} else if bitstringPattern.Match(proof) {
-			parsedProof = proof
-		}
-		return parsedProof, nil
+		log.Println("JSON of merkle proof must be hex and array")
+		return nil, errorWrongTree
 	}
 	return parsedProof, nil
 }

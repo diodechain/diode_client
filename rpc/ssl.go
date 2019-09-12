@@ -810,7 +810,7 @@ func (s *SSL) IsAccessWhitelisted(withResponse bool, contractAddr []byte, addr [
 	acvTree := acv.AccountTree()
 	acvInd := acr.Find(acv.AccountRoot())
 	// check account root existed, empty key
-	if acvInd == -1 {
+	if acvInd == -1 || int(acvTree.Module) != acvInd {
 		return false, nil
 	}
 	raw, err = acvTree.Get(key)
@@ -851,7 +851,7 @@ func (s *SSL) IsConnectionTicketExisted(contractAddr []byte, clientAddr []byte, 
 	acvTree := acv.AccountTree()
 	acvInd := acr.Find(acv.AccountRoot())
 	// check account root existed
-	if acvInd == -1 {
+	if acvInd == -1 || int(acvTree.Module) != acvInd {
 		log.Println("The account root wasn't existed, was data corrupcted?")
 		return false, nil
 	}
