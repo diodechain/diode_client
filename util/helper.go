@@ -71,3 +71,21 @@ func BytesAddOne(src []byte) []byte {
 	bigSrc = bigSrc.Add(bigSrc, bigOne)
 	return bigSrc.Bytes()
 }
+
+// SplitBytesByN returns split bytes
+func SplitBytesByN(a []byte, n int) [][]byte {
+	splitLength := len(a) / n + 1
+	splitPrefix := make([][]byte, int(splitLength))
+	for i := 0; i < int(splitLength); i++ {
+		last := 0
+		if i == splitLength {
+			last = 8
+		} else {
+			last = len(a)
+		}
+		partPrefix := a[i*8:last]
+		splitPrefix[i] = partPrefix
+	}
+	return splitPrefix
+}
+
