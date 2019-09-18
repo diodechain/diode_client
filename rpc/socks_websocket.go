@@ -283,3 +283,8 @@ func (socksServer *SocksServer) StartWS() error {
 	}()
 	return nil
 }
+
+// CloseWS the websocket server
+func (socksServer *SocksServer) CloseWS() {
+	log.Println("Websocket server exit")
+}

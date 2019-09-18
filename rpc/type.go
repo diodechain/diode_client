@@ -11,8 +11,8 @@ import (
 	"net"
 	"poc-client/crypto"
 	"poc-client/crypto/secp256k1"
-	"poc-client/crypto/sha3"
-	"poc-client/util"
+	// "poc-client/crypto/sha3"
+	// "poc-client/util"
 	"sync"
 
 	bert "github.com/exosite/gobert"
@@ -30,6 +30,7 @@ var GetNodeType = []byte("getnode")
 var GetAccountValueType = []byte("getaccountvalue")
 var GetAccountRootsType = []byte("getaccountroots")
 var GetStateRootsType = []byte("getstateroots")
+var GoodbyeType = []byte("goodbye")
 
 var NullData = []byte("null")
 
@@ -40,9 +41,6 @@ var PortCloseChan = make(chan *PortClose)
 var DeviceObjChan = make(chan *DeviceObj)
 var ServerObjChan = make(chan *ServerObj)
 var ErrorChan = make(chan *Error)
-var ExitRPCChan = make(chan int)
-var ExitSocksChan = make(chan int)
-var ExitSocksWSChan = make(chan int)
 var AccountValueChan = make(chan *AccountValue)
 var AccountRootsChan = make(chan *AccountRoots)
 var StateRootsChan = make(chan *StateRoots)
@@ -64,6 +62,7 @@ type Response struct {
 
 type Request struct {
 	Raw    []byte
+	RawData [][]byte
 	Method []byte
 }
 
@@ -157,41 +156,41 @@ type RLPAccount struct {
 	Code        []byte
 }
 
-// ConnectionTicket struct for connection
-type ConnectionTicket struct {
-	BlockHeight      []byte
-	FleetAddr        []byte
-	TotalConnections []byte
-	NodeID           []byte
-	LocalAddr        []byte
-}
+// Ticket struct for connection
+// type Ticket struct {
+// 	BlockHeight      []byte
+// 	FleetAddr        []byte
+// 	TotalConnections []byte
+// 	NodeID           []byte
+// 	LocalAddr        []byte
+// }
 
-func (ct *ConnectionTicket) Hash() []byte {
-	if len(ct.BlockHeight) != 32 {
-		ct.BlockHeight = util.PaddingBytesPrefix(ct.BlockHeight, 0, 32)
-	}
-	if len(ct.FleetAddr) != 32 {
-		ct.BlockHeight = util.PaddingBytesPrefix(ct.FleetAddr, 0, 32)
-	}
-	if len(ct.TotalConnections) != 32 {
-		ct.BlockHeight = util.PaddingBytesPrefix(ct.TotalConnections, 0, 32)
-	}
-	if len(ct.NodeID) != 32 {
-		ct.BlockHeight = util.PaddingBytesPrefix(ct.NodeID, 0, 32)
-	}
-	if len(ct.LocalAddr) != 32 {
-		ct.BlockHeight = util.PaddingBytesPrefix(ct.LocalAddr, 0, 32)
-	}
-	msg := make([]byte, 160)
-	msg = append(msg, ct.BlockHeight...)
-	msg = append(msg, ct.FleetAddr...)
-	msg = append(msg, ct.TotalConnections...)
-	msg = append(msg, ct.NodeID...)
-	msg = append(msg, ct.LocalAddr...)
-	hash := sha3.NewKeccak256()
-	hash.Write(msg)
-	return hash.Sum(nil)
-}
+// func (ct *Ticket) Hash() []byte {
+// 	if len(ct.BlockHeight) != 32 {
+// 		ct.BlockHeight = util.PaddingBytesPrefix(ct.BlockHeight, 0, 32)
+// 	}
+// 	if len(ct.FleetAddr) != 32 {
+// 		ct.BlockHeight = util.PaddingBytesPrefix(ct.FleetAddr, 0, 32)
+// 	}
+// 	if len(ct.TotalConnections) != 32 {
+// 		ct.BlockHeight = util.PaddingBytesPrefix(ct.TotalConnections, 0, 32)
+// 	}
+// 	if len(ct.NodeID) != 32 {
+// 		ct.BlockHeight = util.PaddingBytesPrefix(ct.NodeID, 0, 32)
+// 	}
+// 	if len(ct.LocalAddr) != 32 {
+// 		ct.BlockHeight = util.PaddingBytesPrefix(ct.LocalAddr, 0, 32)
+// 	}
+// 	msg := make([]byte, 160)
+// 	msg = append(msg, ct.BlockHeight...)
+// 	msg = append(msg, ct.FleetAddr...)
+// 	msg = append(msg, ct.TotalConnections...)
+// 	msg = append(msg, ct.NodeID...)
+// 	msg = append(msg, ct.LocalAddr...)
+// 	hash := sha3.NewKeccak256()
+// 	hash.Write(msg)
+// 	return hash.Sum(nil)
+// }
 
 // StateRoot returns state root of given state roots
 func (sr *StateRoots) StateRoot() []byte {

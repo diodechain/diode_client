@@ -79,6 +79,7 @@ type SocksConfig struct {
 type SocksServer struct {
 	s      *SSL
 	Config *SocksConfig
+	listener net.Listener
 }
 
 func handShake(conn net.Conn) (err error) {
@@ -393,12 +394,13 @@ func (socksServer *SocksServer) Start() error {
 	if err != nil {
 		return err
 	}
+	socksServer.listener = ln
 
 	go func() {
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
-				log.Println(err)
+				// log.Println(err)
 				return
 			}
 			if socksServer.Config.Verbose {
@@ -412,11 +414,14 @@ func (socksServer *SocksServer) Start() error {
 
 // NewSocksServer generate socksserver struct
 func (s *SSL) NewSocksServer(config *SocksConfig) *SocksServer {
-	// maxout concurrency
-	// runtime.GOMAXPROCS(runtime.NumCPU())
-
 	return &SocksServer{
 		s:      s,
 		Config: config,
 	}
+}
+
+// Close the socks server
+func (socksServer *SocksServer) Close() {
+	log.Println("Socks server exit")
+	socksServer.listener.Close()
 }

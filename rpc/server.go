@@ -22,6 +22,7 @@ type RPCServer struct {
 	rm      sync.Mutex
 	started bool
 	closed  bool
+	closeCallback func ()
 }
 
 // Started returns whether rpc server had started
@@ -163,7 +164,6 @@ func (rpcServer *RPCServer) Start() {
 
 					remoteConn.Close()
 					rpcServer.wg.Done()
-					log.Println("Close socks connection")
 				}()
 			} else if bytes.Equal(request.Method, PortSendType) {
 				portSend, err := rpcServer.s.newPortSendRequest(request)
@@ -195,6 +195,15 @@ func (rpcServer *RPCServer) Start() {
 				}
 				log.Println("Accept portclose request")
 				PortCloseChan <- portClose
+			} else if bytes.Equal(request.Method, GoodbyeType) {
+				log.Printf("Server disconnected, reason: %s, %s\n", string(request.RawData[0]), string(request.RawData[1]))
+				rpcServer.rm.Lock()
+				if !rpcServer.closed {
+					rpcServer.rm.Unlock()
+					rpcServer.Close()
+				} else {
+					rpcServer.rm.Unlock()
+				}
 			} else {
 				log.Println("Not support rpc request: " + string(request.Raw))
 			}
@@ -224,34 +233,6 @@ func (rpcServer *RPCServer) Start() {
 			// time.Sleep(100 * time.Millisecond)
 		}
 	}()
-	// for ExitRPCChan
-	rpcServer.wg.Add(1)
-	go func() {
-		// ping server every 5 minutes, should we wait pong response?
-		// go func() {
-		// 	for {
-		// 		rpcServer.s.Ping(false)
-		// 		time.Sleep(5 * time.Minute)
-		// 	}
-		// }()
-		exit := <-ExitRPCChan
-		rpcServer.rm.Lock()
-		log.Printf("RPC server exit code: %d\n", exit)
-		if rpcServer.closed || rpcServer.s.Closed() {
-			rpcServer.rm.Unlock()
-			return
-		}
-		rpcServer.closed = true
-		rpcServer.rm.Unlock()
-		rpcServer.s.Close()
-		close(ResponseChan)
-		close(RequestChan)
-		close(PortCloseChan)
-		close(PortOpenChan)
-		close(ErrorChan)
-		rpcServer.wg.Done()
-		return
-	}()
 	// rpc server
 	rpcServer.wg.Add(1)
 	go func() {
@@ -262,7 +243,7 @@ func (rpcServer *RPCServer) Start() {
 				rpcServer.rm.Lock()
 				if !rpcServer.closed {
 					rpcServer.rm.Unlock()
-					ExitRPCChan <- -1
+					rpcServer.Close()
 				} else {
 					rpcServer.rm.Unlock()
 				}
@@ -307,9 +288,32 @@ func (rpcServer *RPCServer) Start() {
 	rpcServer.started = true
 }
 
+// Close the rpc server
+func (rpcServer *RPCServer) Close() {
+	rpcServer.rm.Lock()
+	if !rpcServer.started {
+		rpcServer.rm.Unlock()
+		return
+	}
+	log.Println("RPC server exit")
+	if rpcServer.closed || rpcServer.s.Closed() {
+		rpcServer.rm.Unlock()
+		return
+	}
+	rpcServer.closed = true
+	rpcServer.rm.Unlock()
+	rpcServer.s.Close()
+	close(ResponseChan)
+	close(RequestChan)
+	close(PortCloseChan)
+	close(PortOpenChan)
+	close(ErrorChan)
+	rpcServer.closeCallback()
+}
+
 // NewRPCServer start rpc server
 // TODO: check blocking channel, error channel
-func (s *SSL) NewRPCServer(config *RPCConfig) *RPCServer {
+func (s *SSL) NewRPCServer(config *RPCConfig, closeCallback func ()) *RPCServer {
 	log.Println("Start a rpc server")
 	rpcServer := &RPCServer{
 		s:       s,
@@ -317,6 +321,7 @@ func (s *SSL) NewRPCServer(config *RPCConfig) *RPCServer {
 		Config:  config,
 		started: false,
 		closed:  false,
+		closeCallback: closeCallback,
 	}
 	return rpcServer
 }

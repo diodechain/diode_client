@@ -71,7 +71,7 @@ func parseFlag() *Config {
 	enableKeepAlive := flag.Bool("enablekeepalive", true, "enable tcp keepalive")
 	DBPath := flag.String("dbpath", "./db/private.db", "file path to db file")
 	registryAddr := flag.String("registry", "0x5000000000000000000000000000000000000000", "registry contract address")
-	fleetAddr := flag.String("fleet", "0x5000000000000000000000000000000000000000", "fleet contract address")
+	fleetAddr := flag.String("fleet", "0x6000000000000000000000000000000000000000", "fleet contract address")
 	flag.Parse()
 	parsedRPCAddr := strings.Split(*remoteRPCAddr, ",")
 	remoteRPCAddrs := []string{}

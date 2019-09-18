@@ -67,7 +67,6 @@ func parseResponse(rawResponse []byte) (*Response, error) {
 	}
 	// correct response
 	method, _, _, _ := jsonparser.Get(rawResponse, "[1]")
-	// rawData, _, _, _ := jsonparser.Get(rawResponse, "[2]")
 	rawData := [][]byte{}
 
 	// see: https://github.com/buger/jsonparser/issues/145
@@ -196,9 +195,22 @@ func parseRPCRequest(rawRequest []byte) (*Request, error) {
 	if err != nil {
 		return nil, err
 	}
+	rawData := [][]byte{}
+	// see: https://github.com/buger/jsonparser/issues/145
+	copyRawRequest := make([]byte, len(rawRequest))
+	copy(copyRawRequest, rawRequest)
+	tmpRawData := jsonparser.Delete(copyRawRequest, "[0]")
+	handler := func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
+		if err != nil {
+			log.Fatal(err)
+		}
+		rawData = append(rawData, value)
+	}
+	jsonparser.ArrayEach(tmpRawData, handler)
 	request := &Request{
 		Raw:    rawRequest,
 		Method: method,
+		RawData: rawData,
 	}
 	return request, nil
 }

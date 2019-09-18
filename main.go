@@ -1,8 +1,6 @@
 package main
 
 import (
-	// "fmt"
-
 	"log"
 	"os"
 	"os/signal"
@@ -152,7 +150,10 @@ func main() {
 		log.Println(err)
 		return
 	}
-	log.Println("Ticket had sent: " + string(res.Raw))
+	log.Println("Ticket had sent, result: " + string(res.RawData[0]))
+
+	// maxout concurrency
+	// runtime.GOMAXPROCS(runtime.NumCPU())
 
 	// listen to signal
 	sigChan := make(chan os.Signal, 1)
@@ -162,14 +163,8 @@ func main() {
 		switch sig {
 		case os.Interrupt:
 			log.Println("Close server...")
-			// if config.RunSocksServer {
-			// 	rpc.ExitSocksChan <- 0
-			// }
-			// if config.RunSocksWSServer {
-			// 	rpc.ExitSocksWSChan <- 0
-			// }
 			if config.RunRPCServer && rpcServer.Started() {
-				rpc.ExitRPCChan <- 0
+				rpcServer.Close()
 			}
 			// case syscall.SIGTERM:
 			// }
@@ -211,7 +206,14 @@ func main() {
 			Verbose: config.Debug,
 		}
 		// start rpc server
-		rpcServer = client.NewRPCServer(rpcConfig)
+		rpcServer = client.NewRPCServer(rpcConfig, func () {
+			if config.RunSocksServer {
+				socksServer.Close()
+			}
+			if config.RunSocksWSServer {
+				socksServer.CloseWS()
+			}
+		})
 		rpcServer.Start()
 		rpcServer.Wait()
 	}
