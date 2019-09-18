@@ -93,8 +93,13 @@ func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags) (*SSL, e
 func (s *SSL) Reconnect() bool {
 	isOk := false
 	for i := 1; i <= config.AppConfig.RetryTimes; i++ {
-		log.Printf("Retry to connect the host, wait %s\n", config.AppConfig.RetryWait.String())
+		if config.AppConfig.Debug {
+			log.Printf("Retry to connect the host, wait %s\n", config.AppConfig.RetryWait.String())
+		}
 		time.Sleep(config.AppConfig.RetryWait)
+		if s.Closed() {
+			break
+		}
 		err := s.reconnect()
 		if err == nil {
 			isOk = true
@@ -110,6 +115,7 @@ func (s *SSL) Reconnect() bool {
 func (s *SSL) reconnect() error {
 	conn, err := openssl.Dial("tcp", s.addr, s.ctx, s.mode)
 	if err != nil {
+		log.Println(err)
 		return err
 	}
 	s.conn = conn
@@ -277,17 +283,11 @@ func (s *SSL) readContext() ([]byte, error) {
 	lenByt := make([]byte, 2)
 	_, err := s.conn.Read(lenByt)
 	if err != nil {
-		if s.Closed() {
-			return nil, err
-		}
 		if err == io.EOF ||
 			strings.Contains(err.Error(), "connection reset by peer") {
-			if config.AppConfig.Debug {
-				log.Println(err)
-			}
 			isOk := s.Reconnect()
 			if !isOk {
-				return nil, fmt.Errorf("connection had gone away")
+				return nil, err
 			}
 			return nil, nil
 		}
@@ -300,9 +300,6 @@ func (s *SSL) readContext() ([]byte, error) {
 	if err != nil {
 		if err == io.EOF ||
 			strings.Contains(err.Error(), "connection reset by peer") {
-			if config.AppConfig.Debug {
-				log.Println(err)
-			}
 			if s.Closed() {
 				return nil, err
 			}
@@ -332,6 +329,9 @@ func (s *SSL) sendPayload(payload []byte, withResponse bool) error {
 	if err != nil {
 		return err
 	}
+	s.rm.Lock()
+	s.totalBytes += n
+	defer s.rm.Unlock()
 	if config.AppConfig.Debug {
 		log.Printf("Send %d bytes data to ssl\nData: %s\n", n, string(bytPay))
 	}
@@ -582,7 +582,7 @@ func (s *SSL) GetNode(withResponse bool, nodeID []byte) (*ServerObj, error) {
 	return parseServerObj(rawNode.RawData[0])
 }
 
-func (s *SSL) ticketMsg(blockHash []byte, fleetAddr []byte, localAddr []byte) ([]byte, error) {
+func (s *SSL) ticketMsg(blockHash []byte, fleetAddr []byte, totalBytes int, localAddr []byte) ([]byte, error) {
 	serverPubKey, err := s.GetServerPubKey()
 	if err != nil {
 		return nil, err
@@ -593,7 +593,7 @@ func (s *SSL) ticketMsg(blockHash []byte, fleetAddr []byte, localAddr []byte) ([
 	}
 
 	// send ticket rpc
-	val, err := bert.Encode([6]bert.Term{serverID, blockHash, fleetAddr, s.totalConnections, s.totalBytes, localAddr})
+	val, err := bert.Encode([6]bert.Term{serverID, blockHash, fleetAddr, s.totalConnections, totalBytes, localAddr})
 	if err != nil {
 		return nil, err
 	}
@@ -616,7 +616,7 @@ func (s *SSL) ticketMsg(blockHash []byte, fleetAddr []byte, localAddr []byte) ([
 
 // Ticket send ticket to node
 // Send blockhash, fleet contract, total connections, total bytes, local address, signature
-func (s *SSL) Ticket(withResponse bool, blockHash []byte, fleetAddr []byte, localAddr []byte) (*Response, error) {
+func (s *SSL) Ticket(withResponse bool, blockHash []byte, fleetAddr []byte, totalBytes int, localAddr []byte) (*Response, error) {
 	if len(blockHash) != 32 {
 		return nil, fmt.Errorf("Blockhash must be 32 bytes")
 	}
@@ -626,7 +626,10 @@ func (s *SSL) Ticket(withResponse bool, blockHash []byte, fleetAddr []byte, loca
 	if len(localAddr) != 20 {
 		return nil, fmt.Errorf("Local contract address must be 20 bytes")
 	}
-	sig, err := s.ticketMsg(blockHash, fleetAddr, localAddr)
+	if totalBytes < 0 {
+		totalBytes = 0
+	}
+	sig, err := s.ticketMsg(blockHash, fleetAddr, totalBytes, localAddr)
 	if err != nil {
 		return nil, err
 	}
@@ -634,7 +637,12 @@ func (s *SSL) Ticket(withResponse bool, blockHash []byte, fleetAddr []byte, loca
 	encFleetAddr := EncodeToString(fleetAddr)
 	encLocalAddr := EncodeToString(localAddr)
 	encSig := EncodeToString(sig)
-	rawTicket, err := s.CallContext("ticket", withResponse, encBlockHash, encFleetAddr, s.totalConnections, s.totalBytes, encLocalAddr, encSig)
+	if totalBytes > 0 {
+		s.rm.Lock()
+		s.totalBytes -= totalBytes
+		s.rm.Unlock()
+	}
+	rawTicket, err := s.CallContext("ticket", withResponse, encBlockHash, encFleetAddr, s.totalConnections, totalBytes, encLocalAddr, encSig)
 	if err != nil || !withResponse {
 		return nil, err
 	}

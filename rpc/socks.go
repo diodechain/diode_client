@@ -77,8 +77,8 @@ type SocksConfig struct {
 // }
 
 type SocksServer struct {
-	s      *SSL
-	Config *SocksConfig
+	s        *SSL
+	Config   *SocksConfig
 	listener net.Listener
 }
 
@@ -291,7 +291,7 @@ func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID strin
 			log.Println(err)
 		}
 		if !isDeviceWhitelisted {
-			log.Println("Device wan not white listed")
+			log.Println("Device wasn't not white listed")
 			conn.Write(rep[:])
 			return
 		}

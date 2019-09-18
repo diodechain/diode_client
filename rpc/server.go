@@ -12,17 +12,21 @@ import (
 )
 
 type RPCConfig struct {
-	Verbose bool
+	Verbose      bool
+	RegistryAddr []byte
+	FleetAddr    []byte
 }
 
 type RPCServer struct {
-	s       *SSL
-	wg      *sync.WaitGroup
-	Config  *RPCConfig
-	rm      sync.Mutex
-	started bool
-	closed  bool
-	closeCallback func ()
+	s                  *SSL
+	wg                 *sync.WaitGroup
+	Config             *RPCConfig
+	rm                 sync.Mutex
+	started            bool
+	closed             bool
+	closeCallback      func()
+	finishedTickerChan chan bool
+	ticker             *time.Ticker
 }
 
 // Started returns whether rpc server had started
@@ -285,6 +289,28 @@ func (rpcServer *RPCServer) Start() {
 			}
 		}
 	}()
+	// setup ticker to count total bytes
+	rpcServer.wg.Add(1)
+	go func() {
+		rpcServer.ticker = time.NewTicker(500 * time.Millisecond)
+		dbh := ValidBlockHeaders[LVBN].BlockHash
+		for {
+			select {
+			case <-rpcServer.finishedTickerChan:
+				rpcServer.wg.Done()
+				return
+			case <-rpcServer.ticker.C:
+				if rpcServer.s.TotalBytes() > 1024 {
+					// send ticket
+					_, err := rpcServer.s.Ticket(false, dbh, rpcServer.Config.FleetAddr, 1024, rpcServer.Config.RegistryAddr)
+					if err != nil {
+						log.Println(err)
+						return
+					}
+				}
+			}
+		}
+	}()
 	rpcServer.started = true
 }
 
@@ -303,25 +329,30 @@ func (rpcServer *RPCServer) Close() {
 	rpcServer.closed = true
 	rpcServer.rm.Unlock()
 	rpcServer.s.Close()
+	rpcServer.ticker.Stop()
+	rpcServer.finishedTickerChan <- true
 	close(ResponseChan)
 	close(RequestChan)
 	close(PortCloseChan)
 	close(PortOpenChan)
 	close(ErrorChan)
+	close(rpcServer.finishedTickerChan)
 	rpcServer.closeCallback()
+	return
 }
 
 // NewRPCServer start rpc server
 // TODO: check blocking channel, error channel
-func (s *SSL) NewRPCServer(config *RPCConfig, closeCallback func ()) *RPCServer {
+func (s *SSL) NewRPCServer(config *RPCConfig, closeCallback func()) *RPCServer {
 	log.Println("Start a rpc server")
 	rpcServer := &RPCServer{
-		s:       s,
-		wg:      &sync.WaitGroup{},
-		Config:  config,
-		started: false,
-		closed:  false,
-		closeCallback: closeCallback,
+		s:                  s,
+		wg:                 &sync.WaitGroup{},
+		Config:             config,
+		started:            false,
+		closed:             false,
+		closeCallback:      closeCallback,
+		finishedTickerChan: make(chan bool),
 	}
 	return rpcServer
 }

@@ -243,7 +243,7 @@ func (socksServer *SocksServer) pipeWebsocket(w http.ResponseWriter, r *http.Req
 			log.Println(err)
 		}
 		if !isDeviceWhitelisted {
-			log.Println("Device wan not white listed")
+			log.Println("Device wasn't not white listed")
 			return
 		}
 		if !bytes.Equal(prefixBytes, []byte(deviceID[0:prefixLength])) {

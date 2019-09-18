@@ -61,9 +61,9 @@ type Response struct {
 }
 
 type Request struct {
-	Raw    []byte
+	Raw     []byte
 	RawData [][]byte
-	Method []byte
+	Method  []byte
 }
 
 type Error struct {

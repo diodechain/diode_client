@@ -145,7 +145,8 @@ func main() {
 
 	// send ticket rpc
 	dbh := rpc.ValidBlockHeaders[rpc.LVBN].BlockHash
-	res, err := client.Ticket(true, dbh, config.DecFleetAddr, config.DecRegistryAddr)
+	log.Println(client.TotalBytes())
+	res, err := client.Ticket(true, dbh, config.DecFleetAddr, 0, config.DecRegistryAddr)
 	if err != nil {
 		log.Println(err)
 		return
@@ -203,10 +204,12 @@ func main() {
 	}
 	if config.RunRPCServer {
 		rpcConfig := &rpc.RPCConfig{
-			Verbose: config.Debug,
+			Verbose:      config.Debug,
+			RegistryAddr: config.DecRegistryAddr,
+			FleetAddr:    config.DecFleetAddr,
 		}
 		// start rpc server
-		rpcServer = client.NewRPCServer(rpcConfig, func () {
+		rpcServer = client.NewRPCServer(rpcConfig, func() {
 			if config.RunSocksServer {
 				socksServer.Close()
 			}

@@ -208,8 +208,8 @@ func parseRPCRequest(rawRequest []byte) (*Request, error) {
 	}
 	jsonparser.ArrayEach(tmpRawData, handler)
 	request := &Request{
-		Raw:    rawRequest,
-		Method: method,
+		Raw:     rawRequest,
+		Method:  method,
 		RawData: rawData,
 	}
 	return request, nil
