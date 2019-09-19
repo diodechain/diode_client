@@ -271,19 +271,6 @@ func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID strin
 			conn.Write(rep[:])
 			return
 		}
-		// get server id
-		// serverID, err := socksServer.s.GetServerID()
-		// if err != nil {
-		// 	log.Println(err)
-		// 	return
-		// }
-		// if !bytes.Equal(deviceObj.ServerID, serverID) {
-		// 	// device not exist in the node, change ssl connection?!
-		// 	log.Println("device wasn't existed, please change node")
-		// 	rep[1] = socksRepNetworkUnreachable
-		// 	conn.Write(rep[:])
-		// 	return
-		// }
 		// check access
 		fleetAddr := socksServer.Config.FleetAddr
 		isDeviceWhitelisted, err := socksServer.s.IsDeviceWhitelisted(false, fleetAddr, dDeviceID)
@@ -292,6 +279,22 @@ func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID strin
 		}
 		if !isDeviceWhitelisted {
 			log.Println("Device wasn't not white listed")
+			conn.Write(rep[:])
+			return
+		}
+		clientAddr, err := socksServer.s.GetClientAddress()
+		if err != nil {
+			log.Println(err)
+			rep[1] = socksRepServerFailed
+			conn.Write(rep[:])
+			return
+		}
+		isAccessWhitelisted, err := socksServer.s.IsAccessWhitelisted(false, fleetAddr, dDeviceID, clientAddr)
+		if err != nil {
+			log.Println(err)
+		}
+		if !isAccessWhitelisted {
+			log.Println("Access was not whitelisted")
 			conn.Write(rep[:])
 			return
 		}

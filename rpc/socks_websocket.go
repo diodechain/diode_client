@@ -225,17 +225,6 @@ func (socksServer *SocksServer) pipeWebsocket(w http.ResponseWriter, r *http.Req
 			log.Println("wrong signature in device object")
 			return
 		}
-		// get server id
-		// serverID, err := socksServer.s.GetServerID()
-		// if err != nil {
-		// 	log.Println(err)
-		// 	return
-		// }
-		// if !bytes.Equal(deviceObj.ServerID, serverID) {
-		// 	// device not exist in the node, change ssl connection?!
-		// 	log.Println("device wasn't existed, please change node")
-		// 	return
-		// }
 		// check access
 		fleetAddr := socksServer.Config.FleetAddr
 		isDeviceWhitelisted, err := socksServer.s.IsDeviceWhitelisted(false, fleetAddr, dDeviceID)
@@ -244,6 +233,19 @@ func (socksServer *SocksServer) pipeWebsocket(w http.ResponseWriter, r *http.Req
 		}
 		if !isDeviceWhitelisted {
 			log.Println("Device wasn't not white listed")
+			return
+		}
+		clientAddr, err := socksServer.s.GetClientAddress()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		isAccessWhitelisted, err := socksServer.s.IsAccessWhitelisted(false, fleetAddr, dDeviceID, clientAddr)
+		if err != nil {
+			log.Println(err)
+		}
+		if !isAccessWhitelisted {
+			log.Println("Access was not whitelisted")
 			return
 		}
 		if !bytes.Equal(prefixBytes, []byte(deviceID[0:prefixLength])) {
