@@ -231,11 +231,27 @@ func parseDeviceObj(rawObject []byte) (*DeviceObj, error) {
 	if err != nil {
 		return nil, err
 	}
-	deviceSig, err := jsonparser.GetString(rawObject, "[3]")
+	fleetAddr, err := jsonparser.GetString(rawObject, "[3]")
 	if err != nil {
 		return nil, err
 	}
-	serverSig, err := jsonparser.GetString(rawObject, "[4]")
+	totalConnections, err := jsonparser.GetString(rawObject, "[4]")
+	if err != nil {
+		return nil, err
+	}
+	totalBytes, err := jsonparser.GetString(rawObject, "[5]")
+	if err != nil {
+		return nil, err
+	}
+	localAddr, err := jsonparser.GetString(rawObject, "[6]")
+	if err != nil {
+		return nil, err
+	}
+	deviceSig, err := jsonparser.GetString(rawObject, "[7]")
+	if err != nil {
+		return nil, err
+	}
+	serverSig, err := jsonparser.GetString(rawObject, "[8]")
 	if err != nil {
 		return nil, err
 	}
@@ -244,6 +260,22 @@ func parseDeviceObj(rawObject []byte) (*DeviceObj, error) {
 		return nil, err
 	}
 	dpeakBlock, err := DecodeString(peakBlock[:])
+	if err != nil {
+		return nil, err
+	}
+	dfleetAddr, err := DecodeString(fleetAddr[:])
+	if err != nil {
+		return nil, err
+	}
+	dtotalConnections, err := DecodeStringToInt(totalConnections[:])
+	if err != nil {
+		return nil, err
+	}
+	dtotalBytes, err := DecodeStringToInt(totalBytes[:])
+	if err != nil {
+		return nil, err
+	}
+	dlocalAddr, err := DecodeString(localAddr[:])
 	if err != nil {
 		return nil, err
 	}
@@ -256,10 +288,14 @@ func parseDeviceObj(rawObject []byte) (*DeviceObj, error) {
 		return nil, err
 	}
 	deviceObj := &DeviceObj{
-		ServerID:  dserverID,
-		PeakBlock: dpeakBlock,
-		DeviceSig: ddeviceSig,
-		ServerSig: dserverSig,
+		ServerID:         dserverID,
+		PeakBlock:        dpeakBlock,
+		FleetAddr:        dfleetAddr,
+		TotalConnections: dtotalConnections,
+		TotalBytes:       dtotalBytes,
+		LocalAddr:        dlocalAddr,
+		DeviceSig:        ddeviceSig,
+		ServerSig:        dserverSig,
 	}
 	return deviceObj, nil
 }

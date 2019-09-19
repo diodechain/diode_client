@@ -221,10 +221,10 @@ func (socksServer *SocksServer) pipeWebsocket(w http.ResponseWriter, r *http.Req
 			log.Println("couldn't find device object")
 			return
 		}
-		// if !deviceObj.ValidateSig() {
-		// 	log.Println("wrong signature in device object")
-		// 	return
-		// }
+		if !deviceObj.ValidateSig() {
+			log.Println("wrong signature in device object")
+			return
+		}
 		// get server id
 		// serverID, err := socksServer.s.GetServerID()
 		// if err != nil {

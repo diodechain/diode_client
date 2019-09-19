@@ -788,7 +788,7 @@ func (s *SSL) IsDeviceWhitelisted(withResponse bool, contractAddr []byte, addr [
 }
 
 // IsAccessWhitelisted returns is given address whitelisted
-func (s *SSL) IsAccessWhitelisted(withResponse bool, contractAddr []byte, addr []byte) (bool, error) {
+func (s *SSL) IsAccessWhitelisted(withResponse bool, contractAddr []byte, deviceAddr []byte, clientAddr []byte) (bool, error) {
 	var err error
 	var raw []byte
 	var acv *AccountValue
@@ -796,10 +796,13 @@ func (s *SSL) IsAccessWhitelisted(withResponse bool, contractAddr []byte, addr [
 	if len(contractAddr) != 20 {
 		return false, fmt.Errorf("Contract address must be 20 bytes")
 	}
-	if len(addr) != 20 {
-		return false, fmt.Errorf("Account address must be 20 bytes")
+	if len(deviceAddr) != 20 {
+		return false, fmt.Errorf("Device address must be 20 bytes")
 	}
-	key := contract.AccessWhitelistKey(addr)
+	if len(clientAddr) != 20 {
+		return false, fmt.Errorf("Client address must be 20 bytes")
+	}
+	key := contract.AccessWhitelistKey(deviceAddr, clientAddr)
 	acv, err = s.GetAccountValue(withResponse, BN, contractAddr, key)
 	if err != nil {
 		return false, err

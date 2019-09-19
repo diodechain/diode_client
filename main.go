@@ -133,15 +133,6 @@ func main() {
 		return
 	}
 	log.Println(rpc.EncodeToString(clientAddr))
-	isAccessWhitelisted, err := client.IsAccessWhitelisted(true, config.DecFleetAddr, clientAddr)
-	if err != nil {
-		log.Fatal(err)
-		return
-	}
-	if !isAccessWhitelisted {
-		log.Println("Access was not whitelisted")
-		return
-	}
 
 	// send ticket rpc
 	dbh := rpc.ValidBlockHeaders[rpc.LVBN].BlockHash

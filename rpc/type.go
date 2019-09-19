@@ -11,6 +11,7 @@ import (
 	"net"
 	"poc-client/crypto"
 	"poc-client/crypto/secp256k1"
+
 	// "poc-client/crypto/sha3"
 	// "poc-client/util"
 	"sync"
@@ -103,11 +104,15 @@ type PortClose struct {
 }
 
 type DeviceObj struct {
-	ServerID  []byte
-	PeakBlock []byte
-	DeviceSig []byte
-	ServerSig []byte
-	Err       error
+	ServerID         []byte
+	PeakBlock        []byte
+	FleetAddr        []byte
+	TotalConnections int64
+	TotalBytes       int64
+	LocalAddr        []byte
+	DeviceSig        []byte
+	ServerSig        []byte
+	Err              error
 }
 
 type ServerObj struct {
@@ -515,9 +520,9 @@ func (blockHeader *BlockHeader) IsSigValid() (bool, error) {
 	return secp256k1.VerifySignature(pubkey, msgHash, sig), nil
 }
 
-// RecoverDevicePubKey returns device public key
+// RecoverDevicePubKey returns uncompressed device public key
 func (deviceObj *DeviceObj) RecoverDevicePubKey() ([]byte, error) {
-	msg, err := bert.Encode([2]bert.Term{deviceObj.ServerID, deviceObj.PeakBlock})
+	msg, err := bert.Encode([6]bert.Term{deviceObj.ServerID, deviceObj.PeakBlock, deviceObj.FleetAddr, deviceObj.TotalConnections, deviceObj.TotalBytes, deviceObj.LocalAddr})
 	if err != nil {
 		return nil, err
 	}
@@ -526,17 +531,21 @@ func (deviceObj *DeviceObj) RecoverDevicePubKey() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	// compress public key
-	ecdPubKey, err := crypto.UnmarshalPubkey(pubKey)
+	return pubKey, nil
+}
+
+// DeviceAddress returns device address
+func (deviceObj *DeviceObj) DeviceAddress() ([]byte, error) {
+	devicePubkey, err := deviceObj.RecoverDevicePubKey()
 	if err != nil {
-		return pubKey, err
+		return nil, err
 	}
-	return secp256k1.CompressPubkey(ecdPubKey.X, ecdPubKey.Y), nil
+	return crypto.PubkeyToAddress(devicePubkey)
 }
 
 // RecoverServerPubKey returns server public key
 func (deviceObj *DeviceObj) RecoverServerPubKey() ([]byte, error) {
-	msg, err := bert.Encode([3]bert.Term{deviceObj.ServerID, deviceObj.PeakBlock, deviceObj.DeviceSig})
+	msg, err := bert.Encode([7]bert.Term{deviceObj.ServerID, deviceObj.PeakBlock, deviceObj.FleetAddr, deviceObj.TotalConnections, deviceObj.TotalBytes, deviceObj.LocalAddr, deviceObj.DeviceSig})
 	if err != nil {
 		return nil, err
 	}

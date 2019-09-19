@@ -265,12 +265,12 @@ func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID strin
 			conn.Write(rep[:])
 			return
 		}
-		// if !deviceObj.ValidateSig() {
-		// 	log.Println("wrong signature in device object")
-		// 	rep[1] = socksRepServerFailed
-		// 	conn.Write(rep[:])
-		// 	return
-		// }
+		if !deviceObj.ValidateSig() {
+			log.Println("wrong signature in device object")
+			rep[1] = socksRepServerFailed
+			conn.Write(rep[:])
+			return
+		}
 		// get server id
 		// serverID, err := socksServer.s.GetServerID()
 		// if err != nil {
