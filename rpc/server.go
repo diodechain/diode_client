@@ -302,7 +302,12 @@ func (rpcServer *RPCServer) Start() {
 			case <-rpcServer.ticker.C:
 				if rpcServer.s.TotalBytes() > 1024 {
 					// send ticket
-					_, err := rpcServer.s.Ticket(false, dbh, rpcServer.Config.FleetAddr, 1024, rpcServer.Config.RegistryAddr)
+					ticket, err := rpcServer.s.NewTicket(dbh, rpcServer.Config.FleetAddr, 1024, rpcServer.Config.RegistryAddr)
+					if err != nil {
+						log.Println(err)
+						return
+					}
+					_, err = rpcServer.s.SubmitTicket(false, ticket)
 					if err != nil {
 						log.Println(err)
 						return

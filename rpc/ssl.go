@@ -22,7 +22,6 @@ import (
 	"sync"
 	"time"
 
-	bert "github.com/exosite/gobert"
 	"github.com/exosite/openssl"
 	"github.com/felixge/tcpkeepalive"
 )
@@ -569,35 +568,8 @@ func (s *SSL) GetNode(withResponse bool, nodeID []byte) (*ServerObj, error) {
 	return parseServerObj(rawNode.RawData[0])
 }
 
-func (s *SSL) ticketMsg(blockHash []byte, fleetAddr []byte, totalBytes int, localAddr []byte) ([]byte, error) {
-	serverPubKey, err := s.GetServerPubKey()
-	if err != nil {
-		return nil, err
-	}
-	serverID, err := crypto.PubkeyToAddress(serverPubKey)
-	if err != nil {
-		return nil, err
-	}
-	// send ticket rpc
-	val, err := bert.Encode([6]bert.Term{serverID, blockHash, fleetAddr, s.totalConnections, totalBytes, localAddr})
-	if err != nil {
-		return nil, err
-	}
-	privKey, err := s.GetClientPrivateKey()
-	if err != nil {
-		return nil, err
-	}
-	msgHash := crypto.Sha256(val)
-	sig, err := secp256k1.Sign(msgHash, privKey.D.Bytes())
-	if err != nil {
-		return nil, err
-	}
-	return sig, nil
-}
-
-// Ticket send ticket to node
-// Send blockhash, fleet contract, total connections, total bytes, local address, signature
-func (s *SSL) Ticket(withResponse bool, blockHash []byte, fleetAddr []byte, totalBytes int, localAddr []byte) (*Response, error) {
+// NewTicket returns ticket
+func (s *SSL) NewTicket(blockHash []byte, fleetAddr []byte, totalBytes int, localAddr []byte) (*Ticket, error) {
 	if len(blockHash) != 32 {
 		return nil, fmt.Errorf("Blockhash must be 32 bytes")
 	}
@@ -609,20 +581,45 @@ func (s *SSL) Ticket(withResponse bool, blockHash []byte, fleetAddr []byte, tota
 	}
 	if totalBytes < 0 {
 		totalBytes = 0
-	}
-	sig, err := s.ticketMsg(blockHash, fleetAddr, totalBytes, localAddr)
-	if err != nil {
-		return nil, err
-	}
-	encFleetAddr := EncodeToString(fleetAddr)
-	encLocalAddr := EncodeToString(localAddr)
-	encSig := EncodeToString(sig)
-	if totalBytes > 0 {
+	} else {
 		s.rm.Lock()
 		s.totalBytes -= totalBytes
 		s.rm.Unlock()
 	}
-	rawTicket, err := s.CallContext("ticket", withResponse, LVBN, encFleetAddr, s.totalConnections, totalBytes, encLocalAddr, encSig)
+	serverPubKey, err := s.GetServerPubKey()
+	if err != nil {
+		return nil, err
+	}
+	serverID, err := crypto.PubkeyToAddress(serverPubKey)
+	if err != nil {
+		return nil, err
+	}
+	ticket := &Ticket{
+		ServerID:         serverID,
+		BlockNumber:      LVBN,
+		BlockHash:        blockHash,
+		FleetAddr:        fleetAddr,
+		TotalConnections: s.totalConnections,
+		TotalBytes:       totalBytes,
+		LocalAddr:        localAddr,
+	}
+	privKey, err := s.GetClientPrivateKey()
+	if err != nil {
+		return nil, err
+	}
+	err = ticket.Sign(privKey)
+	if err != nil {
+		return nil, err
+	}
+	return ticket, nil
+}
+
+// SubmitTicket submit ticket to server
+func (s *SSL) SubmitTicket(withResponse bool, ticket *Ticket) (*Response, error) {
+	encFleetAddr := EncodeToString(ticket.FleetAddr)
+	encLocalAddr := EncodeToString(ticket.LocalAddr)
+	encSig := EncodeToString(ticket.Sig())
+	rawTicket, err := s.CallContext("ticket", withResponse, ticket.BlockNumber, encFleetAddr, ticket.TotalConnections, ticket.TotalBytes, encLocalAddr, encSig)
 	if err != nil || !withResponse {
 		return nil, err
 	}

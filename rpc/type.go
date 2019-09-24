@@ -2,6 +2,7 @@ package rpc
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"fmt"
 	"log"
 
@@ -162,41 +163,45 @@ type RLPAccount struct {
 	Code        []byte
 }
 
-// Ticket struct for connection
-// type Ticket struct {
-// 	BlockHeight      []byte
-// 	FleetAddr        []byte
-// 	TotalConnections []byte
-// 	NodeID           []byte
-// 	LocalAddr        []byte
-// }
+// Ticket struct for connection and transmission
+type Ticket struct {
+	ServerID         []byte
+	BlockNumber      int
+	BlockHash        []byte
+	FleetAddr        []byte
+	TotalConnections int
+	TotalBytes       int
+	LocalAddr        []byte
+	sig              []byte
+}
 
-// func (ct *Ticket) Hash() []byte {
-// 	if len(ct.BlockHeight) != 32 {
-// 		ct.BlockHeight = util.PaddingBytesPrefix(ct.BlockHeight, 0, 32)
-// 	}
-// 	if len(ct.FleetAddr) != 32 {
-// 		ct.BlockHeight = util.PaddingBytesPrefix(ct.FleetAddr, 0, 32)
-// 	}
-// 	if len(ct.TotalConnections) != 32 {
-// 		ct.BlockHeight = util.PaddingBytesPrefix(ct.TotalConnections, 0, 32)
-// 	}
-// 	if len(ct.NodeID) != 32 {
-// 		ct.BlockHeight = util.PaddingBytesPrefix(ct.NodeID, 0, 32)
-// 	}
-// 	if len(ct.LocalAddr) != 32 {
-// 		ct.BlockHeight = util.PaddingBytesPrefix(ct.LocalAddr, 0, 32)
-// 	}
-// 	msg := make([]byte, 160)
-// 	msg = append(msg, ct.BlockHeight...)
-// 	msg = append(msg, ct.FleetAddr...)
-// 	msg = append(msg, ct.TotalConnections...)
-// 	msg = append(msg, ct.NodeID...)
-// 	msg = append(msg, ct.LocalAddr...)
-// 	hash := sha3.NewKeccak256()
-// 	hash.Write(msg)
-// 	return hash.Sum(nil)
-// }
+// Hash returns hash of ticket
+func (ct *Ticket) Hash() ([]byte, error) {
+	msg, err := bert.Encode([6]bert.Term{ct.ServerID, ct.BlockHash, ct.FleetAddr, ct.TotalConnections, ct.TotalBytes, ct.LocalAddr})
+	if err != nil {
+		return nil, err
+	}
+	return crypto.Sha256(msg), nil
+}
+
+// Sign ticket with given ecdsa private key
+func (ct *Ticket) Sign(privKey *ecdsa.PrivateKey) error {
+	msgHash, err := ct.Hash()
+	if err != nil {
+		return err
+	}
+	sig, err := secp256k1.Sign(msgHash, privKey.D.Bytes())
+	if err != nil {
+		return err
+	}
+	ct.sig = sig
+	return nil
+}
+
+// Sig returns signature of ticket
+func (ct *Ticket) Sig() []byte {
+	return ct.sig
+}
 
 // StateRoot returns state root of given state roots
 func (sr *StateRoots) StateRoot() []byte {

@@ -136,9 +136,14 @@ func main() {
 
 	// send ticket rpc
 	dbh := rpc.ValidBlockHeaders[rpc.LVBN].BlockHash
-	res, err := client.Ticket(true, dbh, config.DecFleetAddr, 0, config.DecRegistryAddr)
+	ticket, err := client.NewTicket(dbh, config.DecFleetAddr, 0, config.DecRegistryAddr)
 	if err != nil {
-		log.Println(err)
+		log.Fatal(err)
+		return
+	}
+	res, err := client.SubmitTicket(true, ticket)
+	if err != nil {
+		log.Fatal(err)
 		return
 	}
 	log.Println("Ticket had sent, result: " + string(res.RawData[0]))
