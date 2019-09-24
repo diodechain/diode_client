@@ -614,7 +614,6 @@ func (s *SSL) Ticket(withResponse bool, blockHash []byte, fleetAddr []byte, tota
 	if err != nil {
 		return nil, err
 	}
-	encBlockHash := EncodeToString(blockHash)
 	encFleetAddr := EncodeToString(fleetAddr)
 	encLocalAddr := EncodeToString(localAddr)
 	encSig := EncodeToString(sig)
@@ -623,7 +622,7 @@ func (s *SSL) Ticket(withResponse bool, blockHash []byte, fleetAddr []byte, tota
 		s.totalBytes -= totalBytes
 		s.rm.Unlock()
 	}
-	rawTicket, err := s.CallContext("ticket", withResponse, encBlockHash, encFleetAddr, s.totalConnections, totalBytes, encLocalAddr, encSig)
+	rawTicket, err := s.CallContext("ticket", withResponse, LVBN, encFleetAddr, s.totalConnections, totalBytes, encLocalAddr, encSig)
 	if err != nil || !withResponse {
 		return nil, err
 	}
