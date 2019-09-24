@@ -132,11 +132,10 @@ func main() {
 		log.Fatal(err)
 		return
 	}
-	log.Println(rpc.EncodeToString(clientAddr))
+	log.Printf("Client address: %s\n", rpc.EncodeToString(clientAddr))
 
 	// send ticket rpc
 	dbh := rpc.ValidBlockHeaders[rpc.LVBN].BlockHash
-	log.Println(client.TotalBytes())
 	res, err := client.Ticket(true, dbh, config.DecFleetAddr, 0, config.DecRegistryAddr)
 	if err != nil {
 		log.Println(err)

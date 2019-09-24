@@ -82,6 +82,7 @@ type BlockHeader struct {
 	MinerPubkey []byte
 	BlockHash   []byte
 	Timestamp   int64
+	Nonce       int64
 }
 
 type PortOpen struct {
@@ -492,7 +493,7 @@ func (conn *ConnectedConn) writeToTCP(data []byte) {
 
 // Hash returns sha3 of bert encoded block header
 func (blockHeader *BlockHeader) Hash() ([]byte, error) {
-	encHeader, err := bert.Encode([6]bert.Term{blockHeader.PrevBlock, blockHeader.MinerPubkey, blockHeader.StateHash, blockHeader.TxHash, blockHeader.Timestamp, blockHeader.MinerSig})
+	encHeader, err := bert.Encode([7]bert.Term{blockHeader.PrevBlock, blockHeader.MinerPubkey, blockHeader.StateHash, blockHeader.TxHash, blockHeader.Timestamp, blockHeader.Nonce, blockHeader.MinerSig})
 	if err != nil {
 		return nil, err
 	}
@@ -501,15 +502,15 @@ func (blockHeader *BlockHeader) Hash() ([]byte, error) {
 
 // HashWithoutSig returns sha3 of bert encoded block header without miner signature
 func (blockHeader *BlockHeader) HashWithoutSig() ([]byte, error) {
-	encHeader, err := bert.Encode([5]bert.Term{blockHeader.PrevBlock, blockHeader.MinerPubkey, blockHeader.StateHash, blockHeader.TxHash, blockHeader.Timestamp})
+	encHeader, err := bert.Encode([6]bert.Term{blockHeader.PrevBlock, blockHeader.MinerPubkey, blockHeader.StateHash, blockHeader.TxHash, blockHeader.Timestamp, blockHeader.Nonce})
 	if err != nil {
 		return nil, err
 	}
 	return crypto.Sha256(encHeader), nil
 }
 
-// IsSigValid check miner signature is valid
-func (blockHeader *BlockHeader) IsSigValid() (bool, error) {
+// ValidateSig check miner signature is valid
+func (blockHeader *BlockHeader) ValidateSig() (bool, error) {
 	msgHash, err := blockHeader.HashWithoutSig()
 	if err != nil {
 		return false, err
@@ -517,6 +518,7 @@ func (blockHeader *BlockHeader) IsSigValid() (bool, error) {
 	sig := []byte{}
 	sig = append(sig, blockHeader.MinerSig[1:65]...)
 	pubkey := blockHeader.Miner
+	log.Println("Call verify", secp256k1.VerifySignature(pubkey, msgHash, sig))
 	return secp256k1.VerifySignature(pubkey, msgHash, sig), nil
 }
 
@@ -543,13 +545,20 @@ func (deviceObj *DeviceObj) DeviceAddress() ([]byte, error) {
 	return crypto.PubkeyToAddress(devicePubkey)
 }
 
-// RecoverServerPubKey returns server public key
-func (deviceObj *DeviceObj) RecoverServerPubKey() ([]byte, error) {
+func (deviceObj *DeviceObj) Hash() ([]byte, error) {
 	msg, err := bert.Encode([7]bert.Term{deviceObj.ServerID, deviceObj.PeakBlock, deviceObj.FleetAddr, deviceObj.TotalConnections, deviceObj.TotalBytes, deviceObj.LocalAddr, deviceObj.DeviceSig})
 	if err != nil {
 		return nil, err
 	}
-	hashMsg := crypto.Sha256(msg)
+	return crypto.Sha256(msg), nil
+}
+
+// RecoverServerPubKey returns server public key
+func (deviceObj *DeviceObj) RecoverServerPubKey() ([]byte, error) {
+	hashMsg, err := deviceObj.Hash()
+	if err != nil {
+		return nil, err
+	}
 	pubKey, err := secp256k1.RecoverPubkey(hashMsg, deviceObj.ServerSig)
 	if err != nil {
 		return nil, err
@@ -557,6 +566,7 @@ func (deviceObj *DeviceObj) RecoverServerPubKey() ([]byte, error) {
 	return pubKey, nil
 }
 
+// ValidateSig returns device object sig is valid
 func (deviceObj *DeviceObj) ValidateSig() bool {
 	pubKey, err := deviceObj.RecoverServerPubKey()
 	if err != nil {

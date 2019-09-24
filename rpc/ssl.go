@@ -374,22 +374,6 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 		return false, err
 	}
 	BN = bp.(int)
-	// Maybe we don't have to save blockpeak
-	// bpBig := &big.Int{}
-	// bpBig.SetInt64(int64(bp))
-	// lbpByt, err := db.DB.Get([]byte("lbp"), nil)
-	// if err != nil {
-	// 	if err.Error() == "leveldb: not found" {
-	// 		// put blockpeak
-	// 		_ = db.DB.Put([]byte("lbp"), bpBig.Bytes(), nil)
-	// 	} else {
-	// 		return false, err
-	// 	}
-	// } else {
-	// 	if !bytes.Equal(lbpByt, bpBig.Bytes()) {
-	// 		_ = db.DB.Put([]byte("lbp"), bpBig.Bytes(), nil)
-	// 	}
-	// }
 	config := config.AppConfig
 	bpCh := 100
 	if config.Debug {
@@ -431,7 +415,7 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 			return false, err
 		}
 		hexMiner := hex.EncodeToString(blockHeader.Miner)
-		isSigValid, err := blockHeader.IsSigValid()
+		isSigValid, err := blockHeader.ValidateSig()
 		if err != nil {
 			log.Printf("Miner signature was not valid, block header: %d, error: %s", i, err.Error())
 			continue
@@ -444,6 +428,9 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 		}
 		validBlockHeaders[i] = blockHeader
 		minerCount[hexMiner]++
+	}
+	if len(validBlockHeaders) < bpCh {
+		return false, nil
 	}
 	// setup miner portion map
 	for miner, count := range minerCount {
@@ -591,7 +578,6 @@ func (s *SSL) ticketMsg(blockHash []byte, fleetAddr []byte, totalBytes int, loca
 	if err != nil {
 		return nil, err
 	}
-
 	// send ticket rpc
 	val, err := bert.Encode([6]bert.Term{serverID, blockHash, fleetAddr, s.totalConnections, totalBytes, localAddr})
 	if err != nil {
@@ -601,11 +587,6 @@ func (s *SSL) ticketMsg(blockHash []byte, fleetAddr []byte, totalBytes int, loca
 	if err != nil {
 		return nil, err
 	}
-	clientAddr, err := s.GetClientAddress()
-	if err != nil {
-		return nil, err
-	}
-	log.Printf("Client address: %s\n", EncodeToString(clientAddr))
 	msgHash := crypto.Sha256(val)
 	sig, err := secp256k1.Sign(msgHash, privKey.D.Bytes())
 	if err != nil {

@@ -109,6 +109,7 @@ func parseBlockHeader(rawHeader []byte) (*BlockHeader, error) {
 	stateHash, _, _, _ := jsonparser.Get(rawHeader, "state_hash")
 	blockHash, _, _, _ := jsonparser.Get(rawHeader, "block_hash")
 	prevBlock, _, _, _ := jsonparser.Get(rawHeader, "previous_block")
+	nonce, _, _, _ := jsonparser.Get(rawHeader, "nonce")
 	minerSig, _, _, _ := jsonparser.Get(rawHeader, "miner_signature")
 	minerPubkey, _, _, _ := jsonparser.Get(rawHeader, "miner_pubkey")
 	timestamp, _, _, _ := jsonparser.Get(rawHeader, "timestamp")
@@ -143,6 +144,10 @@ func parseBlockHeader(rawHeader []byte) (*BlockHeader, error) {
 	if err != nil {
 		return nil, err
 	}
+	dnonce, err := DecodeStringToInt(string(nonce[:]))
+	if err != nil {
+		return nil, err
+	}
 	// also can decompress pubkey and marshal to pubkey bytes
 	dcminerPubkey := secp256k1.DecompressPubkeyBytes(dminerPubkey)
 	blockHeader := &BlockHeader{
@@ -154,6 +159,7 @@ func parseBlockHeader(rawHeader []byte) (*BlockHeader, error) {
 		BlockHash:   dblockHash,
 		Timestamp:   dtimestamp,
 		Miner:       dcminerPubkey,
+		Nonce:       dnonce,
 	}
 	return blockHeader, nil
 }
