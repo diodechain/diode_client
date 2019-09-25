@@ -162,20 +162,6 @@ func main() {
 		return
 	}
 
-	// send ticket rpc
-	// dbh := rpc.ValidBlockHeaders[rpc.LVBN].BlockHash
-	// ticket, err := client.NewTicket(rpc.LVBN, dbh, config.DecFleetAddr, config.DecRegistryAddr)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// 	return
-	// }
-	// res, err := client.SubmitTicket(true, ticket)
-	// if err != nil {
-	// 	log.Fatal(err)
-	// 	return
-	// }
-	// log.Println("Ticket had sent, result: " + string(res.RawData[0]))
-
 	// maxout concurrency
 	// runtime.GOMAXPROCS(runtime.NumCPU())
 
