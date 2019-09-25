@@ -41,6 +41,7 @@ func (rpcServer *RPCServer) Wait() {
 
 // Start rpc server
 func (rpcServer *RPCServer) Start() {
+	log.Println("Start a rpc server")
 	// for error channel
 	rpcServer.wg.Add(1)
 	go func() {
@@ -299,20 +300,22 @@ func (rpcServer *RPCServer) WatchTotalBytes() {
 	}
 	rpcServer.wg.Add(1)
 	go func() {
-		rpcServer.ticker = time.NewTicker(500 * time.Millisecond)
+		rpcServer.ticker = time.NewTicker(100 * time.Millisecond)
 		for {
 			select {
 			case <-rpcServer.finishedTickerChan:
 				rpcServer.wg.Done()
 				return
 			case <-rpcServer.ticker.C:
-				if rpcServer.s.TotalBytes() > 256 {
-					if ValidBlockHeaders[LVBN] == nil {
+				counter := rpcServer.s.Counter() + 1
+				if rpcServer.s.TotalBytes() > counter*1024 {
+					bn := LBN
+					if ValidBlockHeaders[bn] == nil {
 						continue
 					}
-					dbh := ValidBlockHeaders[LVBN].BlockHash
+					dbh := ValidBlockHeaders[bn].BlockHash
 					// send ticket
-					ticket, err := rpcServer.s.NewTicket(dbh, rpcServer.Config.FleetAddr, 256, rpcServer.Config.RegistryAddr)
+					ticket, err := rpcServer.s.NewTicket(bn, dbh, rpcServer.Config.FleetAddr, rpcServer.Config.RegistryAddr)
 					if err != nil {
 						log.Println(err)
 						return
@@ -360,7 +363,6 @@ func (rpcServer *RPCServer) Close() {
 // NewRPCServer start rpc server
 // TODO: check blocking channel, error channel
 func (s *SSL) NewRPCServer(config *RPCConfig, closeCallback func()) *RPCServer {
-	log.Println("Start a rpc server")
 	rpcServer := &RPCServer{
 		s:                  s,
 		wg:                 &sync.WaitGroup{},

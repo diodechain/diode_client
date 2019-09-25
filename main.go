@@ -164,7 +164,7 @@ func main() {
 
 	// send ticket rpc
 	// dbh := rpc.ValidBlockHeaders[rpc.LVBN].BlockHash
-	// ticket, err := client.NewTicket(dbh, config.DecFleetAddr, 0, config.DecRegistryAddr)
+	// ticket, err := client.NewTicket(rpc.LVBN, dbh, config.DecFleetAddr, config.DecRegistryAddr)
 	// if err != nil {
 	// 	log.Fatal(err)
 	// 	return

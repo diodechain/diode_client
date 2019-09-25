@@ -40,14 +40,19 @@ type SSL struct {
 	closed            bool
 	totalConnections  int
 	totalBytes        int
+	counter           int
 	rm                sync.Mutex
+	rc                sync.Mutex
 }
 
-// BN lastest block numebr
+// BN latest block numebr
 var BN int
 
 // LVBN last valid block numebr
 var LVBN int
+
+// Last downloaded block header
+var LBN int
 
 // ValidBlockHeaders keep validate block headers, do not loop this
 var ValidBlockHeaders = make(map[int]*BlockHeader)
@@ -144,6 +149,13 @@ func (s *SSL) TotalBytes() int {
 	s.rm.Lock()
 	defer s.rm.Unlock()
 	return s.totalBytes
+}
+
+// Counter returns counter in ssl
+func (s *SSL) Counter() int {
+	s.rm.Lock()
+	defer s.rm.Unlock()
+	return s.counter
 }
 
 // UnderlyingConn returns connection of ssl
@@ -285,10 +297,19 @@ func (s *SSL) IsValid() bool {
 	return s.isValid
 }
 
+func (s *SSL) incrementBytes(n int) {
+	s.rm.Lock()
+	defer s.rm.Unlock()
+	s.totalBytes += n
+	return
+}
+
 func (s *SSL) readContext() ([]byte, error) {
+	s.rc.Lock()
+	defer s.rc.Unlock()
 	// read length of response
 	lenByt := make([]byte, 2)
-	_, err := s.conn.Read(lenByt)
+	n, err := s.conn.Read(lenByt)
 	if err != nil {
 		if err == io.EOF ||
 			strings.Contains(err.Error(), "connection reset by peer") {
@@ -303,7 +324,7 @@ func (s *SSL) readContext() ([]byte, error) {
 	lenr := binary.BigEndian.Uint16(lenByt)
 	// read response
 	res := make([]byte, lenr)
-	_, err = s.conn.Read(res)
+	n, err = s.conn.Read(res)
 	if err != nil {
 		if err == io.EOF ||
 			strings.Contains(err.Error(), "connection reset by peer") {
@@ -317,6 +338,13 @@ func (s *SSL) readContext() ([]byte, error) {
 			return nil, nil
 		}
 		return nil, err
+	}
+	n += 2
+	s.rm.Lock()
+	s.totalBytes += n
+	s.rm.Unlock()
+	if config.AppConfig.Debug {
+		log.Printf("Receive %d bytes data from ssl\n", n)
 	}
 	return res, nil
 }
@@ -413,7 +441,6 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 	minerCount := map[string]int{}
 	minerPortion := map[string]float64{}
 
-	validBlockHeaders := make(map[int]*BlockHeader)
 	// fetch block header
 	for i := bnLimit - bpCh; i < bnLimit; i++ {
 		blockHeader, err := s.GetBlockHeader(true, i)
@@ -421,6 +448,7 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 			log.Printf("Cannot fetch block header: %d, error: %s", i, err.Error())
 			return false, err
 		}
+		LBN = i
 		hexMiner := hex.EncodeToString(blockHeader.Miner)
 		isSigValid, err := blockHeader.ValidateSig()
 		if err != nil {
@@ -433,10 +461,10 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 			}
 			continue
 		}
-		validBlockHeaders[i] = blockHeader
+		ValidBlockHeaders[i] = blockHeader
 		minerCount[hexMiner]++
 	}
-	if len(validBlockHeaders) < bpCh {
+	if len(ValidBlockHeaders) < bpCh {
 		return false, nil
 	}
 	// setup miner portion map
@@ -460,12 +488,18 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 	}
 	// start to confirm the block if signature is valid
 	for i := bnLimit - bpCh; i < bnLimit; i++ {
-		blockHeader := validBlockHeaders[i]
+		blockHeader := ValidBlockHeaders[i]
+		if blockHeader == nil {
+			continue
+		}
 		hexMiner := hex.EncodeToString(blockHeader.Miner)
 		portion := float64(0)
 		isConfirmed := false
 		for j := i + 1; j < bnLimit; j++ {
-			blockHeader2 := validBlockHeaders[j]
+			blockHeader2 := ValidBlockHeaders[j]
+			if blockHeader2 == nil {
+				continue
+			}
 			hexMiner2 := hex.EncodeToString(blockHeader2.Miner)
 			// we might check this
 			// if hexMiner2 == hexMiner {
@@ -496,7 +530,6 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 			log.Println(miner, bn)
 		}
 	}
-	ValidBlockHeaders = validBlockHeaders
 	isValid := LVBN >= oriLvbn
 	if isValid {
 		if LVBN != oriLvbn {
@@ -577,7 +610,7 @@ func (s *SSL) GetNode(withResponse bool, nodeID []byte) (*ServerObj, error) {
 }
 
 // NewTicket returns ticket
-func (s *SSL) NewTicket(blockHash []byte, fleetAddr []byte, totalBytes int, localAddr []byte) (*Ticket, error) {
+func (s *SSL) NewTicket(bn int, blockHash []byte, fleetAddr []byte, localAddr []byte) (*Ticket, error) {
 	if len(blockHash) != 32 {
 		return nil, fmt.Errorf("Blockhash must be 32 bytes")
 	}
@@ -587,13 +620,6 @@ func (s *SSL) NewTicket(blockHash []byte, fleetAddr []byte, totalBytes int, loca
 	if len(localAddr) != 20 {
 		return nil, fmt.Errorf("Local contract address must be 20 bytes")
 	}
-	if totalBytes < 0 {
-		totalBytes = 0
-	} else {
-		s.rm.Lock()
-		s.totalBytes -= totalBytes
-		s.rm.Unlock()
-	}
 	serverPubKey, err := s.GetServerPubKey()
 	if err != nil {
 		return nil, err
@@ -602,13 +628,16 @@ func (s *SSL) NewTicket(blockHash []byte, fleetAddr []byte, totalBytes int, loca
 	if err != nil {
 		return nil, err
 	}
+	s.rm.Lock()
+	defer s.rm.Unlock()
+	s.counter++
 	ticket := &Ticket{
 		ServerID:         serverID,
-		BlockNumber:      LVBN,
+		BlockNumber:      bn,
 		BlockHash:        blockHash,
 		FleetAddr:        fleetAddr,
 		TotalConnections: s.totalConnections,
-		TotalBytes:       totalBytes,
+		TotalBytes:       s.totalBytes,
 		LocalAddr:        localAddr,
 	}
 	privKey, err := s.GetClientPrivateKey()
