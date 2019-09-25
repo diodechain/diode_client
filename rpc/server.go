@@ -289,25 +289,37 @@ func (rpcServer *RPCServer) Start() {
 			}
 		}
 	}()
-	// setup ticker to count total bytes
+	rpcServer.started = true
+}
+
+// WatchTotalBytes setup ticker to count total bytes and send ticket
+func (rpcServer *RPCServer) WatchTotalBytes() {
+	if rpcServer.ticker != nil {
+		return
+	}
 	rpcServer.wg.Add(1)
 	go func() {
 		rpcServer.ticker = time.NewTicker(500 * time.Millisecond)
-		dbh := ValidBlockHeaders[LVBN].BlockHash
 		for {
 			select {
 			case <-rpcServer.finishedTickerChan:
 				rpcServer.wg.Done()
 				return
 			case <-rpcServer.ticker.C:
-				if rpcServer.s.TotalBytes() > 1024 {
+				if rpcServer.s.TotalBytes() > 256 {
+					if ValidBlockHeaders[LVBN] == nil {
+						continue
+					}
+					dbh := ValidBlockHeaders[LVBN].BlockHash
 					// send ticket
-					ticket, err := rpcServer.s.NewTicket(dbh, rpcServer.Config.FleetAddr, 1024, rpcServer.Config.RegistryAddr)
+					ticket, err := rpcServer.s.NewTicket(dbh, rpcServer.Config.FleetAddr, 256, rpcServer.Config.RegistryAddr)
 					if err != nil {
 						log.Println(err)
 						return
 					}
-					_, err = rpcServer.s.SubmitTicket(false, ticket)
+					rpcServer.rm.Lock()
+					_, err = rpcServer.s.SubmitTicket(!rpcServer.started, ticket)
+					rpcServer.rm.Unlock()
 					if err != nil {
 						log.Println(err)
 						return
@@ -316,7 +328,6 @@ func (rpcServer *RPCServer) Start() {
 			}
 		}
 	}()
-	rpcServer.started = true
 }
 
 // Close the rpc server

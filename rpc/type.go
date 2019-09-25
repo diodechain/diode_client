@@ -523,7 +523,6 @@ func (blockHeader *BlockHeader) ValidateSig() (bool, error) {
 	sig := []byte{}
 	sig = append(sig, blockHeader.MinerSig[1:65]...)
 	pubkey := blockHeader.Miner
-	log.Println("Call verify", secp256k1.VerifySignature(pubkey, msgHash, sig))
 	return secp256k1.VerifySignature(pubkey, msgHash, sig), nil
 }
 

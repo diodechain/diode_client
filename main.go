@@ -105,6 +105,24 @@ func main() {
 		}
 		defer client.Close()
 
+		// initialize rpc server
+		rpcConfig := &rpc.RPCConfig{
+			Verbose:      config.Debug,
+			RegistryAddr: config.DecRegistryAddr,
+			FleetAddr:    config.DecFleetAddr,
+		}
+		rpcServer = client.NewRPCServer(rpcConfig, func() {
+			if config.RunSocksServer {
+				socksServer.Close()
+			}
+			if config.RunSocksWSServer {
+				socksServer.CloseWS()
+			}
+		})
+
+		// count total bytes
+		rpcServer.WatchTotalBytes()
+
 		isValid, err := client.ValidateNetwork()
 		if err != nil {
 			log.Println(err)
@@ -134,19 +152,29 @@ func main() {
 	}
 	log.Printf("Client address: %s\n", rpc.EncodeToString(clientAddr))
 
+	// check device whitelist
+	isDeviceWhitelisted, err := client.IsDeviceWhitelisted(true, config.DecFleetAddr, clientAddr)
+	if !isDeviceWhitelisted {
+		if err != nil {
+			log.Println(err)
+		}
+		log.Println("Device was not whitelisted")
+		return
+	}
+
 	// send ticket rpc
-	dbh := rpc.ValidBlockHeaders[rpc.LVBN].BlockHash
-	ticket, err := client.NewTicket(dbh, config.DecFleetAddr, 0, config.DecRegistryAddr)
-	if err != nil {
-		log.Fatal(err)
-		return
-	}
-	res, err := client.SubmitTicket(true, ticket)
-	if err != nil {
-		log.Fatal(err)
-		return
-	}
-	log.Println("Ticket had sent, result: " + string(res.RawData[0]))
+	// dbh := rpc.ValidBlockHeaders[rpc.LVBN].BlockHash
+	// ticket, err := client.NewTicket(dbh, config.DecFleetAddr, 0, config.DecRegistryAddr)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// 	return
+	// }
+	// res, err := client.SubmitTicket(true, ticket)
+	// if err != nil {
+	// 	log.Fatal(err)
+	// 	return
+	// }
+	// log.Println("Ticket had sent, result: " + string(res.RawData[0]))
 
 	// maxout concurrency
 	// runtime.GOMAXPROCS(runtime.NumCPU())
@@ -159,7 +187,7 @@ func main() {
 		switch sig {
 		case os.Interrupt:
 			log.Println("Close server...")
-			if config.RunRPCServer && rpcServer.Started() {
+			if rpcServer.Started() {
 				rpcServer.Close()
 			}
 			// case syscall.SIGTERM:
@@ -168,10 +196,6 @@ func main() {
 	}()
 
 	if config.RunSocksServer {
-		if !config.RunRPCServer {
-			log.Println("Please start rpc server")
-			return
-		}
 		socksConfig := &rpc.SocksConfig{
 			Addr:      config.SocksServerAddr,
 			Verbose:   config.Debug,
@@ -185,10 +209,6 @@ func main() {
 		}
 	}
 	if config.RunSocksWSServer {
-		if !config.RunRPCServer {
-			log.Println("Please start rpc server")
-			return
-		}
 		// start websocket server
 		socksServer.Config.WSServerAddr = config.WSServerAddr
 		socksServer.Config.EnableWS = true
@@ -197,22 +217,7 @@ func main() {
 			return
 		}
 	}
-	if config.RunRPCServer {
-		rpcConfig := &rpc.RPCConfig{
-			Verbose:      config.Debug,
-			RegistryAddr: config.DecRegistryAddr,
-			FleetAddr:    config.DecFleetAddr,
-		}
-		// start rpc server
-		rpcServer = client.NewRPCServer(rpcConfig, func() {
-			if config.RunSocksServer {
-				socksServer.Close()
-			}
-			if config.RunSocksWSServer {
-				socksServer.CloseWS()
-			}
-		})
-		rpcServer.Start()
-		rpcServer.Wait()
-	}
+	// start rpc server
+	rpcServer.Start()
+	rpcServer.Wait()
 }

@@ -126,22 +126,30 @@ func (s *SSL) reconnect() error {
 
 // LocalAddr returns address of ssl connection
 func (s *SSL) LocalAddr() net.Addr {
+	s.rm.Lock()
+	defer s.rm.Unlock()
 	conn := s.UnderlyingConn()
 	return conn.LocalAddr()
 }
 
 // TotalConnections returns total connections of device
 func (s *SSL) TotalConnections() int {
+	s.rm.Lock()
+	defer s.rm.Unlock()
 	return s.totalConnections
 }
 
 // TotalBytes returns total bytes that sent from device
 func (s *SSL) TotalBytes() int {
+	s.rm.Lock()
+	defer s.rm.Unlock()
 	return s.totalBytes
 }
 
 // UnderlyingConn returns connection of ssl
 func (s *SSL) UnderlyingConn() net.Conn {
+	s.rm.Lock()
+	defer s.rm.Unlock()
 	return s.conn.UnderlyingConn()
 }
 
@@ -330,7 +338,7 @@ func (s *SSL) sendPayload(payload []byte, withResponse bool) error {
 	}
 	s.rm.Lock()
 	s.totalBytes += n
-	defer s.rm.Unlock()
+	s.rm.Unlock()
 	if config.AppConfig.Debug {
 		log.Printf("Send %d bytes data to ssl\nData: %s\n", n, string(bytPay))
 	}

@@ -12,12 +12,10 @@ var AppConfig *Config
 
 // Config for poc-client
 type Config struct {
-	PemPath          string
-	KeyPath          string
-	RemoteRPCAddrs   []string
-	RemoteRPCTimeout time.Duration
-	RunRPCServer     bool
-	// RPCServerAddr      string
+	PemPath            string
+	KeyPath            string
+	RemoteRPCAddrs     []string
+	RemoteRPCTimeout   time.Duration
 	RunSocksServer     bool
 	SocksServerAddr    string
 	RunSocksWSServer   bool
@@ -56,9 +54,6 @@ func parseFlag() *Config {
 	keyPath := flag.String("keypath", "device_key.pem", "ssl client key")
 	remoteRPCAddr := flag.String("remoterpcaddr", "127.0.0.1:41043", "remote rpc address")
 	remoteRPCTimeout := flag.Int("remoterpctimeout", 1, "timeout seconds to connect to the remote rpc server")
-	runRPCServer := flag.Bool("runrpc", false, "run rpc server")
-	// rpc server connection is from ssl client
-	// rpcServerAddr := flag.String("rpcaddr", "127.0.0.1:8080", "rpc server address which listen to")
 	runSocksServer := flag.Bool("runsocks", false, "run socks server")
 	socksServerAddr := flag.String("socksaddr", "127.0.0.1:8080", "socks server address which listen to")
 	runSocksWSServer := flag.Bool("runsocksws", false, "run socks with websocket server")
@@ -99,12 +94,10 @@ func parseFlag() *Config {
 		panic(err)
 	}
 	config := &Config{
-		PemPath:          *pemPath,
-		KeyPath:          *keyPath,
-		RemoteRPCAddrs:   remoteRPCAddrs,
-		RemoteRPCTimeout: remoteRPCTimeoutTime,
-		RunRPCServer:     *runRPCServer,
-		// RPCServerAddr:      *rpcServerAddr,
+		PemPath:            *pemPath,
+		KeyPath:            *keyPath,
+		RemoteRPCAddrs:     remoteRPCAddrs,
+		RemoteRPCTimeout:   remoteRPCTimeoutTime,
 		RunSocksServer:     *runSocksServer,
 		SocksServerAddr:    *socksServerAddr,
 		RunSocksWSServer:   *runSocksWSServer,
