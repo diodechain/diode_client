@@ -526,13 +526,30 @@ func (blockHeader *BlockHeader) ValidateSig() (bool, error) {
 	return secp256k1.VerifySignature(pubkey, msgHash, sig), nil
 }
 
-// RecoverDevicePubKey returns uncompressed device public key
-func (deviceObj *DeviceObj) RecoverDevicePubKey() ([]byte, error) {
+// HashWithoutSig returns hash of device object without device signature
+func (deviceObj *DeviceObj) HashWithoutSig() ([]byte, error) {
 	msg, err := bert.Encode([6]bert.Term{deviceObj.ServerID, deviceObj.PeakBlock, deviceObj.FleetAddr, deviceObj.TotalConnections, deviceObj.TotalBytes, deviceObj.LocalAddr})
 	if err != nil {
 		return nil, err
 	}
-	hashMsg := crypto.Sha256(msg)
+	return crypto.Sha256(msg), nil
+}
+
+// Hash returns hash of device object
+func (deviceObj *DeviceObj) Hash() ([]byte, error) {
+	msg, err := bert.Encode([7]bert.Term{deviceObj.ServerID, deviceObj.PeakBlock, deviceObj.FleetAddr, deviceObj.TotalConnections, deviceObj.TotalBytes, deviceObj.LocalAddr, deviceObj.DeviceSig})
+	if err != nil {
+		return nil, err
+	}
+	return crypto.Sha256(msg), nil
+}
+
+// RecoverDevicePubKey returns uncompressed device public key
+func (deviceObj *DeviceObj) RecoverDevicePubKey() ([]byte, error) {
+	hashMsg, err := deviceObj.HashWithoutSig()
+	if err != nil {
+		return nil, err
+	}
 	pubKey, err := secp256k1.RecoverPubkey(hashMsg, deviceObj.DeviceSig)
 	if err != nil {
 		return nil, err
@@ -547,14 +564,6 @@ func (deviceObj *DeviceObj) DeviceAddress() ([]byte, error) {
 		return nil, err
 	}
 	return crypto.PubkeyToAddress(devicePubkey)
-}
-
-func (deviceObj *DeviceObj) Hash() ([]byte, error) {
-	msg, err := bert.Encode([7]bert.Term{deviceObj.ServerID, deviceObj.PeakBlock, deviceObj.FleetAddr, deviceObj.TotalConnections, deviceObj.TotalBytes, deviceObj.LocalAddr, deviceObj.DeviceSig})
-	if err != nil {
-		return nil, err
-	}
-	return crypto.Sha256(msg), nil
 }
 
 // RecoverServerPubKey returns server public key
@@ -580,6 +589,7 @@ func (deviceObj *DeviceObj) ValidateSig() bool {
 	if err != nil {
 		return false
 	}
+	log.Println(serverID, deviceObj.ServerID)
 	return bytes.Equal(deviceObj.ServerID, serverID)
 }
 
