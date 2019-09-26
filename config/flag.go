@@ -2,10 +2,11 @@ package config
 
 import (
 	"flag"
-	"poc-client/util"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/diode_go_client/util"
 )
 
 var AppConfig *Config

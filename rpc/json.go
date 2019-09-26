@@ -3,10 +3,10 @@ package rpc
 import (
 	"bytes"
 	"fmt"
+	"github.com/diode_go_client/config"
+	"github.com/diode_go_client/crypto/secp256k1"
 	"log"
 	"math/big"
-	"poc-client/config"
-	"poc-client/crypto/secp256k1"
 	"strconv"
 	"strings"
 

@@ -4,10 +4,11 @@ import (
 	"bytes"
 	"encoding/hex"
 	"math/big"
-	"poc-client/crypto"
 	"strings"
 
-	"poc-client/rlp"
+	"github.com/diode_go_client/crypto"
+
+	"github.com/diode_go_client/rlp"
 
 	bert "github.com/exosite/gobert"
 )

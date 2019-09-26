@@ -4,9 +4,10 @@ import (
 	"log"
 	"os"
 	"os/signal"
-	"poc-client/config"
-	"poc-client/rpc"
 	"time"
+
+	"github.com/diode_go_client/config"
+	"github.com/diode_go_client/rpc"
 
 	"github.com/exosite/openssl"
 )

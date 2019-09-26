@@ -9,12 +9,12 @@ import (
 	"github.com/gorilla/websocket"
 
 	// "io"
+	"github.com/diode_go_client/crypto"
+	"github.com/diode_go_client/crypto/secp256k1"
 	"net"
-	"poc-client/crypto"
-	"poc-client/crypto/secp256k1"
 
-	// "poc-client/crypto/sha3"
-	// "poc-client/util"
+	// "github.com/diode_go_client/crypto/sha3"
+	// "github.com/diode_go_client/util"
 	"sync"
 
 	bert "github.com/exosite/gobert"

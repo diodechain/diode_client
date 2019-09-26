@@ -9,8 +9,8 @@ import (
 	//"strings"
 
 	"github.com/buger/jsonparser"
+	"github.com/diode_go_client/util"
 	bert "github.com/exosite/gobert"
-	"poc-client/util"
 )
 
 var errorWrongTree = fmt.Errorf("Wrong merkle tree data")

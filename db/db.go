@@ -3,9 +3,9 @@ package db
 import (
 	"bytes"
 	"fmt"
+	"github.com/diode_go_client/config"
 	"log"
 	"os"
-	"poc-client/config"
 	"sync"
 )
 
