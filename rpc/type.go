@@ -106,8 +106,10 @@ type PortClose struct {
 }
 
 type DeviceObj struct {
+	ServerPubKey     []byte
 	ServerID         []byte
-	PeakBlock        []byte
+	PeakBlock        int64
+	PeakBlockHash    []byte
 	FleetAddr        []byte
 	TotalConnections int64
 	TotalBytes       int64
@@ -528,7 +530,7 @@ func (blockHeader *BlockHeader) ValidateSig() (bool, error) {
 
 // HashWithoutSig returns hash of device object without device signature
 func (deviceObj *DeviceObj) HashWithoutSig() ([]byte, error) {
-	msg, err := bert.Encode([6]bert.Term{deviceObj.ServerID, deviceObj.PeakBlock, deviceObj.FleetAddr, deviceObj.TotalConnections, deviceObj.TotalBytes, deviceObj.LocalAddr})
+	msg, err := bert.Encode([6]bert.Term{deviceObj.ServerID, deviceObj.PeakBlockHash, deviceObj.FleetAddr, deviceObj.TotalConnections, deviceObj.TotalBytes, deviceObj.LocalAddr})
 	if err != nil {
 		return nil, err
 	}
@@ -537,7 +539,7 @@ func (deviceObj *DeviceObj) HashWithoutSig() ([]byte, error) {
 
 // Hash returns hash of device object
 func (deviceObj *DeviceObj) Hash() ([]byte, error) {
-	msg, err := bert.Encode([7]bert.Term{deviceObj.ServerID, deviceObj.PeakBlock, deviceObj.FleetAddr, deviceObj.TotalConnections, deviceObj.TotalBytes, deviceObj.LocalAddr, deviceObj.DeviceSig})
+	msg, err := bert.Encode([7]bert.Term{deviceObj.ServerID, deviceObj.PeakBlockHash, deviceObj.FleetAddr, deviceObj.TotalConnections, deviceObj.TotalBytes, deviceObj.LocalAddr, deviceObj.DeviceSig})
 	if err != nil {
 		return nil, err
 	}

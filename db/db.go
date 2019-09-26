@@ -3,10 +3,11 @@ package db
 import (
 	"bytes"
 	"fmt"
-	"github.com/diode_go_client/config"
 	"log"
 	"os"
 	"sync"
+
+	"github.com/diode_go_client/config"
 )
 
 var (

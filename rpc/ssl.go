@@ -7,12 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/pem"
 	"fmt"
-	"github.com/diode_go_client/config"
-	"github.com/diode_go_client/contract"
-	"github.com/diode_go_client/crypto"
-	"github.com/diode_go_client/crypto/secp256k1"
-	"github.com/diode_go_client/db"
-	"github.com/diode_go_client/util"
 	"io"
 	"io/ioutil"
 	"log"
@@ -21,6 +15,13 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/diode_go_client/config"
+	"github.com/diode_go_client/contract"
+	"github.com/diode_go_client/crypto"
+	"github.com/diode_go_client/crypto/secp256k1"
+	"github.com/diode_go_client/db"
+	"github.com/diode_go_client/util"
 
 	"github.com/exosite/openssl"
 	"github.com/felixge/tcpkeepalive"
@@ -593,7 +594,16 @@ func (s *SSL) GetObject(withResponse bool, deviceID []byte) (*DeviceObj, error) 
 	if err != nil || !withResponse {
 		return nil, err
 	}
-	return parseDeviceObj(rawObject.RawData[0])
+	deviceObj, err := parseDeviceObj(rawObject.RawData[0])
+	if err != nil {
+		return nil, err
+	}
+	serverPubKey, err := s.GetServerPubKey()
+	if err != nil {
+		return nil, err
+	}
+	deviceObj.ServerPubKey = serverPubKey
+	return deviceObj, nil
 }
 
 // GetNode returns network address for node

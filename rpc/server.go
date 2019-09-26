@@ -91,6 +91,13 @@ func (rpcServer *RPCServer) Start() {
 					DeviceObjChan <- deviceObj
 					continue
 				}
+				serverPubKey, err := rpcServer.s.GetServerPubKey()
+				if err != nil {
+					log.Println(err)
+					DeviceObjChan <- deviceObj
+					continue
+				}
+				deviceObj.ServerPubKey = serverPubKey
 				DeviceObjChan <- deviceObj
 			} else if bytes.Equal(response.Method, GetNodeType) {
 				serverObj, err := parseServerObj(response.RawData[0])
@@ -300,7 +307,7 @@ func (rpcServer *RPCServer) WatchTotalBytes() {
 	}
 	rpcServer.wg.Add(1)
 	go func() {
-		rpcServer.ticker = time.NewTicker(100 * time.Millisecond)
+		rpcServer.ticker = time.NewTicker(500 * time.Millisecond)
 		for {
 			select {
 			case <-rpcServer.finishedTickerChan:

@@ -3,14 +3,14 @@ package rpc
 import (
 	"bytes"
 	"fmt"
-	"github.com/diode_go_client/config"
-	"github.com/diode_go_client/crypto/secp256k1"
 	"log"
 	"math/big"
 	"strconv"
 	"strings"
 
 	"github.com/buger/jsonparser"
+	"github.com/diode_go_client/config"
+	"github.com/diode_go_client/crypto/secp256k1"
 )
 
 // Marshal the data
@@ -265,7 +265,7 @@ func parseDeviceObj(rawObject []byte) (*DeviceObj, error) {
 	if err != nil {
 		return nil, err
 	}
-	dpeakBlock, err := DecodeString(peakBlock[:])
+	dpeakBlock, err := DecodeStringToInt(peakBlock[:])
 	if err != nil {
 		return nil, err
 	}
@@ -293,9 +293,14 @@ func parseDeviceObj(rawObject []byte) (*DeviceObj, error) {
 	if err != nil {
 		return nil, err
 	}
+	dpeakBlockHash := []byte{}
+	if ValidBlockHeaders[int(dpeakBlock)] != nil {
+		dpeakBlockHash = ValidBlockHeaders[int(dpeakBlock)].BlockHash
+	}
 	deviceObj := &DeviceObj{
 		ServerID:         dserverID,
 		PeakBlock:        dpeakBlock,
+		PeakBlockHash:    dpeakBlockHash,
 		FleetAddr:        dfleetAddr,
 		TotalConnections: dtotalConnections,
 		TotalBytes:       dtotalBytes,
