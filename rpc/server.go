@@ -307,15 +307,15 @@ func (rpcServer *RPCServer) WatchTotalBytes() {
 	}
 	rpcServer.wg.Add(1)
 	go func() {
-		rpcServer.ticker = time.NewTicker(500 * time.Millisecond)
+		rpcServer.ticker = time.NewTicker(100 * time.Millisecond)
 		for {
 			select {
 			case <-rpcServer.finishedTickerChan:
 				rpcServer.wg.Done()
 				return
 			case <-rpcServer.ticker.C:
-				counter := rpcServer.s.Counter() + 1
-				if rpcServer.s.TotalBytes() > counter*1024 {
+				counter := rpcServer.s.Counter()
+				if rpcServer.s.TotalBytes() > counter+1024 {
 					bn := LBN
 					if ValidBlockHeaders[bn] == nil {
 						continue

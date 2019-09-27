@@ -13,6 +13,8 @@ github.com/buger/jsonparser v0.0.0-20181115193947-bf1c66bbce23/go.mod h1:bbYlZJ7
 github.com/davecgh/go-spew v0.0.0-20171005155431-ecdeabc65495/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
 github.com/davecgh/go-spew v1.1.0 h1:ZDRjVQ15GmhC3fiQ8ni8+OwkZQO4DARzQgrnXU1Liz8=
 github.com/davecgh/go-spew v1.1.0/go.mod h1:J7Y8YcW2NihsgmVo/mv3lAwl/skON4iLHjSsI+c5H38=
+github.com/diodechain/go-cache v2.1.0+incompatible h1:hwwJSO9NA0iG40CxCWYF80lJOEcX6BsisfPQ3S11/0o=
+github.com/diodechain/go-cache v2.1.0+incompatible/go.mod h1:yG22NI4DfcPMlZ6vtzCCdx9PRBULGG8YKN/yeBn9UUQ=
 github.com/ethereum/go-ethereum v1.9.5 h1:4oxsF+/3N/sTgda9XTVG4r+wMVLsveziSMcK83hPbsk=
 github.com/ethereum/go-ethereum v1.9.5/go.mod h1:PwpWDrCLZrV+tfrhqqF6kPknbISMHaJv9Ln3kPCZLwY=
 github.com/exosite/gobert v0.0.0-20190402090846-ebd269c5657e h1:m81bROr88QaI9YG3ddF3YGtM92ub1JQDJnn2LIUxVn0=

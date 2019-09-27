@@ -591,7 +591,6 @@ func (deviceObj *DeviceObj) ValidateSig() bool {
 	if err != nil {
 		return false
 	}
-	log.Println(serverID, deviceObj.ServerID)
 	return bytes.Equal(deviceObj.ServerID, serverID)
 }
 

@@ -22,6 +22,7 @@ import (
 	"github.com/diode_go_client/crypto/secp256k1"
 	"github.com/diode_go_client/db"
 	"github.com/diode_go_client/util"
+	"github.com/diodechain/go-cache"
 
 	"github.com/exosite/openssl"
 	"github.com/felixge/tcpkeepalive"
@@ -38,6 +39,7 @@ type SSL struct {
 	keepAliveCount    int
 	keepAliveIdle     time.Duration
 	keepAliveInterval time.Duration
+	memoryCache       *cache.Cache
 	closed            bool
 	totalConnections  int
 	totalBytes        int
@@ -70,11 +72,13 @@ func Dial(addr string, certFile string, keyFile string, mode openssl.DialFlags) 
 	if err != nil {
 		return nil, err
 	}
+	c := cache.New(5*time.Minute, 10*time.Minute)
 	s := &SSL{
-		conn: conn,
-		ctx:  ctx,
-		addr: addr,
-		mode: mode,
+		conn:        conn,
+		ctx:         ctx,
+		addr:        addr,
+		mode:        mode,
+		memoryCache: c,
 	}
 	return s, nil
 }
@@ -85,11 +89,13 @@ func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags) (*SSL, e
 	if err != nil {
 		return nil, err
 	}
+	c := cache.New(5*time.Minute, 10*time.Minute)
 	s := &SSL{
-		conn: conn,
-		ctx:  ctx,
-		addr: addr,
-		mode: mode,
+		conn:        conn,
+		ctx:         ctx,
+		addr:        addr,
+		mode:        mode,
+		memoryCache: c,
 	}
 	return s, nil
 }
@@ -132,8 +138,6 @@ func (s *SSL) reconnect() error {
 
 // LocalAddr returns address of ssl connection
 func (s *SSL) LocalAddr() net.Addr {
-	s.rm.Lock()
-	defer s.rm.Unlock()
 	conn := s.UnderlyingConn()
 	return conn.LocalAddr()
 }
@@ -179,6 +183,13 @@ func (s *SSL) Close() error {
 	defer s.rm.Unlock()
 	s.closed = true
 	return s.conn.Close()
+}
+
+// MemoryCache returns memory cache
+func (s *SSL) MemoryCache() *cache.Cache {
+	s.rm.Lock()
+	defer s.rm.Unlock()
+	return s.memoryCache
 }
 
 // EnableKeepAlive enable the tcp keepalive package in os level, could use ping instead
@@ -307,11 +318,11 @@ func (s *SSL) incrementBytes(n int) {
 
 func (s *SSL) readContext() ([]byte, error) {
 	s.rc.Lock()
-	defer s.rc.Unlock()
 	// read length of response
 	lenByt := make([]byte, 2)
 	n, err := s.conn.Read(lenByt)
 	if err != nil {
+		s.rc.Unlock()
 		if err == io.EOF ||
 			strings.Contains(err.Error(), "connection reset by peer") {
 			isOk := s.Reconnect()
@@ -327,6 +338,7 @@ func (s *SSL) readContext() ([]byte, error) {
 	res := make([]byte, lenr)
 	n, err = s.conn.Read(res)
 	if err != nil {
+		s.rc.Unlock()
 		if err == io.EOF ||
 			strings.Contains(err.Error(), "connection reset by peer") {
 			if s.Closed() {
@@ -344,6 +356,7 @@ func (s *SSL) readContext() ([]byte, error) {
 	s.rm.Lock()
 	s.totalBytes += n
 	s.rm.Unlock()
+	s.rc.Unlock()
 	if config.AppConfig.Debug {
 		log.Printf("Receive %d bytes data from ssl\n", n)
 	}
@@ -640,7 +653,7 @@ func (s *SSL) NewTicket(bn int, blockHash []byte, fleetAddr []byte, localAddr []
 	}
 	s.rm.Lock()
 	defer s.rm.Unlock()
-	s.counter++
+	s.counter = s.totalBytes
 	ticket := &Ticket{
 		ServerID:         serverID,
 		BlockNumber:      bn,

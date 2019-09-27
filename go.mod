@@ -5,6 +5,7 @@ go 1.13
 require (
 	github.com/btcsuite/btcd v0.0.0-20190926002857-ba530c4abb35 // indirect
 	github.com/buger/jsonparser v0.0.0-20181115193947-bf1c66bbce23
+	github.com/diodechain/go-cache v2.1.0+incompatible
 	github.com/ethereum/go-ethereum v1.9.5
 	github.com/exosite/gobert v0.0.0-20190402090846-ebd269c5657e
 	github.com/exosite/openssl v0.0.0-20190103104001-47d59e4c9266

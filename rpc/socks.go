@@ -20,6 +20,8 @@ import (
 
 	"regexp"
 	"strconv"
+
+	"github.com/diodechain/go-cache"
 )
 
 var (
@@ -58,8 +60,8 @@ const (
 	// 00[“portsend”,”data”]
 	// fixed: 17 bytes
 	// see: https://www.igvita.com/2013/10/24/optimizing-tls-record-size-and-buffering-latency/
-	readBufferSize  = 8000
-	writeBufferSize = 8000
+	readBufferSize  = 6000
+	writeBufferSize = 6000
 )
 
 type SocksConfig struct {
@@ -239,6 +241,7 @@ func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID strin
 	rep[0] = socksVer5
 	clientIP := conn.RemoteAddr().String()
 	connDevice := devices.GetDevice(clientIP)
+	mc := socksServer.s.MemoryCache()
 	// check device id
 	if connDevice.Ref == 0 {
 		// decode device id
@@ -251,33 +254,39 @@ func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID strin
 			return
 		}
 		// call getobject rpc
-		_, err = socksServer.s.GetObject(false, dDeviceID)
-		if err != nil {
-			log.Println(err)
-			rep[1] = socksRepServerFailed
-			conn.Write(rep[:])
-			return
-		}
-		deviceObj := <-DeviceObjChan
-		if deviceObj.Err != nil {
-			log.Println("couldn't find device object")
-			rep[1] = socksRepHostUnreachable
-			conn.Write(rep[:])
-			return
-		}
-		if !deviceObj.ValidateSig() {
-			log.Println("wrong signature in device object")
-			rep[1] = socksRepServerFailed
-			conn.Write(rep[:])
-			return
+		// mc.Set("foo", "bar", cache.DefaultExpiration)
+		_, hit := mc.Get(deviceID)
+		if !hit {
+			_, err = socksServer.s.GetObject(false, dDeviceID)
+			if err != nil {
+				log.Println(err)
+				rep[1] = socksRepServerFailed
+				conn.Write(rep[:])
+				return
+			}
+			deviceObj := <-DeviceObjChan
+			if deviceObj.Err != nil {
+				log.Println("couldn't find device object")
+				rep[1] = socksRepHostUnreachable
+				conn.Write(rep[:])
+				return
+			}
+			if !deviceObj.ValidateSig() {
+				log.Println("wrong signature in device object")
+				rep[1] = socksRepServerFailed
+				conn.Write(rep[:])
+				return
+			}
+			mc.Set(deviceID, true, cache.DefaultExpiration)
 		}
 		// check access
 		fleetAddr := socksServer.Config.FleetAddr
-		isDeviceWhitelisted, err := socksServer.s.IsDeviceWhitelisted(false, fleetAddr, dDeviceID)
-		if err != nil {
-			log.Println(err)
+		isDeviceWhitelisted, hit := mc.Get(deviceID + "devicewhitelist")
+		if !hit {
+			isDeviceWhitelisted, _ = socksServer.s.IsDeviceWhitelisted(false, fleetAddr, dDeviceID)
+			mc.Set(deviceID+"devicewhitelist", isDeviceWhitelisted, cache.DefaultExpiration)
 		}
-		if !isDeviceWhitelisted {
+		if !isDeviceWhitelisted.(bool) {
 			log.Println("Device wasn't not white listed")
 			conn.Write(rep[:])
 			return
@@ -289,11 +298,12 @@ func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID strin
 			conn.Write(rep[:])
 			return
 		}
-		isAccessWhitelisted, err := socksServer.s.IsAccessWhitelisted(false, fleetAddr, dDeviceID, clientAddr)
-		if err != nil {
-			log.Println(err)
+		isAccessWhitelisted, hit := mc.Get(deviceID + "accesswhitelist")
+		if !hit {
+			isAccessWhitelisted, _ = socksServer.s.IsAccessWhitelisted(false, fleetAddr, dDeviceID, clientAddr)
+			mc.Set(deviceID+"accesswhitelist", isDeviceWhitelisted, cache.DefaultExpiration)
 		}
-		if !isAccessWhitelisted {
+		if !isAccessWhitelisted.(bool) {
 			log.Println("Access was not whitelisted")
 			conn.Write(rep[:])
 			return
