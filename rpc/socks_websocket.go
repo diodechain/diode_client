@@ -260,7 +260,7 @@ func (socksServer *SocksServer) pipeWebsocket(w http.ResponseWriter, r *http.Req
 		// wait for response
 		portOpen := <-PortOpenChan
 		// failed to open port
-		if portOpen.Err != nil {
+		if portOpen != nil && portOpen.Err != nil {
 			log.Printf("Failed to open port: %s", string(portOpen.Err.Raw))
 			return
 		}

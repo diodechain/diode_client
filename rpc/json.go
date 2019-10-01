@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/buger/jsonparser"
-	"github.com/diode_go_client/config"
 	"github.com/diode_go_client/crypto/secp256k1"
 )
 
@@ -479,7 +478,7 @@ func isErrorType(rawData []byte) (bool, error) {
 	return isErrorType, nil
 }
 
-func (s *SSL) newPortOpenRequest(request *Request) (*PortOpen, error) {
+func newPortOpenRequest(request *Request) (*PortOpen, error) {
 	hexPort, err := jsonparser.GetString(request.Raw, "[1]")
 	if err != nil {
 		return nil, err
@@ -506,17 +505,6 @@ func (s *SSL) newPortOpenRequest(request *Request) (*PortOpen, error) {
 	if err != nil {
 		return nil, err
 	}
-	resMsg, err := newMessage("response", string(request.Method), int(ref), "ok")
-	if err != nil {
-		return nil, err
-	}
-	if config.AppConfig.Debug {
-		log.Println(port, ref, deviceId, string(resMsg))
-	}
-	err = s.sendPayload(resMsg, false)
-	if err != nil {
-		return nil, err
-	}
 	portOpen := &PortOpen{
 		Port:     port,
 		Ref:      ref,
@@ -526,7 +514,7 @@ func (s *SSL) newPortOpenRequest(request *Request) (*PortOpen, error) {
 	return portOpen, nil
 }
 
-func (s *SSL) newPortSendRequest(request *Request) (*PortSend, error) {
+func newPortSendRequest(request *Request) (*PortSend, error) {
 	hexRef, err := jsonparser.GetString(request.Raw, "[1]")
 	if err != nil {
 		return nil, err
@@ -542,14 +530,6 @@ func (s *SSL) newPortSendRequest(request *Request) (*PortSend, error) {
 	if err != nil {
 		return nil, err
 	}
-	// resMsg, err := newMessage("response", string(request.Method), "ok")
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// err = s.sendPayload(resMsg, false)
-	// if err != nil {
-	// 	return nil, err
-	// }
 	portSend := &PortSend{
 		Ref:  ref,
 		Data: data,
@@ -558,7 +538,7 @@ func (s *SSL) newPortSendRequest(request *Request) (*PortSend, error) {
 	return portSend, nil
 }
 
-func (s *SSL) newPortCloseRequest(request *Request) (*PortClose, error) {
+func newPortCloseRequest(request *Request) (*PortClose, error) {
 	hexRef, err := jsonparser.GetString(request.Raw, "[1]")
 	if err != nil {
 		return nil, err
@@ -570,14 +550,6 @@ func (s *SSL) newPortCloseRequest(request *Request) (*PortClose, error) {
 	refBig := &big.Int{}
 	refBig.SetBytes(refByt)
 	ref := refBig.Int64()
-	// resMsg, err := newMessage("response", string(request.Method), "ok")
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// err = s.sendPayload(resMsg, false)
-	// if err != nil {
-	// 	return nil, err
-	// }
 	portClose := &PortClose{
 		Ref: ref,
 		Ok:  true,

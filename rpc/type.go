@@ -9,9 +9,10 @@ import (
 	"github.com/gorilla/websocket"
 
 	// "io"
+	"net"
+
 	"github.com/diode_go_client/crypto"
 	"github.com/diode_go_client/crypto/secp256k1"
-	"net"
 
 	// "github.com/diode_go_client/crypto/sha3"
 	// "github.com/diode_go_client/util"
@@ -39,7 +40,7 @@ var NullData = []byte("null")
 var ResponseChan = make(chan *Response, 1024)
 var RequestChan = make(chan *Request, 1024)
 var PortOpenChan = make(chan *PortOpen)
-var PortCloseChan = make(chan *PortClose)
+
 var DeviceObjChan = make(chan *DeviceObj)
 var ServerObjChan = make(chan *ServerObj)
 var ErrorChan = make(chan *Error)
@@ -378,13 +379,21 @@ func (d *Devices) FindDeviceByRef(ref int64) ConnectedDevice {
 }
 
 // ConnectedDevice connected device
-// TODO: Add mutex
 type ConnectedDevice struct {
 	Ref       int64
 	ClientID  string
 	DeviceID  string
 	DDeviceID []byte
 	Conn      ConnectedConn
+}
+
+// Close the connection of device
+func (device *ConnectedDevice) Close() {
+	if device.Conn.IsWS {
+		// device.Conn.Close()
+	} else {
+		device.Conn.Close()
+	}
 }
 
 func (device *ConnectedDevice) copyToSSL(s *SSL) {
@@ -394,12 +403,9 @@ func (device *ConnectedDevice) copyToSSL(s *SSL) {
 		// check if disconnect
 		if devices.GetDevice(device.ClientID).Ref != 0 {
 			// send portclose request and channel
+			device.Close()
+			devices.DelDevice(device.ClientID)
 			s.PortClose(false, ref)
-			portClose := &PortClose{
-				Ref: int64(ref),
-				Ok:  true,
-			}
-			PortCloseChan <- portClose
 		}
 	}
 	return
@@ -411,12 +417,28 @@ func (device *ConnectedDevice) writeToTCP(data []byte) {
 }
 
 // ConnectedConn connected net/websocket connection
-// TODO: Add mutex
 type ConnectedConn struct {
-	IsWS bool
-	// IsConnected bool
-	Conn   net.Conn
-	WSConn *websocket.Conn
+	IsWS        bool
+	IsConnected bool
+	Conn        net.Conn
+	WSConn      *websocket.Conn
+	rm          sync.Mutex
+}
+
+// Close the connection
+func (conn *ConnectedConn) Close() {
+	conn.rm.Lock()
+	defer conn.rm.Unlock()
+	if !conn.IsConnected {
+		return
+	}
+	if conn.IsWS {
+		// conn.WSConn.Close()
+	} else {
+		conn.Conn.Close()
+	}
+	conn.IsConnected = false
+	return
 }
 
 func (conn *ConnectedConn) copyToSSL(s *SSL, ref int) error {
@@ -424,51 +446,30 @@ func (conn *ConnectedConn) copyToSSL(s *SSL, ref int) error {
 		for {
 			_, buf, err := conn.WSConn.ReadMessage()
 			count := len(buf)
-			encStr := EncodeToString(buf[:count])
-			encBuf := []byte(fmt.Sprintf(`"%s"`, encStr[2:]))
 			if err != nil {
-				log.Println("Got error when read from websocket: " + err.Error())
-				// if err == io.EOF ||
-				// 	strings.Contains(err.Error(), "websocket: close") {
-				// disconnect from connection
-				if count > 0 {
-					s.PortSend(false, ref, encBuf)
-				}
+				// log.Println("Got error when read from websocket: " + err.Error(), ref)
 				return err
-				// }
 			}
 			if count > 0 {
+				encStr := EncodeToString(buf[:count])
+				encBuf := []byte(fmt.Sprintf(`"%s"`, encStr[2:]))
 				s.PortSend(false, ref, encBuf)
 			}
-			// log.Println("Sleep 100 milliseconds")
-			// time.Sleep(100 * time.Millisecond)
 		}
 	}
 	for {
 		buf := make([]byte, readBufferSize)
 		count, err := conn.Conn.Read(buf)
-		// if Verbose {
-		log.Printf("Read %d bytes data from connection... Start to send...", count)
-		// 	log.Println(string(buf[:count]))
-		// }
-		encStr := EncodeToString(buf[:count])
-		encBuf := []byte(fmt.Sprintf(`"%s"`, encStr[2:]))
 		if err != nil {
-			log.Println("Got error when read from tcp: " + err.Error())
-			// if err == io.EOF ||
-			// 	strings.Contains(err.Error(), "connection reset by peer") {
-			// disconnect from connection
-			if count > 0 {
-				s.PortSend(false, ref, encBuf)
-			}
+			log.Println("Got error when read from tcp: "+err.Error(), ref)
 			return err
-			// }
 		}
+		log.Printf("Read %d bytes data from connection... Start to send...", count)
 		if count > 0 {
+			encStr := EncodeToString(buf[:count])
+			encBuf := []byte(fmt.Sprintf(`"%s"`, encStr[2:]))
 			s.PortSend(false, ref, encBuf)
 		}
-		// log.Println("Sleep 100 milliseconds")
-		// time.Sleep(100 * time.Millisecond)
 	}
 }
 
@@ -476,23 +477,13 @@ func (conn *ConnectedConn) writeToTCP(data []byte) {
 	if conn.IsWS {
 		err := conn.WSConn.WriteMessage(websocket.BinaryMessage, data)
 		if err != nil {
-			log.Println("Websocket write error")
 			log.Println(err)
-			return
 		}
-	} else {
-		_, err := conn.Conn.Write(data)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		// if Verbose {
-		// log.Printf("Write %d bytes of data to client\n", n)
-		// 	log.Println(data)
-		// 	log.Println(string(data))
-		// }
-		// time.Sleep(100 * time.Millisecond)
 		return
+	}
+	_, err := conn.Conn.Write(data)
+	if err != nil {
+		log.Println(err)
 	}
 }
 

@@ -27,6 +27,7 @@ type RPCServer struct {
 	closeCallback      func()
 	finishedTickerChan chan bool
 	ticker             *time.Ticker
+	timeout            time.Duration
 }
 
 // Started returns whether rpc server had started
@@ -63,7 +64,7 @@ func (rpcServer *RPCServer) Start() {
 				// } else if bytes.Equal(err.Method, PortSendType) {
 				// } else if bytes.Equal(err.Method, PortCloseType) {
 			} else {
-				log.Println("Not support rpc error: " + string(err.Raw))
+				log.Println("Doesn't support rpc error: " + string(err.Raw))
 			}
 		}
 	}()
@@ -130,7 +131,6 @@ func (rpcServer *RPCServer) Start() {
 			} else {
 				log.Println("Doesn't support response: " + string(response.Method))
 			}
-			// time.Sleep(100 * time.Millisecond)
 		}
 	}()
 	// for request channel, device rpc
@@ -146,8 +146,9 @@ func (rpcServer *RPCServer) Start() {
 				log.Println("Readed request: " + string(request.Raw))
 			}
 			if bytes.Equal(request.Method, PortOpenType) {
-				portOpen, err := rpcServer.s.newPortOpenRequest(request)
+				portOpen, err := newPortOpenRequest(request)
 				if err != nil {
+					_ = rpcServer.s.ResponsePortOpen(portOpen, err)
 					log.Println(err)
 					continue
 				}
@@ -156,29 +157,25 @@ func (rpcServer *RPCServer) Start() {
 				log.Println("Accept portopen request")
 				// connect to stream service
 				host := net.JoinHostPort("localhost", strconv.Itoa(int(portOpen.Port)))
-				remoteConn, err := net.DialTimeout("tcp", host, time.Duration(time.Second*1))
+				remoteConn, err := net.DialTimeout("tcp", host, rpcServer.timeout)
 				if err != nil {
-					// maybe send openport failed
+					_ = rpcServer.s.ResponsePortOpen(portOpen, err)
 					log.Println("Connect remote failed:", err)
 					continue
 				}
+				_ = rpcServer.s.ResponsePortOpen(portOpen, nil)
 				connDevice.Ref = portOpen.Ref
 				connDevice.ClientID = clientID
 				connDevice.DeviceID = portOpen.DeviceId
 				connDevice.Conn.Conn = remoteConn
 				devices.SetDevice(clientID, connDevice)
-				defer remoteConn.Close()
 
 				go func() {
-					rpcServer.wg.Add(1)
-					// write data to ssl client
 					connDevice.copyToSSL(rpcServer.s)
-
-					remoteConn.Close()
-					rpcServer.wg.Done()
+					connDevice.Close()
 				}()
 			} else if bytes.Equal(request.Method, PortSendType) {
-				portSend, err := rpcServer.s.newPortSendRequest(request)
+				portSend, err := newPortSendRequest(request)
 				if err != nil {
 					log.Println(err)
 					continue
@@ -188,25 +185,31 @@ func (rpcServer *RPCServer) Start() {
 				_, err = Decode(decData, portSend.Data)
 				if err != nil {
 					log.Println(err)
-					decData = portSend.Data
+					// decData = portSend.Data
 				}
 				if rpcServer.Config.Verbose {
-					log.Printf("Decrypt portsend: %s", string(decData[:5]))
+					log.Printf("Decrypt portsend data")
 				}
 				// start to write data
 				connDevice := devices.FindDeviceByRef(portSend.Ref)
 				if connDevice.ClientID != "" {
 					connDevice.writeToTCP(decData)
 				} else {
-					log.Println("Cannot find the connected devise, drop data")
+					log.Println("Cannot find the connected device, drop data")
 				}
 			} else if bytes.Equal(request.Method, PortCloseType) {
-				portClose, err := rpcServer.s.newPortCloseRequest(request)
+				portClose, err := newPortCloseRequest(request)
 				if err != nil {
 					log.Println(err)
 				}
 				log.Println("Accept portclose request")
-				PortCloseChan <- portClose
+				connDevice := devices.FindDeviceByRef(portClose.Ref)
+				if connDevice.ClientID != "" {
+					connDevice.Close()
+					devices.DelDevice(connDevice.ClientID)
+				} else {
+					log.Println("Cannot find the connected device")
+				}
 			} else if bytes.Equal(request.Method, GoodbyeType) {
 				log.Printf("Server disconnected, reason: %s, %s\n", string(request.RawData[0]), string(request.RawData[1]))
 				rpcServer.rm.Lock()
@@ -217,32 +220,8 @@ func (rpcServer *RPCServer) Start() {
 					rpcServer.rm.Unlock()
 				}
 			} else {
-				log.Println("Not support rpc request: " + string(request.Raw))
+				log.Println("Doesn't support rpc request: " + string(request.Raw))
 			}
-		}
-	}()
-	// for portclose channel
-	rpcServer.wg.Add(1)
-	go func() {
-		for {
-			select {
-			case portClose, ok := <-PortCloseChan:
-				if !ok {
-					rpcServer.wg.Done()
-					return
-				}
-				// delete key from connectedDevice
-				connDevice := devices.FindDeviceByRef(portClose.Ref)
-				if connDevice.ClientID != "" {
-					if connDevice.Conn.IsWS {
-						// connDevice.Conn.WSConn.Close()
-					} else {
-						connDevice.Conn.Conn.Close()
-					}
-					devices.DelDevice(connDevice.ClientID)
-				}
-			}
-			// time.Sleep(100 * time.Millisecond)
 		}
 	}()
 	// rpc server
@@ -315,7 +294,7 @@ func (rpcServer *RPCServer) WatchTotalBytes() {
 				return
 			case <-rpcServer.ticker.C:
 				counter := rpcServer.s.Counter()
-				if rpcServer.s.TotalBytes() > counter+1024 {
+				if rpcServer.s.TotalBytes() > counter+1024 && !rpcServer.started {
 					bn := LBN
 					if ValidBlockHeaders[bn] == nil {
 						continue
@@ -359,7 +338,6 @@ func (rpcServer *RPCServer) Close() {
 	rpcServer.finishedTickerChan <- true
 	close(ResponseChan)
 	close(RequestChan)
-	close(PortCloseChan)
 	close(PortOpenChan)
 	close(ErrorChan)
 	close(rpcServer.finishedTickerChan)
@@ -378,6 +356,7 @@ func (s *SSL) NewRPCServer(config *RPCConfig, closeCallback func()) *RPCServer {
 		closed:             false,
 		closeCallback:      closeCallback,
 		finishedTickerChan: make(chan bool),
+		timeout:            100 * time.Millisecond,
 	}
 	return rpcServer
 }

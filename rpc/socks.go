@@ -60,8 +60,8 @@ const (
 	// 00[“portsend”,”data”]
 	// fixed: 17 bytes
 	// see: https://www.igvita.com/2013/10/24/optimizing-tls-record-size-and-buffering-latency/
-	readBufferSize  = 6000
-	writeBufferSize = 6000
+	readBufferSize  = 8000
+	writeBufferSize = 8000
 )
 
 type SocksConfig struct {
@@ -254,7 +254,6 @@ func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID strin
 			return
 		}
 		// call getobject rpc
-		// mc.Set("foo", "bar", cache.DefaultExpiration)
 		_, hit := mc.Get(deviceID)
 		if !hit {
 			_, err = socksServer.s.GetObject(false, dDeviceID)
@@ -322,7 +321,7 @@ func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID strin
 		// wait for response
 		portOpen := <-PortOpenChan
 		// failed to open port
-		if portOpen.Err != nil {
+		if portOpen != nil && portOpen.Err != nil {
 			log.Printf("Failed to open port: %s", string(portOpen.Err.Raw))
 			rep[1] = socksRepNetworkUnreachable
 			conn.Write(rep[:])
@@ -393,11 +392,10 @@ func (socksServer *SocksServer) handleSocksConnection(conn net.Conn) {
 	}
 	if !isWS {
 		socksServer.pipeSocksWhenClose(conn, deviceID, port, mode)
-	} else {
-		if socksServer.Config.EnableWS {
-			socksServer.pipeSocksWSWhenClose(conn, deviceID, port, mode)
-		}
+	} else if socksServer.Config.EnableWS {
+		socksServer.pipeSocksWSWhenClose(conn, deviceID, port, mode)
 	}
+	return
 }
 
 // Start socks server
@@ -413,11 +411,11 @@ func (socksServer *SocksServer) Start() error {
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
-				// log.Println(err)
+				log.Println(err)
 				return
 			}
 			if socksServer.Config.Verbose {
-				log.Println("new client:", conn.RemoteAddr())
+				log.Println("New socks client:", conn.RemoteAddr())
 			}
 			go socksServer.handleSocksConnection(conn)
 		}

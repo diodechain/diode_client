@@ -695,6 +695,24 @@ func (s *SSL) PortOpen(withResponse bool, deviceID string, port int, mode string
 	return parsePortOpen(rawPortOpen.RawData[0])
 }
 
+// ResponsePortOpen response portopen request
+func (s *SSL) ResponsePortOpen(portOpen *PortOpen, err error) error {
+	var resMsg []byte
+	if err != nil {
+		resMsg, err = newMessage("error", "portopen", int(portOpen.Ref), err.Error())
+	} else {
+		resMsg, err = newMessage("response", "portopen", int(portOpen.Ref), "ok")
+	}
+	if err != nil {
+		return err
+	}
+	err = s.sendPayload(resMsg, false)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 // PortSend call portsend RPC
 func (s *SSL) PortSend(withResponse bool, ref int, data []byte) (*Response, error) {
 	rawPortSend, err := s.CallContext("portsend", withResponse, ref, data)
