@@ -61,7 +61,12 @@ func (rpcServer *RPCServer) Start() {
 					Err: err,
 				}
 				PortOpenChan <- portOpen
-				// } else if bytes.Equal(err.Method, PortSendType) {
+			} else if bytes.Equal(err.Method, PortSendType) {
+				portSend := &PortSend{
+					Ok:  false,
+					Err: err,
+				}
+				PortSendChan <- portSend
 				// } else if bytes.Equal(err.Method, PortCloseType) {
 			} else {
 				log.Println("Doesn't support rpc error: " + string(err.Raw))
@@ -82,9 +87,14 @@ func (rpcServer *RPCServer) Start() {
 				portOpen, err := parsePortOpen(response.Raw)
 				if err != nil {
 					log.Println(err)
-					continue
 				}
 				PortOpenChan <- portOpen
+			} else if bytes.Equal(response.Method, PortSendType) {
+				portSend, err := parsePortSend(response.Raw)
+				if err != nil {
+					log.Println(err)
+				}
+				PortSendChan <- portSend
 			} else if bytes.Equal(response.Method, GetObjectType) {
 				deviceObj, err := parseDeviceObj(response.RawData[0])
 				if err != nil {
@@ -339,6 +349,7 @@ func (rpcServer *RPCServer) Close() {
 	close(ResponseChan)
 	close(RequestChan)
 	close(PortOpenChan)
+	close(PortSendChan)
 	close(ErrorChan)
 	close(rpcServer.finishedTickerChan)
 	rpcServer.closeCallback()

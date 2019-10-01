@@ -40,6 +40,7 @@ var NullData = []byte("null")
 var ResponseChan = make(chan *Response, 1024)
 var RequestChan = make(chan *Request, 1024)
 var PortOpenChan = make(chan *PortOpen)
+var PortSendChan = make(chan *PortSend)
 
 var DeviceObjChan = make(chan *DeviceObj)
 var ServerObjChan = make(chan *ServerObj)
@@ -99,6 +100,7 @@ type PortSend struct {
 	Ref  int64
 	Data []byte
 	Ok   bool
+	Err  *Error
 }
 
 type PortClose struct {
@@ -447,13 +449,17 @@ func (conn *ConnectedConn) copyToSSL(s *SSL, ref int) error {
 			_, buf, err := conn.WSConn.ReadMessage()
 			count := len(buf)
 			if err != nil {
-				// log.Println("Got error when read from websocket: " + err.Error(), ref)
 				return err
 			}
+			log.Printf("Read %d bytes data from connection... Start to send...", count)
 			if count > 0 {
 				encStr := EncodeToString(buf[:count])
 				encBuf := []byte(fmt.Sprintf(`"%s"`, encStr[2:]))
 				s.PortSend(false, ref, encBuf)
+				portSend := <-PortSendChan
+				if portSend != nil && portSend.Err != nil {
+					return fmt.Errorf(string(portSend.Err.RawMsg))
+				}
 			}
 		}
 	}
@@ -461,7 +467,6 @@ func (conn *ConnectedConn) copyToSSL(s *SSL, ref int) error {
 		buf := make([]byte, readBufferSize)
 		count, err := conn.Conn.Read(buf)
 		if err != nil {
-			log.Println("Got error when read from tcp: "+err.Error(), ref)
 			return err
 		}
 		log.Printf("Read %d bytes data from connection... Start to send...", count)
@@ -469,6 +474,10 @@ func (conn *ConnectedConn) copyToSSL(s *SSL, ref int) error {
 			encStr := EncodeToString(buf[:count])
 			encBuf := []byte(fmt.Sprintf(`"%s"`, encStr[2:]))
 			s.PortSend(false, ref, encBuf)
+			portSend := <-PortSendChan
+			if portSend != nil && portSend.Err != nil {
+				return fmt.Errorf(string(portSend.Err.RawMsg))
+			}
 		}
 	}
 }

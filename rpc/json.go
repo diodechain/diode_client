@@ -194,6 +194,17 @@ func parsePortOpen(rawResponse []byte) (*PortOpen, error) {
 	return portOpen, nil
 }
 
+func parsePortSend(rawResponse []byte) (*PortSend, error) {
+	ok, err := jsonparser.GetString(rawResponse, "[2]")
+	if err != nil {
+		return nil, err
+	}
+	portSend := &PortSend{
+		Ok: (ok == "ok"),
+	}
+	return portSend, nil
+}
+
 func parseRPCRequest(rawRequest []byte) (*Request, error) {
 	// correct response
 	method, _, _, err := jsonparser.Get(rawRequest, "[0]")
