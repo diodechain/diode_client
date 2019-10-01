@@ -304,7 +304,7 @@ func (rpcServer *RPCServer) WatchTotalBytes() {
 				return
 			case <-rpcServer.ticker.C:
 				counter := rpcServer.s.Counter()
-				if rpcServer.s.TotalBytes() > counter+1024 && !rpcServer.started {
+				if rpcServer.s.TotalBytes() > counter+1024 {
 					bn := LBN
 					if ValidBlockHeaders[bn] == nil {
 						continue
