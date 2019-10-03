@@ -13,7 +13,6 @@
 package rpc
 
 import (
-	"bytes"
 
 	// "fmt"
 	"io"
@@ -232,33 +231,33 @@ func (socksServer *SocksServer) pipeWebsocket(w http.ResponseWriter, r *http.Req
 			mc.Set(deviceID, true, cache.DefaultExpiration)
 		}
 		// check access
-		fleetAddr := socksServer.Config.FleetAddr
-		isDeviceWhitelisted, hit := mc.Get(deviceID + "devicewhitelist")
-		if !hit {
-			isDeviceWhitelisted, _ = socksServer.s.IsDeviceWhitelisted(false, fleetAddr, dDeviceID)
-			mc.Set(deviceID+"devicewhitelist", isDeviceWhitelisted, cache.DefaultExpiration)
-		}
-		if !isDeviceWhitelisted.(bool) {
-			log.Println("Device wasn't not white listed")
-			return
-		}
-		clientAddr, err := socksServer.s.GetClientAddress()
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		isAccessWhitelisted, hit := mc.Get(deviceID + "accesswhitelist")
-		if !hit {
-			isAccessWhitelisted, _ = socksServer.s.IsAccessWhitelisted(false, fleetAddr, dDeviceID, clientAddr)
-			mc.Set(deviceID+"accesswhitelist", isDeviceWhitelisted, cache.DefaultExpiration)
-		}
-		if !isAccessWhitelisted.(bool) {
-			log.Println("Access was not whitelisted")
-			return
-		}
-		if !bytes.Equal(prefixBytes, []byte(deviceID[0:prefixLength])) {
-			deviceID = prefix + deviceID
-		}
+		// fleetAddr := socksServer.Config.FleetAddr
+		// isDeviceWhitelisted, hit := mc.Get(deviceID + "devicewhitelist")
+		// if !hit {
+		// 	isDeviceWhitelisted, _ = socksServer.s.IsDeviceWhitelisted(false, fleetAddr, dDeviceID)
+		// 	mc.Set(deviceID+"devicewhitelist", isDeviceWhitelisted, cache.DefaultExpiration)
+		// }
+		// if !isDeviceWhitelisted.(bool) {
+		// 	log.Println("Device wasn't not white listed")
+		// 	return
+		// }
+		// clientAddr, err := socksServer.s.GetClientAddress()
+		// if err != nil {
+		// 	log.Println(err)
+		// 	return
+		// }
+		// isAccessWhitelisted, hit := mc.Get(deviceID + "accesswhitelist")
+		// if !hit {
+		// 	isAccessWhitelisted, _ = socksServer.s.IsAccessWhitelisted(false, fleetAddr, dDeviceID, clientAddr)
+		// 	mc.Set(deviceID+"accesswhitelist", isDeviceWhitelisted, cache.DefaultExpiration)
+		// }
+		// if !isAccessWhitelisted.(bool) {
+		// 	log.Println("Access was not whitelisted")
+		// 	return
+		// }
+		// if !bytes.Equal(prefixBytes, []byte(deviceID[0:prefixLength])) {
+		// 	deviceID = prefix + deviceID
+		// }
 		_, err = socksServer.s.PortOpen(false, deviceID, int(port), mode)
 		if err != nil {
 			log.Println(err)
