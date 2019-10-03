@@ -382,7 +382,7 @@ func (s *SSL) sendPayload(payload []byte, withResponse bool) error {
 	s.totalBytes += n
 	s.rm.Unlock()
 	if config.AppConfig.Debug {
-		log.Printf("Send %d bytes data to ssl\nData: %s\n", n, string(bytPay))
+		log.Printf("Send %d bytes data to ssl\n", n)
 	}
 	return nil
 }

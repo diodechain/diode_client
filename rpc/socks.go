@@ -245,7 +245,6 @@ func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID strin
 	// check device id
 	if connDevice.Ref == 0 {
 		// decode device id
-		log.Println(deviceID)
 		dDeviceID, err := DecodeString(deviceID)
 		if err != nil {
 			log.Println(err)

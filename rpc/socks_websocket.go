@@ -24,6 +24,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/diodechain/go-cache"
 	"github.com/gorilla/websocket"
 )
 
@@ -202,6 +203,7 @@ func (socksServer *SocksServer) pipeWebsocket(w http.ResponseWriter, r *http.Req
 	// deviceID = strings.ToLower(deviceID)
 	clientIP := c.RemoteAddr().String()
 	connDevice := devices.GetDevice(clientIP)
+	mc := socksServer.s.MemoryCache()
 	// check device id
 	if connDevice.Ref == 0 {
 		// decode device id
@@ -211,27 +213,32 @@ func (socksServer *SocksServer) pipeWebsocket(w http.ResponseWriter, r *http.Req
 			return
 		}
 		// call getobject rpc
-		_, err = socksServer.s.GetObject(false, dDeviceID)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		deviceObj := <-DeviceObjChan
-		if deviceObj.Err != nil {
-			log.Println("couldn't find device object")
-			return
-		}
-		if !deviceObj.ValidateSig() {
-			log.Println("wrong signature in device object")
-			return
+		_, hit := mc.Get(deviceID)
+		if !hit {
+			_, err = socksServer.s.GetObject(false, dDeviceID)
+			if err != nil {
+				log.Println(err)
+				return
+			}
+			deviceObj := <-DeviceObjChan
+			if deviceObj.Err != nil {
+				log.Println("couldn't find device object")
+				return
+			}
+			if !deviceObj.ValidateSig() {
+				log.Println("wrong signature in device object")
+				return
+			}
+			mc.Set(deviceID, true, cache.DefaultExpiration)
 		}
 		// check access
 		fleetAddr := socksServer.Config.FleetAddr
-		isDeviceWhitelisted, err := socksServer.s.IsDeviceWhitelisted(false, fleetAddr, dDeviceID)
-		if err != nil {
-			log.Println(err)
+		isDeviceWhitelisted, hit := mc.Get(deviceID + "devicewhitelist")
+		if !hit {
+			isDeviceWhitelisted, _ = socksServer.s.IsDeviceWhitelisted(false, fleetAddr, dDeviceID)
+			mc.Set(deviceID+"devicewhitelist", isDeviceWhitelisted, cache.DefaultExpiration)
 		}
-		if !isDeviceWhitelisted {
+		if !isDeviceWhitelisted.(bool) {
 			log.Println("Device wasn't not white listed")
 			return
 		}
@@ -240,11 +247,12 @@ func (socksServer *SocksServer) pipeWebsocket(w http.ResponseWriter, r *http.Req
 			log.Println(err)
 			return
 		}
-		isAccessWhitelisted, err := socksServer.s.IsAccessWhitelisted(false, fleetAddr, dDeviceID, clientAddr)
-		if err != nil {
-			log.Println(err)
+		isAccessWhitelisted, hit := mc.Get(deviceID + "accesswhitelist")
+		if !hit {
+			isAccessWhitelisted, _ = socksServer.s.IsAccessWhitelisted(false, fleetAddr, dDeviceID, clientAddr)
+			mc.Set(deviceID+"accesswhitelist", isDeviceWhitelisted, cache.DefaultExpiration)
 		}
-		if !isAccessWhitelisted {
+		if !isAccessWhitelisted.(bool) {
 			log.Println("Access was not whitelisted")
 			return
 		}
@@ -271,8 +279,8 @@ func (socksServer *SocksServer) pipeWebsocket(w http.ResponseWriter, r *http.Req
 		connDevice.Conn.IsWS = true
 		connDevice.Conn.WSConn = c
 		devices.SetDevice(clientIP, connDevice)
-		connDevice.copyToSSL(socksServer.s)
 	}
+	connDevice.copyToSSL(socksServer.s)
 }
 
 // StartWS start websocket server

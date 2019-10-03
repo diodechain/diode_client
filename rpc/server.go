@@ -152,9 +152,6 @@ func (rpcServer *RPCServer) Start() {
 				rpcServer.wg.Done()
 				break
 			}
-			if rpcServer.Config.Verbose {
-				log.Println("Readed request: " + string(request.Raw))
-			}
 			if bytes.Equal(request.Method, PortOpenType) {
 				portOpen, err := newPortOpenRequest(request)
 				if err != nil {
@@ -205,7 +202,8 @@ func (rpcServer *RPCServer) Start() {
 				if connDevice.ClientID != "" {
 					connDevice.writeToTCP(decData)
 				} else {
-					log.Println("Cannot find the connected device, drop data")
+					log.Println("Cannot find the connected device, drop data and close port")
+					rpcServer.s.PortClose(false, int(portSend.Ref))
 				}
 			} else if bytes.Equal(request.Method, PortCloseType) {
 				portClose, err := newPortCloseRequest(request)
@@ -230,7 +228,7 @@ func (rpcServer *RPCServer) Start() {
 					rpcServer.rm.Unlock()
 				}
 			} else {
-				log.Println("Doesn't support rpc request: " + string(request.Raw))
+				log.Println("Doesn't support rpc request: " + string(request.Method))
 			}
 		}
 	}()
