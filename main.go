@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/diode_go_client/config"
+	"github.com/diode_go_client/db"
 	"github.com/diode_go_client/rpc"
 
 	"github.com/exosite/openssl"
@@ -105,6 +106,13 @@ func main() {
 			}
 		}
 		defer client.Close()
+
+		// initialize db
+		clidb, err := db.OpenFile(config.DBPath)
+		if err != nil {
+			log.Fatal(err)
+		}
+		db.DB = clidb
 
 		// initialize rpc server
 		rpcConfig := &rpc.RPCConfig{

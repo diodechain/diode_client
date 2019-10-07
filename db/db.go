@@ -3,11 +3,8 @@ package db
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"os"
 	"sync"
-
-	"github.com/diode_go_client/config"
 )
 
 var (
@@ -187,13 +184,4 @@ func (db *Database) Close() error {
 	defer db.rm.Unlock()
 	err := db.db.Close()
 	return err
-}
-
-func init() {
-	DBPath = config.AppConfig.DBPath
-	db, err := OpenFile(DBPath)
-	if err != nil {
-		log.Fatal(err)
-	}
-	DB = db
 }
