@@ -20,23 +20,41 @@ var (
 	upperPrefix       = "0X"
 	upperPrefixBytes  = []byte(upperPrefix)
 	upperPrefixLength = len(upperPrefix)
+	hexStringBase     = []byte("0123456789abcdefABCDEF")
 )
 
+func isHexBytes(src []byte) bool {
+	for _, v := range src {
+		if bytes.IndexByte(hexStringBase, v) < 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// IsHex returns given bytes is hex (0x prefixed)
 func IsHex(src []byte) bool {
 	if len(src) < prefixLength {
 		return false
 	}
-	if bytes.Equal(prefixBytes, []byte(src[0:prefixLength])) {
+	if bytes.HasPrefix(src, prefixBytes) {
+		if !isHexBytes(src[2:]) {
+			return false
+		}
 		return true
 	}
 	return false
 }
 
+// IsHexNumber returns given bytes is hex number (0X prefixed)
 func IsHexNumber(src []byte) bool {
 	if len(src) < upperPrefixLength {
 		return false
 	}
-	if bytes.Equal(upperPrefixBytes, []byte(src[0:upperPrefixLength])) {
+	if bytes.HasPrefix(src, upperPrefixBytes) {
+		if !isHexBytes(src[2:]) {
+			return false
+		}
 		return true
 	}
 	return false
