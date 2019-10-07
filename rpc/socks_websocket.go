@@ -23,6 +23,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/diode_go_client/util"
 	"github.com/diodechain/go-cache"
 	"github.com/gorilla/websocket"
 )
@@ -206,7 +207,7 @@ func (socksServer *SocksServer) pipeWebsocket(w http.ResponseWriter, r *http.Req
 	// check device id
 	if connDevice.Ref == 0 {
 		// decode device id
-		dDeviceID, err := DecodeString(deviceID)
+		dDeviceID, err := util.DecodeString(deviceID)
 		if err != nil {
 			log.Println(err)
 			return

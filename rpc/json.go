@@ -10,6 +10,7 @@ import (
 
 	"github.com/buger/jsonparser"
 	"github.com/diode_go_client/crypto/secp256k1"
+	"github.com/diode_go_client/util"
 )
 
 // Marshal the data
@@ -115,35 +116,35 @@ func parseBlockHeader(rawHeader []byte) (*BlockHeader, error) {
 	// miner was removed
 	// miner, _, _, _ := jsonparser.Get(rawHeader, "miner")
 	// decode header
-	dtxHash, err := DecodeString(string(txHash[:]))
+	dtxHash, err := util.DecodeString(string(txHash[:]))
 	if err != nil {
 		return nil, err
 	}
-	dstateHash, err := DecodeString(string(stateHash[:]))
+	dstateHash, err := util.DecodeString(string(stateHash[:]))
 	if err != nil {
 		return nil, err
 	}
-	dminerSig, err := DecodeString(string(minerSig[:]))
+	dminerSig, err := util.DecodeString(string(minerSig[:]))
 	if err != nil {
 		return nil, err
 	}
-	dminerPubkey, err := DecodeString(string(minerPubkey[:]))
+	dminerPubkey, err := util.DecodeString(string(minerPubkey[:]))
 	if err != nil {
 		return nil, err
 	}
-	dprevBlock, err := DecodeString(string(prevBlock[:]))
+	dprevBlock, err := util.DecodeString(string(prevBlock[:]))
 	if err != nil {
 		return nil, err
 	}
-	dblockHash, err := DecodeString(string(blockHash[:]))
+	dblockHash, err := util.DecodeString(string(blockHash[:]))
 	if err != nil {
 		return nil, err
 	}
-	dtimestamp, err := DecodeStringToInt(string(timestamp[:]))
+	dtimestamp, err := util.DecodeStringToInt(string(timestamp[:]))
 	if err != nil {
 		return nil, err
 	}
-	dnonce, err := DecodeStringToInt(string(nonce[:]))
+	dnonce, err := util.DecodeStringToInt(string(nonce[:]))
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +181,7 @@ func parsePortOpen(rawResponse []byte) (*PortOpen, error) {
 	if err != nil {
 		return nil, err
 	}
-	refByt, err := DecodeString(hexRef)
+	refByt, err := util.DecodeString(hexRef)
 	if err != nil {
 		return nil, err
 	}
@@ -271,35 +272,35 @@ func parseDeviceObj(rawObject []byte) (*DeviceObj, error) {
 	if err != nil {
 		return nil, err
 	}
-	dserverID, err := DecodeString(serverID[:])
+	dserverID, err := util.DecodeString(serverID[:])
 	if err != nil {
 		return nil, err
 	}
-	dpeakBlock, err := DecodeStringToInt(peakBlock[:])
+	dpeakBlock, err := util.DecodeStringToInt(peakBlock[:])
 	if err != nil {
 		return nil, err
 	}
-	dfleetAddr, err := DecodeString(fleetAddr[:])
+	dfleetAddr, err := util.DecodeString(fleetAddr[:])
 	if err != nil {
 		return nil, err
 	}
-	dtotalConnections, err := DecodeStringToInt(totalConnections[:])
+	dtotalConnections, err := util.DecodeStringToInt(totalConnections[:])
 	if err != nil {
 		return nil, err
 	}
-	dtotalBytes, err := DecodeStringToInt(totalBytes[:])
+	dtotalBytes, err := util.DecodeStringToInt(totalBytes[:])
 	if err != nil {
 		return nil, err
 	}
-	dlocalAddr, err := DecodeString(localAddr[:])
+	dlocalAddr, err := util.DecodeString(localAddr[:])
 	if err != nil {
 		return nil, err
 	}
-	ddeviceSig, err := DecodeString(deviceSig[:])
+	ddeviceSig, err := util.DecodeString(deviceSig[:])
 	if err != nil {
 		return nil, err
 	}
-	dserverSig, err := DecodeString(serverSig[:])
+	dserverSig, err := util.DecodeString(serverSig[:])
 	if err != nil {
 		return nil, err
 	}
@@ -341,7 +342,7 @@ func parseServerObj(rawObject []byte) (*ServerObj, error) {
 	if err != nil {
 		return nil, err
 	}
-	dserverSig, err := DecodeString(serverSig[:])
+	dserverSig, err := util.DecodeString(serverSig[:])
 	if err != nil {
 		return nil, err
 	}
@@ -365,7 +366,7 @@ func parseStateRoots(rawStateRoots []byte) (*StateRoots, error) {
 		// Decode error: index out of range
 		// decodedValue := make([]byte, 32)
 		// _, err = Decode(decodedValue, value[:])
-		decodedValue, err := DecodeString(string(value[:]))
+		decodedValue, err := util.DecodeString(string(value[:]))
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -390,7 +391,7 @@ func parseAccountRoots(rawAccountRoots []byte) (*AccountRoots, error) {
 		// Decode error: index out of range
 		// decodedValue := make([]byte, 32)
 		// _, err = Decode(decodedValue, value[:])
-		decodedValue, err := DecodeString(string(value[:]))
+		decodedValue, err := util.DecodeString(string(value[:]))
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -411,7 +412,7 @@ func parseAccount(rawAccount [][]byte) (*Account, error) {
 	if err != nil {
 		return nil, err
 	}
-	storageRoot, err := DecodeString(hexStorageRoot)
+	storageRoot, err := util.DecodeString(hexStorageRoot)
 	if err != nil {
 		return nil, err
 	}
@@ -419,7 +420,7 @@ func parseAccount(rawAccount [][]byte) (*Account, error) {
 	if err != nil {
 		return nil, err
 	}
-	nonceByt, err := DecodeString(hexNonce)
+	nonceByt, err := util.DecodeString(hexNonce)
 	if err != nil {
 		return nil, err
 	}
@@ -429,7 +430,7 @@ func parseAccount(rawAccount [][]byte) (*Account, error) {
 	if err != nil {
 		return nil, err
 	}
-	code, err := DecodeString(hexCode)
+	code, err := util.DecodeString(hexCode)
 	if err != nil {
 		return nil, err
 	}
@@ -437,7 +438,7 @@ func parseAccount(rawAccount [][]byte) (*Account, error) {
 	if err != nil {
 		return nil, err
 	}
-	balanceByt, err := DecodeString(hexBalance)
+	balanceByt, err := util.DecodeString(hexBalance)
 	if err != nil {
 		return nil, err
 	}
@@ -494,7 +495,7 @@ func newPortOpenRequest(request *Request) (*PortOpen, error) {
 	if err != nil {
 		return nil, err
 	}
-	portByt, err := DecodeString(hexPort)
+	portByt, err := util.DecodeString(hexPort)
 	if err != nil {
 		return nil, err
 	}
@@ -505,7 +506,7 @@ func newPortOpenRequest(request *Request) (*PortOpen, error) {
 	if err != nil {
 		return nil, err
 	}
-	refByt, err := DecodeString(hexRef)
+	refByt, err := util.DecodeString(hexRef)
 	if err != nil {
 		return nil, err
 	}
@@ -530,7 +531,7 @@ func newPortSendRequest(request *Request) (*PortSend, error) {
 	if err != nil {
 		return nil, err
 	}
-	refByt, err := DecodeString(hexRef)
+	refByt, err := util.DecodeString(hexRef)
 	if err != nil {
 		return nil, err
 	}
@@ -554,7 +555,7 @@ func newPortCloseRequest(request *Request) (*PortClose, error) {
 	if err != nil {
 		return nil, err
 	}
-	refByt, err := DecodeString(hexRef)
+	refByt, err := util.DecodeString(hexRef)
 	if err != nil {
 		return nil, err
 	}

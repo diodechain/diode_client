@@ -13,6 +13,7 @@ import (
 
 	"github.com/diode_go_client/crypto"
 	"github.com/diode_go_client/crypto/secp256k1"
+	"github.com/diode_go_client/util"
 
 	// "github.com/diode_go_client/crypto/sha3"
 	// "github.com/diode_go_client/util"
@@ -453,7 +454,7 @@ func (conn *ConnectedConn) copyToSSL(s *SSL, ref int) error {
 			}
 			log.Printf("Read %d bytes data from connection... Start to send...", count)
 			if count > 0 {
-				encStr := EncodeToString(buf[:count])
+				encStr := util.EncodeToString(buf[:count])
 				encBuf := []byte(fmt.Sprintf(`"%s"`, encStr[2:]))
 				s.PortSend(false, ref, encBuf)
 				portSend := <-PortSendChan
@@ -471,7 +472,7 @@ func (conn *ConnectedConn) copyToSSL(s *SSL, ref int) error {
 		}
 		log.Printf("Read %d bytes data from connection... Start to send...", count)
 		if count > 0 {
-			encStr := EncodeToString(buf[:count])
+			encStr := util.EncodeToString(buf[:count])
 			encBuf := []byte(fmt.Sprintf(`"%s"`, encStr[2:]))
 			s.PortSend(false, ref, encBuf)
 			portSend := <-PortSendChan

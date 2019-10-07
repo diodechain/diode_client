@@ -9,6 +9,7 @@ import (
 	"github.com/diode_go_client/config"
 	"github.com/diode_go_client/db"
 	"github.com/diode_go_client/rpc"
+	"github.com/diode_go_client/util"
 
 	"github.com/exosite/openssl"
 )
@@ -159,7 +160,7 @@ func main() {
 		log.Fatal(err)
 		return
 	}
-	log.Printf("Client address: %s\n", rpc.EncodeToString(clientAddr))
+	log.Printf("Client address: %s\n", util.EncodeToString(clientAddr))
 
 	// check device whitelist
 	isDeviceWhitelisted, err := client.IsDeviceWhitelisted(true, config.DecFleetAddr, clientAddr)

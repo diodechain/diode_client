@@ -572,7 +572,7 @@ func (s *SSL) GetBlockPeak(withResponse bool) (interface{}, error) {
 	if !withResponse {
 		return nil, nil
 	}
-	peak, err := DecodeStringToInt(string(rawPeak.RawData[0][2:]))
+	peak, err := util.DecodeStringToInt(string(rawPeak.RawData[0][2:]))
 	if err != nil {
 		return nil, err
 	}
@@ -602,7 +602,7 @@ func (s *SSL) GetObject(withResponse bool, deviceID []byte) (*DeviceObj, error) 
 	if len(deviceID) != 20 {
 		return nil, fmt.Errorf("Device ID must be 20 bytes")
 	}
-	encDeviceID := EncodeToString(deviceID)
+	encDeviceID := util.EncodeToString(deviceID)
 	rawObject, err := s.CallContext("getobject", withResponse, encDeviceID)
 	if err != nil || !withResponse {
 		return nil, err
@@ -624,7 +624,7 @@ func (s *SSL) GetNode(withResponse bool, nodeID []byte) (*ServerObj, error) {
 	if len(nodeID) != 20 {
 		return nil, fmt.Errorf("Node ID must be 20 bytes")
 	}
-	encNodeID := EncodeToString(nodeID)
+	encNodeID := util.EncodeToString(nodeID)
 	rawNode, err := s.CallContext("getnode", withResponse, encNodeID)
 	if err != nil || !withResponse {
 		return nil, err
@@ -676,9 +676,9 @@ func (s *SSL) NewTicket(bn int, blockHash []byte, fleetAddr []byte, localAddr []
 
 // SubmitTicket submit ticket to server
 func (s *SSL) SubmitTicket(withResponse bool, ticket *Ticket) (*Response, error) {
-	encFleetAddr := EncodeToString(ticket.FleetAddr)
-	encLocalAddr := EncodeToString(ticket.LocalAddr)
-	encSig := EncodeToString(ticket.Sig())
+	encFleetAddr := util.EncodeToString(ticket.FleetAddr)
+	encLocalAddr := util.EncodeToString(ticket.LocalAddr)
+	encSig := util.EncodeToString(ticket.Sig())
 	rawTicket, err := s.CallContext("ticket", withResponse, ticket.BlockNumber, encFleetAddr, ticket.TotalConnections, ticket.TotalBytes, encLocalAddr, encSig)
 	if err != nil || !withResponse {
 		return nil, err
@@ -745,10 +745,10 @@ func (s *SSL) GetAccountValue(withResponse bool, blockNumber int, account []byte
 	if len(account) != 20 {
 		return nil, fmt.Errorf("Account must be 20 bytes")
 	}
-	encAccount := EncodeToString(account)
+	encAccount := util.EncodeToString(account)
 	// pad key to 32 bytes
 	key := util.PaddingBytesPrefix(rawKey, 0, 32)
-	encKey := EncodeToString(key)
+	encKey := util.EncodeToString(key)
 	rawAccountValue, err := s.CallContext("getaccountvalue", withResponse, blockNumber, encAccount, encKey)
 	if err != nil || !withResponse {
 		return nil, err
@@ -771,7 +771,7 @@ func (s *SSL) GetAccount(withResponse bool, blockNumber int, account []byte) (*A
 	if len(account) != 20 {
 		return nil, fmt.Errorf("Account must be 20 bytes")
 	}
-	encAccount := EncodeToString(account)
+	encAccount := util.EncodeToString(account)
 	rawAccount, err := s.CallContext("getaccount", withResponse, blockNumber, encAccount)
 	if err != nil {
 		return nil, err
@@ -787,7 +787,7 @@ func (s *SSL) GetAccountRoots(withResponse bool, blockNumber int, account []byte
 	if len(account) != 20 {
 		return nil, fmt.Errorf("Account must be 20 bytes")
 	}
-	encAccount := EncodeToString(account)
+	encAccount := util.EncodeToString(account)
 	rawAccountRoots, err := s.CallContext("getaccountroots", withResponse, blockNumber, encAccount)
 	if err != nil || !withResponse {
 		return nil, err

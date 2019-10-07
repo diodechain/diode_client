@@ -80,8 +80,8 @@ func (mt *MerkleTree) parseProof(proof []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	if IsHex(bytPrefix) || IsHexNumber(bytPrefix) {
-		bytPrefix, err = DecodeString(string(bytPrefix))
+	if util.IsHex(bytPrefix) || util.IsHexNumber(bytPrefix) {
+		bytPrefix, err = util.DecodeString(string(bytPrefix))
 	} else {
 		// bits string
 		splitPrefix := util.SplitBytesByN(bytPrefix, 8)
@@ -113,7 +113,7 @@ func (mt *MerkleTree) parseProof(proof []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	module, err := DecodeStringToInt(string(hexModule))
+	module, err := util.DecodeStringToInt(string(hexModule))
 	if err != nil {
 		return nil, err
 	}
@@ -135,11 +135,11 @@ func (mt *MerkleTree) parseProof(proof []byte) ([]byte, error) {
 		if err != nil {
 			return nil, err
 		}
-		key, err := DecodeString(hexKey)
+		key, err := util.DecodeString(hexKey)
 		if err != nil {
 			return nil, err
 		}
-		value, err := DecodeString(hexValue)
+		value, err := util.DecodeString(hexValue)
 		if err != nil {
 			return nil, err
 		}
@@ -154,7 +154,7 @@ func (mt *MerkleTree) parseProof(proof []byte) ([]byte, error) {
 		}
 		mt.Leaves = append(mt.Leaves, leave)
 	}
-	return BertHash(bertProof)
+	return util.BertHash(bertProof)
 }
 
 // parse recursively
@@ -166,7 +166,7 @@ func (mt *MerkleTree) rparse(proof []byte) ([]byte, error) {
 	if isJSONArr(proof) {
 		proofLen := JSONArrLen(proof)
 		if proofLen == 1 {
-			return DecodeString(string(proof[1 : len(proof)-1]))
+			return util.DecodeString(string(proof[1 : len(proof)-1]))
 		} else if proofLen == 2 {
 			// var leftItem interface{}
 			// var rightItem interface{}
@@ -183,13 +183,13 @@ func (mt *MerkleTree) rparse(proof []byte) ([]byte, error) {
 			tree := [2]bert.Term{}
 			tree[0] = leftItem
 			tree[1] = rightItem
-			return BertHash(tree)
+			return util.BertHash(tree)
 		} else if proofLen >= 3 {
 			// parseProof
 			return mt.parseProof(proof)
 		}
-	} else if IsHex(proof) || IsHexNumber(proof) {
-		return DecodeString(string(proof))
+	} else if util.IsHex(proof) || util.IsHexNumber(proof) {
+		return util.DecodeString(string(proof))
 	} else {
 		log.Println("JSON of merkle proof must be hex and array")
 		return nil, errorWrongTree

@@ -9,6 +9,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/diode_go_client/util"
 )
 
 type RPCConfig struct {
@@ -189,7 +191,7 @@ func (rpcServer *RPCServer) Start() {
 				}
 				log.Println("Accept portsend request")
 				decData := make([]byte, hex.DecodedLen(len(portSend.Data)))
-				_, err = Decode(decData, portSend.Data)
+				_, err = util.Decode(decData, portSend.Data)
 				if err != nil {
 					log.Println(err)
 					// decData = portSend.Data

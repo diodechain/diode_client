@@ -21,6 +21,7 @@ import (
 	"regexp"
 	"strconv"
 
+	"github.com/diode_go_client/util"
 	"github.com/diodechain/go-cache"
 )
 
@@ -45,6 +46,14 @@ var (
 	errReqExtraData  = errors.New("socks request get extra data")
 	errCmd           = errors.New("socks only support connect command")
 	errReqUrl        = errors.New("request url not supported")
+
+	// prefix = "base32:"
+	prefix            = "0x"
+	prefixBytes       = []byte(prefix)
+	prefixLength      = len(prefix)
+	upperPrefix       = "0X"
+	upperPrefixBytes  = []byte(upperPrefix)
+	upperPrefixLength = len(upperPrefix)
 )
 
 const (
@@ -245,7 +254,7 @@ func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID strin
 	// check device id
 	if connDevice.Ref == 0 {
 		// decode device id
-		dDeviceID, err := DecodeString(deviceID)
+		dDeviceID, err := util.DecodeString(deviceID)
 		if err != nil {
 			log.Println(err)
 			rep[1] = socksRepServerFailed
