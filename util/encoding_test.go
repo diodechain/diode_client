@@ -1,6 +1,7 @@
 package util
 
 import (
+	"bytes"
 	"testing"
 )
 
@@ -12,6 +13,11 @@ type IsHexTest struct {
 type IsHexNumberTest struct {
 	Src []byte
 	Res bool
+}
+
+type DecodeStringTest struct {
+	Src string
+	Res []byte
 }
 
 var (
@@ -51,6 +57,16 @@ var (
 			Res: false,
 		},
 	}
+	decodeStringTest = []DecodeStringTest{
+		DecodeStringTest{
+			Src: "0x01",
+			Res: []byte{1},
+		},
+		DecodeStringTest{
+			Src: "0x1234",
+			Res: []byte{18, 52},
+		},
+	}
 )
 
 func TestIsHex(t *testing.T) {
@@ -65,6 +81,15 @@ func TestIsHexNumber(t *testing.T) {
 	for _, v := range isHexNumberTest {
 		if v.Res != IsHexNumber(v.Src) {
 			t.Errorf("Wrong result when call IsHexNumber")
+		}
+	}
+}
+
+func TestDecodeString(t *testing.T) {
+	for _, v := range decodeStringTest {
+		res, _ := DecodeString(v.Src)
+		if !bytes.Equal(v.Res, res) {
+			t.Errorf("Wrong result when call DecodeString")
 		}
 	}
 }

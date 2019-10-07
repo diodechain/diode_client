@@ -3,6 +3,7 @@ package util
 import (
 	"bytes"
 	"encoding/hex"
+	"fmt"
 	"math/big"
 	"strings"
 
@@ -67,12 +68,18 @@ func EncodeToString(src []byte) string {
 }
 
 // DecodeString decode string to bytes
-func DecodeString(src string) ([]byte, error) {
-	src = strings.ToLower(src)
-	if bytes.Equal(prefixBytes, []byte(src[0:prefixLength])) {
-		src = src[2:]
+func DecodeString(src string) (dst []byte, err error) {
+	srcByt := []byte(strings.ToLower(src))
+	if !IsHex(srcByt) {
+		err = fmt.Errorf("Cannot decode the wrong hex source")
+		return
 	}
-	return hex.DecodeString(src)
+	if bytes.Equal(prefixBytes, []byte(srcByt[0:prefixLength])) {
+		srcByt = srcByt[2:]
+	}
+	dst = make([]byte, len(srcByt)/2)
+	_, err = hex.Decode(dst, srcByt)
+	return
 }
 
 // DecodeStringToInt decode string to int
@@ -88,6 +95,9 @@ func DecodeStringToInt(src string) (int64, error) {
 
 // Decode decode bytes
 func Decode(dst []byte, src []byte) (int, error) {
+	if !IsHex(src) {
+		return 0, fmt.Errorf("Cannot decode the wrong hex source")
+	}
 	if bytes.Equal(prefixBytes, []byte(src[0:prefixLength])) {
 		src = src[2:]
 	}
