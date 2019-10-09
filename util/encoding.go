@@ -44,6 +44,9 @@ func IsHex(src []byte) bool {
 		}
 		return true
 	}
+	if isHexBytes(src) {
+		return true
+	}
 	return false
 }
 
@@ -56,6 +59,9 @@ func IsHexNumber(src []byte) bool {
 		if !isHexBytes(src[2:]) {
 			return false
 		}
+		return true
+	}
+	if isHexBytes(src) {
 		return true
 	}
 	return false
