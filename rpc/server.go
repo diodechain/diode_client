@@ -296,7 +296,7 @@ func (rpcServer *RPCServer) WatchTotalBytes() {
 	}
 	rpcServer.wg.Add(1)
 	go func() {
-		rpcServer.ticker = time.NewTicker(100 * time.Millisecond)
+		rpcServer.ticker = time.NewTicker(10 * time.Millisecond)
 		for {
 			select {
 			case <-rpcServer.finishedTickerChan:
@@ -316,9 +316,7 @@ func (rpcServer *RPCServer) WatchTotalBytes() {
 						log.Println(err)
 						return
 					}
-					rpcServer.rm.Lock()
 					_, err = rpcServer.s.SubmitTicket(!rpcServer.started, ticket)
-					rpcServer.rm.Unlock()
 					if err != nil {
 						log.Println(err)
 						return
