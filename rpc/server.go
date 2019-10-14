@@ -97,6 +97,22 @@ func (rpcServer *RPCServer) Start() {
 					log.Println(err)
 				}
 				PortSendChan <- portSend
+			} else if bytes.Equal(response.Method, GetBlockPeakType) {
+				peak, err := util.DecodeStringToInt(string(response.RawData[0]))
+				if err != nil {
+					log.Println(err)
+					BlockPeakChan <- 0
+					continue
+				}
+				BlockPeakChan <- int(peak)
+			} else if bytes.Equal(response.Method, GetBlockHeaderType) {
+				blockHeader, err := parseBlockHeader(response.RawData[0])
+				if err != nil {
+					log.Println(err)
+					BlockHeaderChan <- blockHeader
+					continue
+				}
+				BlockHeaderChan <- blockHeader
 			} else if bytes.Equal(response.Method, GetObjectType) {
 				deviceObj, err := parseDeviceObj(response.RawData[0])
 				if err != nil {
@@ -296,7 +312,7 @@ func (rpcServer *RPCServer) WatchTotalBytes() {
 	}
 	rpcServer.wg.Add(1)
 	go func() {
-		rpcServer.ticker = time.NewTicker(10 * time.Millisecond)
+		rpcServer.ticker = time.NewTicker(1 * time.Millisecond)
 		for {
 			select {
 			case <-rpcServer.finishedTickerChan:
