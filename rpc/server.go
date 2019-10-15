@@ -20,16 +20,20 @@ type RPCConfig struct {
 }
 
 type RPCServer struct {
-	s                  *SSL
-	wg                 *sync.WaitGroup
-	Config             *RPCConfig
-	rm                 sync.Mutex
-	started            bool
-	closed             bool
-	closeCallback      func()
-	finishedTickerChan chan bool
-	ticker             *time.Ticker
-	timeout            time.Duration
+	s                      *SSL
+	wg                     *sync.WaitGroup
+	Config                 *RPCConfig
+	rm                     sync.Mutex
+	started                bool
+	closed                 bool
+	closeCallback          func()
+	finishTicketTickerChan chan bool
+	ticketTicker           *time.Ticker
+	ticketTickerDuration   time.Duration
+	finishBlockTickerChan  chan bool
+	blockTicker            *time.Ticker
+	blockTickerDuration    time.Duration
+	timeout                time.Duration
 }
 
 // Started returns whether rpc server had started
@@ -307,25 +311,27 @@ func (rpcServer *RPCServer) Start() {
 
 // WatchTotalBytes setup ticker to count total bytes and send ticket
 func (rpcServer *RPCServer) WatchTotalBytes() {
-	if rpcServer.ticker != nil {
+	if rpcServer.ticketTicker != nil {
 		return
 	}
 	rpcServer.wg.Add(1)
 	go func() {
-		rpcServer.ticker = time.NewTicker(1 * time.Millisecond)
+		rpcServer.ticketTicker = time.NewTicker(rpcServer.ticketTickerDuration)
 		for {
 			select {
-			case <-rpcServer.finishedTickerChan:
+			case <-rpcServer.finishTicketTickerChan:
 				rpcServer.wg.Done()
 				return
-			case <-rpcServer.ticker.C:
+			case <-rpcServer.ticketTicker.C:
 				counter := rpcServer.s.Counter()
 				if rpcServer.s.TotalBytes() > counter+1024 {
+					rpcServer.rm.Lock()
 					bn := LBN
 					if ValidBlockHeaders[bn] == nil {
 						continue
 					}
 					dbh := ValidBlockHeaders[bn].BlockHash
+					rpcServer.rm.Unlock()
 					// send ticket
 					ticket, err := rpcServer.s.NewTicket(bn, dbh, rpcServer.Config.FleetAddr, rpcServer.Config.RegistryAddr)
 					if err != nil {
@@ -343,15 +349,57 @@ func (rpcServer *RPCServer) WatchTotalBytes() {
 	}()
 }
 
+// WatchNewBlock setup ticker to count total bytes and send ticket
+func (rpcServer *RPCServer) WatchNewBlock() {
+	if rpcServer.blockTicker != nil {
+		return
+	}
+	rpcServer.wg.Add(1)
+	go func() {
+		rpcServer.blockTicker = time.NewTicker(rpcServer.blockTickerDuration)
+		for {
+			select {
+			case <-rpcServer.finishBlockTickerChan:
+				rpcServer.wg.Done()
+				return
+			case <-rpcServer.blockTicker.C:
+				_, err := rpcServer.s.GetBlockPeak(false)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+				blockPeak := <-BlockPeakChan
+				_, err = rpcServer.s.GetBlockHeader(false, blockPeak)
+				if err != nil {
+					log.Println(err)
+					continue
+				}
+				blockHeader := <-BlockHeaderChan
+				isSigValid, _ := blockHeader.ValidateSig()
+				if !isSigValid {
+					log.Printf("Miner signature was not valid, block header: %d", blockPeak)
+					continue
+				}
+				rpcServer.rm.Lock()
+				LBN = blockPeak
+				ValidBlockHeaders[blockPeak] = blockHeader
+				rpcServer.rm.Unlock()
+				continue
+			}
+		}
+	}()
+}
+
 // Close the rpc server
 func (rpcServer *RPCServer) Close() {
 	rpcServer.rm.Lock()
 	if !rpcServer.started {
 		rpcServer.s.Close()
-		rpcServer.ticker.Stop()
-		rpcServer.finishedTickerChan <- true
+		rpcServer.ticketTicker.Stop()
+		rpcServer.finishTicketTickerChan <- true
+		rpcServer.blockTicker.Stop()
+		rpcServer.finishBlockTickerChan <- true
 		rpcServer.rm.Unlock()
-		// close(rpcServer.finishedTickerChan)
 		return
 	}
 	log.Println("RPC server exit")
@@ -362,14 +410,15 @@ func (rpcServer *RPCServer) Close() {
 	rpcServer.closed = true
 	rpcServer.rm.Unlock()
 	rpcServer.s.Close()
-	rpcServer.ticker.Stop()
-	rpcServer.finishedTickerChan <- true
+	rpcServer.ticketTicker.Stop()
+	rpcServer.finishTicketTickerChan <- true
+	rpcServer.blockTicker.Stop()
+	rpcServer.finishBlockTickerChan <- true
 	close(ResponseChan)
 	close(RequestChan)
 	close(PortOpenChan)
 	close(PortSendChan)
 	close(ErrorChan)
-	// close(rpcServer.finishedTickerChan)
 	rpcServer.closeCallback()
 	return
 }
@@ -378,14 +427,17 @@ func (rpcServer *RPCServer) Close() {
 // TODO: check blocking channel, error channel
 func (s *SSL) NewRPCServer(config *RPCConfig, closeCallback func()) *RPCServer {
 	rpcServer := &RPCServer{
-		s:                  s,
-		wg:                 &sync.WaitGroup{},
-		Config:             config,
-		started:            false,
-		closed:             false,
-		closeCallback:      closeCallback,
-		finishedTickerChan: make(chan bool),
-		timeout:            100 * time.Millisecond,
+		s:                      s,
+		wg:                     &sync.WaitGroup{},
+		Config:                 config,
+		started:                false,
+		closed:                 false,
+		closeCallback:          closeCallback,
+		finishTicketTickerChan: make(chan bool),
+		ticketTickerDuration:   1 * time.Millisecond,
+		finishBlockTickerChan:  make(chan bool),
+		blockTickerDuration:    1 * time.Minute,
+		timeout:                100 * time.Millisecond,
 	}
 	return rpcServer
 }

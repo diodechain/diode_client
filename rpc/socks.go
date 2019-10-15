@@ -47,7 +47,6 @@ var (
 	errCmd           = errors.New("socks only support connect command")
 	errReqUrl        = errors.New("request url not supported")
 
-	// prefix = "base32:"
 	prefix            = "0x"
 	prefixBytes       = []byte(prefix)
 	prefixLength      = len(prefix)
@@ -81,12 +80,6 @@ type SocksConfig struct {
 	FleetAddr    []byte
 }
 
-// type SocksWSConfig struct {
-// 	Addr         string
-// 	WSServerAddr string
-// 	Verbose      bool
-// }
-
 type SocksServer struct {
 	s        *SSL
 	Config   *SocksConfig
@@ -103,7 +96,7 @@ func handShake(conn net.Conn) (err error) {
 
 	var n int
 
-	// make sure we get the nmethod field
+	// make sure we get the method field
 	if n, err = io.ReadAtLeast(conn, buf, idNmethod+1); err != nil {
 		return
 	}

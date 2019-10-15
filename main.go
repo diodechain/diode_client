@@ -168,6 +168,9 @@ func main() {
 		return
 	}
 
+	// watch new block
+	rpcServer.WatchNewBlock()
+
 	// maxout concurrency
 	// runtime.GOMAXPROCS(runtime.NumCPU())
 
