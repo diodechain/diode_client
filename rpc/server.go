@@ -369,6 +369,9 @@ func (rpcServer *RPCServer) WatchNewBlock() {
 					continue
 				}
 				blockPeak := <-BlockPeakChan
+				if LBN >= blockPeak {
+					continue
+				}
 				_, err = rpcServer.s.GetBlockHeader(false, blockPeak)
 				if err != nil {
 					log.Println(err)
