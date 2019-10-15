@@ -78,11 +78,6 @@ func main() {
 				continue
 			}
 		}
-		// client, err := rpc.Dial(RemoteRPCAddr, config.PemPath, config.KeyPath, openssl.InsecureSkipHostVerification)
-		// if err != nil {
-		// 	log.Fatal(err)
-		// 	return
-		// }
 		// enable keepalive
 		if config.EnableKeepAlive {
 			err = client.EnableKeepAlive()
@@ -140,6 +135,7 @@ func main() {
 		}
 		if !isValid {
 			log.Println("Network is not valid")
+			rpcServer.Close()
 			continue
 		}
 		log.Printf("Network is validated, last valid block number: %d\n", rpc.LVBN)

@@ -347,7 +347,11 @@ func (rpcServer *RPCServer) WatchTotalBytes() {
 func (rpcServer *RPCServer) Close() {
 	rpcServer.rm.Lock()
 	if !rpcServer.started {
+		rpcServer.s.Close()
+		rpcServer.ticker.Stop()
+		rpcServer.finishedTickerChan <- true
 		rpcServer.rm.Unlock()
+		// close(rpcServer.finishedTickerChan)
 		return
 	}
 	log.Println("RPC server exit")
@@ -365,7 +369,7 @@ func (rpcServer *RPCServer) Close() {
 	close(PortOpenChan)
 	close(PortSendChan)
 	close(ErrorChan)
-	close(rpcServer.finishedTickerChan)
+	// close(rpcServer.finishedTickerChan)
 	rpcServer.closeCallback()
 	return
 }
