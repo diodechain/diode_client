@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/gorilla/websocket"
 
@@ -460,7 +461,10 @@ func (conn *ConnectedConn) copyToSSL(s *SSL, ref int) error {
 			if count > 0 {
 				encStr := util.EncodeToString(buf[:count])
 				encBuf := []byte(fmt.Sprintf(`"%s"`, encStr[2:]))
-				s.PortSend(false, ref, encBuf)
+				_, err = s.PortSend(false, ref, encBuf)
+				if err != nil {
+					return err
+				}
 				portSend := <-PortSendChan
 				if portSend != nil && portSend.Err != nil {
 					return fmt.Errorf(string(portSend.Err.RawMsg))
@@ -478,11 +482,15 @@ func (conn *ConnectedConn) copyToSSL(s *SSL, ref int) error {
 		if count > 0 {
 			encStr := util.EncodeToString(buf[:count])
 			encBuf := []byte(fmt.Sprintf(`"%s"`, encStr[2:]))
-			s.PortSend(false, ref, encBuf)
+			_, err = s.PortSend(false, ref, encBuf)
+			if err != nil {
+				return err
+			}
 			portSend := <-PortSendChan
 			if portSend != nil && portSend.Err != nil {
 				return fmt.Errorf(string(portSend.Err.RawMsg))
 			}
+			time.Sleep(2 * time.Millisecond)
 		}
 	}
 }
@@ -499,9 +507,8 @@ func (conn *ConnectedConn) writeToTCP(data []byte) {
 	if err != nil {
 		log.Println(err)
 	}
+	return
 }
-
-// func (c *ConnectedConn) Read() {}
 
 // Hash returns sha3 of bert encoded block header
 func (blockHeader *BlockHeader) Hash() ([]byte, error) {

@@ -33,6 +33,14 @@ func isHexBytes(src []byte) bool {
 	return true
 }
 
+// IsZeroPrefix returns given bytes is 0x prefixed
+func IsZeroPrefix(src []byte) bool {
+	if len(src) < prefixLength {
+		return false
+	}
+	return bytes.HasPrefix(src, prefixBytes)
+}
+
 // IsHex returns given bytes is hex (0x prefixed)
 func IsHex(src []byte) bool {
 	if len(src) < prefixLength {

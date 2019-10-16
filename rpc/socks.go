@@ -11,7 +11,6 @@
 package rpc
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"io"
@@ -30,11 +29,7 @@ var (
 	AddrType     = []string{"", "IPv4", "", "Domain", "IPv6"}
 	defaultMode  = "rw"
 	diodePattern = regexp.MustCompile(`([rws]{1,3}.)?([\w]+).diode(.ws)?(:[\d]+)?`)
-	// map[clientip]ref from socks
-	// map[portOpen.DeviceId + portOpen.Ref]ref from device
-	// connectedDevice = make(map[string]ConnectedDevice)
-	// connectedConns  = make(map[int64]net.Conn)
-	devices = &Devices{
+	devices      = &Devices{
 		connectedDevice: make(map[string]ConnectedDevice),
 	}
 	bitstringPattern = regexp.MustCompile(`^[01]+$`)
@@ -168,9 +163,9 @@ func parseTarget(conn net.Conn) (host string, port uint16, mode string, deviceID
 	*/
 
 	if buf[idCmd] > 0x03 || buf[idCmd] == 0x00 {
-		log.Println("Unknown Command", buf[idCmd])
+		log.Println("Unknown Command: ", buf[idCmd])
 	}
-	log.Println("Command:", Commands[buf[idCmd]-1])
+	log.Println("Command: ", Commands[buf[idCmd]-1])
 
 	if buf[idCmd] != socksCmdConnect { //  only support CONNECT mode
 		err = errCmd
@@ -235,7 +230,6 @@ func parseTarget(conn net.Conn) (host string, port uint16, mode string, deviceID
 }
 
 func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID string, port uint16, mode string) {
-	// deviceID = strings.ToLower(deviceID)
 	if socksServer.Config.Verbose {
 		log.Println("Connect remote ", deviceID, " mode: ", mode, "...")
 	}
@@ -243,72 +237,16 @@ func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID strin
 	rep[0] = socksVer5
 	clientIP := conn.RemoteAddr().String()
 	connDevice := devices.GetDevice(clientIP)
-	mc := socksServer.s.MemoryCache()
 	// check device id
 	if connDevice.Ref == 0 {
 		// decode device id
 		dDeviceID, err := util.DecodeString(deviceID)
 		if err != nil {
-			log.Println(err)
-			rep[1] = socksRepServerFailed
+			rep[1] = socksRepNetworkUnreachable
 			conn.Write(rep[:])
 			return
 		}
-		// call getobject rpc
-		_, hit := mc.Get(deviceID)
-		if !hit {
-			_, err = socksServer.s.GetObject(false, dDeviceID)
-			if err != nil {
-				log.Println(err)
-				rep[1] = socksRepServerFailed
-				conn.Write(rep[:])
-				return
-			}
-			deviceObj := <-DeviceObjChan
-			if deviceObj.Err != nil {
-				log.Println("couldn't find device object")
-				rep[1] = socksRepHostUnreachable
-				conn.Write(rep[:])
-				return
-			}
-			if !deviceObj.ValidateSig() {
-				log.Println("wrong signature in device object")
-				rep[1] = socksRepServerFailed
-				conn.Write(rep[:])
-				return
-			}
-			mc.Set(deviceID, true, cache.DefaultExpiration)
-		}
-		// check access
-		// fleetAddr := socksServer.Config.FleetAddr
-		// isDeviceWhitelisted, hit := mc.Get(deviceID + "devicewhitelist")
-		// if !hit {
-		// 	isDeviceWhitelisted, _ = socksServer.s.IsDeviceWhitelisted(false, fleetAddr, dDeviceID)
-		// 	mc.Set(deviceID+"devicewhitelist", isDeviceWhitelisted, cache.DefaultExpiration)
-		// }
-		// if !isDeviceWhitelisted.(bool) {
-		// 	log.Println("Device wasn't not white listed")
-		// 	conn.Write(rep[:])
-		// 	return
-		// }
-		// clientAddr, err := socksServer.s.GetClientAddress()
-		// if err != nil {
-		// 	log.Println(err)
-		// 	rep[1] = socksRepServerFailed
-		// 	conn.Write(rep[:])
-		// 	return
-		// }
-		// isAccessWhitelisted, hit := mc.Get(deviceID + "accesswhitelist")
-		// if !hit {
-		// 	isAccessWhitelisted, _ = socksServer.s.IsAccessWhitelisted(false, fleetAddr, dDeviceID, clientAddr)
-		// 	mc.Set(deviceID+"accesswhitelist", isDeviceWhitelisted, cache.DefaultExpiration)
-		// }
-		// if !isAccessWhitelisted.(bool) {
-		// 	log.Println("Access was not whitelisted")
-		// 	conn.Write(rep[:])
-		// 	return
-		// }
-		if !bytes.Equal(prefixBytes, []byte(deviceID[0:prefixLength])) {
+		if !util.IsZeroPrefix([]byte(deviceID)) {
 			deviceID = prefix + deviceID
 		}
 		_, err = socksServer.s.PortOpen(false, deviceID, int(port), mode)
@@ -380,6 +318,64 @@ func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID strin
 	log.Println("Close socks connection")
 }
 
+func (socksServer *SocksServer) checkAccess(deviceID string) bool {
+	bDeviceID := []byte(deviceID)
+	if !util.IsHex(bDeviceID) {
+		return false
+	}
+	mc := socksServer.s.MemoryCache()
+	// decode device id
+	dDeviceID, err := util.DecodeString(deviceID)
+	if err != nil {
+		return false
+	}
+	// call getobject rpc
+	_, hit := mc.Get(deviceID)
+	if !hit {
+		_, err = socksServer.s.GetObject(false, dDeviceID)
+		if err != nil {
+			log.Println(err)
+			return false
+		}
+		deviceObj := <-DeviceObjChan
+		if deviceObj.Err != nil {
+			log.Println("couldn't find device object")
+			return false
+		}
+		if !deviceObj.ValidateSig() {
+			log.Println("wrong signature in device object")
+			return false
+		}
+		mc.Set(deviceID, true, cache.DefaultExpiration)
+	}
+	// check access
+	fleetAddr := socksServer.Config.FleetAddr
+	isDeviceWhitelisted, hit := mc.Get(deviceID + "devicewhitelist")
+	if !hit {
+		isDeviceWhitelisted, _ = socksServer.s.IsDeviceWhitelisted(false, fleetAddr, dDeviceID)
+		mc.Set(deviceID+"devicewhitelist", isDeviceWhitelisted, cache.DefaultExpiration)
+	}
+	if !isDeviceWhitelisted.(bool) {
+		log.Println("Device wasn't not white listed")
+		return false
+	}
+	clientAddr, err := socksServer.s.GetClientAddress()
+	if err != nil {
+		log.Println(err)
+		return false
+	}
+	isAccessWhitelisted, hit := mc.Get(deviceID + "accesswhitelist")
+	if !hit {
+		isAccessWhitelisted, _ = socksServer.s.IsAccessWhitelisted(false, fleetAddr, dDeviceID, clientAddr)
+		mc.Set(deviceID+"accesswhitelist", isDeviceWhitelisted, cache.DefaultExpiration)
+	}
+	if !isAccessWhitelisted.(bool) {
+		log.Println("Access was not whitelisted")
+		return false
+	}
+	return true
+}
+
 func (socksServer *SocksServer) handleSocksConnection(conn net.Conn) {
 	defer conn.Close()
 	if err := handShake(conn); err != nil {
@@ -389,6 +385,10 @@ func (socksServer *SocksServer) handleSocksConnection(conn net.Conn) {
 	_, port, mode, deviceID, isWS, err := parseTarget(conn)
 	if err != nil {
 		log.Println("socks consult transfer mode or parse target: ", err)
+		return
+	}
+	if !socksServer.checkAccess(deviceID) {
+		log.Println("please ensure you have access to given device")
 		return
 	}
 	if !isWS {

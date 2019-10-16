@@ -166,6 +166,7 @@ func (rpcServer *RPCServer) Start() {
 		}
 	}()
 	// for request channel, device rpc
+	// TODO: encrypt/decrypt data
 	rpcServer.wg.Add(1)
 	go func() {
 		for {
@@ -440,7 +441,7 @@ func (s *SSL) NewRPCServer(config *RPCConfig, closeCallback func()) *RPCServer {
 		ticketTickerDuration:   1 * time.Millisecond,
 		finishBlockTickerChan:  make(chan bool),
 		blockTickerDuration:    1 * time.Minute,
-		timeout:                100 * time.Millisecond,
+		timeout:                5 * time.Second,
 	}
 	return rpcServer
 }
