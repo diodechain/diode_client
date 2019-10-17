@@ -402,8 +402,6 @@ func (rpcServer *RPCServer) Close() {
 		rpcServer.s.Close()
 		rpcServer.ticketTicker.Stop()
 		rpcServer.finishTicketTickerChan <- true
-		rpcServer.blockTicker.Stop()
-		rpcServer.finishBlockTickerChan <- true
 		rpcServer.rm.Unlock()
 		return
 	}
