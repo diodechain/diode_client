@@ -125,9 +125,6 @@ func main() {
 			}
 		})
 
-		// count total bytes
-		rpcServer.WatchTotalBytes()
-
 		isValid, err := client.ValidateNetwork()
 		if err != nil {
 			log.Println(err)
@@ -151,6 +148,8 @@ func main() {
 	}
 
 	// check device access to fleet contract and registry
+	client.RegistryAddr = config.DecRegistryAddr
+	client.FleetAddr = config.DecFleetAddr
 	clientAddr, err := client.GetClientAddress()
 	if err != nil {
 		log.Fatal(err)
@@ -159,12 +158,38 @@ func main() {
 	log.Printf("Client address: %s\n", util.EncodeToString(clientAddr))
 
 	// check device whitelist
-	isDeviceWhitelisted, err := client.IsDeviceWhitelisted(true, config.DecFleetAddr, clientAddr)
+	isDeviceWhitelisted, err := client.IsDeviceWhitelisted(true, clientAddr)
 	if !isDeviceWhitelisted {
 		if err != nil {
 			log.Println(err)
 		}
 		log.Println("Device was not whitelisted")
+		return
+	}
+
+	// send first ticket
+	bn := rpc.BN
+	blockHeader, err := client.GetBlockHeader(true, bn)
+	if blockHeader == nil || err != nil {
+		log.Println("Cannot fetch blockheader")
+		return
+	}
+	isValid, err := blockHeader.ValidateSig()
+	if !isValid || err != nil {
+		log.Println("Cannot validate blockheader signature")
+		return
+	}
+	rpc.ValidBlockHeaders[bn] = blockHeader
+	dbh := blockHeader.BlockHash
+	// send ticket
+	ticket, err := client.NewTicket(bn, dbh, config.DecRegistryAddr)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	_, err = client.SubmitTicket(true, ticket)
+	if err != nil {
+		log.Println(err)
 		return
 	}
 

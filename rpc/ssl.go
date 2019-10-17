@@ -47,6 +47,8 @@ type SSL struct {
 	rm                sync.Mutex
 	rc                sync.Mutex
 	clientPrivKey     *ecdsa.PrivateKey
+	RegistryAddr      []byte
+	FleetAddr         []byte
 }
 
 // BN latest block numebr
@@ -306,10 +308,12 @@ func (s *SSL) GetClientAddress() ([]byte, error) {
 
 // IsValid returns is network valid
 func (s *SSL) IsValid() bool {
+	s.rm.Lock()
+	defer s.rm.Unlock()
 	return s.isValid
 }
 
-func (s *SSL) incrementBytes(n int) {
+func (s *SSL) incrementTotalBytes(n int) {
 	s.rm.Lock()
 	defer s.rm.Unlock()
 	s.totalBytes += n
@@ -353,10 +357,8 @@ func (s *SSL) readContext() ([]byte, error) {
 		return nil, err
 	}
 	n += 2
-	s.rm.Lock()
-	s.totalBytes += n
-	s.rm.Unlock()
 	s.rc.Unlock()
+	s.incrementTotalBytes(n)
 	if config.AppConfig.Debug {
 		log.Printf("Receive %d bytes data from ssl\n", n)
 	}
@@ -378,9 +380,7 @@ func (s *SSL) sendPayload(payload []byte, withResponse bool) error {
 	if err != nil {
 		return err
 	}
-	s.rm.Lock()
-	s.totalBytes += n
-	s.rm.Unlock()
+	s.incrementTotalBytes(n)
 	if config.AppConfig.Debug {
 		log.Printf("Send %d bytes data to ssl\n", n)
 	}
@@ -389,6 +389,7 @@ func (s *SSL) sendPayload(payload []byte, withResponse bool) error {
 
 // CallContext returns response after call the rpc
 func (s *SSL) CallContext(method string, withResponse bool, args ...interface{}) (*Response, error) {
+	var res *Response
 	msg, err := newMessage(method, args...)
 	if err != nil {
 		return nil, err
@@ -397,21 +398,39 @@ func (s *SSL) CallContext(method string, withResponse bool, args ...interface{})
 	if err != nil {
 		return nil, err
 	}
-	if !withResponse {
-		return nil, nil
+	if withResponse {
+		rawRes, err := s.readContext()
+		if err != nil {
+			return nil, err
+		}
+		if config.AppConfig.Debug {
+			log.Println("Readed response: " + string(rawRes))
+		}
+		res, err = parseResponse(rawRes)
+		if err != nil {
+			return nil, err
+		}
 	}
-	rawRes, err := s.readContext()
-	if err != nil {
-		return nil, err
+	// check ticket
+	counter := s.Counter()
+	if s.TotalBytes() > counter+40000 {
+		s.rm.Lock()
+		bn := LBN
+		if ValidBlockHeaders[bn] == nil {
+			s.rm.Unlock()
+			return res, nil
+		}
+		dbh := ValidBlockHeaders[bn].BlockHash
+		s.rm.Unlock()
+		// send ticket
+		ticket, err := s.NewTicket(bn, dbh, s.RegistryAddr)
+		if err != nil {
+			log.Println(err)
+			return res, nil
+		}
+		_, err = s.SubmitTicket(withResponse, ticket)
 	}
-	if config.AppConfig.Debug {
-		log.Println("Readed response: " + string(rawRes))
-	}
-	res, err := parseResponse(rawRes)
-	if err != nil {
-		return nil, err
-	}
-	return res, nil
+	return res, err
 }
 
 // ValidateNetwork validate blockchain network is secure and valid
@@ -438,6 +457,7 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 	if err != nil {
 		log.Printf("Cannot read data from file, error: %s\n", err.Error())
 	} else {
+		// TODO: ensure bytes are correct
 		lvbnBig := &big.Int{}
 		lvbnBig.SetBytes(lvbnByt)
 		LVBN = int(lvbnBig.Int64())
@@ -633,12 +653,9 @@ func (s *SSL) GetNode(withResponse bool, nodeID []byte) (*ServerObj, error) {
 }
 
 // NewTicket returns ticket
-func (s *SSL) NewTicket(bn int, blockHash []byte, fleetAddr []byte, localAddr []byte) (*Ticket, error) {
+func (s *SSL) NewTicket(bn int, blockHash []byte, localAddr []byte) (*Ticket, error) {
 	if len(blockHash) != 32 {
 		return nil, fmt.Errorf("Blockhash must be 32 bytes")
-	}
-	if len(fleetAddr) != 20 {
-		return nil, fmt.Errorf("Fleet contract address must be 20 bytes")
 	}
 	if len(localAddr) != 20 {
 		return nil, fmt.Errorf("Local contract address must be 20 bytes")
@@ -658,7 +675,7 @@ func (s *SSL) NewTicket(bn int, blockHash []byte, fleetAddr []byte, localAddr []
 		ServerID:         serverID,
 		BlockNumber:      bn,
 		BlockHash:        blockHash,
-		FleetAddr:        fleetAddr,
+		FleetAddr:        s.FleetAddr,
 		TotalConnections: s.totalConnections,
 		TotalBytes:       s.totalBytes,
 		LocalAddr:        localAddr,
@@ -697,16 +714,11 @@ func (s *SSL) PortOpen(withResponse bool, deviceID string, port int, mode string
 
 // ResponsePortOpen response portopen request
 func (s *SSL) ResponsePortOpen(portOpen *PortOpen, err error) error {
-	var resMsg []byte
 	if err != nil {
-		resMsg, err = newMessage("error", "portopen", int(portOpen.Ref), err.Error())
+		_, err = s.CallContext("error", false, "portopen", int(portOpen.Ref), err.Error())
 	} else {
-		resMsg, err = newMessage("response", "portopen", int(portOpen.Ref), "ok")
+		_, err = s.CallContext("response", false, "portopen", int(portOpen.Ref), "ok")
 	}
-	if err != nil {
-		return err
-	}
-	err = s.sendPayload(resMsg, false)
 	if err != nil {
 		return err
 	}
@@ -801,19 +813,16 @@ func (s *SSL) GetAccountRoots(withResponse bool, blockNumber int, account []byte
  * TODO: should refactor this
  */
 // IsDeviceWhitelisted returns is given address whitelisted
-func (s *SSL) IsDeviceWhitelisted(withResponse bool, contractAddr []byte, addr []byte) (bool, error) {
+func (s *SSL) IsDeviceWhitelisted(withResponse bool, addr []byte) (bool, error) {
 	var err error
 	var raw []byte
 	var acv *AccountValue
 	var acr *AccountRoots
-	if len(contractAddr) != 20 {
-		return false, fmt.Errorf("Contract address must be 20 bytes")
-	}
 	if len(addr) != 20 {
 		return false, fmt.Errorf("Device address must be 20 bytes")
 	}
 	key := contract.DeviceWhitelistKey(addr)
-	acv, err = s.GetAccountValue(withResponse, BN, contractAddr, key)
+	acv, err = s.GetAccountValue(withResponse, BN, s.FleetAddr, key)
 	if err != nil {
 		return false, err
 	}
@@ -821,7 +830,7 @@ func (s *SSL) IsDeviceWhitelisted(withResponse bool, contractAddr []byte, addr [
 		acv = <-AccountValueChan
 	}
 	// get account roots
-	acr, err = s.GetAccountRoots(withResponse, BN, contractAddr)
+	acr, err = s.GetAccountRoots(withResponse, BN, s.FleetAddr)
 	if err != nil {
 		return false, err
 	}
@@ -843,14 +852,11 @@ func (s *SSL) IsDeviceWhitelisted(withResponse bool, contractAddr []byte, addr [
 }
 
 // IsAccessWhitelisted returns is given address whitelisted
-func (s *SSL) IsAccessWhitelisted(withResponse bool, contractAddr []byte, deviceAddr []byte, clientAddr []byte) (bool, error) {
+func (s *SSL) IsAccessWhitelisted(withResponse bool, deviceAddr []byte, clientAddr []byte) (bool, error) {
 	var err error
 	var raw []byte
 	var acv *AccountValue
 	var acr *AccountRoots
-	if len(contractAddr) != 20 {
-		return false, fmt.Errorf("Contract address must be 20 bytes")
-	}
 	if len(deviceAddr) != 20 {
 		return false, fmt.Errorf("Device address must be 20 bytes")
 	}
@@ -858,7 +864,7 @@ func (s *SSL) IsAccessWhitelisted(withResponse bool, contractAddr []byte, device
 		return false, fmt.Errorf("Client address must be 20 bytes")
 	}
 	key := contract.AccessWhitelistKey(deviceAddr, clientAddr)
-	acv, err = s.GetAccountValue(withResponse, BN, contractAddr, key)
+	acv, err = s.GetAccountValue(withResponse, BN, s.FleetAddr, key)
 	if err != nil {
 		return false, err
 	}
@@ -866,7 +872,7 @@ func (s *SSL) IsAccessWhitelisted(withResponse bool, contractAddr []byte, device
 		acv = <-AccountValueChan
 	}
 	// get account roots
-	acr, err = s.GetAccountRoots(withResponse, BN, contractAddr)
+	acr, err = s.GetAccountRoots(withResponse, BN, s.FleetAddr)
 	if err != nil {
 		return false, err
 	}

@@ -5,7 +5,6 @@ import (
 	"crypto/ecdsa"
 	"fmt"
 	"log"
-	"time"
 
 	"github.com/gorilla/websocket"
 
@@ -490,7 +489,6 @@ func (conn *ConnectedConn) copyToSSL(s *SSL, ref int) error {
 			if portSend != nil && portSend.Err != nil {
 				return fmt.Errorf(string(portSend.Err.RawMsg))
 			}
-			time.Sleep(2 * time.Millisecond)
 		}
 	}
 }

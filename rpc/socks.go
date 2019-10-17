@@ -349,10 +349,9 @@ func (socksServer *SocksServer) checkAccess(deviceID string) bool {
 		mc.Set(deviceID, true, cache.DefaultExpiration)
 	}
 	// check access
-	fleetAddr := socksServer.Config.FleetAddr
 	isDeviceWhitelisted, hit := mc.Get(deviceID + "devicewhitelist")
 	if !hit {
-		isDeviceWhitelisted, _ = socksServer.s.IsDeviceWhitelisted(false, fleetAddr, dDeviceID)
+		isDeviceWhitelisted, _ = socksServer.s.IsDeviceWhitelisted(false, dDeviceID)
 		mc.Set(deviceID+"devicewhitelist", isDeviceWhitelisted, cache.DefaultExpiration)
 	}
 	if !isDeviceWhitelisted.(bool) {
@@ -366,7 +365,7 @@ func (socksServer *SocksServer) checkAccess(deviceID string) bool {
 	}
 	isAccessWhitelisted, hit := mc.Get(deviceID + "accesswhitelist")
 	if !hit {
-		isAccessWhitelisted, _ = socksServer.s.IsAccessWhitelisted(false, fleetAddr, dDeviceID, clientAddr)
+		isAccessWhitelisted, _ = socksServer.s.IsAccessWhitelisted(false, dDeviceID, clientAddr)
 		mc.Set(deviceID+"accesswhitelist", isDeviceWhitelisted, cache.DefaultExpiration)
 	}
 	if !isAccessWhitelisted.(bool) {
