@@ -46,6 +46,7 @@ type SSL struct {
 	counter           int
 	rm                sync.Mutex
 	rc                sync.Mutex
+	clientPrivKey     *ecdsa.PrivateKey
 }
 
 // BN latest block numebr
@@ -59,8 +60,6 @@ var LBN int
 
 // ValidBlockHeaders keep validate block headers, do not loop this
 var ValidBlockHeaders = make(map[int]*BlockHeader)
-
-var clientPrivKey *ecdsa.PrivateKey
 
 // Dial connect to address with cert file and key file
 func Dial(addr string, certFile string, keyFile string, mode openssl.DialFlags) (*SSL, error) {
@@ -269,8 +268,8 @@ func (s *SSL) GetServerPubKey() ([]byte, error) {
 // 3. change format from DER to ecdsa
 // Maybe compare both
 func (s *SSL) GetClientPrivateKey() (*ecdsa.PrivateKey, error) {
-	if clientPrivKey != nil {
-		return clientPrivKey, nil
+	if s.clientPrivKey != nil {
+		return s.clientPrivKey, nil
 	}
 	kd, err := ioutil.ReadFile(config.AppConfig.KeyPath)
 	if err != nil {
@@ -281,6 +280,7 @@ func (s *SSL) GetClientPrivateKey() (*ecdsa.PrivateKey, error) {
 	if err != nil {
 		return nil, err
 	}
+	s.clientPrivKey = clientPrivKey
 	return clientPrivKey, nil
 }
 
