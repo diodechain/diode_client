@@ -329,6 +329,7 @@ func (rpcServer *RPCServer) WatchTotalBytes() {
 					rpcServer.rm.Lock()
 					bn := LBN
 					if ValidBlockHeaders[bn] == nil {
+						rpcServer.rm.Unlock()
 						continue
 					}
 					dbh := ValidBlockHeaders[bn].BlockHash
