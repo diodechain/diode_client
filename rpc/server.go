@@ -278,6 +278,7 @@ func (rpcServer *RPCServer) Start() {
 					time.Sleep(1 * time.Millisecond)
 					continue
 				}
+				rpcServer.s.CheckTicket(false)
 				isResponseType, _ := isResponseType(res)
 				if isResponseType {
 					response, err := parseResponse(res)

@@ -78,6 +78,8 @@ func main() {
 				continue
 			}
 		}
+		client.RegistryAddr = config.DecRegistryAddr
+		client.FleetAddr = config.DecFleetAddr
 		// enable keepalive
 		if config.EnableKeepAlive {
 			err = client.EnableKeepAlive()
@@ -148,8 +150,6 @@ func main() {
 	}
 
 	// check device access to fleet contract and registry
-	client.RegistryAddr = config.DecRegistryAddr
-	client.FleetAddr = config.DecFleetAddr
 	clientAddr, err := client.GetClientAddress()
 	if err != nil {
 		log.Fatal(err)

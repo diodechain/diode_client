@@ -411,26 +411,34 @@ func (s *SSL) CallContext(method string, withResponse bool, args ...interface{})
 			return nil, err
 		}
 	}
-	// check ticket
+	err = s.CheckTicket(withResponse)
+	if err != nil {
+		log.Println(err)
+	}
+	return res, err
+}
+
+// CheckTicket should client send traffic ticket to server
+func (s *SSL) CheckTicket(withResponse bool) error {
 	counter := s.Counter()
 	if s.TotalBytes() > counter+40000 {
 		s.rm.Lock()
 		bn := LBN
 		if ValidBlockHeaders[bn] == nil {
 			s.rm.Unlock()
-			return res, nil
+			return nil
 		}
 		dbh := ValidBlockHeaders[bn].BlockHash
 		s.rm.Unlock()
 		// send ticket
 		ticket, err := s.NewTicket(bn, dbh, s.RegistryAddr)
 		if err != nil {
-			log.Println(err)
-			return res, nil
+			return err
 		}
 		_, err = s.SubmitTicket(withResponse, ticket)
+		return err
 	}
-	return res, err
+	return nil
 }
 
 // ValidateNetwork validate blockchain network is secure and valid
