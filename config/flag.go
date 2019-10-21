@@ -39,7 +39,7 @@ func init() {
 	AppConfig = config
 }
 
-//
+// stringsContain
 func stringsContain(src []string, pivot *string) bool {
 	for i := 0; i < len(src); i++ {
 		if *pivot == src[i] {

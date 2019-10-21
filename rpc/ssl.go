@@ -45,23 +45,24 @@ type SSL struct {
 	totalBytes        int
 	counter           int
 	rm                sync.Mutex
-	rc                sync.Mutex
 	clientPrivKey     *ecdsa.PrivateKey
 	RegistryAddr      []byte
 	FleetAddr         []byte
 }
 
-// BN latest block numebr
-var BN int
+var (
+	// BN latest block numebr
+	BN int
 
-// LVBN last valid block numebr
-var LVBN int
+	// LVBN last valid block numebr
+	LVBN int
 
-// Last downloaded block header
-var LBN int
+	// LBN last downloaded block header
+	LBN int
 
-// ValidBlockHeaders keep validate block headers, do not loop this
-var ValidBlockHeaders = make(map[int]*BlockHeader)
+	// ValidBlockHeaders map of validate block headers reference, do not loop this
+	ValidBlockHeaders = make(map[int]*BlockHeader)
+)
 
 // Dial connect to address with cert file and key file
 func Dial(addr string, certFile string, keyFile string, mode openssl.DialFlags) (*SSL, error) {
@@ -321,12 +322,10 @@ func (s *SSL) incrementTotalBytes(n int) {
 }
 
 func (s *SSL) readContext() ([]byte, error) {
-	s.rc.Lock()
 	// read length of response
 	lenByt := make([]byte, 2)
 	n, err := s.conn.Read(lenByt)
 	if err != nil {
-		s.rc.Unlock()
 		if err == io.EOF ||
 			strings.Contains(err.Error(), "connection reset by peer") {
 			isOk := s.Reconnect()
@@ -342,7 +341,6 @@ func (s *SSL) readContext() ([]byte, error) {
 	res := make([]byte, lenr)
 	n, err = s.conn.Read(res)
 	if err != nil {
-		s.rc.Unlock()
 		if err == io.EOF ||
 			strings.Contains(err.Error(), "connection reset by peer") {
 			if s.Closed() {
@@ -357,7 +355,6 @@ func (s *SSL) readContext() ([]byte, error) {
 		return nil, err
 	}
 	n += 2
-	s.rc.Unlock()
 	s.incrementTotalBytes(n)
 	if config.AppConfig.Debug {
 		log.Printf("Receive %d bytes data from ssl\n", n)

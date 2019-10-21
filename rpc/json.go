@@ -13,12 +13,6 @@ import (
 	"github.com/diode_go_client/util"
 )
 
-// Marshal the data
-// func Marshal() {}
-
-// Unmarshal the data
-// func Unmarshal() {}
-
 // TODO: change to encoding/binary
 func newMessage(method string, args ...interface{}) ([]byte, error) {
 	key := 0

@@ -25,25 +25,3 @@ func ContractStakeKey(addr []byte) []byte {
 	hash.Write(append(padAddr, padIndex...))
 	return hash.Sum(nil)
 }
-
-// ConnectionTicketsLengthKey returns storage key of connection tickets length
-func ConnectionTicketsLengthKey(clientAddr []byte, nodeAddr []byte) []byte {
-	index := util.IntToBytes(ConnectionTicketsIndex)
-	padIndex := util.PaddingBytesPrefix(index, 0, 32)
-	padClientAddr := util.PaddingBytesPrefix(clientAddr, 0, 32)
-	padNodeAddr := util.PaddingBytesPrefix(nodeAddr, 0, 32)
-	hash := sha3.NewKeccak256()
-	hash.Write(append(padClientAddr, padIndex...))
-	baseKey := hash.Sum(nil)
-	hash = sha3.NewKeccak256()
-	hash.Write(append(padNodeAddr, baseKey...))
-	return hash.Sum(nil)
-}
-
-// ConnectionTicketsArrayKey returns storage key of connection tickets array
-func ConnectionTicketsArrayKey(clientAddr []byte, nodeAddr []byte) []byte {
-	baseKey := ConnectionTicketsLengthKey(clientAddr, nodeAddr)
-	hash := sha3.NewKeccak256()
-	hash.Write(baseKey)
-	return hash.Sum(nil)
-}

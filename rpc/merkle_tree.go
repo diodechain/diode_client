@@ -14,8 +14,10 @@ import (
 	bert "github.com/exosite/gobert"
 )
 
-var errorWrongTree = fmt.Errorf("Wrong merkle tree data")
-var errorKeyNotFound = fmt.Errorf("Key not found in merkle tree")
+var (
+	errorWrongTree   = fmt.Errorf("Wrong merkle tree data")
+	errorKeyNotFound = fmt.Errorf("Key not found in merkle tree")
+)
 
 // MerkleTreeNode struct for node of merkle tree
 type MerkleTreeNode struct {

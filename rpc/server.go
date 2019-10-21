@@ -50,7 +50,7 @@ func (rpcServer *RPCServer) Wait() {
 func (rpcServer *RPCServer) Start() {
 	log.Println("Start a rpc server")
 	// for error channel
-	rpcServer.wg.Add(1)
+	rpcServer.wg.Add(4)
 	go func() {
 		for {
 			err, ok := <-ErrorChan
@@ -74,13 +74,16 @@ func (rpcServer *RPCServer) Start() {
 				}
 				PortSendChan <- portSend
 				// } else if bytes.Equal(err.Method, PortCloseType) {
+				// 	portClose := &PortClose{
+				// 		Ok:  false,
+				// 	}
+				// 	PortCloseChan <- portClose
 			} else {
 				log.Println("Doesn't support rpc error: " + string(err.Raw))
 			}
 		}
 	}()
 	// for response channel
-	rpcServer.wg.Add(1)
 	go func() {
 		for {
 			response, ok := <-ResponseChan
@@ -167,7 +170,6 @@ func (rpcServer *RPCServer) Start() {
 	}()
 	// for request channel, device rpc
 	// TODO: encrypt/decrypt data
-	rpcServer.wg.Add(1)
 	go func() {
 		for {
 			request, ok := <-RequestChan
@@ -256,7 +258,6 @@ func (rpcServer *RPCServer) Start() {
 		}
 	}()
 	// rpc server
-	rpcServer.wg.Add(1)
 	go func() {
 		// infinite read from stream
 		for {
