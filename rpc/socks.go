@@ -16,6 +16,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"sync"
 
 	"regexp"
 	"strconv"
@@ -79,6 +80,7 @@ type SocksServer struct {
 	s        *SSL
 	Config   *SocksConfig
 	listener net.Listener
+	wg       *sync.WaitGroup
 }
 
 func handShake(conn net.Conn) (err error) {
@@ -377,6 +379,7 @@ func (socksServer *SocksServer) checkAccess(deviceID string) bool {
 
 func (socksServer *SocksServer) handleSocksConnection(conn net.Conn) {
 	defer conn.Close()
+	defer socksServer.wg.Done()
 	if err := handShake(conn); err != nil {
 		log.Println("socks handshake:", err)
 		return
@@ -400,7 +403,7 @@ func (socksServer *SocksServer) handleSocksConnection(conn net.Conn) {
 
 // Start socks server
 func (socksServer *SocksServer) Start() error {
-	log.Printf("Start socks server %s \n", socksServer.Config.Addr)
+	log.Printf("Start socks server %s\n", socksServer.Config.Addr)
 	ln, err := net.Listen("tcp", socksServer.Config.Addr)
 	if err != nil {
 		return err
@@ -411,12 +414,12 @@ func (socksServer *SocksServer) Start() error {
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
-				log.Println(err)
 				return
 			}
 			if socksServer.Config.Verbose {
 				log.Println("New socks client:", conn.RemoteAddr())
 			}
+			socksServer.wg.Add(1)
 			go socksServer.handleSocksConnection(conn)
 		}
 	}()
@@ -428,6 +431,7 @@ func (s *SSL) NewSocksServer(config *SocksConfig) *SocksServer {
 	return &SocksServer{
 		s:      s,
 		Config: config,
+		wg:     &sync.WaitGroup{},
 	}
 }
 
@@ -435,4 +439,5 @@ func (s *SSL) NewSocksServer(config *SocksConfig) *SocksServer {
 func (socksServer *SocksServer) Close() {
 	log.Println("Socks server exit")
 	socksServer.listener.Close()
+	socksServer.wg.Wait()
 }
