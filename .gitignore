@@ -1,3 +1,6 @@
 *.pem
 *.ts
 */private*
+node_modules*
+wasm_exec.js
+*.wasm
