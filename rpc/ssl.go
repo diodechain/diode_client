@@ -8,7 +8,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"math/big"
 	"net"
@@ -16,16 +15,22 @@ import (
 	"sync"
 	"time"
 
-	"github.com/diode_go_client/config"
-	"github.com/diode_go_client/contract"
-	"github.com/diode_go_client/crypto"
-	"github.com/diode_go_client/crypto/secp256k1"
-	"github.com/diode_go_client/db"
-	"github.com/diode_go_client/util"
+	"github.com/diodechain/diode_go_client/config"
+	"github.com/diodechain/diode_go_client/contract"
+	"github.com/diodechain/diode_go_client/crypto"
+	"github.com/diodechain/diode_go_client/crypto/secp256k1"
+	"github.com/diodechain/diode_go_client/db"
+	"github.com/diodechain/diode_go_client/util"
 	"github.com/diodechain/go-cache"
 
 	"github.com/exosite/openssl"
 	"github.com/felixge/tcpkeepalive"
+)
+
+const (
+	// https://docs.huihoo.com/doxygen/openssl/1.0.1c/crypto_2objects_2obj__mac_8h.html
+	NID_secp256k1 openssl.EllipticCurve = 714
+	NID_secp256r1 openssl.EllipticCurve = 715
 )
 
 type SSL struct {
@@ -48,6 +53,7 @@ type SSL struct {
 	clientPrivKey     *ecdsa.PrivateKey
 	RegistryAddr      []byte
 	FleetAddr         []byte
+	RPCServer         *RPCServer
 }
 
 var (
@@ -83,6 +89,11 @@ func Dial(addr string, certFile string, keyFile string, mode openssl.DialFlags) 
 		memoryCache: c,
 	}
 	return s, nil
+}
+
+// Host returns the non-resolved addr name of the host
+func (s *SSL) Host() string {
+	return s.addr
 }
 
 // DialContext connect to address with openssl context
@@ -183,6 +194,9 @@ func (s *SSL) Closed() bool {
 func (s *SSL) Close() error {
 	s.rm.Lock()
 	defer s.rm.Unlock()
+	if s.RPCServer != nil {
+		s.RPCServer.Close()
+	}
 	s.closed = true
 	return s.conn.Close()
 }
@@ -274,14 +288,12 @@ func (s *SSL) GetClientPrivateKey() (*ecdsa.PrivateKey, error) {
 	if s.clientPrivKey != nil {
 		return s.clientPrivKey, nil
 	}
-	kd, err := ioutil.ReadFile(config.AppConfig.KeyPath)
+	kd := EnsurePrivatePEM()
+	block, _ := pem.Decode(kd)
+	clientPrivKey, err := crypto.DerToECDSA(block.Bytes)
 	if err != nil {
-		return nil, err
-	}
-	dbkd, _ := pem.Decode(kd)
-	clientPrivKey, err := crypto.PemToECDSA(dbkd.Bytes)
-	if err != nil {
-		return nil, err
+		log.Fatal(err)
+		// return nil, err
 	}
 	s.clientPrivKey = clientPrivKey
 	return clientPrivKey, nil
@@ -401,7 +413,7 @@ func (s *SSL) CallContext(method string, withResponse bool, args ...interface{})
 			return nil, err
 		}
 		if config.AppConfig.Debug {
-			log.Println("Readed response: " + string(rawRes))
+			log.Println("Read response: " + string(rawRes))
 		}
 		res, err = parseResponse(rawRes)
 		if err != nil {
@@ -452,7 +464,7 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 	if config.Debug {
 		bpCh = config.BlockQuickLimit
 	}
-	lvbnByt, err := db.DB.Get([]byte("lvbn"))
+	lvbnByt, err := db.DB.Get("lvbn")
 	if BN < bpCh {
 		bpCh = BN - 1
 		LVBN = BN
@@ -574,7 +586,7 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 		if LVBN != oriLvbn {
 			LVBNBig := &big.Int{}
 			LVBNBig.SetInt64(int64(LVBN))
-			err = db.DB.Put([]byte("lvbn"), LVBNBig.Bytes())
+			err = db.DB.Put("lvbn", LVBNBig.Bytes())
 			if err != nil {
 				log.Printf("Cannot save data to leveldb, error: %s\n", err.Error())
 			}
@@ -896,4 +908,24 @@ func (s *SSL) IsAccessWhitelisted(withResponse bool, deviceAddr []byte, clientAd
 		return false, err
 	}
 	return (util.BytesToInt(raw) == 1), nil
+}
+
+func EnsurePrivatePEM() []byte {
+	key, _ := db.DB.Get("private")
+	if key == nil {
+		privKey, err := openssl.GenerateECKey(NID_secp256k1)
+		if err != nil {
+			log.Fatal(err)
+		}
+		bytes, err := privKey.MarshalPKCS1PrivateKeyPEM()
+		if err != nil {
+			log.Fatal(err)
+		}
+		err = db.DB.Put("private", bytes)
+		if err != nil {
+			log.Fatal(err)
+		}
+		return bytes
+	}
+	return key
 }

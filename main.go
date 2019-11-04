@@ -1,15 +1,17 @@
 package main
 
 import (
+	"fmt"
 	"log"
+	"math/big"
 	"os"
 	"os/signal"
 	"time"
 
-	"github.com/diode_go_client/config"
-	"github.com/diode_go_client/db"
-	"github.com/diode_go_client/rpc"
-	"github.com/diode_go_client/util"
+	"github.com/diodechain/diode_go_client/config"
+	"github.com/diodechain/diode_go_client/db"
+	"github.com/diodechain/diode_go_client/rpc"
+	"github.com/diodechain/diode_go_client/util"
 
 	"github.com/exosite/openssl"
 )
@@ -23,131 +25,43 @@ const (
 func main() {
 	var rpcServer *rpc.RPCServer
 	var socksServer *rpc.SocksServer
+	var err error
+
 	config := config.AppConfig
+	if config.Debug {
+		log.SetFlags(log.LstdFlags | log.Lshortfile)
+	}
 
-	ctx, err := openssl.NewCtxFromFiles(config.PemPath, config.KeyPath)
+	// Initialize db
+	clidb, err := db.OpenFile(config.DBPath)
 	if err != nil {
-		log.Fatal(err)
-		return
+		panic(err)
 	}
-	verifyOption := openssl.VerifyNone
-	// verify callback
-	// TODO: verify certificate
-	cb := func(ok bool, store *openssl.CertificateStoreCtx) bool {
-		if config.Debug {
-			log.Println(ok, store.VerifyResult(), store.Err(), store.Depth())
-		}
-		return true
-	}
-	ctx.SetVerify(verifyOption, cb)
-	err = ctx.SetEllipticCurve(NID_secp256k1)
-	if err != nil {
-		log.Fatal(err)
-		return
-	}
-	curves := []openssl.EllipticCurve{NID_secp256k1, NID_secp256r1}
-	err = ctx.SetSupportedEllipticCurves(curves)
-	if err != nil {
-		log.Fatal(err)
-		return
-	}
-	// set timeout
-	ctx.SetTimeout(config.RemoteRPCTimeout)
-	client := &rpc.SSL{}
+	db.DB = clidb
+
+	// Connect to first server to respond
+	c := make(chan *rpc.SSL, 3)
 	for _, RemoteRPCAddr := range config.RemoteRPCAddrs {
-		client, err = rpc.DialContext(ctx, RemoteRPCAddr, openssl.InsecureSkipHostVerification)
-		if err != nil {
-			if config.Debug {
-				log.Println(err)
-			}
-			// retry to connect
-			isOk := false
-			for i := 1; i <= config.RetryTimes; i++ {
-				log.Printf("Retry to connect the host, wait %s\n", config.RetryWait.String())
-				time.Sleep(config.RetryWait)
-				client, err = rpc.DialContext(ctx, RemoteRPCAddr, openssl.InsecureSkipHostVerification)
-				if err == nil {
-					isOk = true
-					break
-				}
-				if config.Debug {
-					log.Println(err)
-				}
-			}
-			if !isOk {
-				continue
-			}
-		}
-		client.RegistryAddr = config.DecRegistryAddr
-		client.FleetAddr = config.DecFleetAddr
-		// enable keepalive
-		if config.EnableKeepAlive {
-			err = client.EnableKeepAlive()
-			if err != nil {
-				log.Fatal(err)
-				return
-			}
-			err = client.SetKeepAliveCount(4)
-			if err != nil {
-				log.Fatal(err)
-				return
-			}
-			err = client.SetKeepAliveIdle(30 * time.Second)
-			if err != nil {
-				log.Fatal(err)
-				return
-			}
-			err = client.SetKeepAliveInterval(5 * time.Second)
-			if err != nil {
-				log.Fatal(err)
-				return
-			}
-		}
-		defer client.Close()
+		go connect(c, RemoteRPCAddr, config)
+	}
 
-		// initialize db
-		clidb, err := db.OpenFile(config.DBPath)
-		if err != nil {
-			log.Fatal(err)
-		}
-		db.DB = clidb
+	var client *rpc.SSL
+	for range config.RemoteRPCAddrs {
+		client = <-c
 
-		// initialize rpc server
-		rpcConfig := &rpc.RPCConfig{
-			Verbose:      config.Debug,
-			RegistryAddr: config.DecRegistryAddr,
-			FleetAddr:    config.DecFleetAddr,
-		}
-		rpcServer = client.NewRPCServer(rpcConfig, func() {
-			if config.RunSocksServer {
-				socksServer.Close()
-			}
-			if config.RunSocksWSServer {
-				socksServer.CloseWS()
-			}
-		})
-
+		log.Printf("Connected to %s, validating...\n", client.Host())
 		isValid, err := client.ValidateNetwork()
-		if err != nil {
-			log.Println(err)
-			continue
+		if isValid {
+			break
 		}
-		if !isValid {
-			log.Println("Network is not valid")
-			rpcServer.Close()
-			continue
-		}
-		log.Printf("Network is validated, last valid block number: %d\n", rpc.LVBN)
-		break
+		log.Printf("Network is not valid (err: %s), trying next...\n", err)
+		client.Close()
 	}
-	if err != nil {
-		log.Println("Cannot connect to network")
-		return
+
+	if client == nil {
+		log.Fatal("Could not connect to any server.")
 	}
-	if !client.IsValid() {
-		log.Println("Networks are not valid")
-		return
-	}
+	log.Printf("Network is validated, last valid block number: %d\n", rpc.LVBN)
 
 	// check device access to fleet contract and registry
 	clientAddr, err := client.GetClientAddress()
@@ -240,4 +154,139 @@ func main() {
 	// start rpc server
 	rpcServer.Start()
 	rpcServer.Wait()
+}
+
+func initSSL(config *config.Config) *openssl.Ctx {
+
+	serial := new(big.Int)
+	_, err := fmt.Sscan("18446744073709551617", serial)
+	if err != nil {
+		log.Fatal(err)
+	}
+	name, err := os.Hostname()
+	if err != nil {
+		log.Fatal(err)
+	}
+	info := &openssl.CertificateInfo{
+		Serial:       serial,
+		Issued:       time.Duration(time.Now().Unix()),
+		Expires:      2000000000,
+		Country:      "US",
+		Organization: "Private",
+		CommonName:   name,
+	}
+	privPEM := rpc.EnsurePrivatePEM()
+	key, err := openssl.LoadPrivateKeyFromPEM(privPEM)
+	if err != nil {
+		log.Fatal(err)
+	}
+	cert, err := openssl.NewCertificate(info, key)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = cert.Sign(key, openssl.EVP_SHA256)
+	if err != nil {
+		log.Fatal(err)
+	}
+	ctx, err := openssl.NewCtx()
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = ctx.UseCertificate(cert)
+	err = ctx.UsePrivateKey(key)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// We only use self-signed certificates.
+	verifyOption := openssl.VerifyNone
+	// TODO: Verify certificate (check that it is self-signed)
+	cb := func(ok bool, store *openssl.CertificateStoreCtx) bool {
+		if config.Debug {
+			log.Println(ok, store.VerifyResult(), store.Err(), store.Depth())
+		}
+		return true
+	}
+	ctx.SetVerify(verifyOption, cb)
+	err = ctx.SetEllipticCurve(NID_secp256k1)
+	if err != nil {
+		panic(err)
+	}
+	curves := []openssl.EllipticCurve{NID_secp256k1, NID_secp256r1}
+	err = ctx.SetSupportedEllipticCurves(curves)
+	if err != nil {
+		panic(err)
+	}
+
+	// TODO: Need to handle timeouts, right now we're using
+	// set_timeout() but this just sets the OpenSSL session lifetime
+	ctx.SetTimeout(config.RemoteRPCTimeout)
+	return ctx
+}
+
+func connect(c chan *rpc.SSL, host string, config *config.Config) {
+	client, err := doConnect(host, config)
+	if err != nil {
+		log.Printf("Connection to host %s failed", host)
+		log.Print(err)
+	} else {
+		c <- client
+	}
+}
+func doConnect(host string, config *config.Config) (*rpc.SSL, error) {
+	ctx := initSSL(config)
+	client, err := rpc.DialContext(ctx, host, openssl.InsecureSkipHostVerification)
+	if err != nil {
+		if config.Debug {
+			log.Println(err)
+		}
+		// retry to connect
+		isOk := false
+		for i := 1; i <= config.RetryTimes; i++ {
+			log.Printf("Retry to connect the host, wait %s\n", config.RetryWait.String())
+			time.Sleep(config.RetryWait)
+			client, err = rpc.DialContext(ctx, host, openssl.InsecureSkipHostVerification)
+			if err == nil {
+				isOk = true
+				break
+			}
+			if config.Debug {
+				log.Println(err)
+			}
+		}
+		if !isOk {
+			return nil, nil
+		}
+	}
+	client.RegistryAddr = config.DecRegistryAddr
+	client.FleetAddr = config.DecFleetAddr
+	// enable keepalive
+	if config.EnableKeepAlive {
+		err = client.EnableKeepAlive()
+		if err != nil {
+			client.Close()
+			return nil, err
+		}
+		err = client.SetKeepAliveCount(4)
+		if err != nil {
+			return nil, err
+		}
+		err = client.SetKeepAliveIdle(30 * time.Second)
+		if err != nil {
+			return nil, err
+		}
+		err = client.SetKeepAliveInterval(5 * time.Second)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// initialize rpc server
+	rpcConfig := &rpc.RPCConfig{
+		Verbose:      config.Debug,
+		RegistryAddr: config.DecRegistryAddr,
+		FleetAddr:    config.DecFleetAddr,
+	}
+	client.RPCServer = client.NewRPCServer(rpcConfig)
+	return client, nil
 }

@@ -11,12 +11,12 @@ import (
 	// "io"
 	"net"
 
-	"github.com/diode_go_client/crypto"
-	"github.com/diode_go_client/crypto/secp256k1"
-	"github.com/diode_go_client/util"
+	"github.com/diodechain/diode_go_client/crypto"
+	"github.com/diodechain/diode_go_client/crypto/secp256k1"
+	"github.com/diodechain/diode_go_client/util"
 
-	// "github.com/diode_go_client/crypto/sha3"
-	// "github.com/diode_go_client/util"
+	// "github.com/diodechain/diode_go_client/crypto/sha3"
+	// "github.com/diodechain/diode_go_client/util"
 	"sync"
 
 	bert "github.com/exosite/gobert"

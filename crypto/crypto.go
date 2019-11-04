@@ -7,10 +7,11 @@ import (
 	"encoding/asn1"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
 
-	"github.com/diode_go_client/crypto/secp256k1"
-	"github.com/diode_go_client/crypto/sha3"
+	"github.com/diodechain/diode_go_client/crypto/secp256k1"
+	"github.com/diodechain/diode_go_client/crypto/sha3"
 )
 
 const ecPrivKeyVersion = 1
@@ -66,7 +67,8 @@ func S256() elliptic.Curve {
 func PemToECDSA(pem []byte) (*ecdsa.PrivateKey, error) {
 	var privKey ECPEMPrivateKey
 	if _, err := asn1.Unmarshal(pem, &privKey); err != nil {
-		return nil, err
+		log.Fatal(err)
+		// return nil, err
 	}
 	return DerToECDSA(privKey.KeyData)
 }

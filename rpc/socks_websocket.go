@@ -23,7 +23,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/diode_go_client/util"
+	"github.com/diodechain/diode_go_client/util"
 	"github.com/gorilla/websocket"
 )
 

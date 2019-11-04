@@ -6,15 +6,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/diode_go_client/util"
+	"github.com/diodechain/diode_go_client/util"
 )
 
 var AppConfig *Config
 
 // Config for poc-client
 type Config struct {
-	PemPath            string
-	KeyPath            string
 	RemoteRPCAddrs     []string
 	RemoteRPCTimeout   time.Duration
 	RunSocksServer     bool
@@ -51,13 +49,11 @@ func stringsContain(src []string, pivot *string) bool {
 
 // parseFlag parse command line flags and return Config
 func parseFlag() *Config {
-	pemPath := flag.String("pempath", "device_certificate.pem", "ssl client certificate")
-	keyPath := flag.String("keypath", "device_key.pem", "ssl client key")
-	remoteRPCAddr := flag.String("remoterpcaddr", "127.0.0.1:41043", "remote rpc address")
+	remoteRPCAddr := flag.String("remoterpcaddr", "asia.testnet.diode.io:41043,europe.testnet.diode.io:41043,usa.testnet.diode.io:41043", "remote rpc address")
 	remoteRPCTimeout := flag.Int("remoterpctimeout", 1, "timeout seconds to connect to the remote rpc server")
-	runSocksServer := flag.Bool("runsocks", false, "run socks server")
+	runSocksServer := flag.Bool("runsocks", true, "run socks server")
 	socksServerAddr := flag.String("socksaddr", "127.0.0.1:8080", "socks server address which listen to")
-	runSocksWSServer := flag.Bool("runsocksws", false, "run socks with websocket server")
+	runSocksWSServer := flag.Bool("runsocksws", true, "run socks with websocket server")
 	WSServerAddr := flag.String("wsaddr", "127.0.0.1:8081", "websocket server address which socks server connect to")
 	debug := flag.Bool("debug", false, "turn on debug mode")
 	blockQuickLimit := flag.Int("blockquicklimit", 100, "total number limit to run blockquick algorithm, only useful in debug mode")
@@ -95,8 +91,6 @@ func parseFlag() *Config {
 		panic(err)
 	}
 	config := &Config{
-		PemPath:            *pemPath,
-		KeyPath:            *keyPath,
 		RemoteRPCAddrs:     remoteRPCAddrs,
 		RemoteRPCTimeout:   remoteRPCTimeoutTime,
 		RunSocksServer:     *runSocksServer,

@@ -4,3 +4,5 @@
 node_modules*
 wasm_exec.js
 *.wasm
+.history
+diode_go_client

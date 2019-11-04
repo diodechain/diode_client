@@ -31,14 +31,6 @@ Then you can check go version meets the requirement (>1.10).
 $ go version
 ```
 
-
-## Create Certificate for client
-
-```BASH
-$ openssl ecparam -name secp256k1 -out secp256k1_params.pem
-$ openssl req -newkey ec:./secp256k1_params.pem -nodes -keyout device_key.pem -x509 -days 365 -out device_certificate.pem -subj "/CN=device"
-```
-
 ## Install dependencies
 
 ```BASH
@@ -72,10 +64,6 @@ Usage of:
     	enable tcp keepalive (default true)
   -fleet string
     	fleet contract address (default "0x6000000000000000000000000000000000000000")
-  -keypath string
-    	ssl client key (default "device_key.pem")
-  -pempath string
-    	ssl client certificate (default "device_certificate.pem")
   -registry string
     	registry contract address (default "0x5000000000000000000000000000000000000000")
   -remoterpcaddr string
@@ -115,7 +103,7 @@ $ ssh pi@127.0.0.2 -p 2222
 
 * Start socks with websocket server
 ```BASH
-$ go run main.go -runsocks -runsocksws -remoterpcaddr seed-alpha.diodechain.io:41043 -debug
+$ go run main.go
 ```
 
 * Start raspivid or any other stream service

@@ -21,7 +21,7 @@ import (
 	"regexp"
 	"strconv"
 
-	"github.com/diode_go_client/util"
+	"github.com/diodechain/diode_go_client/util"
 	"github.com/diodechain/go-cache"
 )
 

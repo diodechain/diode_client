@@ -1,8 +1,8 @@
 package contract
 
 import (
-	"github.com/diode_go_client/crypto/sha3"
-	"github.com/diode_go_client/util"
+	"github.com/diodechain/diode_go_client/crypto/sha3"
+	"github.com/diodechain/diode_go_client/util"
 )
 
 /**

@@ -7,9 +7,9 @@ import (
 	"math/big"
 	"strings"
 
-	"github.com/diode_go_client/crypto"
+	"github.com/diodechain/diode_go_client/crypto"
 
-	"github.com/diode_go_client/rlp"
+	"github.com/diodechain/diode_go_client/rlp"
 
 	bert "github.com/exosite/gobert"
 )

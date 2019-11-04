@@ -10,7 +10,7 @@ import (
 	//"strings"
 
 	"github.com/buger/jsonparser"
-	"github.com/diode_go_client/util"
+	"github.com/diodechain/diode_go_client/util"
 	bert "github.com/exosite/gobert"
 )
 

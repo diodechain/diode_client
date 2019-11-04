@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/diode_go_client/util"
+	"github.com/diodechain/diode_go_client/util"
 )
 
 type RPCConfig struct {
@@ -26,7 +26,6 @@ type RPCServer struct {
 	rm                     sync.Mutex
 	started                bool
 	closed                 bool
-	closeCallback          func()
 	finishTicketTickerChan chan bool
 	ticketTicker           *time.Ticker
 	ticketTickerDuration   time.Duration
@@ -59,7 +58,7 @@ func (rpcServer *RPCServer) Start() {
 				break
 			}
 			if rpcServer.Config.Verbose {
-				log.Println("Readed rpc error: " + string(err.Raw))
+				log.Println("Read rpc error: " + string(err.Raw))
 			}
 			if bytes.Equal(err.Method, PortOpenType) {
 				portOpen := &PortOpen{
@@ -359,19 +358,15 @@ func (rpcServer *RPCServer) WatchNewBlock() {
 // Close the rpc server
 func (rpcServer *RPCServer) Close() {
 	rpcServer.rm.Lock()
+	defer rpcServer.rm.Unlock()
 	if !rpcServer.started {
-		rpcServer.s.Close()
-		rpcServer.rm.Unlock()
 		return
 	}
 	log.Println("RPC server exit")
-	if rpcServer.closed || rpcServer.s.Closed() {
-		rpcServer.rm.Unlock()
+	if rpcServer.closed {
 		return
 	}
 	rpcServer.closed = true
-	rpcServer.rm.Unlock()
-	rpcServer.s.Close()
 	rpcServer.blockTicker.Stop()
 	rpcServer.finishBlockTickerChan <- true
 	close(ResponseChan)
@@ -379,20 +374,18 @@ func (rpcServer *RPCServer) Close() {
 	close(PortOpenChan)
 	close(PortSendChan)
 	close(ErrorChan)
-	rpcServer.closeCallback()
 	return
 }
 
 // NewRPCServer start rpc server
 // TODO: check blocking channel, error channel
-func (s *SSL) NewRPCServer(config *RPCConfig, closeCallback func()) *RPCServer {
+func (s *SSL) NewRPCServer(config *RPCConfig) *RPCServer {
 	rpcServer := &RPCServer{
 		s:                      s,
 		wg:                     &sync.WaitGroup{},
 		Config:                 config,
 		started:                false,
 		closed:                 false,
-		closeCallback:          closeCallback,
 		finishTicketTickerChan: make(chan bool),
 		ticketTickerDuration:   1 * time.Millisecond,
 		finishBlockTickerChan:  make(chan bool),

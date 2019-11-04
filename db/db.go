@@ -1,187 +1,129 @@
 package db
 
 import (
-	"bytes"
+	"bufio"
+	"encoding/binary"
 	"fmt"
+	"log"
 	"os"
 	"sync"
+)
+
+const (
+	databaseVersionMagic uint64 = 4389235283
 )
 
 var (
 	DB     *Database
 	DBPath string
-	// maybe it won't work on windows
-	sepNewline = []byte("\n")
-	sepEqual   = []byte("=")
 )
 
 type Database struct {
-	db     *os.File
 	path   string
-	keys   [][]byte
-	values [][]byte
-	stat   os.FileInfo
+	values map[string][]byte
 	// maybe write data async in the future
 	// dirty bool
-	rm    sync.Mutex
-	empty bool
+	rm     sync.Mutex
+	buffer []byte
 }
 
 func OpenFile(path string) (*Database, error) {
-	rfile, err := os.OpenFile(path, os.O_CREATE|os.O_RDONLY, 0644)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDONLY, 0644)
 	if err != nil {
 		return nil, err
 	}
-	stat, err := rfile.Stat()
-	if err != nil {
-		return nil, err
-	}
-	size := stat.Size()
-	data := make([]byte, size)
-	_, err = rfile.Read(data)
-	if err != nil {
-		return nil, err
-	}
-	// close rfile
-	rfile.Close()
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0644)
-	if err != nil {
-		return nil, err
-	}
-	keys := [][]byte{}
-	values := [][]byte{}
-	keyValues := bytes.Split(data, sepNewline)
-	for _, v := range keyValues {
-		pair := bytes.Split(v, sepEqual)
-		if len(pair) == 2 {
-			keys = append(keys, pair[0])
-			values = append(values, pair[1])
+	r := bufio.NewReader(f)
+	magic, _ := binary.ReadUvarint(r)
+	values := make(map[string][]byte)
+	if magic == databaseVersionMagic {
+		numTuples, err := binary.ReadUvarint(r)
+		if err != nil {
+			log.Fatal(err)
+		}
+		for i := numTuples; i > 0; i-- {
+			size64, err := binary.ReadUvarint(r)
+			key := make([]byte, size64)
+			size, err := r.Read(key)
+			if size != len(key) || err != nil {
+				log.Fatal(err)
+			}
+			size64, err = binary.ReadUvarint(r)
+			value := make([]byte, size64)
+			size, err = r.Read(value)
+			if size != len(value) || err != nil {
+				log.Fatal(err)
+			}
+			values[string(key)] = value
 		}
 	}
-
 	db := &Database{
-		db:     file,
 		path:   path,
-		stat:   stat,
-		keys:   keys,
 		values: values,
-		empty:  size <= 0,
+		buffer: make([]byte, 1024),
 	}
 	return db, nil
 }
 
-func (db *Database) findKey(key []byte) int {
-	index := -1
-	for i, v := range db.keys {
-		if bytes.Equal(v, key) {
-			index = i
-			break
-		}
-	}
-	return index
-}
-
-func (db *Database) serialize(start int) ([]byte, error) {
-	if start < 0 {
-		return nil, fmt.Errorf(("Cannot start from negative position"))
-	}
-	keysLen := len(db.keys)
-	valuesLen := len(db.values)
-	if keysLen != valuesLen {
-		return nil, fmt.Errorf(("Data corrupted"))
-	}
-	if keysLen == 0 {
-		return nil, fmt.Errorf(("Empty key value"))
-	}
-	data := [][]byte{}
-	pairs := make([][]byte, 2)
-	for i := start; i < keysLen; i++ {
-		pairs[0] = db.keys[i]
-		pairs[1] = db.values[i]
-		data = append(data, bytes.Join(pairs, sepEqual))
-	}
-	res := bytes.Join(data, sepNewline)
-	if start > 0 {
-		res = append(sepNewline, res...)
-	}
-	return res, nil
-}
-
-func (db *Database) offset(key []byte) (int, int) {
-	keysLen := len(db.keys)
-	valuesLen := len(db.values)
-	index := -1
-	offset := 0
-	if keysLen == 0 || valuesLen == 0 {
-		return index, offset
-	}
-	data := [][]byte{}
-	res := []byte{}
-	pairs := make([][]byte, 2)
-	for i, v := range db.keys {
-		if bytes.Equal(v, key) {
-			index = i
-			break
-		} else {
-			pairs[0] = v
-			pairs[1] = db.values[i]
-			data = append(data, bytes.Join(pairs, sepEqual))
-		}
-	}
-	res = bytes.Join(data, sepNewline)
-	if index != 0 {
-		offset = len(res)
-	}
-	return index, offset
-}
-
-func (db *Database) Get(key []byte) ([]byte, error) {
+func (db *Database) Get(key string) ([]byte, error) {
 	db.rm.Lock()
 	defer db.rm.Unlock()
-	index := db.findKey(key)
-	if index < 0 {
+	ret := db.values[key]
+	if ret == nil {
 		return nil, fmt.Errorf("key not found")
 	}
-	return db.values[index], nil
+	return ret, nil
 }
 
 // Put data to file database
 // Notice: remember not to use = and \n in value or key
-func (db *Database) Put(key []byte, value []byte) (err error) {
+func (db *Database) Put(key string, value []byte) (err error) {
 	db.rm.Lock()
 	defer db.rm.Unlock()
-	serializedData := []byte{}
-	index, offset := db.offset(key)
-	if index < 0 {
-		// append to key
-		db.keys = append(db.keys, key)
-		db.values = append(db.values, value)
-		// write new line
-		if !db.empty {
-			key = append(sepNewline, key...)
-		}
-		serializedData = bytes.Join([][]byte{
-			key,
-			value,
-		}, sepEqual)
-	} else {
-		db.values[index] = value
-		// update existed value
-		serializedData, err = db.serialize(index)
+	db.values[key] = value
+	return db.store()
+}
+
+func (db *Database) store() error {
+	f, err := os.OpenFile(db.path+".tmp", os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return err
 	}
-	// serializedData, err := db.serialize()
-	// if err != nil {
-	// 	return err
-	// }
-	// write data to file
-	_, err = db.db.WriteAt(serializedData, int64(offset))
-	db.empty = false
-	return err
+	w := bufio.NewWriter(f)
+	db.put(w, databaseVersionMagic)
+	db.put(w, uint64(len(db.values)))
+	for key, value := range db.values {
+		db.put(w, uint64(len(key)))
+		r, err := w.Write([]byte(key))
+		if len(key) != r || err != nil {
+			log.Fatal(err)
+		}
+		db.put(w, uint64(len(value)))
+		r, err = w.Write(value)
+		if len(value) != r || err != nil {
+			log.Fatal(err)
+		}
+	}
+	err = w.Flush()
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = f.Close()
+	if err != nil {
+		log.Fatal(err)
+	}
+	// This renaming makes the operation atomic
+	// the database will be written 100% correct or not at
+	return os.Rename(db.path+".tmp", db.path)
+}
+
+func (db *Database) put(w *bufio.Writer, num uint64) {
+	size := binary.PutUvarint(db.buffer, num)
+	r, err := w.Write(db.buffer[:size])
+	if size != r || err != nil {
+		log.Fatal(err)
+	}
 }
 
 func (db *Database) Close() error {
-	db.rm.Lock()
-	defer db.rm.Unlock()
-	err := db.db.Close()
-	return err
+	return nil
 }
