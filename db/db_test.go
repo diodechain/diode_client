@@ -8,7 +8,7 @@ import (
 )
 
 type DBTest struct {
-	Key   []byte
+	Key   string
 	Value []byte
 }
 
@@ -17,19 +17,19 @@ var (
 	dbFilePath = "./test.db"
 	dbTests    = []DBTest{
 		DBTest{
-			Key:   []byte("hello"),
+			Key:   "hello",
 			Value: []byte("world"),
 		},
 		DBTest{
-			Key:   []byte("diode"),
+			Key:   "diode",
 			Value: []byte("blockchain"),
 		},
 		DBTest{
-			Key:   []byte("decentralized"),
+			Key:   "decentralized",
 			Value: []byte("PKI"),
 		},
 		DBTest{
-			Key:   []byte("exosite"),
+			Key:   "exosite",
 			Value: []byte("iot"),
 		},
 	}
@@ -53,7 +53,7 @@ func TestPutAndGetInDB(t *testing.T) {
 		}
 	}
 	// Update values
-	addOn := []byte(" ethereum")
+	addOn := "ethereum"
 	for i, v := range dbTests {
 		v.Value = append(v.Value, addOn...)
 		dbTests[i] = v

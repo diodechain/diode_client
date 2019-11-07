@@ -40,7 +40,7 @@ $ go mod download
 ## Run test
 
 ```BASH
-$ go test ./...
+$ go test `go list ./... | grep -v gowasm_test` // ignore gowasm_test folder
 ```
 
 ## Build
