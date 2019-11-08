@@ -362,7 +362,6 @@ func (rpcServer *RPCServer) Close() {
 	if !rpcServer.started {
 		return
 	}
-	log.Println("RPC server exit")
 	if rpcServer.closed {
 		return
 	}

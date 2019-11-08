@@ -6,6 +6,8 @@ import (
 	"math/big"
 	"os"
 	"os/signal"
+	"sync"
+	"syscall"
 	"time"
 
 	"github.com/diodechain/diode_go_client/config"
@@ -23,7 +25,6 @@ const (
 )
 
 func main() {
-	var rpcServer *rpc.RPCServer
 	var socksServer *rpc.SocksServer
 	var err error
 
@@ -40,23 +41,47 @@ func main() {
 	db.DB = clidb
 
 	// Connect to first server to respond
-	c := make(chan *rpc.SSL, 3)
+	wg := &sync.WaitGroup{}
+	rpcAddrLen := len(config.RemoteRPCAddrs)
+	c := make(chan *rpc.SSL, rpcAddrLen)
+	wg.Add(rpcAddrLen)
 	for _, RemoteRPCAddr := range config.RemoteRPCAddrs {
-		go connect(c, RemoteRPCAddr, config)
+		go connect(c, RemoteRPCAddr, config, wg)
 	}
 
 	var client *rpc.SSL
-	for range config.RemoteRPCAddrs {
-		client = <-c
-
-		log.Printf("Connected to %s, validating...\n", client.Host())
-		isValid, err := client.ValidateNetwork()
-		if isValid {
-			break
+	shortest := 1 * time.Minute
+	go func() {
+		for cclient := range c {
+			log.Printf("Connected to %s, validating...\n", cclient.Host())
+			isValid, err := cclient.ValidateNetwork()
+			if isValid {
+				// find the nearest node
+				start := time.Now()
+				_, err := cclient.Ping(true)
+				if err == nil {
+					totalTime := time.Since(start)
+					if totalTime < shortest {
+						shortest = totalTime
+						if client != nil {
+							client.Close()
+						}
+						client = cclient
+						wg.Done()
+						continue
+					}
+				}
+				cclient.Close()
+				wg.Done()
+				continue
+			}
+			log.Printf("Network is not valid (err: %s), trying next...\n", err)
+			cclient.Close()
+			wg.Done()
 		}
-		log.Printf("Network is not valid (err: %s), trying next...\n", err)
-		client.Close()
-	}
+	}()
+	wg.Wait()
+	close(c)
 
 	if client == nil {
 		log.Fatal("Could not connect to any server.")
@@ -108,24 +133,22 @@ func main() {
 	}
 
 	// watch new block
-	rpcServer.WatchNewBlock()
+	client.RPCServer.WatchNewBlock()
 
 	// maxout concurrency
 	// runtime.GOMAXPROCS(runtime.NumCPU())
 
 	// listen to signal
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, os.Interrupt)
+	signal.Notify(sigChan, syscall.SIGINT)
 	go func() {
 		sig := <-sigChan
 		switch sig {
-		case os.Interrupt:
-			log.Println("Close server...")
-			if rpcServer.Started() {
-				rpcServer.Close()
+		case syscall.SIGINT:
+			if client.RPCServer.Started() {
+				client.Close()
+
 			}
-			// case syscall.SIGTERM:
-			// }
 		}
 	}()
 
@@ -152,8 +175,8 @@ func main() {
 		}
 	}
 	// start rpc server
-	rpcServer.Start()
-	rpcServer.Wait()
+	client.RPCServer.Start()
+	client.RPCServer.Wait()
 }
 
 func initSSL(config *config.Config) *openssl.Ctx {
@@ -224,11 +247,12 @@ func initSSL(config *config.Config) *openssl.Ctx {
 	return ctx
 }
 
-func connect(c chan *rpc.SSL, host string, config *config.Config) {
+func connect(c chan *rpc.SSL, host string, config *config.Config, wg *sync.WaitGroup) {
 	client, err := doConnect(host, config)
 	if err != nil {
 		log.Printf("Connection to host %s failed", host)
 		log.Print(err)
+		wg.Done()
 	} else {
 		c <- client
 	}
