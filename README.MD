@@ -96,12 +96,10 @@ $ ./socat TCP-LISTEN:2222,fork,reuseaddr "SOCKS5:<DIODE ADDRESS>.diode:22|tcp:lo
 $ ssh pi@127.0.0.2 -p 2222
 ```
 
-
-
-
 ## Streaming video through websocket
 
 * Start socks with websocket server
+
 ```BASH
 $ go run main.go
 ```

@@ -1,14 +1,6 @@
-/*
- * Socks5 proxy server by golang
- * http://github.com/ring04h/s5.go
- *
- * reference: shadowsocks go local.go
- * https://github.com/shadowsocks/shadowsocks-go
- *
- * socks5 rfc: https://tools.ietf.org/html/rfc1928
- *
- * TODO: another way for websocket server
- */
+// Diode Network Client
+// Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
+// Licensed under the Diode License, Version 1.0
 
 package rpc
 
