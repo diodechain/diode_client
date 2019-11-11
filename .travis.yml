@@ -1,0 +1,11 @@
+language: go
+
+go:
+- 1.13
+
+install: make install
+
+before_script: go vet
+
+env:
+  - GO111MODULE=on

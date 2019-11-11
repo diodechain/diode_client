@@ -1,32 +1,44 @@
 # Diode go client
+
 This is Go client for connecting device through diodechain. You can found more detail about how diodechain/client works in our previous presentations https://github.com/diodechain/presentations.
 
+[![Build Status](https://travis-ci.com/diodechain/diode_go_client.svg?branch=master)](https://travis-ci.com/diodechain/diode_go_client)
+
 # Development
+
 ## Prerequisite
+
 * go > 1.10
 * enable go module (see: https://blog.golang.org/using-go-modules)
+
   ```BASH
   export GO111MODULE=on
   ```
+
 * optional: run dev diodechain locally (see: https://github.com/diodechain/diode_server_ex)
 
 ## Setup go environment
+
 ### Mac
+
 Before install golang, please ensure your device meets the requirements (https://golang.org/doc/install#requirements).
 
 You can download the latest binary distribution https://golang.org/dl/ or install from the source code https://golang.org/doc/install/source. Here we are going to install golang with [Homebrew](https://brew.sh/).
 
 #### Install Homebrew
+
 ```BASH
 $ /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
 ```
 
 #### Install Go
+
 ```BASH
 $ brew install golang
 ```
 
 Then you can check go version meets the requirement (>1.10).
+
 ```BASH
 $ go version
 ```
@@ -50,6 +62,7 @@ $ go build
 ```
 
 # Examples
+
 ## Command line options
 
 ```BASH
@@ -114,6 +127,7 @@ $ raspivid -n -w 320 -h 180 -t 0 -l -o tcp://0.0.0.0:3030 -fps 12 -pf baseline
 Then you can see streaming video through web/mplayer.
 
 * Through mplayer
+
   ```BASH
   $ curl --socks5-hostname localhost:8080 <DIODE ADDRESS>.diode:9090 -o- | mplayer - -cache 1000
   ```
