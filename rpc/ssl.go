@@ -197,7 +197,7 @@ func (s *SSL) Closed() bool {
 func (s *SSL) Close() error {
 	s.rm.Lock()
 	defer s.rm.Unlock()
-	log.Println("Close the server...")
+	log.Printf("Close the client %s...\n", s.Host())
 	if s.RPCServer != nil {
 		s.RPCServer.Close()
 	}

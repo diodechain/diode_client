@@ -53,32 +53,21 @@ func main() {
 	}
 
 	var client *rpc.SSL
-	shortest := 1 * time.Minute
 	go func() {
 		for cclient := range c {
-			log.Printf("Connected to %s, validating...\n", cclient.Host())
-			isValid, err := cclient.ValidateNetwork()
-			if isValid {
-				// find the nearest node
-				start := time.Now()
-				_, err := cclient.Ping(true)
-				if err == nil {
-					totalTime := time.Since(start)
-					if totalTime < shortest {
-						shortest = totalTime
-						if client != nil {
-							client.Close()
-						}
-						client = cclient
-						wg.Done()
-						continue
-					}
-				}
+			if client != nil {
 				cclient.Close()
 				wg.Done()
 				continue
 			}
-			log.Printf("Network is not valid (err: %s), trying next...\n", err)
+			log.Printf("Connected to %s, validating...\n", cclient.Host())
+			isValid, err := cclient.ValidateNetwork()
+			if isValid {
+				client = cclient
+				wg.Done()
+				continue
+			}
+			log.Printf("Network is not valid (err: %s), trying next...\n", err.Error())
 			cclient.Close()
 			wg.Done()
 		}
@@ -106,6 +95,7 @@ func main() {
 			log.Println(err)
 		}
 		log.Println("Device was not whitelisted")
+		client.Close()
 		return
 	}
 
