@@ -24,7 +24,8 @@ import (
 const (
 	// https://docs.huihoo.com/doxygen/openssl/1.0.1c/crypto_2objects_2obj__mac_8h.html
 	NID_secp256k1 openssl.EllipticCurve = 714
-	NID_secp256r1 openssl.EllipticCurve = 715
+	// https://github.com/openssl/openssl/blob/master/apps/ecparam.c#L221
+	NID_secp256r1 openssl.EllipticCurve = 415
 )
 
 func main() {
