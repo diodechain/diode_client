@@ -14,6 +14,7 @@ import (
 	"log"
 	"math/big"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -37,7 +38,18 @@ const (
 	NID_secp256r1 openssl.EllipticCurve = 415
 )
 
+var null [20]byte
+
+type Call struct {
+	method          string
+	responseChannel ResponseFuture
+	data            []byte
+}
+
 type SSL struct {
+	callChannel       chan Call
+	calls             []Call
+	tcpIn             chan []byte
 	conn              *openssl.Conn
 	ctx               *openssl.Ctx
 	tcpConn           *tcpkeepalive.Conn
@@ -50,9 +62,9 @@ type SSL struct {
 	keepAliveInterval time.Duration
 	memoryCache       *cache.Cache
 	closed            bool
-	totalConnections  int
-	totalBytes        int
-	counter           int
+	totalConnections  int64
+	totalBytes        int64
+	counter           int64
 	rm                sync.Mutex
 	clientPrivKey     *ecdsa.PrivateKey
 	RegistryAddr      []byte
@@ -71,28 +83,33 @@ var (
 	LBN int
 
 	// ValidBlockHeaders map of validate block headers reference, do not loop this
-	ValidBlockHeaders = make(map[int]*BlockHeader)
+	validBlockHeaders = make(map[int]*BlockHeader)
+
+	m sync.Mutex
 )
 
-// Dial connect to address with cert file and key file
-func Dial(addr string, certFile string, keyFile string, mode openssl.DialFlags) (*SSL, error) {
-	ctx, err := openssl.NewCtxFromFiles(certFile, keyFile)
-	if err != nil {
-		return nil, err
+// LenValidBlockHeaders returns the size of the validated block headers
+func LenValidBlockHeaders() int {
+	m.Lock()
+	defer m.Unlock()
+	return len(validBlockHeaders)
+}
+
+// GetValidBlockHeader gets a validated block header
+func GetValidBlockHeader(num int) *BlockHeader {
+	m.Lock()
+	defer m.Unlock()
+	return validBlockHeaders[num]
+}
+
+// SetValidBlockHeader sets a validated block header
+func SetValidBlockHeader(num int, bh *BlockHeader) {
+	m.Lock()
+	defer m.Unlock()
+	if num > LVBN {
+		LVBN = num
 	}
-	conn, err := openssl.Dial("tcp", addr, ctx, mode)
-	if err != nil {
-		return nil, err
-	}
-	c := cache.New(5*time.Minute, 10*time.Minute)
-	s := &SSL{
-		conn:        conn,
-		ctx:         ctx,
-		addr:        addr,
-		mode:        mode,
-		memoryCache: c,
-	}
-	return s, nil
+	validBlockHeaders[num] = bh
 }
 
 // Host returns the non-resolved addr name of the host
@@ -113,6 +130,9 @@ func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags) (*SSL, e
 		addr:        addr,
 		mode:        mode,
 		memoryCache: c,
+		tcpIn:       make(chan []byte, 100),
+		callChannel: make(chan Call, 100),
+		calls:       make([]Call, 0),
 	}
 	return s, nil
 }
@@ -141,14 +161,17 @@ func (s *SSL) Reconnect() bool {
 }
 
 func (s *SSL) reconnect() error {
-	conn, err := openssl.Dial("tcp", s.addr, s.ctx, s.mode)
+	// This is a special call intercepted by the worker
+	resp, err := s.CallContext(":reconnect")
 	if err != nil {
 		log.Println(err)
 		return err
 	}
-	s.conn = conn
-	if s.enableKeepAlive {
-		s.EnableKeepAlive()
+
+	if isErrorType(resp.Raw) {
+		err = fmt.Errorf("Reconnect error: %v", string(resp.Raw))
+		log.Println(err)
+		return err
 	}
 	return nil
 }
@@ -160,21 +183,21 @@ func (s *SSL) LocalAddr() net.Addr {
 }
 
 // TotalConnections returns total connections of device
-func (s *SSL) TotalConnections() int {
+func (s *SSL) TotalConnections() int64 {
 	s.rm.Lock()
 	defer s.rm.Unlock()
 	return s.totalConnections
 }
 
 // TotalBytes returns total bytes that sent from device
-func (s *SSL) TotalBytes() int {
+func (s *SSL) TotalBytes() int64 {
 	s.rm.Lock()
 	defer s.rm.Unlock()
 	return s.totalBytes
 }
 
 // Counter returns counter in ssl
-func (s *SSL) Counter() int {
+func (s *SSL) Counter() int64 {
 	s.rm.Lock()
 	defer s.rm.Unlock()
 	return s.counter
@@ -198,12 +221,12 @@ func (s *SSL) Closed() bool {
 func (s *SSL) Close() error {
 	s.rm.Lock()
 	defer s.rm.Unlock()
-	log.Printf("Close the client %s...\n", s.Host())
 	if s.RPCServer != nil {
 		s.RPCServer.Close()
 	}
 	s.closed = true
-	return s.conn.Close()
+	err := s.conn.Close()
+	return err
 }
 
 // MemoryCache returns memory cache
@@ -253,15 +276,12 @@ func (s *SSL) SetKeepAliveInterval(d time.Duration) error {
 }
 
 // GetServerID returns server address
-func (s *SSL) GetServerID() ([]byte, error) {
+func (s *SSL) GetServerID() ([20]byte, error) {
 	pubKey, err := s.GetServerPubKey()
 	if err != nil {
-		return nil, err
+		return null, err
 	}
-	hashPubKey, err := crypto.PubkeyToAddress(pubKey)
-	if err != nil {
-		return nil, err
-	}
+	hashPubKey := crypto.PubkeyToAddress(pubKey)
 	return hashPubKey, nil
 }
 
@@ -315,12 +335,12 @@ func (s *SSL) GetClientPubKey() ([]byte, error) {
 }
 
 // GetClientAddress returns client address
-func (s *SSL) GetClientAddress() ([]byte, error) {
+func (s *SSL) GetClientAddress() ([20]byte, error) {
 	clientPubKey, err := s.GetClientPubKey()
 	if err != nil {
-		return nil, err
+		return null, err
 	}
-	return crypto.PubkeyToAddress(clientPubKey)
+	return crypto.PubkeyToAddress(clientPubKey), nil
 }
 
 // IsValid returns is network valid
@@ -333,11 +353,11 @@ func (s *SSL) IsValid() bool {
 func (s *SSL) incrementTotalBytes(n int) {
 	s.rm.Lock()
 	defer s.rm.Unlock()
-	s.totalBytes += n
+	s.totalBytes += int64(n)
 	return
 }
 
-func (s *SSL) readContext() ([]byte, error) {
+func (s *SSL) readContext() error {
 	// read length of response
 	lenByt := make([]byte, 2)
 	n, err := s.conn.Read(lenByt)
@@ -346,11 +366,11 @@ func (s *SSL) readContext() ([]byte, error) {
 			strings.Contains(err.Error(), "connection reset by peer") {
 			isOk := s.Reconnect()
 			if !isOk {
-				return nil, err
+				return err
 			}
-			return nil, nil
+			return nil
 		}
-		return nil, err
+		return err
 	}
 	lenr := binary.BigEndian.Uint16(lenByt)
 	// read response
@@ -360,25 +380,26 @@ func (s *SSL) readContext() ([]byte, error) {
 		if err == io.EOF ||
 			strings.Contains(err.Error(), "connection reset by peer") {
 			if s.Closed() {
-				return nil, err
+				return err
 			}
 			isOk := s.Reconnect()
 			if !isOk {
-				return nil, fmt.Errorf("connection had gone away")
+				return fmt.Errorf("connection had gone away")
 			}
-			return nil, nil
+			return nil
 		}
-		return nil, err
+		return err
 	}
 	n += 2
 	s.incrementTotalBytes(n)
+	s.tcpIn <- res
 	if config.AppConfig.Debug {
 		log.Printf("Receive %d bytes data from ssl\n", n)
 	}
-	return res, nil
+	return nil
 }
 
-func (s *SSL) sendPayload(payload []byte, withResponse bool) error {
+func (s *SSL) sendPayload(method string, payload []byte, future ResponseFuture) error {
 	// add length of payload
 	lenPay := len(payload)
 	lenByt := make([]byte, 2)
@@ -389,67 +410,70 @@ func (s *SSL) sendPayload(payload []byte, withResponse bool) error {
 	for i, s := range payload {
 		bytPay[i+2] = byte(s)
 	}
-	n, err := s.conn.Write(bytPay)
-	if err != nil {
-		return err
+	s.callChannel <- Call{
+		method:          method,
+		responseChannel: future,
+		data:            bytPay,
 	}
-	s.incrementTotalBytes(n)
 	if config.AppConfig.Debug {
-		log.Printf("Send %d bytes data to ssl\n", n)
+		log.Printf("Sent: %v\n", string(payload))
 	}
 	return nil
 }
 
-// CallContext returns response after call the rpc
-func (s *SSL) CallContext(method string, withResponse bool, args ...interface{}) (*Response, error) {
-	var res *Response
+// RespondContext sends a message without expecting a reponse
+func (s *SSL) RespondContext(method string, args ...interface{}) error {
+	msg, err := newMessage(method, args...)
+	if err != nil {
+		return err
+	}
+	return s.sendPayload(method, msg, nil)
+}
+
+// CastContext returns a response future after calling the rpc
+func (s *SSL) CastContext(method string, args ...interface{}) (ResponseFuture, error) {
 	msg, err := newMessage(method, args...)
 	if err != nil {
 		return nil, err
 	}
-	err = s.sendPayload(msg, withResponse)
+	future := make(ResponseFuture, 1)
+	err = s.sendPayload(method, msg, future)
 	if err != nil {
 		return nil, err
 	}
-	if withResponse {
-		rawRes, err := s.readContext()
-		if err != nil {
-			return nil, err
-		}
-		if config.AppConfig.Debug {
-			log.Println("Read response: " + string(rawRes))
-		}
-		res, err = parseResponse(rawRes)
-		if err != nil {
-			return nil, err
-		}
-	}
-	err = s.CheckTicket(withResponse)
+
+	return future, nil
+}
+
+// CallContext returns the response after calling the rpc
+func (s *SSL) CallContext(method string, args ...interface{}) (*Response, error) {
+	future, err := s.CastContext(method, args...)
 	if err != nil {
-		log.Println(err)
+		return nil, err
 	}
-	return res, err
+	return future.Await()
+}
+
+// Await awaits a response future and returns a response
+func (f *ResponseFuture) Await() (*Response, error) {
+	resp := <-*f
+	res, err := parseResponse(resp)
+	if err != nil {
+		return nil, err
+	}
+	return res, nil
 }
 
 // CheckTicket should client send traffic ticket to server
-func (s *SSL) CheckTicket(withResponse bool) error {
+func (s *SSL) CheckTicket() error {
 	counter := s.Counter()
 	if s.TotalBytes() > counter+40000 {
-		s.rm.Lock()
-		bn := LBN
-		if ValidBlockHeaders[bn] == nil {
-			s.rm.Unlock()
-			return nil
-		}
-		dbh := ValidBlockHeaders[bn].BlockHash
-		s.rm.Unlock()
 		// send ticket
-		ticket, err := s.NewTicket(bn, dbh, s.RegistryAddr)
+		ticket, err := s.NewTicket(s.RegistryAddr)
 		if err != nil {
 			return err
 		}
-		_, err = s.SubmitTicket(withResponse, ticket)
-		return err
+		return s.SubmitTicket(ticket)
 	}
 	return nil
 }
@@ -458,11 +482,11 @@ func (s *SSL) CheckTicket(withResponse bool) error {
 // Run blockquick algorithm
 func (s *SSL) ValidateNetwork() (bool, error) {
 	// test for api
-	bp, err := s.GetBlockPeak(true)
-	if err != nil || bp == nil {
+	bn, err := s.GetBlockPeak()
+	if err != nil {
 		return false, err
 	}
-	BN = bp.(int)
+	BN = bn
 	config := config.AppConfig
 	bpCh := 100
 	if config.Debug {
@@ -487,9 +511,9 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 	log.Printf("Last valid block number: %d\n", LVBN)
 
 	// for test purpose, only check LVBN + 100 block number
-	bnLimit := LVBN + bpCh
-	if bnLimit > BN {
-		bnLimit = BN + 1
+	bnLimit := BN + 1
+	if config.Debug && bnLimit > LVBN+bpCh {
+		bnLimit = LVBN + bpCh
 	}
 
 	// Note: map is not safe for concurrent usage
@@ -498,7 +522,7 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 
 	// fetch block header
 	for i := bnLimit - bpCh; i < bnLimit; i++ {
-		blockHeader, err := s.GetBlockHeader(true, i)
+		blockHeader, err := s.GetBlockHeader(i)
 		if err != nil {
 			log.Printf("Cannot fetch block header: %d, error: %s", i, err.Error())
 			return false, err
@@ -512,10 +536,10 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 			}
 			continue
 		}
-		ValidBlockHeaders[i] = blockHeader
+		SetValidBlockHeader(i, blockHeader)
 		minerCount[hexMiner]++
 	}
-	if len(ValidBlockHeaders) < bpCh {
+	if LenValidBlockHeaders() < bpCh {
 		return false, nil
 	}
 	// setup miner portion map
@@ -539,7 +563,7 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 	}
 	// start to confirm the block if signature is valid
 	for i := bnLimit - bpCh; i < bnLimit; i++ {
-		blockHeader := ValidBlockHeaders[i]
+		blockHeader := GetValidBlockHeader(i)
 		if blockHeader == nil {
 			continue
 		}
@@ -547,7 +571,7 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 		portion := float64(0)
 		isConfirmed := false
 		for j := i + 1; j < bnLimit; j++ {
-			blockHeader2 := ValidBlockHeaders[j]
+			blockHeader2 := GetValidBlockHeader(j)
 			if blockHeader2 == nil {
 				continue
 			}
@@ -572,7 +596,7 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 		// update miner portion and count
 		if isConfirmed {
 			LVBN = i
-			minerCount[hexMiner] += 1
+			minerCount[hexMiner]++
 			minerPortion[hexMiner] = float64(minerCount[hexMiner]) / float64(i)
 		}
 	}
@@ -601,101 +625,86 @@ func (s *SSL) ValidateNetwork() (bool, error) {
  */
 
 // GetBlockPeak returns block peak
-func (s *SSL) GetBlockPeak(withResponse bool) (interface{}, error) {
-	rawPeak, err := s.CallContext("getblockpeak", withResponse)
+func (s *SSL) GetBlockPeak() (int, error) {
+	rawPeak, err := s.CallContext("getblockpeak")
 	if err != nil {
-		return nil, err
-	}
-	if !withResponse {
-		return nil, nil
+		return -1, err
 	}
 	peak, err := util.DecodeStringToInt(string(rawPeak.RawData[0][2:]))
 	if err != nil {
-		return nil, err
+		return -1, err
 	}
 	return int(peak), nil
 }
 
 // GetBlockHeader returns block header
-func (s *SSL) GetBlockHeader(withResponse bool, blockNum int) (*BlockHeader, error) {
-	rawHeader, err := s.CallContext("getblockheader", withResponse, blockNum)
-	if err != nil || !withResponse {
+func (s *SSL) GetBlockHeader(blockNum int) (*BlockHeader, error) {
+	rawHeader, err := s.CallContext("getblockheader", blockNum)
+	if err != nil {
 		return nil, err
 	}
 	return parseBlockHeader(rawHeader.RawData[0])
 }
 
 // GetBlock returns block
-func (s *SSL) GetBlock(withResponse bool, blockNum int) (*Response, error) {
-	rawBlock, err := s.CallContext("getblock", withResponse, blockNum)
-	if err != nil || !withResponse {
+func (s *SSL) GetBlock(blockNum int) (*Response, error) {
+	rawBlock, err := s.CallContext("getblock", blockNum)
+	if err != nil {
 		return nil, err
 	}
 	return rawBlock, nil
 }
 
 // GetObject returns network object for device
-func (s *SSL) GetObject(withResponse bool, deviceID []byte) (*DeviceObj, error) {
+func (s *SSL) GetObject(deviceID [20]byte) (*DeviceTicket, error) {
 	if len(deviceID) != 20 {
 		return nil, fmt.Errorf("Device ID must be 20 bytes")
 	}
-	encDeviceID := util.EncodeToString(deviceID)
-	rawObject, err := s.CallContext("getobject", withResponse, encDeviceID)
-	if err != nil || !withResponse {
-		return nil, err
-	}
-	deviceObj, err := parseDeviceObj(rawObject.RawData[0])
+	encDeviceID := util.EncodeToString(deviceID[:])
+	rawObject, err := s.CallContext("getobject", encDeviceID)
 	if err != nil {
 		return nil, err
 	}
-	serverPubKey, err := s.GetServerPubKey()
+	device, err := parseDeviceTicket(rawObject.RawData[0])
 	if err != nil {
 		return nil, err
 	}
-	deviceObj.ServerPubKey = serverPubKey
-	return deviceObj, nil
+	err = device.ResolveBlockHash(s)
+	return device, err
 }
 
 // GetNode returns network address for node
-func (s *SSL) GetNode(withResponse bool, nodeID []byte) (*ServerObj, error) {
-	if len(nodeID) != 20 {
-		return nil, fmt.Errorf("Node ID must be 20 bytes")
-	}
-	encNodeID := util.EncodeToString(nodeID)
-	rawNode, err := s.CallContext("getnode", withResponse, encNodeID)
-	if err != nil || !withResponse {
+func (s *SSL) GetNode(nodeID [20]byte) (*ServerObj, error) {
+	encNodeID := util.EncodeToString(nodeID[:])
+	rawNode, err := s.CallContext("getnode", encNodeID)
+	if err != nil {
 		return nil, err
 	}
 	return parseServerObj(rawNode.RawData[0])
 }
 
 // NewTicket returns ticket
-func (s *SSL) NewTicket(bn int, blockHash []byte, localAddr []byte) (*Ticket, error) {
-	if len(blockHash) != 32 {
-		return nil, fmt.Errorf("Blockhash must be 32 bytes")
-	}
-	if len(localAddr) != 20 {
-		return nil, fmt.Errorf("Local contract address must be 20 bytes")
-	}
-	serverPubKey, err := s.GetServerPubKey()
-	if err != nil {
-		return nil, err
-	}
-	serverID, err := crypto.PubkeyToAddress(serverPubKey)
-	if err != nil {
-		return nil, err
-	}
-	s.rm.Lock()
-	defer s.rm.Unlock()
+func (s *SSL) NewTicket(localAddr []byte) (*DeviceTicket, error) {
+	serverID, err := s.GetServerID()
 	s.counter = s.totalBytes
-	ticket := &Ticket{
+	lvbn := LVBN
+	header := GetValidBlockHeader(lvbn)
+	if header == nil {
+		return nil, fmt.Errorf("NewTicket(): No block header available for LVBN=%v", lvbn)
+	}
+	log.Printf("NewTicket(LVBN=%v)\n", lvbn)
+	blockHash := header.BlockHash
+	ticket := &DeviceTicket{
 		ServerID:         serverID,
-		BlockNumber:      bn,
+		BlockNumber:      LVBN,
 		BlockHash:        blockHash,
 		FleetAddr:        s.FleetAddr,
 		TotalConnections: s.totalConnections,
 		TotalBytes:       s.totalBytes,
 		LocalAddr:        localAddr,
+	}
+	if err := ticket.ValidateValues(); err != nil {
+		return nil, err
 	}
 	privKey, err := s.GetClientPrivateKey()
 	if err != nil {
@@ -705,36 +714,92 @@ func (s *SSL) NewTicket(bn int, blockHash []byte, localAddr []byte) (*Ticket, er
 	if err != nil {
 		return nil, err
 	}
+	deviceID, err := s.GetClientAddress()
+	if err != nil {
+		return nil, err
+	}
+	if !ticket.ValidateDeviceSig(deviceID) {
+		return nil, fmt.Errorf("Ticket not verifyable")
+	}
+
 	return ticket, nil
 }
 
 // SubmitTicket submit ticket to server
-func (s *SSL) SubmitTicket(withResponse bool, ticket *Ticket) (*Response, error) {
+func (s *SSL) SubmitTicket(ticket *DeviceTicket) error {
 	encFleetAddr := util.EncodeToString(ticket.FleetAddr)
 	encLocalAddr := util.EncodeToString(ticket.LocalAddr)
-	encSig := util.EncodeToString(ticket.Sig())
-	rawTicket, err := s.CallContext("ticket", withResponse, ticket.BlockNumber, encFleetAddr, ticket.TotalConnections, ticket.TotalBytes, encLocalAddr, encSig)
-	if err != nil || !withResponse {
-		return nil, err
-	}
-	return rawTicket, err
+	encSig := util.EncodeToString(ticket.DeviceSig)
+	future, err := s.CastContext("ticket", ticket.BlockNumber, encFleetAddr, ticket.TotalConnections, ticket.TotalBytes, encLocalAddr, encSig)
+	go func() {
+		resp, err := future.Await()
+		if err != nil {
+			log.Printf("SubmitTicket.Error: %v\n", err)
+			return
+		}
+		status := string(resp.RawData[0])
+		switch status {
+		case "too_low":
+
+			tc := util.DecodeStringToIntForce(string(resp.RawData[2]))
+			tb := util.DecodeStringToIntForce(string(resp.RawData[3]))
+			sid, _ := s.GetServerID()
+			lastTicket := DeviceTicket{
+				ServerID:         sid,
+				BlockHash:        util.DecodeForce(resp.RawData[1]),
+				FleetAddr:        s.FleetAddr,
+				TotalConnections: tc,
+				TotalBytes:       tb,
+				LocalAddr:        util.DecodeForce(resp.RawData[4]),
+				DeviceSig:        util.DecodeForce(resp.RawData[5]),
+			}
+
+			addr, err := s.GetClientAddress()
+			if err != nil {
+				log.Panicf("SubmitTicket can't identify self: %v\n", err)
+			}
+
+			if lastTicket.ValidateDeviceSig(addr) {
+				s.totalBytes = tb + 1024
+				s.totalConnections = tc + 1
+				ticket, err := s.NewTicket(config.AppConfig.DecFleetAddr)
+				if err != nil {
+					log.Println(err)
+					return
+				}
+				err = s.SubmitTicket(ticket)
+				if err != nil {
+					log.Println(err)
+					return
+				}
+
+			} else {
+				log.Printf("Received fake ticket.. %+v\n", lastTicket)
+			}
+
+		case "ok", "thanks!":
+		default:
+			log.Printf("SubmitTicket.Response: %v %v\n", status, len(resp.RawData))
+		}
+	}()
+	return err
 }
 
 // PortOpen call portopen RPC
-func (s *SSL) PortOpen(withResponse bool, deviceID string, port int, mode string) (*PortOpen, error) {
-	rawPortOpen, err := s.CallContext("portopen", withResponse, deviceID, port, mode)
-	if err != nil || !withResponse {
+func (s *SSL) PortOpen(deviceID string, port int, mode string) (*PortOpen, error) {
+	rawPortOpen, err := s.CallContext("portopen", deviceID, port, mode)
+	if err != nil {
 		return nil, err
 	}
-	return parsePortOpen(rawPortOpen.RawData[0])
+	return parsePortOpen(rawPortOpen.RawData)
 }
 
 // ResponsePortOpen response portopen request
 func (s *SSL) ResponsePortOpen(portOpen *PortOpen, err error) error {
 	if err != nil {
-		_, err = s.CallContext("error", false, "portopen", int(portOpen.Ref), err.Error())
+		err = s.RespondContext("error", "portopen", int(portOpen.Ref), err.Error())
 	} else {
-		_, err = s.CallContext("response", false, "portopen", int(portOpen.Ref), "ok")
+		err = s.RespondContext("response", "portopen", int(portOpen.Ref), "ok")
 	}
 	if err != nil {
 		return err
@@ -743,34 +808,23 @@ func (s *SSL) ResponsePortOpen(portOpen *PortOpen, err error) error {
 }
 
 // PortSend call portsend RPC
-func (s *SSL) PortSend(withResponse bool, ref int, data []byte) (*Response, error) {
-	rawPortSend, err := s.CallContext("portsend", withResponse, ref, data)
-	if err != nil || !withResponse {
-		return nil, err
-	}
-	return rawPortSend, err
+func (s *SSL) PortSend(ref int, data []byte) (*Response, error) {
+	return s.CallContext("portsend", ref, data)
 }
 
-// PortClose call portclose RPC
-func (s *SSL) PortClose(withResponse bool, ref int) (*Response, error) {
-	rawPortClose, err := s.CallContext("portclose", withResponse, ref)
-	if err != nil || !withResponse {
-		return nil, err
-	}
-	return rawPortClose, err
+// CastPortClose cast portclose RPC
+func (s *SSL) CastPortClose(ref int) (err error) {
+	_, err = s.CastContext("portclose", ref)
+	return err
 }
 
 // Ping call ping RPC
-func (s *SSL) Ping(withResponse bool) (*Response, error) {
-	rawPing, err := s.CallContext("ping", withResponse)
-	if err != nil || !withResponse {
-		return nil, err
-	}
-	return rawPing, err
+func (s *SSL) Ping() (*Response, error) {
+	return s.CallContext("ping")
 }
 
 // GetAccountValue returns account storage value
-func (s *SSL) GetAccountValue(withResponse bool, blockNumber int, account []byte, rawKey []byte) (*AccountValue, error) {
+func (s *SSL) GetAccountValue(blockNumber int, account []byte, rawKey []byte) (*AccountValue, error) {
 	if len(account) != 20 {
 		return nil, fmt.Errorf("Account must be 20 bytes")
 	}
@@ -778,17 +832,17 @@ func (s *SSL) GetAccountValue(withResponse bool, blockNumber int, account []byte
 	// pad key to 32 bytes
 	key := util.PaddingBytesPrefix(rawKey, 0, 32)
 	encKey := util.EncodeToString(key)
-	rawAccountValue, err := s.CallContext("getaccountvalue", withResponse, blockNumber, encAccount, encKey)
-	if err != nil || !withResponse {
+	rawAccountValue, err := s.CallContext("getaccountvalue", blockNumber, encAccount, encKey)
+	if err != nil {
 		return nil, err
 	}
 	return parseAccountValue(rawAccountValue.RawData[0])
 }
 
 // GetStateRoots returns state roots
-func (s *SSL) GetStateRoots(withResponse bool, blockNumber int) (*StateRoots, error) {
-	rawStateRoots, err := s.CallContext("getstateroots", withResponse, blockNumber)
-	if err != nil || !withResponse {
+func (s *SSL) GetStateRoots(blockNumber int) (*StateRoots, error) {
+	rawStateRoots, err := s.CallContext("getstateroots", blockNumber)
+	if err != nil {
 		return nil, err
 	}
 	return parseStateRoots(rawStateRoots.RawData[0])
@@ -796,12 +850,12 @@ func (s *SSL) GetStateRoots(withResponse bool, blockNumber int) (*StateRoots, er
 
 // GetAccount returns account information: nonce, balance, storage root, code
 // TODO: Add chan
-func (s *SSL) GetAccount(withResponse bool, blockNumber int, account []byte) (*Account, error) {
+func (s *SSL) GetAccount(blockNumber int, account []byte) (*Account, error) {
 	if len(account) != 20 {
 		return nil, fmt.Errorf("Account must be 20 bytes")
 	}
 	encAccount := util.EncodeToString(account)
-	rawAccount, err := s.CallContext("getaccount", withResponse, blockNumber, encAccount)
+	rawAccount, err := s.CallContext("getaccount", blockNumber, encAccount)
 	if err != nil {
 		return nil, err
 	}
@@ -812,13 +866,13 @@ func (s *SSL) GetAccount(withResponse bool, blockNumber int, account []byte) (*A
 }
 
 // GetAccountRoots returns account state roots
-func (s *SSL) GetAccountRoots(withResponse bool, blockNumber int, account []byte) (*AccountRoots, error) {
+func (s *SSL) GetAccountRoots(blockNumber int, account []byte) (*AccountRoots, error) {
 	if len(account) != 20 {
 		return nil, fmt.Errorf("Account must be 20 bytes")
 	}
 	encAccount := util.EncodeToString(account)
-	rawAccountRoots, err := s.CallContext("getaccountroots", withResponse, blockNumber, encAccount)
-	if err != nil || !withResponse {
+	rawAccountRoots, err := s.CallContext("getaccountroots", blockNumber, encAccount)
+	if err != nil {
 		return nil, err
 	}
 	return parseAccountRoots(rawAccountRoots.RawData[0])
@@ -830,29 +884,20 @@ func (s *SSL) GetAccountRoots(withResponse bool, blockNumber int, account []byte
  * TODO: should refactor this
  */
 // IsDeviceWhitelisted returns is given address whitelisted
-func (s *SSL) IsDeviceWhitelisted(withResponse bool, addr []byte) (bool, error) {
+func (s *SSL) IsDeviceWhitelisted(addr [20]byte) (bool, error) {
 	var err error
 	var raw []byte
 	var acv *AccountValue
 	var acr *AccountRoots
-	if len(addr) != 20 {
-		return false, fmt.Errorf("Device address must be 20 bytes")
-	}
 	key := contract.DeviceWhitelistKey(addr)
-	acv, err = s.GetAccountValue(withResponse, BN, s.FleetAddr, key)
+	acv, err = s.GetAccountValue(BN, s.FleetAddr, key)
 	if err != nil {
 		return false, err
-	}
-	if !withResponse {
-		acv = <-AccountValueChan
 	}
 	// get account roots
-	acr, err = s.GetAccountRoots(withResponse, BN, s.FleetAddr)
+	acr, err = s.GetAccountRoots(BN, s.FleetAddr)
 	if err != nil {
 		return false, err
-	}
-	if !withResponse {
-		acr = <-AccountRootsChan
 	}
 	acvTree := acv.AccountTree()
 	acvInd := acr.Find(acv.AccountRoot())
@@ -869,32 +914,20 @@ func (s *SSL) IsDeviceWhitelisted(withResponse bool, addr []byte) (bool, error) 
 }
 
 // IsAccessWhitelisted returns is given address whitelisted
-func (s *SSL) IsAccessWhitelisted(withResponse bool, deviceAddr []byte, clientAddr []byte) (bool, error) {
+func (s *SSL) IsAccessWhitelisted(deviceAddr [20]byte, clientAddr [20]byte) (bool, error) {
 	var err error
 	var raw []byte
 	var acv *AccountValue
 	var acr *AccountRoots
-	if len(deviceAddr) != 20 {
-		return false, fmt.Errorf("Device address must be 20 bytes")
-	}
-	if len(clientAddr) != 20 {
-		return false, fmt.Errorf("Client address must be 20 bytes")
-	}
 	key := contract.AccessWhitelistKey(deviceAddr, clientAddr)
-	acv, err = s.GetAccountValue(withResponse, BN, s.FleetAddr, key)
+	acv, err = s.GetAccountValue(BN, s.FleetAddr, key)
 	if err != nil {
 		return false, err
-	}
-	if !withResponse {
-		acv = <-AccountValueChan
 	}
 	// get account roots
-	acr, err = s.GetAccountRoots(withResponse, BN, s.FleetAddr)
+	acr, err = s.GetAccountRoots(BN, s.FleetAddr)
 	if err != nil {
 		return false, err
-	}
-	if !withResponse {
-		acr = <-AccountRootsChan
 	}
 	acvTree := acv.AccountTree()
 	acvInd := acr.Find(acv.AccountRoot())
@@ -928,4 +961,131 @@ func EnsurePrivatePEM() []byte {
 		return bytes
 	}
 	return key
+}
+
+func DoConnect(host string, config *config.Config) (*SSL, error) {
+	ctx := initSSL(config)
+	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification)
+	if err != nil {
+		if config.Debug {
+			log.Println(err)
+		}
+		// retry to connect
+		isOk := false
+		for i := 1; i <= config.RetryTimes; i++ {
+			log.Printf("Retry to connect the host, wait %s\n", config.RetryWait.String())
+			time.Sleep(config.RetryWait)
+			client, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification)
+			if err == nil {
+				isOk = true
+				break
+			}
+			if config.Debug {
+				log.Println(err)
+			}
+		}
+		if !isOk {
+			return nil, nil
+		}
+	}
+	client.RegistryAddr = config.DecRegistryAddr
+	client.FleetAddr = config.DecFleetAddr
+	// enable keepalive
+	if config.EnableKeepAlive {
+		err = client.EnableKeepAlive()
+		if err != nil {
+			client.Close()
+			return nil, err
+		}
+		err = client.SetKeepAliveCount(4)
+		if err != nil {
+			return nil, err
+		}
+		err = client.SetKeepAliveIdle(30 * time.Second)
+		if err != nil {
+			return nil, err
+		}
+		err = client.SetKeepAliveInterval(5 * time.Second)
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	// initialize rpc server
+	rpcConfig := &RPCConfig{
+		Verbose:      config.Debug,
+		RegistryAddr: config.DecRegistryAddr,
+		FleetAddr:    config.DecFleetAddr,
+	}
+	client.RPCServer = client.NewRPCServer(rpcConfig)
+	client.RPCServer.Start()
+	return client, nil
+}
+
+func initSSL(config *config.Config) *openssl.Ctx {
+
+	serial := new(big.Int)
+	_, err := fmt.Sscan("18446744073709551617", serial)
+	if err != nil {
+		log.Fatal(err)
+	}
+	name, err := os.Hostname()
+	if err != nil {
+		log.Fatal(err)
+	}
+	info := &openssl.CertificateInfo{
+		Serial:       serial,
+		Issued:       time.Duration(time.Now().Unix()),
+		Expires:      2000000000,
+		Country:      "US",
+		Organization: "Private",
+		CommonName:   name,
+	}
+	privPEM := EnsurePrivatePEM()
+	key, err := openssl.LoadPrivateKeyFromPEM(privPEM)
+	if err != nil {
+		log.Fatal(err)
+	}
+	cert, err := openssl.NewCertificate(info, key)
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = cert.Sign(key, openssl.EVP_SHA256)
+	if err != nil {
+		log.Fatal(err)
+	}
+	ctx, err := openssl.NewCtx()
+	if err != nil {
+		log.Fatal(err)
+	}
+	err = ctx.UseCertificate(cert)
+	err = ctx.UsePrivateKey(key)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// We only use self-signed certificates.
+	verifyOption := openssl.VerifyNone
+	// TODO: Verify certificate (check that it is self-signed)
+	cb := func(ok bool, store *openssl.CertificateStoreCtx) bool {
+		if config.Debug {
+			log.Println(ok, store.VerifyResult(), store.Err(), store.Depth())
+		}
+		return true
+	}
+	ctx.SetVerify(verifyOption, cb)
+	err = ctx.SetEllipticCurve(NID_secp256k1)
+	if err != nil {
+		panic(err)
+	}
+	curves := []openssl.EllipticCurve{NID_secp256k1, NID_secp256r1}
+	err = ctx.SetSupportedEllipticCurves(curves)
+	if err != nil {
+		panic(err)
+	}
+
+	// TODO: Need to handle timeouts, right now we're using
+	// set_timeout() but this just sets the OpenSSL session lifetime
+	ctx.SetTimeout(config.RemoteRPCTimeout)
+	return ctx
 }

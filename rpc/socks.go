@@ -7,24 +7,28 @@ package rpc
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"sync"
+	"time"
 
 	"regexp"
 	"strconv"
 
+	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/util"
 	"github.com/diodechain/go-cache"
 )
 
 var (
-	Commands     = []string{"CONNECT", "BIND", "UDP ASSOCIATE"}
-	AddrType     = []string{"", "IPv4", "", "Domain", "IPv6"}
-	defaultMode  = "rw"
-	diodePattern = regexp.MustCompile(`([rws]{1,3}.)?([\w]+).diode(.ws)?(:[\d]+)?`)
-	devices      = &Devices{
+	Commands    = []string{"CONNECT", "BIND", "UDP ASSOCIATE"}
+	AddrType    = []string{"", "IPv4", "", "Domain", "IPv6"}
+	defaultPort = 80
+	defaultMode = "rw"
+	pattern     = regexp.MustCompile(`^([rws]{1,3}[-_\.])?([\w]+)\.(diode|diode\.link|diode\.ws)(:[\d]+)?$`)
+	devices     = &Devices{
 		connectedDevice: make(map[string]ConnectedDevice),
 	}
 	bitstringPattern = regexp.MustCompile(`^[01]+$`)
@@ -35,7 +39,7 @@ var (
 	errAuthExtraData = errors.New("socks authentication get extra data")
 	errReqExtraData  = errors.New("socks request get extra data")
 	errCmd           = errors.New("socks only support connect command")
-	errReqUrl        = errors.New("request url not supported")
+	errReqURL        = errors.New("request url not supported")
 
 	prefix            = "0x"
 	prefixBytes       = []byte(prefix)
@@ -62,17 +66,20 @@ const (
 	writeBufferSize = 8000
 )
 
-type SocksConfig struct {
-	Addr         string
-	WSServerAddr string
-	Verbose      bool
-	EnableWS     bool
-	FleetAddr    []byte
+// Config is Socks Server configuration
+type Config struct {
+	Addr            string
+	ProxyServerAddr string
+	Verbose         bool
+	EnableProxy     bool
+	FleetAddr       []byte
 }
 
-type SocksServer struct {
+// Server is the only instances of the Socks Server
+type Server struct {
 	s        *SSL
-	Config   *SocksConfig
+	pool     map[[20]byte]*SSL
+	Config   *Config
 	listener net.Listener
 	wg       *sync.WaitGroup
 }
@@ -120,6 +127,33 @@ func handShake(conn net.Conn) (err error) {
 	return
 }
 
+func parseHost(host string) (isWS bool, deviceID string, mode string, port int, err error) {
+	mode = defaultMode
+	port = defaultPort
+
+	parsedHost := pattern.FindStringSubmatch(host)
+	switch len(parsedHost) {
+	case 5:
+		deviceID = parsedHost[2]
+		if len(parsedHost[1]) > 0 {
+			mode = string(parsedHost[1][:len(parsedHost[1])-1])
+		}
+		if parsedHost[3] == "diode.ws" {
+			isWS = true
+		}
+		if len(parsedHost[4]) > 1 {
+			port, err = strconv.Atoi(string(parsedHost[4][1:len(parsedHost[4])]))
+		}
+		if err != nil {
+			log.Print("Cannot parse port from string to int")
+		}
+		break
+	default:
+		err = errReqURL
+	}
+	return
+}
+
 func parseTarget(conn net.Conn) (host string, port uint16, mode string, deviceID string, isWS bool, err error) {
 	const (
 		idVer   = 0
@@ -161,7 +195,6 @@ func parseTarget(conn net.Conn) (host string, port uint16, mode string, deviceID
 	if buf[idCmd] > 0x03 || buf[idCmd] == 0x00 {
 		log.Println("Unknown Command: ", buf[idCmd])
 	}
-	log.Println("Command: ", Commands[buf[idCmd]-1])
 
 	if buf[idCmd] != socksCmdConnect { //  only support CONNECT mode
 		err = errCmd
@@ -202,30 +235,13 @@ func parseTarget(conn net.Conn) (host string, port uint16, mode string, deviceID
 		host = string(buf[idDm0 : idDm0+buf[idDmLen]])
 	}
 	port = binary.BigEndian.Uint16(buf[reqLen-2 : reqLen])
-	parsedHost := diodePattern.FindStringSubmatch(host)
-
-	switch len(parsedHost) {
-	case 5:
-		deviceID = parsedHost[2]
-		if len(parsedHost[1]) > 0 {
-			mode = string(parsedHost[1][:len(parsedHost[1])-1])
-		} else {
-			mode = defaultMode
-		}
-		if len(parsedHost[3]) > 0 {
-			isWS = true
-		}
-		break
-	default:
-		err = errReqUrl
-		return
-	}
 	host = net.JoinHostPort(host, strconv.Itoa(int(port)))
-
+	isWS, deviceID, mode, _, err = parseHost(host)
 	return
 }
 
-func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID string, port uint16, mode string) {
+func (socksServer *Server) pipeSocksThenClose(conn net.Conn, device *DeviceTicket, port uint16, mode string) {
+	deviceID := device.GetDeviceID()
 	if socksServer.Config.Verbose {
 		log.Println("Connect remote ", deviceID, " mode: ", mode, "...")
 	}
@@ -236,25 +252,27 @@ func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID strin
 	// check device id
 	if connDevice.Ref == 0 {
 		// decode device id
-		dDeviceID, err := util.DecodeString(deviceID)
+		dDeviceID, err := device.DeviceAddress()
 		if err != nil {
 			rep[1] = socksRepNetworkUnreachable
 			conn.Write(rep[:])
 			return
 		}
-		if !util.IsZeroPrefix([]byte(deviceID)) {
-			deviceID = prefix + deviceID
+
+		server, err := socksServer.GetServer(device.ServerID)
+		if err != nil {
+			rep[1] = socksRepNetworkUnreachable
+			conn.Write(rep[:])
+			return
 		}
-		_, err = socksServer.s.PortOpen(false, deviceID, int(port), mode)
+
+		portOpen, err := server.PortOpen(deviceID, int(port), mode)
 		if err != nil {
 			log.Println(err)
 			rep[1] = socksRepNetworkUnreachable
 			conn.Write(rep[:])
 			return
 		}
-		log.Println("Port open sent")
-		// wait for response
-		portOpen := <-PortOpenChan
 		// failed to open port
 		if portOpen != nil && portOpen.Err != nil {
 			log.Printf("Failed to open port: %s", string(portOpen.Err.Raw))
@@ -265,7 +283,7 @@ func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID strin
 		connDevice.Ref = portOpen.Ref
 		connDevice.ClientID = clientIP
 		connDevice.DeviceID = deviceID
-		connDevice.DDeviceID = dDeviceID
+		connDevice.DDeviceID = dDeviceID[:]
 		connDevice.Conn.Conn = conn
 		devices.SetDevice(clientIP, connDevice)
 	}
@@ -302,7 +320,7 @@ func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID strin
 	pindex := 4
 	for _, b := range ip {
 		rep[pindex] = b
-		pindex += 1
+		pindex++
 	}
 	rep[pindex] = byte((port >> 8) & 0xff)
 	rep[pindex+1] = byte(port & 0xff)
@@ -314,64 +332,147 @@ func (socksServer *SocksServer) pipeSocksWhenClose(conn net.Conn, deviceID strin
 	log.Println("Close socks connection")
 }
 
-func (socksServer *SocksServer) checkAccess(deviceID string) bool {
-	bDeviceID := []byte(deviceID)
-	if !util.IsHex(bDeviceID) {
-		return false
+func netCopy(input, output net.Conn) (err error) {
+	buf := make([]byte, readBufferSize)
+	for {
+		count, err := input.Read(buf)
+		if err != nil {
+			if err == io.EOF && count > 0 {
+				output.Write(buf[:count])
+			}
+			break
+		}
+		if count > 0 {
+			output.Write(buf[:count])
+		}
 	}
+	return
+}
+
+func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, device *DeviceTicket, port uint16, mode string) {
+	if socksServer.Config.Verbose {
+		log.Println("Connect remote ", socksServer.Config.ProxyServerAddr, " mode: ", mode, "...")
+	}
+
+	rep := make([]byte, 256)
+	rep[0] = socksVer5
+	remoteConn, err := net.DialTimeout("tcp", socksServer.Config.ProxyServerAddr, time.Duration(time.Second*15))
+	if err != nil {
+		log.Println("Connect remote :", err)
+		rep[1] = socksRepNetworkUnreachable
+		conn.Write(rep[:])
+		return
+	}
+
+	tcpAddr := remoteConn.LocalAddr().(*net.TCPAddr)
+	if tcpAddr.Zone == "" {
+		if tcpAddr.IP.Equal(tcpAddr.IP.To4()) {
+			tcpAddr.Zone = "ip4"
+		} else {
+			tcpAddr.Zone = "ip6"
+		}
+	}
+
+	if socksServer.Config.Verbose {
+		log.Println("Connect remote success @", tcpAddr.String())
+	}
+
+	rep[1] = socksRepSuccess // success
+	rep[2] = 0x00            //RSV
+
+	// IP
+	if tcpAddr.Zone == "ip6" {
+		rep[3] = 0x04
+	} else {
+		rep[3] = 0x01
+	}
+
+	var ip net.IP
+	if "ip6" == tcpAddr.Zone {
+		ip = tcpAddr.IP.To16()
+	} else {
+		ip = tcpAddr.IP.To4()
+	}
+	pindex := 4
+	for _, b := range ip {
+		rep[pindex] = b
+		pindex++
+	}
+	rep[pindex] = byte((port >> 8) & 0xff)
+	rep[pindex+1] = byte(port & 0xff)
+	conn.Write(rep[0 : pindex+2])
+
+	// Copy local to remote
+	go netCopy(conn, remoteConn)
+
+	// Copy remote to local
+	netCopy(remoteConn, conn)
+}
+
+func (socksServer *Server) checkAccess(deviceID string) *DeviceTicket {
 	mc := socksServer.s.MemoryCache()
 	// decode device id
-	dDeviceID, err := util.DecodeString(deviceID)
+	bDeviceID, err := util.DecodeString(deviceID)
+	var dDeviceID [20]byte
+	copy(dDeviceID[:], bDeviceID)
 	if err != nil {
-		return false
+		return nil
 	}
 	// call getobject rpc
-	_, hit := mc.Get(deviceID)
+	var device *DeviceTicket
+	cacheObj, hit := mc.Get(deviceID)
 	if !hit {
-		_, err = socksServer.s.GetObject(false, dDeviceID)
+		device, err = socksServer.s.GetObject(dDeviceID)
 		if err != nil {
 			log.Println(err)
-			return false
+			return nil
 		}
-		deviceObj := <-DeviceObjChan
-		if deviceObj.Err != nil {
-			log.Println("couldn't find device object")
-			return false
+		if err = device.ResolveBlockHash(socksServer.s); err != nil {
+			fmt.Printf("Failed to resolve() %v\n", err)
+			return nil
 		}
-		if !deviceObj.ValidateSig() {
-			log.Println("wrong signature in device object")
-			return false
+		if device.Err != nil {
+			log.Printf("Couldn't find device object %v\n", device.Err)
+			return nil
 		}
-		mc.Set(deviceID, true, cache.DefaultExpiration)
+		if !device.ValidateSigs(dDeviceID) {
+			log.Println("Wrong signature in device object")
+			return nil
+		}
+		mc.Set(deviceID, device, cache.DefaultExpiration)
+	} else {
+		device = cacheObj.(*DeviceTicket)
 	}
+
 	// check access
 	isDeviceWhitelisted, hit := mc.Get(deviceID + "devicewhitelist")
+	err = nil
 	if !hit {
-		isDeviceWhitelisted, _ = socksServer.s.IsDeviceWhitelisted(false, dDeviceID)
+		isDeviceWhitelisted, err = socksServer.s.IsDeviceWhitelisted(dDeviceID)
 		mc.Set(deviceID+"devicewhitelist", isDeviceWhitelisted, cache.DefaultExpiration)
 	}
 	if !isDeviceWhitelisted.(bool) {
-		log.Println("Device wasn't not white listed")
-		return false
+		log.Printf("Device was not white listed(2): <%v>\n", err)
+		return nil
 	}
 	clientAddr, err := socksServer.s.GetClientAddress()
 	if err != nil {
 		log.Println(err)
-		return false
+		return nil
 	}
 	isAccessWhitelisted, hit := mc.Get(deviceID + "accesswhitelist")
 	if !hit {
-		isAccessWhitelisted, _ = socksServer.s.IsAccessWhitelisted(false, dDeviceID, clientAddr)
+		isAccessWhitelisted, _ = socksServer.s.IsAccessWhitelisted(dDeviceID, clientAddr)
 		mc.Set(deviceID+"accesswhitelist", isDeviceWhitelisted, cache.DefaultExpiration)
 	}
 	if !isAccessWhitelisted.(bool) {
 		log.Println("Access was not whitelisted")
-		return false
+		return nil
 	}
-	return true
+	return device
 }
 
-func (socksServer *SocksServer) handleSocksConnection(conn net.Conn) {
+func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 	defer conn.Close()
 	defer socksServer.wg.Done()
 	if err := handShake(conn); err != nil {
@@ -383,20 +484,21 @@ func (socksServer *SocksServer) handleSocksConnection(conn net.Conn) {
 		log.Println("socks consult transfer mode or parse target: ", err)
 		return
 	}
-	if !socksServer.checkAccess(deviceID) {
+	device := socksServer.checkAccess(deviceID)
+	if device == nil {
 		log.Println("please ensure you have access to given device")
 		return
 	}
 	if !isWS {
-		socksServer.pipeSocksWhenClose(conn, deviceID, port, mode)
-	} else if socksServer.Config.EnableWS {
-		socksServer.pipeSocksWSWhenClose(conn, deviceID, port, mode)
+		socksServer.pipeSocksThenClose(conn, device, port, mode)
+	} else if socksServer.Config.EnableProxy {
+		socksServer.pipeSocksWSThenClose(conn, device, port, mode)
 	}
 	return
 }
 
 // Start socks server
-func (socksServer *SocksServer) Start() error {
+func (socksServer *Server) Start() error {
 	log.Printf("Start socks server %s\n", socksServer.Config.Addr)
 	ln, err := net.Listen("tcp", socksServer.Config.Addr)
 	if err != nil {
@@ -421,16 +523,49 @@ func (socksServer *SocksServer) Start() error {
 }
 
 // NewSocksServer generate socksserver struct
-func (s *SSL) NewSocksServer(config *SocksConfig) *SocksServer {
-	return &SocksServer{
+func (s *SSL) NewSocksServer(config *Config) *Server {
+	return &Server{
 		s:      s,
 		Config: config,
 		wg:     &sync.WaitGroup{},
 	}
 }
 
+// GetServer gets or creates a new SSL connectio to the given server
+func (socksServer *Server) GetServer(nodeID [20]byte) (server *SSL, err error) {
+	serverID, err := socksServer.s.GetServerID()
+	if err != nil {
+		panic("can't get my own server id")
+	}
+
+	if nodeID == serverID {
+		server = socksServer.s
+		return
+	}
+	server = socksServer.pool[nodeID]
+	if server != nil {
+		return
+	}
+	serverObj, err := socksServer.s.GetNode(nodeID)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	if !serverObj.ValidateSig() {
+		log.Println("wrong signature in server object")
+		return
+	}
+	server, err = DoConnect(string(serverObj.Host), config.AppConfig)
+	if err != nil {
+		log.Println("couldn't connect to server")
+		return
+	}
+	socksServer.pool[nodeID] = server
+	return
+}
+
 // Close the socks server
-func (socksServer *SocksServer) Close() {
+func (socksServer *Server) Close() {
 	log.Println("Socks server exit")
 	socksServer.listener.Close()
 	socksServer.wg.Wait()

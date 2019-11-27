@@ -38,16 +38,18 @@ func newMessage(method string, args ...interface{}) ([]byte, error) {
 			return nil, fmt.Errorf("Unexpected value type: %T", t)
 		case int:
 			bytVal = []byte(strconv.Itoa(v.(int)))
+		case int64:
+			bytVal = []byte(strconv.FormatInt(v.(int64), 10))
 		case string:
 			bytVal = []byte(strconv.Quote(v.(string)))
 		case []uint8:
 			bytVal = v.([]uint8)
 		}
-		if nBytMsg, err := jsonparser.Set(bytMsg, bytVal, strKey); err != nil {
+		nBytMsg, err := jsonparser.Set(bytMsg, bytVal, strKey)
+		if err != nil {
 			return nil, err
-		} else {
-			bytMsg = nBytMsg
 		}
+		bytMsg = nBytMsg
 	}
 	return bytMsg, nil
 }
@@ -81,9 +83,35 @@ func parseResponse(rawResponse []byte) (*Response, error) {
 	response := &Response{
 		Raw:     rawResponse,
 		RawData: rawData,
-		Method:  method,
+		Method:  string(method),
 	}
 	return response, nil
+}
+
+func parseRPCRequest(rawRequest []byte) (*Request, error) {
+	// correct response
+	method, _, _, err := jsonparser.Get(rawRequest, "[0]")
+	if err != nil {
+		return nil, err
+	}
+	rawData := [][]byte{}
+	// see: https://github.com/buger/jsonparser/issues/145
+	copyRawRequest := make([]byte, len(rawRequest))
+	copy(copyRawRequest, rawRequest)
+	tmpRawData := jsonparser.Delete(copyRawRequest, "[0]")
+	handler := func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
+		if err != nil {
+			log.Fatal(err)
+		}
+		rawData = append(rawData, value)
+	}
+	jsonparser.ArrayEach(tmpRawData, handler)
+	request := &Request{
+		Raw:     rawRequest,
+		Method:  string(method),
+		RawData: rawData,
+	}
+	return request, nil
 }
 
 // TODO: check error from jsonparser
@@ -161,23 +189,9 @@ func parseBlockHeader(rawHeader []byte) (*BlockHeader, error) {
 	return blockHeader, nil
 }
 
-// func requestMethod(rawResponse []byte) ([]byte, error) {
-// 	method, _, _, err := jsonparser.Get(rawResponse, "[0]")
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	return method, nil
-// }
-
-func parsePortOpen(rawResponse []byte) (*PortOpen, error) {
-	ok, err := jsonparser.GetString(rawResponse, "[2]")
-	if err != nil {
-		return nil, err
-	}
-	hexRef, err := jsonparser.GetString(rawResponse, "[3]")
-	if err != nil {
-		return nil, err
-	}
+func parsePortOpen(rawResponse [][]byte) (*PortOpen, error) {
+	ok := string(rawResponse[0])
+	hexRef := string(rawResponse[1])
 	refByt, err := util.DecodeString(hexRef)
 	if err != nil {
 		return nil, err
@@ -192,47 +206,10 @@ func parsePortOpen(rawResponse []byte) (*PortOpen, error) {
 	return portOpen, nil
 }
 
-func parsePortSend(rawResponse []byte) (*PortSend, error) {
-	ok, err := jsonparser.GetString(rawResponse, "[2]")
-	if err != nil {
-		return nil, err
-	}
-	portSend := &PortSend{
-		Ok: (ok == "ok"),
-	}
-	return portSend, nil
-}
-
-func parseRPCRequest(rawRequest []byte) (*Request, error) {
-	// correct response
-	method, _, _, err := jsonparser.Get(rawRequest, "[0]")
-	if err != nil {
-		return nil, err
-	}
-	rawData := [][]byte{}
-	// see: https://github.com/buger/jsonparser/issues/145
-	copyRawRequest := make([]byte, len(rawRequest))
-	copy(copyRawRequest, rawRequest)
-	tmpRawData := jsonparser.Delete(copyRawRequest, "[0]")
-	handler := func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-		if err != nil {
-			log.Fatal(err)
-		}
-		rawData = append(rawData, value)
-	}
-	jsonparser.ArrayEach(tmpRawData, handler)
-	request := &Request{
-		Raw:     rawRequest,
-		Method:  method,
-		RawData: rawData,
-	}
-	return request, nil
-}
-
-func parseDeviceObj(rawObject []byte) (*DeviceObj, error) {
+func parseDeviceTicket(rawObject []byte) (*DeviceTicket, error) {
 	if bytes.Equal(NullData, rawObject) {
 		err := fmt.Errorf("cannot find the object of device")
-		deviceObj := &DeviceObj{
+		deviceObj := &DeviceTicket{
 			Err: err,
 		}
 		return deviceObj, err
@@ -273,6 +250,8 @@ func parseDeviceObj(rawObject []byte) (*DeviceObj, error) {
 	if err != nil {
 		return nil, err
 	}
+	var eserverID [20]byte
+	copy(eserverID[:], dserverID)
 	dpeakBlock, err := util.DecodeStringToInt(peakBlock[:])
 	if err != nil {
 		return nil, err
@@ -301,14 +280,10 @@ func parseDeviceObj(rawObject []byte) (*DeviceObj, error) {
 	if err != nil {
 		return nil, err
 	}
-	dpeakBlockHash := []byte{}
-	if ValidBlockHeaders[int(dpeakBlock)] != nil {
-		dpeakBlockHash = ValidBlockHeaders[int(dpeakBlock)].BlockHash
-	}
-	deviceObj := &DeviceObj{
-		ServerID:         dserverID,
-		PeakBlock:        dpeakBlock,
-		PeakBlockHash:    dpeakBlockHash,
+	deviceObj := &DeviceTicket{
+		ServerID:         eserverID,
+		BlockNumber:      int(dpeakBlock),
+		BlockHash:        nil,
 		FleetAddr:        dfleetAddr,
 		TotalConnections: dtotalConnections,
 		TotalBytes:       dtotalBytes,
@@ -456,6 +431,14 @@ func parseAccount(rawAccount [][]byte) (*Account, error) {
 	return account, nil
 }
 
+func jsonString(rawData []byte, location string) string {
+	value, _, _, _ := jsonparser.Get(rawData, location)
+	if value == nil {
+		return ""
+	}
+	return string(value)
+}
+
 // TODO: check error from jsonparser
 func parseAccountValue(rawAccountValue []byte) (*AccountValue, error) {
 	accountTree, err := NewMerkleTree(rawAccountValue)
@@ -469,22 +452,16 @@ func parseAccountValue(rawAccountValue []byte) (*AccountValue, error) {
 	return accountValue, nil
 }
 
-func isResponseType(rawData []byte) (bool, error) {
-	firstColumn, _, _, err := jsonparser.Get(rawData, "[0]")
-	if err != nil {
-		return false, err
-	}
-	isResponseType := bytes.Equal(firstColumn, ResponseType)
-	return isResponseType, nil
+func isResponseType(rawData []byte) bool {
+	return jsonString(rawData, "[0]") == "response"
 }
 
-func isErrorType(rawData []byte) (bool, error) {
-	firstColumn, _, _, err := jsonparser.Get(rawData, "[0]")
-	if err != nil {
-		return false, err
-	}
-	isErrorType := bytes.Equal(firstColumn, ErrorType)
-	return isErrorType, nil
+func isErrorType(rawData []byte) bool {
+	return jsonString(rawData, "[0]") == "error"
+}
+
+func responseMethod(rawData []byte) string {
+	return jsonString(rawData, "[1]")
 }
 
 func newPortOpenRequest(request *Request) (*PortOpen, error) {
@@ -510,14 +487,14 @@ func newPortOpenRequest(request *Request) (*PortOpen, error) {
 	refBig := &big.Int{}
 	refBig.SetBytes(refByt)
 	ref := refBig.Int64()
-	deviceId, err := jsonparser.GetString(request.Raw, "[3]")
+	deviceID, err := jsonparser.GetString(request.Raw, "[3]")
 	if err != nil {
 		return nil, err
 	}
 	portOpen := &PortOpen{
 		Port:     port,
 		Ref:      ref,
-		DeviceId: deviceId,
+		DeviceId: deviceID,
 		Ok:       true,
 	}
 	return portOpen, nil

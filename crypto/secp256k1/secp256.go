@@ -180,6 +180,23 @@ func CompressPubkey(x, y *big.Int) []byte {
 	}
 	return out
 }
+// CompressPubkeyBytes encodes a public key to 33-byte compressed format.
+func CompressPubkeyBytes(pubkey []byte) []byte {
+	if len(pubkey) != 65 {
+		return nil
+	}
+	var (
+		pubkeydata = (*C.uchar)(unsafe.Pointer(&pubkey[0]))
+		pubkeylen  = C.size_t(len(pubkey))
+		out        = make([]byte, 33)
+		outdata    = (*C.uchar)(unsafe.Pointer(&out[0]))
+		outlen     = C.size_t(len(out))
+	)
+	if C.secp256k1_ext_reencode_pubkey(context, outdata, outlen, pubkeydata, pubkeylen) == 0 {
+		panic("libsecp256k1 error")
+	}
+	return out
+}
 
 func checkSignature(sig []byte) error {
 	if len(sig) != 65 {

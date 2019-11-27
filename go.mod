@@ -7,7 +7,7 @@ require (
 	github.com/buger/jsonparser v0.0.0-20181115193947-bf1c66bbce23
 	github.com/diodechain/go-cache v2.1.0+incompatible
 	github.com/ethereum/go-ethereum v1.9.5
-	github.com/exosite/gobert v0.0.0-20190402090846-ebd269c5657e
+	github.com/exosite/gobert v0.0.0-20191127232240-ee599973c1c6
 	github.com/exosite/openssl v0.0.0-20190103104001-47d59e4c9266
 	github.com/felixge/tcpkeepalive v0.0.0-20160804073959-5bb0b2dea91e
 	github.com/gorilla/websocket v1.4.1

@@ -173,9 +173,16 @@ func zeroBytes(bytes []byte) {
 }
 
 // PubkeyToAddress returns diode address
-func PubkeyToAddress(pubkey []byte) ([]byte, error) {
+func PubkeyToAddress(pubkey []byte) (addr [20]byte) {
+	if len(pubkey) == 33 {
+		pubkey = secp256k1.DecompressPubkeyBytes(pubkey)
+	}
+	if len(pubkey) != 65 {
+		log.Panicf("This is not a pubkey %v", pubkey)
+	}
 	hasher := sha3.NewKeccak256()
 	hasher.Write(pubkey[1:])
 	hashPubkey := hasher.Sum(nil)
-	return hashPubkey[12:], nil
+	copy(addr[:], hashPubkey[12:])
+	return
 }

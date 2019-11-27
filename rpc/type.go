@@ -5,7 +5,6 @@ package rpc
 
 import (
 	"bytes"
-	"crypto/ecdsa"
 	"fmt"
 	"log"
 
@@ -29,33 +28,7 @@ import (
 var (
 	ResponseType = []byte("response")
 	ErrorType    = []byte("error")
-
-	PortOpenType        = []byte("portopen")
-	PortSendType        = []byte("portsend")
-	PortCloseType       = []byte("portclose")
-	GetObjectType       = []byte("getobject")
-	GetBlockPeakType    = []byte("getblockpeak")
-	GetBlockHeaderType  = []byte("getblockheader")
-	GetNodeType         = []byte("getnode")
-	GetAccountValueType = []byte("getaccountvalue")
-	GetAccountRootsType = []byte("getaccountroots")
-	GetStateRootsType   = []byte("getstateroots")
-	GoodbyeType         = []byte("goodbye")
-
-	NullData = []byte("null")
-
-	ResponseChan     = make(chan *Response, 1024)
-	RequestChan      = make(chan *Request, 1024)
-	ErrorChan        = make(chan *Error, 128)
-	PortOpenChan     = make(chan *PortOpen)
-	PortSendChan     = make(chan *PortSend)
-	DeviceObjChan    = make(chan *DeviceObj)
-	ServerObjChan    = make(chan *ServerObj)
-	AccountValueChan = make(chan *AccountValue)
-	AccountRootsChan = make(chan *AccountRoots)
-	StateRootsChan   = make(chan *StateRoots)
-	BlockPeakChan    = make(chan int)
-	BlockHeaderChan  = make(chan *BlockHeader)
+	NullData     = []byte("null")
 
 	curlyBracketStart  = []byte("{")
 	curlyBracketEnd    = []byte("}")
@@ -65,16 +38,18 @@ var (
 	comma              = []byte(",")
 )
 
+// ResponseFuture is a one time use channel
+type ResponseFuture chan []byte
 type Response struct {
 	Raw     []byte
 	RawData [][]byte
-	Method  []byte
+	Method  string
 }
 
 type Request struct {
 	Raw     []byte
 	RawData [][]byte
-	Method  []byte
+	Method  string
 }
 
 type Error struct {
@@ -115,22 +90,8 @@ type PortClose struct {
 	Ok  bool
 }
 
-type DeviceObj struct {
-	ServerPubKey     []byte
-	ServerID         []byte
-	PeakBlock        int64
-	PeakBlockHash    []byte
-	FleetAddr        []byte
-	TotalConnections int64
-	TotalBytes       int64
-	LocalAddr        []byte
-	DeviceSig        []byte
-	ServerSig        []byte
-	Err              error
-}
-
 type ServerObj struct {
-	ServerID     []byte
+	ServerID     [20]byte
 	Host         []byte
 	EdgePort     int64
 	ServerPort   int64
@@ -174,46 +135,6 @@ type RLPAccount struct {
 	Balance     uint
 	StorageRoot []byte
 	Code        []byte
-}
-
-// Ticket struct for connection and transmission
-type Ticket struct {
-	ServerID         []byte
-	BlockNumber      int
-	BlockHash        []byte
-	FleetAddr        []byte
-	TotalConnections int
-	TotalBytes       int
-	LocalAddr        []byte
-	sig              []byte
-}
-
-// Hash returns hash of ticket
-func (ct *Ticket) Hash() ([]byte, error) {
-	msg, err := bert.Encode([6]bert.Term{ct.ServerID, ct.BlockHash, ct.FleetAddr, ct.TotalConnections, ct.TotalBytes, ct.LocalAddr})
-	if err != nil {
-		return nil, err
-	}
-	return crypto.Sha256(msg), nil
-}
-
-// Sign ticket with given ecdsa private key
-func (ct *Ticket) Sign(privKey *ecdsa.PrivateKey) error {
-	msgHash, err := ct.Hash()
-	if err != nil {
-		return err
-	}
-	sig, err := secp256k1.Sign(msgHash, privKey.D.Bytes())
-	if err != nil {
-		return err
-	}
-	ct.sig = sig
-	return nil
-}
-
-// Sig returns signature of ticket
-func (ct *Ticket) Sig() []byte {
-	return ct.sig
 }
 
 // StateRoot returns state root of given state roots
@@ -402,6 +323,7 @@ func (device *ConnectedDevice) Close() {
 	if device.Conn.IsWS {
 		// device.Conn.Close()
 	} else {
+		log.Println("connDevice.Close()")
 		device.Conn.Close()
 	}
 }
@@ -410,12 +332,13 @@ func (device *ConnectedDevice) copyToSSL(s *SSL) {
 	ref := int(device.Ref)
 	err := device.Conn.copyToSSL(s, ref)
 	if err != nil {
+		log.Printf("copyToSSL.error: %v\n", err)
 		// check if disconnect
 		if devices.GetDevice(device.ClientID).Ref != 0 {
 			// send portclose request and channel
 			device.Close()
 			devices.DelDevice(device.ClientID)
-			s.PortClose(false, ref)
+			s.CastPortClose(ref)
 		}
 	}
 	return
@@ -439,13 +362,13 @@ type ConnectedConn struct {
 func (conn *ConnectedConn) Close() {
 	conn.rm.Lock()
 	defer conn.rm.Unlock()
-	if !conn.IsConnected {
-		return
-	}
-	if conn.IsWS {
-		// conn.WSConn.Close()
-	} else {
+	if conn.Conn != nil {
 		conn.Conn.Close()
+		conn.Conn = nil
+	}
+	if conn.WSConn != nil {
+		conn.WSConn.Close()
+		conn.WSConn = nil
 	}
 	conn.IsConnected = false
 	return
@@ -459,17 +382,12 @@ func (conn *ConnectedConn) copyToSSL(s *SSL, ref int) error {
 			if err != nil {
 				return err
 			}
-			log.Printf("Read %d bytes data from connection... Start to send...", count)
 			if count > 0 {
 				encStr := util.EncodeToString(buf[:count])
 				encBuf := []byte(fmt.Sprintf(`"%s"`, encStr[2:]))
-				_, err = s.PortSend(false, ref, encBuf)
+				_, err := s.PortSend(ref, encBuf)
 				if err != nil {
 					return err
-				}
-				portSend := <-PortSendChan
-				if portSend != nil && portSend.Err != nil {
-					return fmt.Errorf(string(portSend.Err.RawMsg))
 				}
 			}
 		}
@@ -480,17 +398,12 @@ func (conn *ConnectedConn) copyToSSL(s *SSL, ref int) error {
 		if err != nil {
 			return err
 		}
-		log.Printf("Read %d bytes data from connection... Start to send...", count)
 		if count > 0 {
 			encStr := util.EncodeToString(buf[:count])
 			encBuf := []byte(fmt.Sprintf(`"%s"`, encStr[2:]))
-			_, err = s.PortSend(false, ref, encBuf)
+			_, err = s.PortSend(ref, encBuf)
 			if err != nil {
 				return err
-			}
-			portSend := <-PortSendChan
-			if portSend != nil && portSend.Err != nil {
-				return fmt.Errorf(string(portSend.Err.RawMsg))
 			}
 		}
 	}
@@ -541,68 +454,6 @@ func (blockHeader *BlockHeader) ValidateSig() bool {
 	return secp256k1.VerifySignature(pubkey, msgHash, sig)
 }
 
-// HashWithoutSig returns hash of device object without device signature
-func (deviceObj *DeviceObj) HashWithoutSig() ([]byte, error) {
-	msg, err := bert.Encode([6]bert.Term{deviceObj.ServerID, deviceObj.PeakBlockHash, deviceObj.FleetAddr, deviceObj.TotalConnections, deviceObj.TotalBytes, deviceObj.LocalAddr})
-	if err != nil {
-		return nil, err
-	}
-	return crypto.Sha256(msg), nil
-}
-
-// Hash returns hash of device object
-func (deviceObj *DeviceObj) Hash() ([]byte, error) {
-	msg, err := bert.Encode([7]bert.Term{deviceObj.ServerID, deviceObj.PeakBlockHash, deviceObj.FleetAddr, deviceObj.TotalConnections, deviceObj.TotalBytes, deviceObj.LocalAddr, deviceObj.DeviceSig})
-	if err != nil {
-		return nil, err
-	}
-	return crypto.Sha256(msg), nil
-}
-
-// RecoverDevicePubKey returns uncompressed device public key
-func (deviceObj *DeviceObj) RecoverDevicePubKey() ([]byte, error) {
-	msgHash, err := deviceObj.HashWithoutSig()
-	if err != nil {
-		return nil, err
-	}
-	pubKey, err := secp256k1.RecoverPubkey(msgHash, deviceObj.DeviceSig)
-	if err != nil {
-		return nil, err
-	}
-	return pubKey, nil
-}
-
-// DeviceAddress returns device address
-func (deviceObj *DeviceObj) DeviceAddress() ([]byte, error) {
-	devicePubkey, err := deviceObj.RecoverDevicePubKey()
-	if err != nil {
-		return nil, err
-	}
-	return crypto.PubkeyToAddress(devicePubkey)
-}
-
-// RecoverServerPubKey returns server public key
-func (deviceObj *DeviceObj) RecoverServerPubKey() ([]byte, error) {
-	msgHash, err := deviceObj.Hash()
-	if err != nil {
-		return nil, err
-	}
-	pubKey, err := secp256k1.RecoverPubkey(msgHash, deviceObj.ServerSig)
-	if err != nil {
-		return nil, err
-	}
-	return pubKey, nil
-}
-
-// ValidateSig returns device object sig is valid
-func (deviceObj *DeviceObj) ValidateSig() bool {
-	msgHash, err := deviceObj.Hash()
-	if err != nil {
-		return false
-	}
-	return secp256k1.VerifySignature(deviceObj.ServerPubKey, msgHash, deviceObj.ServerSig)
-}
-
 // Hash returns hash of server object
 func (serverObj *ServerObj) Hash() ([]byte, error) {
 	msg, err := bert.Encode([3]bert.Term{serverObj.Host, serverObj.EdgePort, serverObj.ServerPort})
@@ -626,9 +477,10 @@ func (serverObj *ServerObj) RecoverServerPubKey() ([]byte, error) {
 }
 
 func (serverObj *ServerObj) ValidateSig() bool {
-	msgHash, err := serverObj.Hash()
+	pubKey, err := serverObj.RecoverServerPubKey()
 	if err != nil {
 		return false
 	}
-	return secp256k1.VerifySignature(serverObj.ServerPubKey, msgHash, serverObj.Sig)
+	serverID := crypto.PubkeyToAddress(pubKey)
+	return serverObj.ServerID == serverID
 }

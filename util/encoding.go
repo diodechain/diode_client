@@ -88,7 +88,7 @@ func EncodeToString(src []byte) string {
 func DecodeString(src string) (dst []byte, err error) {
 	srcByt := []byte(strings.ToLower(src))
 	if !IsHex(srcByt) {
-		err = fmt.Errorf("Cannot decode the wrong hex source")
+		err = fmt.Errorf("DecodeString(): Cannot decode the wrong hex source '%v'", src)
 		return
 	}
 	if bytes.Equal(prefixBytes, []byte(srcByt[0:prefixLength])) {
@@ -99,7 +99,12 @@ func DecodeString(src string) (dst []byte, err error) {
 	return
 }
 
-// DecodeStringToInt decode string to int
+// DecodeStringToIntForce decode string to int
+func DecodeStringToIntForce(src string) int64 {
+	ret, _ := DecodeStringToInt(src)
+	return ret
+}
+
 func DecodeStringToInt(src string) (int64, error) {
 	out := &big.Int{}
 	outByt, err := DecodeString(src)
@@ -110,10 +115,17 @@ func DecodeStringToInt(src string) (int64, error) {
 	return out.Int64(), nil
 }
 
+// DecodeForce decode bytes
+func DecodeForce(src []byte) (dst []byte) {
+	dst = make([]byte, len(src)/2)
+	num, _ := Decode(dst, src)
+	return dst[:num]
+}
+
 // Decode decode bytes
 func Decode(dst []byte, src []byte) (int, error) {
 	if !IsHex(src) {
-		return 0, fmt.Errorf("Cannot decode the wrong hex source")
+		return 0, fmt.Errorf("Decode(): Cannot decode the wrong hex source '%v'", string(src))
 	}
 	if bytes.Equal(prefixBytes, []byte(src[0:prefixLength])) {
 		src = src[2:]

@@ -17,8 +17,8 @@ github.com/diodechain/go-cache v2.1.0+incompatible h1:hwwJSO9NA0iG40CxCWYF80lJOE
 github.com/diodechain/go-cache v2.1.0+incompatible/go.mod h1:yG22NI4DfcPMlZ6vtzCCdx9PRBULGG8YKN/yeBn9UUQ=
 github.com/ethereum/go-ethereum v1.9.5 h1:4oxsF+/3N/sTgda9XTVG4r+wMVLsveziSMcK83hPbsk=
 github.com/ethereum/go-ethereum v1.9.5/go.mod h1:PwpWDrCLZrV+tfrhqqF6kPknbISMHaJv9Ln3kPCZLwY=
-github.com/exosite/gobert v0.0.0-20190402090846-ebd269c5657e h1:m81bROr88QaI9YG3ddF3YGtM92ub1JQDJnn2LIUxVn0=
-github.com/exosite/gobert v0.0.0-20190402090846-ebd269c5657e/go.mod h1:Ep6jBqzwph+tdo5SE3iMaS+XbmLaFQJGn2kj1G9aVCU=
+github.com/exosite/gobert v0.0.0-20191127232240-ee599973c1c6 h1:Edfgx9WTTTpcmJDeKE2t9DS4gPswX9igN3yIRSJ/hXQ=
+github.com/exosite/gobert v0.0.0-20191127232240-ee599973c1c6/go.mod h1:Ep6jBqzwph+tdo5SE3iMaS+XbmLaFQJGn2kj1G9aVCU=
 github.com/exosite/openssl v0.0.0-20190103104001-47d59e4c9266 h1:Pc6ZbIu2AHzvdPuFt6IZgEjRjQrlZAVYkv4C5gejG4A=
 github.com/exosite/openssl v0.0.0-20190103104001-47d59e4c9266/go.mod h1:NY11Rk4+pLaSTjvcsXVqzj3NWBk694a3fXuI0ZnKxLk=
 github.com/felixge/tcpkeepalive v0.0.0-20160804073959-5bb0b2dea91e h1:mVIjvOd7NckIwf9J4hLB2YWXBYjhREF4vBeZXZ8mrWM=

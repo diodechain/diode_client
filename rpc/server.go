@@ -4,7 +4,6 @@
 package rpc
 
 import (
-	"bytes"
 	"encoding/hex"
 	"fmt"
 	"log"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/diodechain/diode_go_client/util"
+	"github.com/exosite/openssl"
 )
 
 type RPCConfig struct {
@@ -33,6 +33,7 @@ type RPCServer struct {
 	ticketTicker           *time.Ticker
 	ticketTickerDuration   time.Duration
 	finishBlockTickerChan  chan bool
+	requestChan            chan *Request
 	blockTicker            *time.Ticker
 	blockTickerDuration    time.Duration
 	timeout                time.Duration
@@ -50,136 +51,16 @@ func (rpcServer *RPCServer) Wait() {
 
 // Start rpc server
 func (rpcServer *RPCServer) Start() {
-	log.Println("Start a rpc server")
-	// for error channel
-	rpcServer.wg.Add(4)
+	rpcServer.wg.Add(2)
 	go func() {
 		for {
-			err, ok := <-ErrorChan
+			request, ok := <-rpcServer.requestChan
 			if !ok {
 				rpcServer.wg.Done()
 				break
 			}
-			if rpcServer.Config.Verbose {
-				log.Println("Read rpc error: " + string(err.Raw))
-			}
-			if bytes.Equal(err.Method, PortOpenType) {
-				portOpen := &PortOpen{
-					Ok:  false,
-					Err: err,
-				}
-				PortOpenChan <- portOpen
-			} else if bytes.Equal(err.Method, PortSendType) {
-				portSend := &PortSend{
-					Ok:  false,
-					Err: err,
-				}
-				PortSendChan <- portSend
-				// } else if bytes.Equal(err.Method, PortCloseType) {
-				// 	portClose := &PortClose{
-				// 		Ok:  false,
-				// 	}
-				// 	PortCloseChan <- portClose
-			} else {
-				log.Println("Doesn't support rpc error: " + string(err.Raw))
-			}
-		}
-	}()
-	// for response channel
-	go func() {
-		for {
-			response, ok := <-ResponseChan
-			if !ok {
-				rpcServer.wg.Done()
-				break
-			}
-			log.Printf("Get response from server: %s", string(response.Raw))
-			if bytes.Equal(response.Method, PortOpenType) {
-				portOpen, err := parsePortOpen(response.Raw)
-				if err != nil {
-					log.Println(err)
-				}
-				PortOpenChan <- portOpen
-			} else if bytes.Equal(response.Method, PortSendType) {
-				portSend, err := parsePortSend(response.Raw)
-				if err != nil {
-					log.Println(err)
-				}
-				PortSendChan <- portSend
-			} else if bytes.Equal(response.Method, GetBlockPeakType) {
-				peak, err := util.DecodeStringToInt(string(response.RawData[0]))
-				if err != nil {
-					log.Println(err)
-					BlockPeakChan <- 0
-					continue
-				}
-				BlockPeakChan <- int(peak)
-			} else if bytes.Equal(response.Method, GetBlockHeaderType) {
-				blockHeader, err := parseBlockHeader(response.RawData[0])
-				if err != nil {
-					log.Println(err)
-					BlockHeaderChan <- blockHeader
-					continue
-				}
-				BlockHeaderChan <- blockHeader
-			} else if bytes.Equal(response.Method, GetObjectType) {
-				deviceObj, err := parseDeviceObj(response.RawData[0])
-				if err != nil {
-					log.Println(err)
-					DeviceObjChan <- deviceObj
-					continue
-				}
-				serverPubKey, err := rpcServer.s.GetServerPubKey()
-				if err != nil {
-					log.Println(err)
-					DeviceObjChan <- deviceObj
-					continue
-				}
-				deviceObj.ServerPubKey = serverPubKey
-				DeviceObjChan <- deviceObj
-			} else if bytes.Equal(response.Method, GetNodeType) {
-				serverObj, err := parseServerObj(response.RawData[0])
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-				ServerObjChan <- serverObj
-			} else if bytes.Equal(response.Method, GetAccountValueType) {
-				accountValue, err := parseAccountValue(response.RawData[0])
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-				AccountValueChan <- accountValue
-			} else if bytes.Equal(response.Method, GetAccountRootsType) {
-				accountRoots, err := parseAccountRoots(response.RawData[0])
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-				AccountRootsChan <- accountRoots
-			} else if bytes.Equal(response.Method, GetStateRootsType) {
-				stateRoots, err := parseStateRoots(response.RawData[0])
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-				StateRootsChan <- stateRoots
-			} else {
-				log.Println("Doesn't support response: " + string(response.Method))
-			}
-		}
-	}()
-	// for request channel, device rpc
-	// TODO: encrypt/decrypt data
-	go func() {
-		for {
-			request, ok := <-RequestChan
-			if !ok {
-				rpcServer.wg.Done()
-				break
-			}
-			if bytes.Equal(request.Method, PortOpenType) {
+			switch request.Method {
+			case "portopen":
 				portOpen, err := newPortOpenRequest(request)
 				if err != nil {
 					_ = rpcServer.s.ResponsePortOpen(portOpen, err)
@@ -188,7 +69,6 @@ func (rpcServer *RPCServer) Start() {
 				}
 				clientID := fmt.Sprintf("%s%d", portOpen.DeviceId, portOpen.Ref)
 				connDevice := devices.GetDevice(clientID)
-				log.Println("Accept portopen request")
 				// connect to stream service
 				host := net.JoinHostPort("localhost", strconv.Itoa(int(portOpen.Port)))
 				remoteConn, err := net.DialTimeout("tcp", host, rpcServer.timeout)
@@ -208,21 +88,17 @@ func (rpcServer *RPCServer) Start() {
 					connDevice.copyToSSL(rpcServer.s)
 					connDevice.Close()
 				}()
-			} else if bytes.Equal(request.Method, PortSendType) {
+			case "portsend":
 				portSend, err := newPortSendRequest(request)
 				if err != nil {
 					log.Println(err)
 					continue
 				}
-				log.Println("Accept portsend request")
 				decData := make([]byte, hex.DecodedLen(len(portSend.Data)))
 				_, err = util.Decode(decData, portSend.Data)
 				if err != nil {
 					log.Println(err)
-					// decData = portSend.Data
-				}
-				if rpcServer.Config.Verbose {
-					log.Printf("Decrypt portsend data")
+					continue
 				}
 				// start to write data
 				connDevice := devices.FindDeviceByRef(portSend.Ref)
@@ -230,14 +106,13 @@ func (rpcServer *RPCServer) Start() {
 					connDevice.writeToTCP(decData)
 				} else {
 					log.Println("Cannot find the connected device, drop data and close port")
-					rpcServer.s.PortClose(false, int(portSend.Ref))
+					rpcServer.s.CastPortClose(int(portSend.Ref))
 				}
-			} else if bytes.Equal(request.Method, PortCloseType) {
+			case "portclose":
 				portClose, err := newPortCloseRequest(request)
 				if err != nil {
 					log.Println(err)
 				}
-				log.Println("Accept portclose request")
 				connDevice := devices.FindDeviceByRef(portClose.Ref)
 				if connDevice.ClientID != "" {
 					connDevice.Close()
@@ -245,7 +120,7 @@ func (rpcServer *RPCServer) Start() {
 				} else {
 					log.Println("Cannot find the connected device")
 				}
-			} else if bytes.Equal(request.Method, GoodbyeType) {
+			case "goodbye":
 				log.Printf("Server disconnected, reason: %s, %s\n", string(request.RawData[0]), string(request.RawData[1]))
 				rpcServer.rm.Lock()
 				if !rpcServer.closed {
@@ -254,7 +129,7 @@ func (rpcServer *RPCServer) Start() {
 				} else {
 					rpcServer.rm.Unlock()
 				}
-			} else {
+			default:
 				log.Println("Doesn't support rpc request: " + string(request.Method))
 			}
 		}
@@ -263,7 +138,7 @@ func (rpcServer *RPCServer) Start() {
 	go func() {
 		// infinite read from stream
 		for {
-			res, err := rpcServer.s.readContext()
+			err := rpcServer.s.readContext()
 			if err != nil {
 				rpcServer.rm.Lock()
 				if !rpcServer.closed {
@@ -274,40 +149,63 @@ func (rpcServer *RPCServer) Start() {
 				}
 				rpcServer.wg.Done()
 				return
-			} else if res != nil {
-				// check rpc response
-				if len(res) == 0 {
-					log.Println("Didn't get data, sleep one millisecond")
-					time.Sleep(1 * time.Millisecond)
-					continue
-				}
-				rpcServer.s.CheckTicket(false)
-				isResponseType, _ := isResponseType(res)
-				if isResponseType {
-					response, err := parseResponse(res)
-					if err != nil {
-						log.Println(err)
-						continue
+			}
+		}
+	}()
+	go func() {
+		for {
+			select {
+			case res := <-rpcServer.s.tcpIn:
+				rpcServer.s.CheckTicket()
+				// log.Printf("GOT: isResp=%v %v\n", isResponseType, string(res))
+				if isResponseType(res) || isErrorType(res) {
+					call := rpcServer.s.calls[0]
+					// log.Printf("recv: %v", responseMethod(res))
+					if responseMethod(res) != call.method {
+						log.Printf("Uh, got different response type: %v %v", call.method, string(res))
 					}
-					ResponseChan <- response
-					continue
-				}
-				isErrorType, _ := isErrorType(res)
-				if isErrorType {
-					rpcErr, err := parseError(res)
-					if err != nil {
-						log.Println(err)
-						continue
+
+					rpcServer.s.calls = rpcServer.s.calls[1:]
+					if call.responseChannel != nil {
+						call.responseChannel <- res
+						close(call.responseChannel)
 					}
-					ErrorChan <- rpcErr
 					continue
 				}
 				request, err := parseRPCRequest(res)
 				if err != nil {
-					log.Println(err)
+					log.Printf("This is not an RPC request %v\n", err)
 					continue
 				}
-				RequestChan <- request
+				rpcServer.requestChan <- request
+			case call := <-rpcServer.s.callChannel:
+				// log.Printf("send: %v", call.method)
+				if call.method == ":reconnect" {
+					// Resetting buffers to not mix old messages with new messages
+					rpcServer.s.tcpIn = make(chan []byte, 100)
+					for _, call := range rpcServer.s.calls {
+						rpcServer.s.callChannel <- call
+					}
+					rpcServer.s.calls = make([]Call, 0)
+
+					// Recreating connection
+					conn, err := openssl.Dial("tcp", rpcServer.s.addr, rpcServer.s.ctx, rpcServer.s.mode)
+					var ret []byte = []byte("[\"response\", \":reconnect\", \"ok\"]")
+					if err != nil {
+						log.Println(err)
+						ret = []byte(fmt.Sprintf("[\"error\", \":reconnect\", \"%v\"]", err.Error()))
+					} else {
+						rpcServer.s.conn = conn
+						if rpcServer.s.enableKeepAlive {
+							rpcServer.s.EnableKeepAlive()
+						}
+					}
+					call.responseChannel <- ret
+
+				} else {
+					rpcServer.s.conn.Write(call.data)
+					rpcServer.s.calls = append(rpcServer.s.calls, call)
+				}
 			}
 		}
 	}()
@@ -328,31 +226,30 @@ func (rpcServer *RPCServer) WatchNewBlock() {
 				rpcServer.wg.Done()
 				return
 			case <-rpcServer.blockTicker.C:
-				_, err := rpcServer.s.GetBlockPeak(false)
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-				blockPeak := <-BlockPeakChan
-				if LBN >= blockPeak {
-					continue
-				}
-				_, err = rpcServer.s.GetBlockHeader(false, blockPeak)
-				if err != nil {
-					log.Println(err)
-					continue
-				}
-				blockHeader := <-BlockHeaderChan
-				isSigValid := blockHeader.ValidateSig()
-				if !isSigValid {
-					log.Printf("Miner signature was not valid, block header: %d", blockPeak)
-					continue
-				}
-				rpcServer.rm.Lock()
-				LBN = blockPeak
-				ValidBlockHeaders[blockPeak] = blockHeader
-				rpcServer.rm.Unlock()
-				continue
+				go func() {
+					blockPeak, err := rpcServer.s.GetBlockPeak()
+					if err != nil {
+						log.Println(err)
+						return
+					}
+					if LBN >= blockPeak {
+						return
+					}
+					blockHeader, err := rpcServer.s.GetBlockHeader(blockPeak)
+					if err != nil {
+						log.Println(err)
+						return
+					}
+					isSigValid := blockHeader.ValidateSig()
+					if !isSigValid {
+						log.Printf("Miner signature was not valid, block header: %d", blockPeak)
+						return
+					}
+					LBN = blockPeak
+					// TODO: This is not validation
+					SetValidBlockHeader(blockPeak, blockHeader)
+					return
+				}()
 			}
 		}
 	}()
@@ -369,13 +266,12 @@ func (rpcServer *RPCServer) Close() {
 		return
 	}
 	rpcServer.closed = true
-	rpcServer.blockTicker.Stop()
+	if rpcServer.blockTicker != nil {
+		rpcServer.blockTicker.Stop()
+		rpcServer.blockTicker = nil
+	}
 	rpcServer.finishBlockTickerChan <- true
-	close(ResponseChan)
-	close(RequestChan)
-	close(PortOpenChan)
-	close(PortSendChan)
-	close(ErrorChan)
+	close(rpcServer.requestChan)
 	return
 }
 
@@ -390,7 +286,8 @@ func (s *SSL) NewRPCServer(config *RPCConfig) *RPCServer {
 		closed:                 false,
 		finishTicketTickerChan: make(chan bool),
 		ticketTickerDuration:   1 * time.Millisecond,
-		finishBlockTickerChan:  make(chan bool),
+		finishBlockTickerChan:  make(chan bool, 1),
+		requestChan:            make(chan *Request, 1024),
 		blockTickerDuration:    1 * time.Minute,
 		timeout:                5 * time.Second,
 	}
