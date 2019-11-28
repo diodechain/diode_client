@@ -1,16 +1,17 @@
 package main
 
 import (
-	"syscall/js"
-	"io/ioutil"
 	"fmt"
-	"net/http"
+	"io/ioutil"
 	"net"
+	"net/http"
+	"syscall/js"
 	// "sync"
 )
 
-var global =  js.Global()
+var global = js.Global()
 var diodeRoot js.Value
+
 // var wg sync.WaitGroup
 
 func callRpc(this js.Value, args []js.Value) (interface{}, error) {
@@ -92,7 +93,7 @@ func err(this js.Value, args []js.Value) (interface{}, error) {
 	return nil, fmt.Errorf("This is an error")
 }
 
-func init () {
+func init() {
 	diodeRoot = global.Get("diode")
 }
 

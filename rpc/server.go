@@ -343,7 +343,7 @@ func (rpcServer *RPCServer) WatchNewBlock() {
 					continue
 				}
 				blockHeader := <-BlockHeaderChan
-				isSigValid, _ := blockHeader.ValidateSig()
+				isSigValid := blockHeader.ValidateSig()
 				if !isSigValid {
 					log.Printf("Miner signature was not valid, block header: %d", blockPeak)
 					continue

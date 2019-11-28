@@ -130,11 +130,12 @@ type DeviceObj struct {
 }
 
 type ServerObj struct {
-	ServerID   []byte
-	Host       []byte
-	EdgePort   int64
-	ServerPort int64
-	Sig        []byte
+	ServerID     []byte
+	Host         []byte
+	EdgePort     int64
+	ServerPort   int64
+	Sig          []byte
+	ServerPubKey []byte
 }
 
 type StateRoots struct {
@@ -529,15 +530,15 @@ func (blockHeader *BlockHeader) HashWithoutSig() ([]byte, error) {
 }
 
 // ValidateSig check miner signature is valid
-func (blockHeader *BlockHeader) ValidateSig() (bool, error) {
+func (blockHeader *BlockHeader) ValidateSig() bool {
 	msgHash, err := blockHeader.HashWithoutSig()
 	if err != nil {
-		return false, err
+		return false
 	}
 	sig := []byte{}
 	sig = append(sig, blockHeader.MinerSig[1:65]...)
 	pubkey := blockHeader.Miner
-	return secp256k1.VerifySignature(pubkey, msgHash, sig), nil
+	return secp256k1.VerifySignature(pubkey, msgHash, sig)
 }
 
 // HashWithoutSig returns hash of device object without device signature
@@ -560,11 +561,11 @@ func (deviceObj *DeviceObj) Hash() ([]byte, error) {
 
 // RecoverDevicePubKey returns uncompressed device public key
 func (deviceObj *DeviceObj) RecoverDevicePubKey() ([]byte, error) {
-	hashMsg, err := deviceObj.HashWithoutSig()
+	msgHash, err := deviceObj.HashWithoutSig()
 	if err != nil {
 		return nil, err
 	}
-	pubKey, err := secp256k1.RecoverPubkey(hashMsg, deviceObj.DeviceSig)
+	pubKey, err := secp256k1.RecoverPubkey(msgHash, deviceObj.DeviceSig)
 	if err != nil {
 		return nil, err
 	}
@@ -582,11 +583,11 @@ func (deviceObj *DeviceObj) DeviceAddress() ([]byte, error) {
 
 // RecoverServerPubKey returns server public key
 func (deviceObj *DeviceObj) RecoverServerPubKey() ([]byte, error) {
-	hashMsg, err := deviceObj.Hash()
+	msgHash, err := deviceObj.Hash()
 	if err != nil {
 		return nil, err
 	}
-	pubKey, err := secp256k1.RecoverPubkey(hashMsg, deviceObj.ServerSig)
+	pubKey, err := secp256k1.RecoverPubkey(msgHash, deviceObj.ServerSig)
 	if err != nil {
 		return nil, err
 	}
@@ -595,25 +596,29 @@ func (deviceObj *DeviceObj) RecoverServerPubKey() ([]byte, error) {
 
 // ValidateSig returns device object sig is valid
 func (deviceObj *DeviceObj) ValidateSig() bool {
-	pubKey, err := deviceObj.RecoverServerPubKey()
+	msgHash, err := deviceObj.Hash()
 	if err != nil {
 		return false
 	}
-	serverID, err := crypto.PubkeyToAddress(pubKey)
-	if err != nil {
-		return false
-	}
-	return bytes.Equal(deviceObj.ServerID, serverID)
+	return secp256k1.VerifySignature(deviceObj.ServerPubKey, msgHash, deviceObj.ServerSig)
 }
 
-// RecoverServerPubKey returns server public key
-func (serverObj *ServerObj) RecoverServerPubKey() ([]byte, error) {
+// Hash returns hash of server object
+func (serverObj *ServerObj) Hash() ([]byte, error) {
 	msg, err := bert.Encode([3]bert.Term{serverObj.Host, serverObj.EdgePort, serverObj.ServerPort})
 	if err != nil {
 		return nil, err
 	}
-	hashMsg := crypto.Sha256(msg)
-	pubKey, err := secp256k1.RecoverPubkey(hashMsg, serverObj.Sig)
+	return crypto.Sha256(msg), err
+}
+
+// RecoverServerPubKey returns server public key
+func (serverObj *ServerObj) RecoverServerPubKey() ([]byte, error) {
+	msgHash, err := serverObj.Hash()
+	if err != nil {
+		return nil, err
+	}
+	pubKey, err := secp256k1.RecoverPubkey(msgHash, serverObj.Sig)
 	if err != nil {
 		return nil, err
 	}
@@ -621,13 +626,9 @@ func (serverObj *ServerObj) RecoverServerPubKey() ([]byte, error) {
 }
 
 func (serverObj *ServerObj) ValidateSig() bool {
-	pubKey, err := serverObj.RecoverServerPubKey()
+	msgHash, err := serverObj.Hash()
 	if err != nil {
 		return false
 	}
-	serverID, err := crypto.PubkeyToAddress(pubKey)
-	if err != nil {
-		return false
-	}
-	return bytes.Equal(serverObj.ServerID, serverID)
+	return secp256k1.VerifySignature(serverObj.ServerPubKey, msgHash, serverObj.Sig)
 }

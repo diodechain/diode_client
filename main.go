@@ -107,8 +107,8 @@ func main() {
 		log.Println("Cannot fetch blockheader")
 		return
 	}
-	isValid, err := blockHeader.ValidateSig()
-	if !isValid || err != nil {
+	isValid := blockHeader.ValidateSig()
+	if !isValid {
 		log.Println("Cannot validate blockheader signature")
 		return
 	}

@@ -267,18 +267,17 @@ func (s *SSL) GetServerID() ([]byte, error) {
 
 // GetServerPubKey returns server uncompressed public key
 func (s *SSL) GetServerPubKey() ([]byte, error) {
-	pubKey := make([]byte, 1)
 	cert, err := s.conn.PeerCertificate()
 	if err != nil {
-		return pubKey, err
+		return nil, err
 	}
 	rawPubKey, err := cert.PublicKey()
 	if err != nil {
-		return pubKey, err
+		return nil, err
 	}
 	derPubKey, err := rawPubKey.MarshalPKIXPublicKeyDER()
 	if err != nil {
-		return pubKey, err
+		return nil, err
 	}
 	return crypto.DerToPublicKey(derPubKey)
 }
@@ -506,11 +505,7 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 		}
 		LBN = i
 		hexMiner := hex.EncodeToString(blockHeader.Miner)
-		isSigValid, err := blockHeader.ValidateSig()
-		if err != nil {
-			log.Printf("Miner signature was not valid, block header: %d, error: %s", i, err.Error())
-			continue
-		}
+		isSigValid := blockHeader.ValidateSig()
 		if !isSigValid {
 			if config.Debug {
 				log.Printf("Miner signature was not valid, block header: %d", i)
