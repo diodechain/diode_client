@@ -26,9 +26,7 @@ import (
 )
 
 var (
-	ResponseType = []byte("response")
-	ErrorType    = []byte("error")
-	NullData     = []byte("null")
+	NullData = []byte("null")
 
 	curlyBracketStart  = []byte("{")
 	curlyBracketEnd    = []byte("}")
@@ -91,7 +89,6 @@ type PortClose struct {
 }
 
 type ServerObj struct {
-	ServerID     [20]byte
 	Host         []byte
 	EdgePort     int64
 	ServerPort   int64
@@ -272,17 +269,17 @@ func (acv *AccountValue) AccountTree() *MerkleTree {
 
 // Devices keep the connected devices
 type Devices struct {
-	connectedDevice map[string]ConnectedDevice
+	connectedDevice map[string]*ConnectedDevice
 	rw              sync.RWMutex
 }
 
-func (d *Devices) GetDevice(k string) ConnectedDevice {
+func (d *Devices) GetDevice(k string) *ConnectedDevice {
 	d.rw.RLock()
 	defer d.rw.RUnlock()
 	return d.connectedDevice[k]
 }
 
-func (d *Devices) SetDevice(k string, ud ConnectedDevice) {
+func (d *Devices) SetDevice(k string, ud *ConnectedDevice) {
 	d.rw.Lock()
 	defer d.rw.Unlock()
 	d.connectedDevice[k] = ud
@@ -296,7 +293,7 @@ func (d *Devices) DelDevice(k string) {
 	return
 }
 
-func (d *Devices) FindDeviceByRef(ref int64) ConnectedDevice {
+func (d *Devices) FindDeviceByRef(ref int64) *ConnectedDevice {
 	d.rw.RLock()
 	defer d.rw.RUnlock()
 	clientID := ""
@@ -316,6 +313,7 @@ type ConnectedDevice struct {
 	DeviceID  string
 	DDeviceID []byte
 	Conn      ConnectedConn
+	Server    *SSL
 }
 
 // Close the connection of device
@@ -328,17 +326,17 @@ func (device *ConnectedDevice) Close() {
 	}
 }
 
-func (device *ConnectedDevice) copyToSSL(s *SSL) {
+func (device *ConnectedDevice) copyToSSL() {
 	ref := int(device.Ref)
-	err := device.Conn.copyToSSL(s, ref)
+	err := device.Conn.copyToSSL(device.Server, ref)
 	if err != nil {
 		log.Printf("copyToSSL.error: %v\n", err)
 		// check if disconnect
-		if devices.GetDevice(device.ClientID).Ref != 0 {
+		if devices.GetDevice(device.ClientID) != nil {
 			// send portclose request and channel
 			device.Close()
 			devices.DelDevice(device.ClientID)
-			s.CastPortClose(ref)
+			device.Server.CastPortClose(ref)
 		}
 	}
 	return
@@ -476,11 +474,11 @@ func (serverObj *ServerObj) RecoverServerPubKey() ([]byte, error) {
 	return pubKey, nil
 }
 
-func (serverObj *ServerObj) ValidateSig() bool {
+func (serverObj *ServerObj) ValidateSig(serverID [20]byte) bool {
 	pubKey, err := serverObj.RecoverServerPubKey()
 	if err != nil {
+		log.Printf("ServerObj.ValidateSig(): %v\n", err)
 		return false
 	}
-	serverID := crypto.PubkeyToAddress(pubKey)
-	return serverObj.ServerID == serverID
+	return serverID == crypto.PubkeyToAddress(pubKey)
 }

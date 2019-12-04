@@ -421,7 +421,7 @@ func (s *SSL) sendPayload(method string, payload []byte, future ResponseFuture) 
 	return nil
 }
 
-// RespondContext sends a message without expecting a reponse
+// RespondContext sends a message without expecting a response
 func (s *SSL) RespondContext(method string, args ...interface{}) error {
 	msg, err := newMessage(method, args...)
 	if err != nil {
@@ -680,7 +680,11 @@ func (s *SSL) GetNode(nodeID [20]byte) (*ServerObj, error) {
 	if err != nil {
 		return nil, err
 	}
-	return parseServerObj(rawNode.RawData[0])
+	obj, err := parseServerObj(rawNode.RawData[0])
+	if err != nil {
+		return nil, fmt.Errorf("GetNode(): parseerror '%v' in '%v'", err, string(rawNode.RawData[0]))
+	}
+	return obj, nil
 }
 
 // NewTicket returns ticket

@@ -29,7 +29,7 @@ var (
 	defaultMode = "rw"
 	pattern     = regexp.MustCompile(`^([rws]{1,3}[-_\.])?([\w]+)\.(diode|diode\.link|diode\.ws)(:[\d]+)?$`)
 	devices     = &Devices{
-		connectedDevice: make(map[string]ConnectedDevice),
+		connectedDevice: make(map[string]*ConnectedDevice),
 	}
 	bitstringPattern = regexp.MustCompile(`^[01]+$`)
 
@@ -250,7 +250,7 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, device *DeviceTicke
 	clientIP := conn.RemoteAddr().String()
 	connDevice := devices.GetDevice(clientIP)
 	// check device id
-	if connDevice.Ref == 0 {
+	if connDevice == nil {
 		// decode device id
 		dDeviceID, err := device.DeviceAddress()
 		if err != nil {
@@ -261,6 +261,7 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, device *DeviceTicke
 
 		server, err := socksServer.GetServer(device.ServerID)
 		if err != nil {
+			log.Printf("pipeSocksThenClose(): Error %v\n", err)
 			rep[1] = socksRepNetworkUnreachable
 			conn.Write(rep[:])
 			return
@@ -280,11 +281,16 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, device *DeviceTicke
 			conn.Write(rep[:])
 			return
 		}
-		connDevice.Ref = portOpen.Ref
-		connDevice.ClientID = clientIP
-		connDevice.DeviceID = deviceID
-		connDevice.DDeviceID = dDeviceID[:]
-		connDevice.Conn.Conn = conn
+		connDevice = &ConnectedDevice{
+			Ref:       portOpen.Ref,
+			ClientID:  clientIP,
+			DeviceID:  deviceID,
+			DDeviceID: dDeviceID[:],
+			Conn: ConnectedConn{
+				Conn: conn,
+			},
+			Server: server,
+		}
 		devices.SetDevice(clientIP, connDevice)
 	}
 
@@ -327,7 +333,7 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, device *DeviceTicke
 	conn.Write(rep[0 : pindex+2])
 
 	// write request data to device
-	connDevice.copyToSSL(socksServer.s)
+	connDevice.copyToSSL()
 
 	log.Println("Close socks connection")
 }
@@ -528,6 +534,7 @@ func (s *SSL) NewSocksServer(config *Config) *Server {
 		s:      s,
 		Config: config,
 		wg:     &sync.WaitGroup{},
+		pool:   make(map[[20]byte]*SSL),
 	}
 }
 
@@ -551,13 +558,14 @@ func (socksServer *Server) GetServer(nodeID [20]byte) (server *SSL, err error) {
 		log.Println(err)
 		return
 	}
-	if !serverObj.ValidateSig() {
-		log.Println("wrong signature in server object")
+	if !serverObj.ValidateSig(nodeID) {
+		err = fmt.Errorf("Wrong signature in server object %+v", serverObj)
 		return
 	}
-	server, err = DoConnect(string(serverObj.Host), config.AppConfig)
+	host := fmt.Sprintf("%s:%d", string(serverObj.Host), serverObj.EdgePort)
+	server, err = DoConnect(host, config.AppConfig)
 	if err != nil {
-		log.Println("couldn't connect to server")
+		err = fmt.Errorf("Couldn't connect to server '%+v' with error '%v'", serverObj, err)
 		return
 	}
 	socksServer.pool[nodeID] = server

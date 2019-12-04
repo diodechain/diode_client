@@ -56,13 +56,13 @@ func newMessage(method string, args ...interface{}) ([]byte, error) {
 
 // TODO: check error from jsonparser
 func parseResponse(rawResponse []byte) (*Response, error) {
-	responseType, _, _, _ := jsonparser.Get(rawResponse, "[0]")
-	if bytes.Equal(responseType, ErrorType) {
+	responseType := jsonString(rawResponse, "[0]")
+	if responseType == "error" {
 		errMsg, _ := jsonparser.GetString(rawResponse, "[2]")
 		return nil, fmt.Errorf("Error from server: %s", errMsg)
 	}
-	if bytes.Equal(responseType, ResponseType) != true {
-		return nil, fmt.Errorf("Unknown response type: %s", string(responseType[:]))
+	if responseType != "response" {
+		return nil, fmt.Errorf("Unknown response type: %s", responseType)
 	}
 	// correct response
 	method, _, _, _ := jsonparser.Get(rawResponse, "[1]")
@@ -298,22 +298,10 @@ func parseServerObj(rawObject []byte) (*ServerObj, error) {
 	if bytes.Equal(NullData, rawObject) {
 		return nil, fmt.Errorf("cannot find the node of server")
 	}
-	host, _, _, err := jsonparser.Get(rawObject, "[1]")
-	if err != nil {
-		return nil, err
-	}
-	edgePort, err := jsonparser.GetInt(rawObject, "[2]")
-	if err != nil {
-		return nil, err
-	}
-	serverPort, err := jsonparser.GetInt(rawObject, "[3]")
-	if err != nil {
-		return nil, err
-	}
-	serverSig, err := jsonparser.GetString(rawObject, "[4]")
-	if err != nil {
-		return nil, err
-	}
+	host := []byte(jsonString(rawObject, "[1]"))
+	edgePort := jsonInteger(rawObject, "[2]")
+	serverPort := jsonInteger(rawObject, "[3]")
+	serverSig := jsonString(rawObject, "[4]")
 	dserverSig, err := util.DecodeString(serverSig[:])
 	if err != nil {
 		return nil, err
@@ -437,6 +425,21 @@ func jsonString(rawData []byte, location string) string {
 		return ""
 	}
 	return string(value)
+}
+
+func jsonInteger(rawData []byte, location string) int64 {
+	value, _, _, _ := jsonparser.Get(rawData, location)
+	if value == nil {
+		return -1
+	}
+	if util.IsHexNumber(value) {
+		return util.DecodeStringToIntForce(string(value))
+	}
+	num, err := strconv.Atoi(string(value))
+	if err != nil {
+		return -2
+	}
+	return int64(num)
 }
 
 // TODO: check error from jsonparser

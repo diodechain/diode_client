@@ -69,6 +69,9 @@ func (rpcServer *RPCServer) Start() {
 				}
 				clientID := fmt.Sprintf("%s%d", portOpen.DeviceId, portOpen.Ref)
 				connDevice := devices.GetDevice(clientID)
+				if connDevice == nil {
+					connDevice = &ConnectedDevice{}
+				}
 				// connect to stream service
 				host := net.JoinHostPort("localhost", strconv.Itoa(int(portOpen.Port)))
 				remoteConn, err := net.DialTimeout("tcp", host, rpcServer.timeout)
@@ -82,10 +85,11 @@ func (rpcServer *RPCServer) Start() {
 				connDevice.ClientID = clientID
 				connDevice.DeviceID = portOpen.DeviceId
 				connDevice.Conn.Conn = remoteConn
+				connDevice.Server = rpcServer.s
 				devices.SetDevice(clientID, connDevice)
 
 				go func() {
-					connDevice.copyToSSL(rpcServer.s)
+					connDevice.copyToSSL()
 					connDevice.Close()
 				}()
 			case "portsend":
@@ -166,10 +170,8 @@ func (rpcServer *RPCServer) Start() {
 					}
 
 					rpcServer.s.calls = rpcServer.s.calls[1:]
-					if call.responseChannel != nil {
-						call.responseChannel <- res
-						close(call.responseChannel)
-					}
+					call.responseChannel <- res
+					close(call.responseChannel)
 					continue
 				}
 				request, err := parseRPCRequest(res)
@@ -204,7 +206,9 @@ func (rpcServer *RPCServer) Start() {
 
 				} else {
 					rpcServer.s.conn.Write(call.data)
-					rpcServer.s.calls = append(rpcServer.s.calls, call)
+					if call.responseChannel != nil {
+						rpcServer.s.calls = append(rpcServer.s.calls, call)
+					}
 				}
 			}
 		}

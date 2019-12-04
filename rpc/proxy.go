@@ -13,7 +13,6 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/diodechain/diode_go_client/util"
 	"github.com/gorilla/websocket"
 )
 
@@ -89,18 +88,26 @@ func (socksServer *Server) pipeProxy(w http.ResponseWriter, r *http.Request) {
 		clientIP := c.RemoteAddr().String()
 		connDevice := devices.GetDevice(clientIP)
 		// check device id
-		if connDevice.Ref == 0 {
-			// decode device id
-			dDeviceID, err := util.DecodeString(deviceID)
+		if connDevice == nil {
+			// TODO: Merge with same code in socks.go:pipeSocksThenClose()
+			device := socksServer.checkAccess(deviceID)
+
+			dDeviceID, err := device.DeviceAddress()
 			if err != nil {
-				log.Printf("Failed to open port(1) %+v", err)
-				badRequest(w, fmt.Sprintf("%+v", err))
+				badRequest(w, fmt.Sprintf("pipeProxy(): %+v", err))
+				return
+			}
+
+			server, err := socksServer.GetServer(device.ServerID)
+			if err != nil {
+				log.Printf("pipeProxy(): Error %v\n", err)
+				badRequest(w, fmt.Sprintf("pipeProxy(): Error %+v", err))
 				return
 			}
 			portOpen, err := socksServer.s.PortOpen(deviceID, int(port), mode)
 			if err != nil {
-				log.Printf("Failed to open port(2) %+v", err)
-				badRequest(w, fmt.Sprintf("%+v", err))
+				log.Printf("pipeProxy(): Failed to open port(2) %+v", err)
+				badRequest(w, fmt.Sprintf("pipeProxy(): %+v", err))
 				return
 			}
 			// wait for response
@@ -109,15 +116,20 @@ func (socksServer *Server) pipeProxy(w http.ResponseWriter, r *http.Request) {
 				badRequest(w, fmt.Sprintf("Failed to open port %+v", portOpen.Err))
 				return
 			}
-			connDevice.Ref = portOpen.Ref
-			connDevice.ClientID = clientIP
-			connDevice.DeviceID = deviceID
-			connDevice.DDeviceID = dDeviceID
-			connDevice.Conn.IsWS = true
-			connDevice.Conn.WSConn = c
+			connDevice = &ConnectedDevice{
+				Ref:       portOpen.Ref,
+				ClientID:  clientIP,
+				DeviceID:  deviceID,
+				DDeviceID: dDeviceID[:],
+				Conn: ConnectedConn{
+					IsWS:   true,
+					WSConn: c,
+				},
+				Server: server,
+			}
 			devices.SetDevice(clientIP, connDevice)
 		}
-		connDevice.copyToSSL(socksServer.s)
+		connDevice.copyToSSL()
 	} else {
 		r.URL.Scheme = "http"
 		r.URL.Host = host
