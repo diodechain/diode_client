@@ -37,7 +37,10 @@ func httpError(w http.ResponseWriter, code int, str string) {
 	if str == "" {
 		str = http.StatusText(code)
 	}
-	http.Error(w, str, code)
+	str = Page(http.StatusText(code), code, http.StatusText(code), str)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(code)
+	fmt.Fprintln(w, str)
 }
 func badRequest(w http.ResponseWriter, str string) {
 	httpError(w, 400, str)
