@@ -40,7 +40,7 @@ func httpError(w http.ResponseWriter, code int, str string) {
 	http.Error(w, str, code)
 }
 func badRequest(w http.ResponseWriter, str string) {
-	httpError(w, 403, str)
+	httpError(w, 400, str)
 }
 func internalError(w http.ResponseWriter, str string) {
 	httpError(w, 500, str)
@@ -155,6 +155,18 @@ func (socksServer *Server) StartProxy() error {
 	// })
 	prox, _ := url.Parse("socks5://localhost:8080")
 	proxyTransport.Proxy = http.ProxyURL(prox)
+	redirectHTTPSHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		// if host is not valid, throw bad request
+		host := req.Host
+		if len(host) <= 0 {
+			badRequest(w, "Bad request")
+		} else {
+			http.Redirect(w, req, fmt.Sprintf("https://%s%s", host, req.URL.String()), http.StatusPermanentRedirect)
+		}
+	})
+	go func() {
+		log.Println(http.ListenAndServe(":80", redirectHTTPSHandler))
+	}()
 
 	http.HandleFunc("/", socksServer.pipeProxy)
 	go func() {
