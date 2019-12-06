@@ -5,7 +5,6 @@
 package rpc
 
 import (
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -27,7 +26,7 @@ var (
 	AddrType    = []string{"", "IPv4", "", "Domain", "IPv6"}
 	defaultPort = 80
 	defaultMode = "rw"
-	pattern     = regexp.MustCompile(`^([rws]{1,3}[-_\.])?([\w]+)\.(diode|diode\.link|diode\.ws)(:[\d]+)?$`)
+	pattern     = regexp.MustCompile(`^([rws]{1,3}[-_])?([\w]+)([-_][\d]+)?\.(diode|diode\.link|diode\.ws)(\:[\d]+)?$`)
 	devices     = &Devices{
 		connectedDevice: make(map[string]*ConnectedDevice),
 	}
@@ -127,25 +126,26 @@ func handShake(conn net.Conn) (err error) {
 	return
 }
 
+// TODO: mapping human redable string to port.
 func parseHost(host string) (isWS bool, deviceID string, mode string, port int, err error) {
 	mode = defaultMode
 	port = defaultPort
 
 	parsedHost := pattern.FindStringSubmatch(host)
 	switch len(parsedHost) {
-	case 5:
+	case 6:
 		deviceID = parsedHost[2]
 		if len(parsedHost[1]) > 0 {
 			mode = string(parsedHost[1][:len(parsedHost[1])-1])
 		}
-		if parsedHost[3] == "diode.ws" {
+		if parsedHost[4] == "diode.ws" {
 			isWS = true
 		}
-		if len(parsedHost[4]) > 1 {
-			port, err = strconv.Atoi(string(parsedHost[4][1:len(parsedHost[4])]))
-		}
-		if err != nil {
-			log.Print("Cannot parse port from string to int")
+		if len(parsedHost[3]) > 1 {
+			port, err = strconv.Atoi(string(parsedHost[3][1:len(parsedHost[3])]))
+			if err != nil {
+				log.Print("Cannot parse port from string to int")
+			}
 		}
 		break
 	default:
@@ -154,7 +154,7 @@ func parseHost(host string) (isWS bool, deviceID string, mode string, port int, 
 	return
 }
 
-func parseTarget(conn net.Conn) (host string, port uint16, mode string, deviceID string, isWS bool, err error) {
+func parseTarget(conn net.Conn) (host string, port int, mode string, deviceID string, isWS bool, err error) {
 	const (
 		idVer   = 0
 		idCmd   = 1
@@ -234,13 +234,13 @@ func parseTarget(conn net.Conn) (host string, port uint16, mode string, deviceID
 	case typeDm:
 		host = string(buf[idDm0 : idDm0+buf[idDmLen]])
 	}
-	port = binary.BigEndian.Uint16(buf[reqLen-2 : reqLen])
+	// port = binary.BigEndian.Uint16(buf[reqLen-2 : reqLen])
 	host = net.JoinHostPort(host, strconv.Itoa(int(port)))
-	isWS, deviceID, mode, _, err = parseHost(host)
+	isWS, deviceID, mode, port, err = parseHost(host)
 	return
 }
 
-func (socksServer *Server) pipeSocksThenClose(conn net.Conn, device *DeviceTicket, port uint16, mode string) {
+func (socksServer *Server) pipeSocksThenClose(conn net.Conn, device *DeviceTicket, port int, mode string) {
 	deviceID := device.GetDeviceID()
 	if socksServer.Config.Verbose {
 		log.Println("Connect remote ", deviceID, " mode: ", mode, "...")
@@ -355,7 +355,7 @@ func netCopy(input, output net.Conn) (err error) {
 	return
 }
 
-func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, device *DeviceTicket, port uint16, mode string) {
+func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, device *DeviceTicket, port int, mode string) {
 	if socksServer.Config.Verbose {
 		log.Println("Connect remote ", socksServer.Config.ProxyServerAddr, " mode: ", mode, "...")
 	}
