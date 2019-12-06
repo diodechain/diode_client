@@ -142,9 +142,11 @@ func main() {
 
 	if config.RunSocksServer {
 		socksConfig := &rpc.Config{
-			Addr:      config.SocksServerAddr,
-			Verbose:   config.Debug,
-			FleetAddr: config.DecFleetAddr,
+			Addr:            config.SocksServerAddr,
+			ProxyServerAddr: "",
+			Verbose:         config.Debug,
+			FleetAddr:       config.DecFleetAddr,
+			EnableProxy:     config.RunProxyServer,
 		}
 		// start socks server
 		socksServer = client.NewSocksServer(socksConfig)
@@ -154,9 +156,8 @@ func main() {
 		}
 	}
 	if config.RunProxyServer {
-		// start websocket server
+		// start proxy server
 		socksServer.Config.ProxyServerAddr = config.ProxyServerAddr
-		socksServer.Config.EnableProxy = true
 		if err := socksServer.StartProxy(); err != nil {
 			log.Fatal(err)
 			return

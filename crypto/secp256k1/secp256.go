@@ -180,6 +180,7 @@ func CompressPubkey(x, y *big.Int) []byte {
 	}
 	return out
 }
+
 // CompressPubkeyBytes encodes a public key to 33-byte compressed format.
 func CompressPubkeyBytes(pubkey []byte) []byte {
 	if len(pubkey) != 65 {
