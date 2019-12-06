@@ -71,7 +71,7 @@ type Config struct {
 	ProxyServerAddr string
 	Verbose         bool
 	EnableProxy     bool
-	FleetAddr       []byte
+	FleetAddr       [20]byte
 }
 
 // Server is the only instances of the Socks Server
@@ -240,6 +240,41 @@ func parseTarget(conn net.Conn) (host string, port int, mode string, deviceID st
 	return
 }
 
+func (socksServer *Server) connectDevice(deviceID string, port int, mode string) (*ConnectedDevice, *HttpError) {
+	// This is double checked in some cases, but it does not hurt since
+	// checkAccess internally caches
+	device, httpErr := socksServer.checkAccess(deviceID)
+	if httpErr != nil {
+		return nil, httpErr
+	}
+
+	// decode device id
+	dDeviceID, err := device.DeviceAddress()
+	if err != nil {
+		return nil, &HttpError{500, fmt.Errorf("DeviceAdrress() failed: %v", err)}
+	}
+
+	server, err := socksServer.GetServer(device.ServerID)
+	if err != nil {
+		return nil, &HttpError{500, fmt.Errorf("GetServer() failed: %v", err)}
+	}
+
+	portOpen, err := server.PortOpen(deviceID, int(port), mode)
+	if err != nil {
+		return nil, &HttpError{500, fmt.Errorf("PortOpen() failed: %v", err)}
+	}
+	// failed to open port
+	if portOpen != nil && portOpen.Err != nil {
+		return nil, &HttpError{500, fmt.Errorf("PortOpen() failed(2): %v", portOpen.Err)}
+	}
+	return &ConnectedDevice{
+		Ref:       portOpen.Ref,
+		DeviceID:  deviceID,
+		DDeviceID: dDeviceID[:],
+		Server:    server,
+	}, nil
+}
+
 func (socksServer *Server) pipeSocksThenClose(conn net.Conn, device *DeviceTicket, port int, mode string) {
 	deviceID := device.GetDeviceID()
 	if socksServer.Config.Verbose {
@@ -249,47 +284,22 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, device *DeviceTicke
 	rep[0] = socksVer5
 	clientIP := conn.RemoteAddr().String()
 	connDevice := devices.GetDevice(clientIP)
+	var httpErr *HttpError
+
 	// check device id
 	if connDevice == nil {
-		// decode device id
-		dDeviceID, err := device.DeviceAddress()
-		if err != nil {
+		connDevice, httpErr = socksServer.connectDevice(deviceID, port, mode)
+
+		if httpErr != nil {
+			log.Printf("connectDevice() failed: %v", httpErr.err)
 			rep[1] = socksRepNetworkUnreachable
 			conn.Write(rep[:])
 			return
 		}
 
-		server, err := socksServer.GetServer(device.ServerID)
-		if err != nil {
-			log.Printf("pipeSocksThenClose(): Error %v\n", err)
-			rep[1] = socksRepNetworkUnreachable
-			conn.Write(rep[:])
-			return
-		}
-
-		portOpen, err := server.PortOpen(deviceID, int(port), mode)
-		if err != nil {
-			log.Println(err)
-			rep[1] = socksRepNetworkUnreachable
-			conn.Write(rep[:])
-			return
-		}
-		// failed to open port
-		if portOpen != nil && portOpen.Err != nil {
-			log.Printf("Failed to open port: %s", string(portOpen.Err.Raw))
-			rep[1] = socksRepNetworkUnreachable
-			conn.Write(rep[:])
-			return
-		}
-		connDevice = &ConnectedDevice{
-			Ref:       portOpen.Ref,
-			ClientID:  clientIP,
-			DeviceID:  deviceID,
-			DDeviceID: dDeviceID[:],
-			Conn: ConnectedConn{
-				Conn: conn,
-			},
-			Server: server,
+		connDevice.ClientID = clientIP
+		connDevice.Conn = ConnectedConn{
+			Conn: conn,
 		}
 		devices.SetDevice(clientIP, connDevice)
 	}
@@ -415,84 +425,79 @@ func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, device *DeviceTic
 	netCopy(remoteConn, conn)
 }
 
-func (socksServer *Server) checkAccess(deviceID string) *DeviceTicket {
+func (socksServer *Server) checkAccess(deviceID string) (*DeviceTicket, *HttpError) {
 	mc := socksServer.s.MemoryCache()
 	// decode device id
 	bDeviceID, err := util.DecodeString(deviceID)
 	var dDeviceID [20]byte
 	copy(dDeviceID[:], bDeviceID)
 	if err != nil {
-		return nil
+		return nil, &HttpError{500, err}
 	}
-	// call getobject rpc
+	// Calling GetObject to locate the device
 	var device *DeviceTicket
 	cacheObj, hit := mc.Get(deviceID)
 	if !hit {
 		device, err = socksServer.s.GetObject(dDeviceID)
 		if err != nil {
 			log.Println(err)
-			return nil
+			return nil, &HttpError{500, err}
 		}
 		if err = device.ResolveBlockHash(socksServer.s); err != nil {
-			fmt.Printf("Failed to resolve() %v\n", err)
-			return nil
+			err = fmt.Errorf("Failed to resolve() %v", err)
+			return nil, &HttpError{500, err}
 		}
 		if device.Err != nil {
-			log.Printf("Couldn't find device object %v\n", device.Err)
-			return nil
+			err = fmt.Errorf("This device is offline - Or you entered the wrong id? %v", device.Err)
+			return nil, &HttpError{404, err}
 		}
 		if !device.ValidateSigs(dDeviceID) {
-			log.Println("Wrong signature in device object")
-			return nil
+			err = fmt.Errorf("Wrong signature in device object")
+			return nil, &HttpError{500, err}
 		}
 		mc.Set(deviceID, device, cache.DefaultExpiration)
 	} else {
 		device = cacheObj.(*DeviceTicket)
 	}
 
-	// check access
-	isDeviceWhitelisted, hit := mc.Get(deviceID + "devicewhitelist")
-	err = nil
-	if !hit {
-		isDeviceWhitelisted, err = socksServer.s.IsDeviceWhitelisted(dDeviceID)
-		mc.Set(deviceID+"devicewhitelist", isDeviceWhitelisted, cache.DefaultExpiration)
-	}
-	if !isDeviceWhitelisted.(bool) {
-		log.Printf("Device was not white listed(2): <%v>\n", err)
-		return nil
-	}
-	clientAddr, err := socksServer.s.GetClientAddress()
+	// Checking access
+	addr, err := socksServer.s.GetClientAddress()
 	if err != nil {
-		log.Println(err)
-		return nil
+		return nil, &HttpError{500, err}
 	}
 	isAccessWhitelisted, hit := mc.Get(deviceID + "accesswhitelist")
 	if !hit {
-		isAccessWhitelisted, _ = socksServer.s.IsAccessWhitelisted(dDeviceID, clientAddr)
-		mc.Set(deviceID+"accesswhitelist", isDeviceWhitelisted, cache.DefaultExpiration)
+		isAccessWhitelisted, err = socksServer.s.IsAccessWhitelisted(device.FleetAddr, dDeviceID, addr)
+		if err != nil {
+			return nil, &HttpError{500, err}
+		}
+		mc.Set(deviceID+"accesswhitelist", isAccessWhitelisted, cache.DefaultExpiration)
 	}
 	if !isAccessWhitelisted.(bool) {
-		log.Println("Access was not whitelisted")
-		return nil
+		err = fmt.Errorf(
+			"Gateway %v is not on the access list for this device %v of fleet %v",
+			util.EncodeToString(addr[:]), deviceID, util.EncodeToString(device.FleetAddr[:]),
+		)
+		return nil, &HttpError{403, err}
 	}
-	return device
+	return device, nil
 }
 
 func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 	defer conn.Close()
 	defer socksServer.wg.Done()
 	if err := handShake(conn); err != nil {
-		log.Println("socks handshake:", err)
+		log.Println("handShake() failed:", err)
 		return
 	}
 	_, port, mode, deviceID, isWS, err := parseTarget(conn)
 	if err != nil {
-		log.Println("socks consult transfer mode or parse target: ", err)
+		log.Println("parseTarget() failed: ", err)
 		return
 	}
-	device := socksServer.checkAccess(deviceID)
+	device, httpErr := socksServer.checkAccess(deviceID)
 	if device == nil {
-		log.Println("please ensure you have access to given device")
+		log.Println("checkAccess() failed: ", httpErr.err)
 		return
 	}
 	if !isWS {

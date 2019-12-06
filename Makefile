@@ -14,6 +14,7 @@ gateway:
 	$(MAKE) gateway_copy
 
 gateway_copy: diode_go_client
+	strip -s diode_go_client
 	scp -C diode_go_client root@diode.ws:
 	ssh root@diode.ws 'svc -k .'
 	touch gateway_copy

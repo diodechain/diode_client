@@ -260,6 +260,8 @@ func parseDeviceTicket(rawObject []byte) (*DeviceTicket, error) {
 	if err != nil {
 		return nil, err
 	}
+	var efleetAddr [20]byte
+	copy(efleetAddr[:], dfleetAddr)
 	dtotalConnections, err := util.DecodeStringToInt(totalConnections[:])
 	if err != nil {
 		return nil, err
@@ -284,7 +286,7 @@ func parseDeviceTicket(rawObject []byte) (*DeviceTicket, error) {
 		ServerID:         eserverID,
 		BlockNumber:      int(dpeakBlock),
 		BlockHash:        nil,
-		FleetAddr:        dfleetAddr,
+		FleetAddr:        efleetAddr,
 		TotalConnections: dtotalConnections,
 		TotalBytes:       dtotalBytes,
 		LocalAddr:        dlocalAddr,

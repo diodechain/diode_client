@@ -19,7 +19,7 @@ type Config struct {
 	BlockQuickLimit    int
 	DBPath             string
 	Debug              bool
-	DecFleetAddr       []byte
+	DecFleetAddr       [20]byte
 	DecRegistryAddr    []byte
 	EnableKeepAlive    bool
 	FleetAddr          string
@@ -97,7 +97,7 @@ func parseFlag() *Config {
 		panic(err)
 	}
 	decFleetAddr, err := util.DecodeString(cfg.FleetAddr)
-	cfg.DecFleetAddr = decFleetAddr
+	copy(cfg.DecFleetAddr[:], decFleetAddr)
 	if err != nil {
 		panic(err)
 	}

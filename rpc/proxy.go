@@ -5,8 +5,9 @@
 package rpc
 
 import (
+	"bytes"
+	"crypto/tls"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
@@ -15,6 +16,11 @@ import (
 
 	"github.com/gorilla/websocket"
 )
+
+type HttpError struct {
+	code int
+	err  error
+}
 
 var proxyTransport http.Transport = http.Transport{
 	Proxy: http.ProxyURL(&url.URL{
@@ -50,12 +56,6 @@ func internalError(w http.ResponseWriter, str string) {
 }
 
 func (socksServer *Server) pipeProxy(w http.ResponseWriter, r *http.Request) {
-	upgrader := websocket.Upgrader{
-		ReadBufferSize:    readBufferSize,
-		WriteBufferSize:   writeBufferSize,
-		CheckOrigin:       func(_ *http.Request) bool { return true },
-		EnableCompression: true,
-	}
 	host := r.Host
 	if len(host) == 0 {
 		badRequest(w, "Host was wrong")
@@ -74,79 +74,68 @@ func (socksServer *Server) pipeProxy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// log.Printf("THIS IS WS? %v\n", isWS)
+	clientIP := r.RemoteAddr
+	var httpErr *HttpError
+	connDevice := devices.GetDevice(clientIP)
+	// check device id
+	if connDevice == nil {
+		connDevice, httpErr = socksServer.connectDevice(deviceID, port, mode)
+		if httpErr != nil {
+			httpError(w, httpErr.code, httpErr.err.Error())
+			return
+		}
+		connDevice.ClientID = clientIP
+	}
+
+	if connDevice == nil {
+		log.Panic("connDevice still nil")
+	}
+	devices.SetDevice(clientIP, connDevice)
 
 	if isWS {
-		c, err := upgrader.Upgrade(w, r, nil)
+		upgrader := websocket.Upgrader{
+			ReadBufferSize:    readBufferSize,
+			WriteBufferSize:   writeBufferSize,
+			CheckOrigin:       func(_ *http.Request) bool { return true },
+			EnableCompression: true,
+		}
+		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			msg := fmt.Sprintf("upgrade error: %v", err)
+			msg := fmt.Sprintf("Websocket upgrade error: %v", err)
 			internalError(w, msg)
 			return
 		}
-		// set connectedConn.Conn to conn?!
-		// conn := c.UnderlyingConn()
-		defer c.Close()
-
-		// deviceID = strings.ToLower(deviceID)
-		clientIP := c.RemoteAddr().String()
-		connDevice := devices.GetDevice(clientIP)
-		// check device id
-		if connDevice == nil {
-			// TODO: Merge with same code in socks.go:pipeSocksThenClose()
-			device := socksServer.checkAccess(deviceID)
-
-			dDeviceID, err := device.DeviceAddress()
-			if err != nil {
-				badRequest(w, fmt.Sprintf("pipeProxy(): %+v", err))
-				return
-			}
-
-			server, err := socksServer.GetServer(device.ServerID)
-			if err != nil {
-				log.Printf("pipeProxy(): Error %v\n", err)
-				badRequest(w, fmt.Sprintf("pipeProxy(): Error %+v", err))
-				return
-			}
-			portOpen, err := socksServer.s.PortOpen(deviceID, int(port), mode)
-			if err != nil {
-				log.Printf("pipeProxy(): Failed to open port(2) %+v", err)
-				badRequest(w, fmt.Sprintf("pipeProxy(): %+v", err))
-				return
-			}
-			// wait for response
-			if portOpen != nil && portOpen.Err != nil {
-				log.Printf("Failed to open port(3) %+v", portOpen.Err)
-				badRequest(w, fmt.Sprintf("Failed to open port %+v", portOpen.Err))
-				return
-			}
-			connDevice = &ConnectedDevice{
-				Ref:       portOpen.Ref,
-				ClientID:  clientIP,
-				DeviceID:  deviceID,
-				DDeviceID: dDeviceID[:],
-				Conn: ConnectedConn{
-					IsWS:   true,
-					WSConn: c,
-				},
-				Server: server,
-			}
-			devices.SetDevice(clientIP, connDevice)
+		connDevice.Conn = ConnectedConn{
+			WSConn: conn,
 		}
-		connDevice.copyToSSL()
 	} else {
-		r.URL.Scheme = "http"
-		r.URL.Host = host
-		log.Printf("Forwarding %+v\n", r)
-		resp, err := proxyTransport.RoundTrip(r)
-		if err != nil {
-			badRequest(w, fmt.Sprintf("%+v", err))
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			internalError(w, "Webserver doesn't support hijacking")
 			return
 		}
-		for key := range resp.Header {
-			w.Header().Set(key, resp.Header.Get(key))
+		conn, buf, err := hj.Hijack()
+
+		header := bytes.NewBuffer([]byte{})
+		r.Write(header)
+
+		if buf.Reader.Buffered() > 0 {
+			rest := make([]byte, buf.Reader.Buffered())
+			buf.Read(rest)
+			header.Write(rest)
 		}
-		io.Copy(w, resp.Body)
+
+		if err != nil {
+			internalError(w, err.Error())
+			return
+		}
+		connDevice.Conn = ConnectedConn{
+			Conn:   conn,
+			unread: header.Bytes(),
+		}
 	}
+	log.Printf("connDevice.copyToSSL()\n")
+	connDevice.copyToSSL()
 }
 
 func (socksServer *Server) StartProxy() error {
@@ -172,8 +161,13 @@ func (socksServer *Server) StartProxy() error {
 	}()
 
 	http.HandleFunc("/", socksServer.pipeProxy)
+
 	go func() {
-		log.Println(http.ListenAndServeTLS(socksServer.Config.ProxyServerAddr, "./priv/cert.pem", "./priv/privkey.pem", nil))
+		addr := socksServer.Config.ProxyServerAddr
+		protos := make(map[string]func(*http.Server, *tls.Conn, http.Handler))
+		server := &http.Server{Addr: addr, Handler: nil, TLSNextProto: protos}
+		server.ListenAndServeTLS("./priv/cert.pem", "./priv/privkey.pem")
+		log.Println(server)
 	}()
 	return nil
 }

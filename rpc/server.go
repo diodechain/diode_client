@@ -19,7 +19,7 @@ import (
 type RPCConfig struct {
 	Verbose      bool
 	RegistryAddr []byte
-	FleetAddr    []byte
+	FleetAddr    [20]byte
 }
 
 type RPCServer struct {
@@ -81,6 +81,7 @@ func (rpcServer *RPCServer) Start() {
 					continue
 				}
 				_ = rpcServer.s.ResponsePortOpen(portOpen, nil)
+
 				connDevice.Ref = portOpen.Ref
 				connDevice.ClientID = clientID
 				connDevice.DeviceID = portOpen.DeviceId
@@ -106,10 +107,10 @@ func (rpcServer *RPCServer) Start() {
 				}
 				// start to write data
 				connDevice := devices.FindDeviceByRef(portSend.Ref)
-				if connDevice.ClientID != "" {
+				if connDevice != nil && connDevice.ClientID != "" {
 					connDevice.writeToTCP(decData)
 				} else {
-					log.Println("Cannot find the connected device, drop data and close port")
+					log.Printf("Cannot find the connected device, drop data and close port %v\n", connDevice)
 					rpcServer.s.CastPortClose(int(portSend.Ref))
 				}
 			case "portclose":
@@ -118,7 +119,7 @@ func (rpcServer *RPCServer) Start() {
 					log.Println(err)
 				}
 				connDevice := devices.FindDeviceByRef(portClose.Ref)
-				if connDevice.ClientID != "" {
+				if connDevice != nil && connDevice.ClientID != "" {
 					connDevice.Close()
 					devices.DelDevice(connDevice.ClientID)
 				} else {

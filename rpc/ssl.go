@@ -68,7 +68,7 @@ type SSL struct {
 	rm                sync.Mutex
 	clientPrivKey     *ecdsa.PrivateKey
 	RegistryAddr      []byte
-	FleetAddr         []byte
+	FleetAddr         [20]byte
 	RPCServer         *RPCServer
 }
 
@@ -731,7 +731,7 @@ func (s *SSL) NewTicket(localAddr []byte) (*DeviceTicket, error) {
 
 // SubmitTicket submit ticket to server
 func (s *SSL) SubmitTicket(ticket *DeviceTicket) error {
-	encFleetAddr := util.EncodeToString(ticket.FleetAddr)
+	encFleetAddr := util.EncodeToString(ticket.FleetAddr[:])
 	encLocalAddr := util.EncodeToString(ticket.LocalAddr)
 	encSig := util.EncodeToString(ticket.DeviceSig)
 	future, err := s.CastContext("ticket", ticket.BlockNumber, encFleetAddr, ticket.TotalConnections, ticket.TotalBytes, encLocalAddr, encSig)
@@ -766,7 +766,7 @@ func (s *SSL) SubmitTicket(ticket *DeviceTicket) error {
 			if lastTicket.ValidateDeviceSig(addr) {
 				s.totalBytes = tb + 1024
 				s.totalConnections = tc + 1
-				ticket, err := s.NewTicket(config.AppConfig.DecFleetAddr)
+				ticket, err := s.NewTicket(config.AppConfig.DecFleetAddr[:])
 				if err != nil {
 					log.Println(err)
 					return
@@ -828,11 +828,8 @@ func (s *SSL) Ping() (*Response, error) {
 }
 
 // GetAccountValue returns account storage value
-func (s *SSL) GetAccountValue(blockNumber int, account []byte, rawKey []byte) (*AccountValue, error) {
-	if len(account) != 20 {
-		return nil, fmt.Errorf("Account must be 20 bytes")
-	}
-	encAccount := util.EncodeToString(account)
+func (s *SSL) GetAccountValue(blockNumber int, account [20]byte, rawKey []byte) (*AccountValue, error) {
+	encAccount := util.EncodeToString(account[:])
 	// pad key to 32 bytes
 	key := util.PaddingBytesPrefix(rawKey, 0, 32)
 	encKey := util.EncodeToString(key)
@@ -870,11 +867,8 @@ func (s *SSL) GetAccount(blockNumber int, account []byte) (*Account, error) {
 }
 
 // GetAccountRoots returns account state roots
-func (s *SSL) GetAccountRoots(blockNumber int, account []byte) (*AccountRoots, error) {
-	if len(account) != 20 {
-		return nil, fmt.Errorf("Account must be 20 bytes")
-	}
-	encAccount := util.EncodeToString(account)
+func (s *SSL) GetAccountRoots(blockNumber int, account [20]byte) (*AccountRoots, error) {
+	encAccount := util.EncodeToString(account[:])
 	rawAccountRoots, err := s.CallContext("getaccountroots", blockNumber, encAccount)
 	if err != nil {
 		return nil, err
@@ -918,18 +912,18 @@ func (s *SSL) IsDeviceWhitelisted(addr [20]byte) (bool, error) {
 }
 
 // IsAccessWhitelisted returns is given address whitelisted
-func (s *SSL) IsAccessWhitelisted(deviceAddr [20]byte, clientAddr [20]byte) (bool, error) {
+func (s *SSL) IsAccessWhitelisted(fleetAddr [20]byte, deviceAddr [20]byte, clientAddr [20]byte) (bool, error) {
 	var err error
 	var raw []byte
 	var acv *AccountValue
 	var acr *AccountRoots
 	key := contract.AccessWhitelistKey(deviceAddr, clientAddr)
-	acv, err = s.GetAccountValue(BN, s.FleetAddr, key)
+	acv, err = s.GetAccountValue(BN, fleetAddr, key)
 	if err != nil {
 		return false, err
 	}
 	// get account roots
-	acr, err = s.GetAccountRoots(BN, s.FleetAddr)
+	acr, err = s.GetAccountRoots(BN, fleetAddr)
 	if err != nil {
 		return false, err
 	}
