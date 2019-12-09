@@ -18,6 +18,11 @@ type IsHexNumberTest struct {
 	Res bool
 }
 
+type IsAddressTest struct {
+	Src []byte
+	Res bool
+}
+
 type DecodeStringTest struct {
 	Src string
 	Res []byte
@@ -70,6 +75,28 @@ var (
 			Res: []byte{18, 52},
 		},
 	}
+	isAddressTest = []IsAddressTest{
+		IsAddressTest{
+			Src: []byte{1},
+			Res: false,
+		},
+		IsAddressTest{
+			Src: []byte("0x937c492a77ae90de971986d003ffbc5f8bb2232C"),
+			Res: true,
+		},
+		IsAddressTest{
+			Src: []byte("0x937c492a77ae90de971986d003ffbc5f8bb2232c"),
+			Res: true,
+		},
+		IsAddressTest{
+			Src: []byte("0X937c492a77ae90de971986d003ffbc5f8bb2232c"),
+			Res: false,
+		},
+		IsAddressTest{
+			Src: []byte("937c492a77ae90de971986d003ffbc5f8bb2232c"),
+			Res: false,
+		},
+	}
 )
 
 func TestIsHex(t *testing.T) {
@@ -84,6 +111,14 @@ func TestIsHexNumber(t *testing.T) {
 	for _, v := range isHexNumberTest {
 		if v.Res != IsHexNumber(v.Src) {
 			t.Errorf("Wrong result when call IsHexNumber")
+		}
+	}
+}
+
+func TestIsAddress(t *testing.T) {
+	for _, v := range isAddressTest {
+		if v.Res != IsAddress(v.Src) {
+			t.Errorf("Wrong result when call IsAddress")
 		}
 	}
 }

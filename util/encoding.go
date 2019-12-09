@@ -25,6 +25,7 @@ var (
 	upperPrefixBytes  = []byte(upperPrefix)
 	upperPrefixLength = len(upperPrefix)
 	hexStringBase     = []byte("0123456789abcdefABCDEF")
+	addressLength     = 40
 )
 
 func isHexBytes(src []byte) bool {
@@ -73,6 +74,20 @@ func IsHexNumber(src []byte) bool {
 		return true
 	}
 	if isHexBytes(src) {
+		return true
+	}
+	return false
+}
+
+// IsAddress returns given bytes is address (0x prefixed)
+func IsAddress(src []byte) bool {
+	if len(src) < prefixLength {
+		return false
+	}
+	if bytes.HasPrefix(src, prefixBytes) {
+		if len(src[2:]) > addressLength || !isHexBytes(src[2:]) {
+			return false
+		}
 		return true
 	}
 	return false
