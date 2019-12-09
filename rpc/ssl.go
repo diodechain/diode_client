@@ -1014,6 +1014,7 @@ func DoConnect(host string, config *config.Config) (*SSL, error) {
 		Verbose:      config.Debug,
 		RegistryAddr: config.DecRegistryAddr,
 		FleetAddr:    config.DecFleetAddr,
+		Blacklists:   config.Blacklists,
 	}
 	client.RPCServer = client.NewRPCServer(rpcConfig)
 	client.RPCServer.Start()

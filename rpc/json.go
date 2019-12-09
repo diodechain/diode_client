@@ -499,7 +499,7 @@ func newPortOpenRequest(request *Request) (*PortOpen, error) {
 	portOpen := &PortOpen{
 		Port:     port,
 		Ref:      ref,
-		DeviceId: deviceID,
+		DeviceID: deviceID,
 		Ok:       true,
 	}
 	return portOpen, nil

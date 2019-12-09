@@ -72,6 +72,7 @@ type Config struct {
 	Verbose         bool
 	EnableProxy     bool
 	FleetAddr       [20]byte
+	Blacklists      map[string]bool
 }
 
 // Server is the only instances of the Socks Server
@@ -426,6 +427,14 @@ func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, device *DeviceTic
 }
 
 func (socksServer *Server) checkAccess(deviceID string) (*DeviceTicket, *HttpError) {
+	// Checking blacklist
+	if socksServer.Config.Blacklists[deviceID] {
+		err := fmt.Errorf(
+			"Device %v is on the black list",
+			deviceID,
+		)
+		return nil, &HttpError{403, err}
+	}
 	mc := socksServer.s.MemoryCache()
 	// decode device id
 	bDeviceID, err := util.DecodeString(deviceID)
@@ -458,27 +467,6 @@ func (socksServer *Server) checkAccess(deviceID string) (*DeviceTicket, *HttpErr
 		mc.Set(deviceID, device, cache.DefaultExpiration)
 	} else {
 		device = cacheObj.(*DeviceTicket)
-	}
-
-	// Checking access
-	addr, err := socksServer.s.GetClientAddress()
-	if err != nil {
-		return nil, &HttpError{500, err}
-	}
-	isAccessWhitelisted, hit := mc.Get(deviceID + "accesswhitelist")
-	if !hit {
-		isAccessWhitelisted, err = socksServer.s.IsAccessWhitelisted(device.FleetAddr, dDeviceID, addr)
-		if err != nil {
-			return nil, &HttpError{500, err}
-		}
-		mc.Set(deviceID+"accesswhitelist", isAccessWhitelisted, cache.DefaultExpiration)
-	}
-	if !isAccessWhitelisted.(bool) {
-		err = fmt.Errorf(
-			"Gateway %v is not on the access list for this device %v of fleet %v",
-			util.EncodeToString(addr[:]), deviceID, util.EncodeToString(device.FleetAddr[:]),
-		)
-		return nil, &HttpError{403, err}
 	}
 	return device, nil
 }

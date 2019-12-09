@@ -167,7 +167,6 @@ func (socksServer *Server) StartProxy() error {
 		protos := make(map[string]func(*http.Server, *tls.Conn, http.Handler))
 		server := &http.Server{Addr: addr, Handler: nil, TLSNextProto: protos}
 		server.ListenAndServeTLS("./priv/cert.pem", "./priv/privkey.pem")
-		log.Println(server)
 	}()
 	return nil
 }

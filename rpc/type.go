@@ -72,7 +72,7 @@ type BlockHeader struct {
 type PortOpen struct {
 	Ref      int64
 	Port     int64
-	DeviceId string
+	DeviceID string
 	Ok       bool
 	Err      *Error
 }

@@ -33,6 +33,7 @@ type Config struct {
 	RunSocksServer     bool
 	SkipHostValidation bool
 	SocksServerAddr    string
+	Blacklists         map[string]bool
 }
 
 func init() {
@@ -69,6 +70,7 @@ func parseFlag() *Config {
 	remoteRPCAddr := flag.String("remoterpcaddr", "asia.testnet.diode.io:41043,europe.testnet.diode.io:41043,usa.testnet.diode.io:41043", "remote rpc address")
 	remoteRPCTimeout := flag.Int("remoterpctimeout", 1, "timeout seconds to connect to the remote rpc server")
 	retryWait := flag.Int("retrywait", 1, "wait seconds before next retry")
+	blacklists := flag.String("blacklists", "", "blacklists to block the connection to/from the address")
 	flag.Parse()
 
 	parsedRPCAddr := strings.Split(*remoteRPCAddr, ",")
@@ -101,5 +103,13 @@ func parseFlag() *Config {
 	if err != nil {
 		panic(err)
 	}
+	parsedBlacklists := strings.Split(*blacklists, ",")
+	blacklistsIDs := make(map[string]bool)
+	for _, blacklistedID := range parsedBlacklists {
+		if util.IsAddress([]byte(blacklistedID)) {
+			blacklistsIDs[strings.ToLower(blacklistedID)] = true
+		}
+	}
+	cfg.Blacklists = blacklistsIDs
 	return cfg
 }
