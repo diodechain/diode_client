@@ -425,7 +425,6 @@ func (conn *ConnectedConn) copyToSSL(s *SSL, ref int) error {
 }
 
 func (conn *ConnectedConn) writeToTCP(data []byte) {
-	log.Printf("writeToTCP(%v)\n", string(data))
 	if conn.IsWS() {
 		err := conn.WSConn.WriteMessage(websocket.BinaryMessage, data)
 		if err != nil {
