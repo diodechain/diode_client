@@ -983,7 +983,7 @@ func DoConnect(host string, config *config.Config) (*SSL, error) {
 			}
 		}
 		if !isOk {
-			return nil, nil
+			return nil, fmt.Errorf("Failed to connect to server %v", host)
 		}
 	}
 	client.RegistryAddr = config.DecRegistryAddr
