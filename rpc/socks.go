@@ -5,6 +5,7 @@
 package rpc
 
 import (
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -22,12 +23,13 @@ import (
 )
 
 var (
-	Commands    = []string{"CONNECT", "BIND", "UDP ASSOCIATE"}
-	AddrType    = []string{"", "IPv4", "", "Domain", "IPv6"}
-	defaultPort = 80
-	defaultMode = "rw"
-	pattern     = regexp.MustCompile(`^([rws]{1,3}[-_])?([\w]+)([-_][\d]+)?\.(diode|diode\.link|diode\.ws)(\:[\d]+)?$`)
-	devices     = &Devices{
+	Commands         = []string{"CONNECT", "BIND", "UDP ASSOCIATE"}
+	AddrType         = []string{"", "IPv4", "", "Domain", "IPv6"}
+	defaultPort      = "80"
+	defaultMode      = "rw"
+	domainPattern    = regexp.MustCompile(`^(.+)\.(diode|diode\.link|diode\.ws)(:[\d]+)?$`)
+	subDomainpattern = regexp.MustCompile(`^([rws]{1,3}-)?(0x[A-Fa-f0-9]{40})(-[\d]+)?$`)
+	devices          = &Devices{
 		connectedDevice: make(map[string]*ConnectedDevice),
 	}
 	bitstringPattern = regexp.MustCompile(`^[01]+$`)
@@ -38,7 +40,6 @@ var (
 	errAuthExtraData = errors.New("socks authentication get extra data")
 	errReqExtraData  = errors.New("socks request get extra data")
 	errCmd           = errors.New("socks only support connect command")
-	errReqURL        = errors.New("request url not supported")
 
 	prefix            = "0x"
 	prefixBytes       = []byte(prefix)
@@ -49,6 +50,7 @@ var (
 )
 
 const (
+	socksVer4                  = 0x04
 	socksVer5                  = 0x05
 	socksCmdConnect            = 0x01
 	socksRepSuccess            = 0x00
@@ -84,35 +86,112 @@ type Server struct {
 	wg       *sync.WaitGroup
 }
 
-func handShake(conn net.Conn) (err error) {
+func handShake(conn net.Conn) (version int, url string, err error) {
 	const (
-		idVer     = 0
-		idNmethod = 1
+		idVer = 0
 	)
 
-	buf := make([]byte, 258)
-
-	var n int
-
-	// make sure we get the method field
-	if n, err = io.ReadAtLeast(conn, buf, idNmethod+1); err != nil {
+	buf := make([]byte, 263)
+	if _, err = io.ReadFull(conn, buf[0:2]); err != nil {
 		return
 	}
 
-	if buf[idVer] != socksVer5 {
-		return errVer
+	switch buf[idVer] {
+	case socksVer5:
+		version = 5
+		url, err = handShake5(conn, buf)
+	case socksVer4:
+		version = 4
+		url, err = handShake4(conn, buf)
+	default:
+		err = errVer
 	}
+	return
+}
+
+// handShake4 only support SOCKS4A
+func handShake4(conn net.Conn, buf []byte) (url string, err error) {
+	const (
+		idCmd = 1
+	)
+
+	if buf[idCmd] > 0x03 || buf[idCmd] == 0x00 {
+		log.Println("Unknown Command: ", buf[idCmd])
+	}
+
+	if buf[idCmd] != socksCmdConnect { //  only support CONNECT mode
+		err = errCmd
+		return
+	}
+
+	if _, err = io.ReadFull(conn, buf[0:6]); err != nil {
+		return
+	}
+
+	portBytes := buf[0:2]
+	port := binary.BigEndian.Uint16(portBytes)
+
+	ip := buf[2:6]
+	if ip[0] != 0 || ip[1] != 0 || ip[2] != 0 || ip[3] == 0 {
+		log.Printf("Only supporting SOCKS4A. Required 0.0.0.1 IP\n")
+		err = errVer
+		return
+	}
+
+	user, err := readString(conn, buf)
+	if err != nil {
+		log.Printf("Failed reading SOCKS4A user %v\n", err)
+		return
+	}
+	if user != "" {
+		log.Printf("Ignoring SOCKS4A username '%v'\n", user)
+	}
+
+	host, err := readString(conn, buf)
+	if err != nil {
+		log.Printf("Failed reading SOCKS4A host %v\n", err)
+		return
+	}
+
+	if err != nil {
+		return
+	}
+
+	url = fmt.Sprintf("%s:%d", host, port)
+	return
+}
+
+func readString(conn net.Conn, buf []byte) (string, error) {
+	length := 0
+	for {
+		_, err := io.ReadFull(conn, buf[length:length+1])
+		if err != nil {
+			return "", err
+		}
+		length++
+		if length >= len(buf) {
+			return "", fmt.Errorf("String too long")
+		}
+		if buf[length-1] == 0 {
+			// Finished reading
+			return string(buf[:length-1]), nil
+		}
+	}
+}
+
+func handShake5(conn net.Conn, buf []byte) (url string, err error) {
+	const (
+		idNmethod = 1
+	)
 
 	nmethod := int(buf[idNmethod]) //  client support auth mode
 	msgLen := nmethod + 2          //  auth msg length
-	if n == msgLen {               // handshake done, common case
+	if 2 == msgLen {               // handshake done, common case
 		// do nothing, jump directly to send confirmation
-	} else if n < msgLen { // has more methods to read, rare case
-		if _, err = io.ReadFull(conn, buf[n:msgLen]); err != nil {
+	} else { // has more methods to read, rare case
+		if _, err = io.ReadFull(conn, buf[2:msgLen]); err != nil {
 			return
 		}
-	} else { // error, should not get extra data
-		return errAuthExtraData
 	}
 	/*
 		X'00' NO AUTHENTICATION REQUIRED
@@ -124,38 +203,10 @@ func handShake(conn net.Conn) (err error) {
 	*/
 	// send confirmation: version 5, no authentication required
 	_, err = conn.Write([]byte{socksVer5, 0})
-	return
-}
-
-// TODO: mapping human redable string to port.
-func parseHost(host string) (isWS bool, deviceID string, mode string, port int, err error) {
-	mode = defaultMode
-	port = defaultPort
-
-	parsedHost := pattern.FindStringSubmatch(host)
-	switch len(parsedHost) {
-	case 6:
-		deviceID = parsedHost[2]
-		if len(parsedHost[1]) > 0 {
-			mode = string(parsedHost[1][:len(parsedHost[1])-1])
-		}
-		if parsedHost[4] == "diode.ws" {
-			isWS = true
-		}
-		if len(parsedHost[3]) > 1 {
-			port, err = strconv.Atoi(string(parsedHost[3][1:len(parsedHost[3])]))
-			if err != nil {
-				log.Print("Cannot parse port from string to int")
-			}
-		}
-		break
-	default:
-		err = errReqURL
+	if err != nil {
+		return
 	}
-	return
-}
 
-func parseTarget(conn net.Conn) (host string, port int, mode string, deviceID string, isWS bool, err error) {
 	const (
 		idVer   = 0
 		idCmd   = 1
@@ -172,12 +223,9 @@ func parseTarget(conn net.Conn) (host string, port int, mode string, deviceID st
 		lenIPv6   = 3 + 1 + net.IPv6len + 2 // 3(ver+cmd+rsv) + 1addrType + ipv6 + 2port
 		lenDmBase = 3 + 1 + 1 + 2           // 3 + 1addrType + 1addrLen + 2port, plus addrLen
 	)
-	// refer to getRequest in server.go for why set buffer size to 263
-	buf := make([]byte, 263)
-	var n int
 
 	// read till we get possible domain length field
-	if n, err = io.ReadAtLeast(conn, buf, idDmLen+1); err != nil {
+	if _, err = io.ReadFull(conn, buf[0:idDmLen+1]); err != nil {
 		return
 	}
 
@@ -206,9 +254,11 @@ func parseTarget(conn net.Conn) (host string, port int, mode string, deviceID st
 	reqLen := -1
 	switch buf[idType] {
 	case typeIPv4:
-		reqLen = lenIPv4
+		err = fmt.Errorf("socks5 IPv4 not supported (only domain names)")
+		return
 	case typeIPv6:
-		reqLen = lenIPv6
+		err = fmt.Errorf("socks5 IPv6 not supported (only domain names)")
+		return
 	case typeDm: // domain name
 		reqLen = int(buf[idDmLen]) + lenDmBase
 	default:
@@ -216,28 +266,57 @@ func parseTarget(conn net.Conn) (host string, port int, mode string, deviceID st
 		return
 	}
 
-	if n == reqLen {
+	if 2 == reqLen {
 		// common case, do nothing
-	} else if n < reqLen { // rare case
-		if _, err = io.ReadFull(conn, buf[n:reqLen]); err != nil {
+	} else { // rare case
+		if _, err = io.ReadFull(conn, buf[5:reqLen]); err != nil {
 			return
 		}
-	} else {
-		err = errReqExtraData
+	}
+
+	host := string(buf[idDm0 : idDm0+buf[idDmLen]])
+	port := binary.BigEndian.Uint16(buf[idDm0+buf[idDmLen] : idDm0+buf[idDmLen]+2])
+	url = fmt.Sprintf("%s:%d", host, port)
+	return
+}
+
+func parseHost(host string) (isWS bool, deviceID string, mode string, port int, err error) {
+	mode = defaultMode
+	strPort := ":80"
+
+	subDomainPort := domainPattern.FindStringSubmatch(host)
+	var sub, domain string
+	if len(subDomainPort) != 4 {
+		err = fmt.Errorf("domain pattern not supported %v", host)
 		return
 	}
 
-	switch buf[idType] {
-	case typeIPv4:
-		host = net.IP(buf[idIP0 : idIP0+net.IPv4len]).String()
-	case typeIPv6:
-		host = net.IP(buf[idIP0 : idIP0+net.IPv6len]).String()
-	case typeDm:
-		host = string(buf[idDm0 : idDm0+buf[idDmLen]])
+	sub = subDomainPort[1]
+	domain = subDomainPort[2]
+	if len(subDomainPort[3]) > 0 {
+		strPort = subDomainPort[3]
 	}
-	// port = binary.BigEndian.Uint16(buf[reqLen-2 : reqLen])
-	host = net.JoinHostPort(host, strconv.Itoa(int(port)))
-	isWS, deviceID, mode, port, err = parseHost(host)
+
+	isWS = domain == "diode.ws"
+	modeHostPort := subDomainpattern.FindStringSubmatch(sub)
+	if len(modeHostPort) != 4 {
+		err = fmt.Errorf("subdomain pattern not supported %v", sub)
+		return
+	}
+	if len(modeHostPort[1]) > 0 {
+		mode = modeHostPort[1]
+		mode = mode[:len(mode)-1]
+	}
+	deviceID = modeHostPort[2]
+	if len(modeHostPort[3]) > 0 {
+		strPort = modeHostPort[3]
+	}
+
+	port, err = strconv.Atoi(strPort[1:])
+	if err != nil {
+		log.Print("Cannot parse port from string to int")
+	}
+
 	return
 }
 
@@ -276,40 +355,22 @@ func (socksServer *Server) connectDevice(deviceID string, port int, mode string)
 	}, nil
 }
 
-func (socksServer *Server) pipeSocksThenClose(conn net.Conn, device *DeviceTicket, port int, mode string) {
-	deviceID := device.GetDeviceID()
-	if socksServer.Config.Verbose {
-		log.Println("Connect remote ", deviceID, " mode: ", mode, "...")
+func writeSocksError(conn net.Conn, ver int, err byte) {
+	socksVer := byte(ver)
+	conn.Write([]byte{socksVer, err})
+}
+
+func writeSocksReturn(conn net.Conn, ver int, tcpAddr *net.TCPAddr, port int) {
+	if ver == 4 {
+		conn.Write([]byte{4, 0x5A, byte(port>>8) & 0xff, byte(port & 0xff), 0, 0, 0, 1})
+		return
 	}
+
 	rep := make([]byte, 256)
-	rep[0] = socksVer5
-	clientIP := conn.RemoteAddr().String()
-	connDevice := devices.GetDevice(clientIP)
-	var httpErr *HttpError
+	rep[0] = byte(ver)
+	rep[1] = socksRepSuccess // success
+	rep[2] = 0x00            //RSV
 
-	// check device id
-	if connDevice == nil {
-		connDevice, httpErr = socksServer.connectDevice(deviceID, port, mode)
-
-		if httpErr != nil {
-			log.Printf("connectDevice() failed: %v", httpErr.err)
-			rep[1] = socksRepNetworkUnreachable
-			conn.Write(rep[:])
-			return
-		}
-
-		connDevice.ClientID = clientIP
-		connDevice.Conn = ConnectedConn{
-			Conn: conn,
-		}
-		devices.SetDevice(clientIP, connDevice)
-	}
-
-	// send data or receive data from ref
-	if socksServer.Config.Verbose {
-		log.Println("Connect remote success @ ", clientIP, deviceID, port)
-	}
-	tcpAddr := socksServer.s.LocalAddr().(*net.TCPAddr)
 	if tcpAddr.Zone == "" {
 		if tcpAddr.IP.Equal(tcpAddr.IP.To4()) {
 			tcpAddr.Zone = "ip4"
@@ -317,9 +378,6 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, device *DeviceTicke
 			tcpAddr.Zone = "ip6"
 		}
 	}
-
-	rep[1] = socksRepSuccess // success
-	rep[2] = 0x00            //RSV
 
 	// IP
 	if tcpAddr.Zone == "ip6" {
@@ -342,6 +400,41 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, device *DeviceTicke
 	rep[pindex] = byte((port >> 8) & 0xff)
 	rep[pindex+1] = byte(port & 0xff)
 	conn.Write(rep[0 : pindex+2])
+
+}
+
+func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *DeviceTicket, port int, mode string) {
+	deviceID := device.GetDeviceID()
+	if socksServer.Config.Verbose {
+		log.Println("Connect remote ", deviceID, " mode: ", mode, "...")
+	}
+	clientIP := conn.RemoteAddr().String()
+	connDevice := devices.GetDevice(clientIP)
+	var httpErr *HttpError
+
+	// check device id
+	if connDevice == nil {
+		connDevice, httpErr = socksServer.connectDevice(deviceID, port, mode)
+
+		if httpErr != nil {
+			log.Printf("connectDevice() failed: %v", httpErr.err)
+			writeSocksError(conn, ver, socksRepNetworkUnreachable)
+			return
+		}
+
+		connDevice.ClientID = clientIP
+		connDevice.Conn = ConnectedConn{
+			Conn: conn,
+		}
+		devices.SetDevice(clientIP, connDevice)
+	}
+
+	// send data or receive data from ref
+	if socksServer.Config.Verbose {
+		log.Println("Connect remote success @ ", clientIP, deviceID, port)
+	}
+	tcpAddr := socksServer.s.LocalAddr().(*net.TCPAddr)
+	writeSocksReturn(conn, ver, tcpAddr, port)
 
 	// write request data to device
 	connDevice.copyToSSL()
@@ -366,58 +459,20 @@ func netCopy(input, output net.Conn) (err error) {
 	return
 }
 
-func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, device *DeviceTicket, port int, mode string) {
+func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, device *DeviceTicket, port int, mode string) {
 	if socksServer.Config.Verbose {
 		log.Println("Connect remote ", socksServer.Config.ProxyServerAddr, " mode: ", mode, "...")
 	}
 
-	rep := make([]byte, 256)
-	rep[0] = socksVer5
 	remoteConn, err := net.DialTimeout("tcp", socksServer.Config.ProxyServerAddr, time.Duration(time.Second*15))
 	if err != nil {
 		log.Println("Connect remote :", err)
-		rep[1] = socksRepNetworkUnreachable
-		conn.Write(rep[:])
+		writeSocksError(conn, ver, socksRepNetworkUnreachable)
 		return
 	}
 
 	tcpAddr := remoteConn.LocalAddr().(*net.TCPAddr)
-	if tcpAddr.Zone == "" {
-		if tcpAddr.IP.Equal(tcpAddr.IP.To4()) {
-			tcpAddr.Zone = "ip4"
-		} else {
-			tcpAddr.Zone = "ip6"
-		}
-	}
-
-	if socksServer.Config.Verbose {
-		log.Println("Connect remote success @", tcpAddr.String())
-	}
-
-	rep[1] = socksRepSuccess // success
-	rep[2] = 0x00            //RSV
-
-	// IP
-	if tcpAddr.Zone == "ip6" {
-		rep[3] = 0x04
-	} else {
-		rep[3] = 0x01
-	}
-
-	var ip net.IP
-	if "ip6" == tcpAddr.Zone {
-		ip = tcpAddr.IP.To16()
-	} else {
-		ip = tcpAddr.IP.To4()
-	}
-	pindex := 4
-	for _, b := range ip {
-		rep[pindex] = b
-		pindex++
-	}
-	rep[pindex] = byte((port >> 8) & 0xff)
-	rep[pindex+1] = byte(port & 0xff)
-	conn.Write(rep[0 : pindex+2])
+	writeSocksReturn(conn, ver, tcpAddr, port)
 
 	// Copy local to remote
 	go netCopy(conn, remoteConn)
@@ -474,24 +529,25 @@ func (socksServer *Server) checkAccess(deviceID string) (*DeviceTicket, *HttpErr
 func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 	defer conn.Close()
 	defer socksServer.wg.Done()
-	if err := handShake(conn); err != nil {
+	ver, host, err := handShake(conn)
+	if err != nil {
 		log.Println("handShake() failed:", err)
 		return
 	}
-	_, port, mode, deviceID, isWS, err := parseTarget(conn)
+	isWS, deviceID, mode, port, err := parseHost(host)
 	if err != nil {
-		log.Println("parseTarget() failed: ", err)
+		log.Println("parseTarget() failed:", err)
 		return
 	}
 	device, httpErr := socksServer.checkAccess(deviceID)
 	if device == nil {
-		log.Println("checkAccess() failed: ", httpErr.err)
+		log.Println("checkAccess() failed:", httpErr.err)
 		return
 	}
 	if !isWS {
-		socksServer.pipeSocksThenClose(conn, device, port, mode)
+		socksServer.pipeSocksThenClose(conn, ver, device, port, mode)
 	} else if socksServer.Config.EnableProxy {
-		socksServer.pipeSocksWSThenClose(conn, device, port, mode)
+		socksServer.pipeSocksWSThenClose(conn, ver, device, port, mode)
 	}
 	return
 }

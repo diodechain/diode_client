@@ -65,7 +65,7 @@ func parseFlag() *Config {
 	flag.BoolVar(&cfg.RunProxyServer, "runproxy", true, "run proxy server")
 	flag.BoolVar(&cfg.RunSocksServer, "runsocks", true, "run socks server")
 	flag.BoolVar(&cfg.SkipHostValidation, "skiphostvalidation", false, "skip host validation")
-	flag.StringVar(&cfg.SocksServerAddr, "socksaddr", "127.0.0.1:8080", "socks server address which listen to")
+	flag.StringVar(&cfg.SocksServerAddr, "socksaddr", "127.0.0.1:1080", "socks server address which listen to")
 
 	remoteRPCAddr := flag.String("remoterpcaddr", "asia.testnet.diode.io:41043,europe.testnet.diode.io:41043,usa.testnet.diode.io:41043", "remote rpc address")
 	remoteRPCTimeout := flag.Int("remoterpctimeout", 1, "timeout seconds to connect to the remote rpc server")

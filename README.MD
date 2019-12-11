@@ -94,19 +94,17 @@ Usage of:
   -skiphostvalidation
     	skip host validation
   -socksaddr string
-    	socks server address which listen to (default "127.0.0.1:8080")
+    	socks server address which listen to (default "127.0.0.1:1080")
   -wsaddr string
     	websocket server address which socks server connect to (default "127.0.0.1:8081")
 
 ```
 
-## Tunnel to ssh using socat2
+## Tunnel to ssh using your diode socks proxy
 
 ```BASH
-$ ./socat TCP-LISTEN:2222,fork,reuseaddr "SOCKS5:<DIODE ADDRESS>.diode:22|tcp:localhost:8080"
-
-# In a different terminal window
-$ ssh pi@127.0.0.2 -p 2222
+$ diode_go_client -runsocks=true
+$ ssh pi@<ADDRESS>.diode -o 'ProxyCommand=nc -X 5 -x localhost:1080 %h %p'
 ```
 
 ## Streaming video through websocket

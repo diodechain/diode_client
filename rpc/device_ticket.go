@@ -150,7 +150,7 @@ func (ct *DeviceTicket) ValidateDeviceSig(deviceID [20]byte) bool {
 		return false
 	}
 	if addr != deviceID {
-		log.Printf("Wrong Device Addr %v != %v\n%+v\n", addr, deviceID, ct)
+		log.Printf("Wrong Device Addr %v != %v\n%+v\n", util.EncodeToString(addr[:]), util.EncodeToString(deviceID[:]), ct)
 		return false
 	}
 	return true

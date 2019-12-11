@@ -5,7 +5,7 @@ function FindProxyForURL(url, host)
 {
   if (shExpMatch(url, "*.diode/*") ||
       shExpMatch(url, "*.diode:*")) {
-    return "SOCKS5 localhost:8080";
+    return "SOCKS5 localhost:1080";
   } else {
     return "DIRECT";
   }
