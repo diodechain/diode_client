@@ -876,6 +876,45 @@ func (s *SSL) GetAccountRoots(blockNumber int, account [20]byte) (*AccountRoots,
 	return parseAccountRoots(rawAccountRoots.RawData[0])
 }
 
+func (s *SSL) GetAccountValueRaw(addr [20]byte, key []byte) ([]byte, error) {
+	acv, err := s.GetAccountValue(LVBN, addr, key)
+	if err != nil {
+		return NullData, err
+	}
+	// get account roots
+	acr, err := s.GetAccountRoots(LVBN, addr)
+	if err != nil {
+		return NullData, err
+	}
+	acvTree := acv.AccountTree()
+	acvInd := acr.Find(acv.AccountRoot())
+	// check account root existed, empty key
+	if acvInd == -1 {
+		return NullData, nil
+	}
+	raw, err := acvTree.Get(key)
+	if err != nil {
+		log.Println(err)
+		return NullData, err
+	}
+	return raw, nil
+}
+
+func (s *SSL) ResolveDNS(name string) (addr [20]byte, err error) {
+	key := contract.DNSMetaKey(name)
+	log.Printf("DNS Key: %v\n", util.EncodeToString(key))
+	raw, err := s.GetAccountValueRaw(contract.DNSAddr, key)
+	if err != nil {
+		return null, err
+	}
+	copy(addr[:], raw[12:])
+	log.Printf("DNS Ret: %v %v\n", util.EncodeToString(addr[:]), raw)
+	if addr == null {
+		return null, fmt.Errorf("Couldn't resolve name")
+	}
+	return addr, nil
+}
+
 /**
  * Contract api
  *
@@ -883,27 +922,8 @@ func (s *SSL) GetAccountRoots(blockNumber int, account [20]byte) (*AccountRoots,
  */
 // IsDeviceWhitelisted returns is given address whitelisted
 func (s *SSL) IsDeviceWhitelisted(addr [20]byte) (bool, error) {
-	var err error
-	var raw []byte
-	var acv *AccountValue
-	var acr *AccountRoots
 	key := contract.DeviceWhitelistKey(addr)
-	acv, err = s.GetAccountValue(BN, s.FleetAddr, key)
-	if err != nil {
-		return false, err
-	}
-	// get account roots
-	acr, err = s.GetAccountRoots(BN, s.FleetAddr)
-	if err != nil {
-		return false, err
-	}
-	acvTree := acv.AccountTree()
-	acvInd := acr.Find(acv.AccountRoot())
-	// check account root existed, empty key
-	if acvInd == -1 {
-		return false, nil
-	}
-	raw, err = acvTree.Get(key)
+	raw, err := s.GetAccountValueRaw(s.FleetAddr, key)
 	if err != nil {
 		log.Println(err)
 		return false, err
@@ -913,27 +933,8 @@ func (s *SSL) IsDeviceWhitelisted(addr [20]byte) (bool, error) {
 
 // IsAccessWhitelisted returns is given address whitelisted
 func (s *SSL) IsAccessWhitelisted(fleetAddr [20]byte, deviceAddr [20]byte, clientAddr [20]byte) (bool, error) {
-	var err error
-	var raw []byte
-	var acv *AccountValue
-	var acr *AccountRoots
 	key := contract.AccessWhitelistKey(deviceAddr, clientAddr)
-	acv, err = s.GetAccountValue(BN, fleetAddr, key)
-	if err != nil {
-		return false, err
-	}
-	// get account roots
-	acr, err = s.GetAccountRoots(BN, fleetAddr)
-	if err != nil {
-		return false, err
-	}
-	acvTree := acv.AccountTree()
-	acvInd := acr.Find(acv.AccountRoot())
-	// check account root existed, empty key
-	if acvInd == -1 || int(acvTree.Module) != acvInd {
-		return false, nil
-	}
-	raw, err = acvTree.Get(key)
+	raw, err := s.GetAccountValueRaw(fleetAddr, key)
 	if err != nil {
 		log.Println(err)
 		return false, err

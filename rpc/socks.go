@@ -28,7 +28,7 @@ var (
 	defaultPort      = "80"
 	defaultMode      = "rw"
 	domainPattern    = regexp.MustCompile(`^(.+)\.(diode|diode\.link|diode\.ws)(:[\d]+)?$`)
-	subDomainpattern = regexp.MustCompile(`^([rws]{1,3}-)?(0x[A-Fa-f0-9]{40})(-[\d]+)?$`)
+	subDomainpattern = regexp.MustCompile(`^([rws]{1,3}-)?(0x[A-Fa-f0-9]{40}|[A-Za-z0-9][A-Za-z0-9-]{5,30}[A-Za-z0-9])(-[\d]+)?$`)
 	devices          = &Devices{
 		connectedDevice: make(map[string]*ConnectedDevice),
 	}
@@ -320,16 +320,17 @@ func parseHost(host string) (isWS bool, deviceID string, mode string, port int, 
 	return
 }
 
-func (socksServer *Server) connectDevice(deviceID string, port int, mode string) (*ConnectedDevice, *HttpError) {
+func (socksServer *Server) connectDevice(deviceName string, port int, mode string) (*ConnectedDevice, *HttpError) {
 	// This is double checked in some cases, but it does not hurt since
 	// checkAccess internally caches
-	device, httpErr := socksServer.checkAccess(deviceID)
+	device, httpErr := socksServer.checkAccess(deviceName)
 	if httpErr != nil {
 		return nil, httpErr
 	}
 
 	// decode device id
 	dDeviceID, err := device.DeviceAddress()
+	deviceID := util.EncodeToString(dDeviceID[:])
 	if err != nil {
 		return nil, &HttpError{500, fmt.Errorf("DeviceAdrress() failed: %v", err)}
 	}
@@ -482,6 +483,15 @@ func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, device *
 }
 
 func (socksServer *Server) checkAccess(deviceID string) (*DeviceTicket, *HttpError) {
+	// Resolving DNS if needed
+	if !util.IsHex([]byte(deviceID)) {
+		id, err := socksServer.s.ResolveDNS(deviceID)
+		if err != nil {
+			return nil, &HttpError{500, err}
+		}
+		deviceID = util.EncodeToString(id[:])
+	}
+
 	// Checking blacklist
 	if socksServer.Config.Blacklists[deviceID] {
 		err := fmt.Errorf(
