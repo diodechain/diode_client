@@ -902,13 +902,11 @@ func (s *SSL) GetAccountValueRaw(addr [20]byte, key []byte) ([]byte, error) {
 
 func (s *SSL) ResolveDNS(name string) (addr [20]byte, err error) {
 	key := contract.DNSMetaKey(name)
-	log.Printf("DNS Key: %v\n", util.EncodeToString(key))
 	raw, err := s.GetAccountValueRaw(contract.DNSAddr, key)
 	if err != nil {
 		return null, err
 	}
 	copy(addr[:], raw[12:])
-	log.Printf("DNS Ret: %v %v\n", util.EncodeToString(addr[:]), raw)
 	if addr == null {
 		return null, fmt.Errorf("Couldn't resolve name")
 	}
