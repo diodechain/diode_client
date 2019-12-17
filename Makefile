@@ -6,7 +6,7 @@ test:
 
 .PHONY: install
 install:
-	go mod download
+	go install
 
 .PHONY: gateway
 gateway:
@@ -19,3 +19,6 @@ gateway_copy: diode_go_client
 	ssh root@diode.ws 'svc -k .'
 	touch gateway_copy
 	
+.PHONY: build
+build:
+	go build
