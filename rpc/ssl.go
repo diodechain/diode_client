@@ -901,6 +901,7 @@ func (s *SSL) GetAccountValueRaw(addr [20]byte, key []byte) ([]byte, error) {
 }
 
 func (s *SSL) ResolveDNS(name string) (addr [20]byte, err error) {
+	log.Printf("Resolving DN: '%v'\n", name)
 	key := contract.DNSMetaKey(name)
 	raw, err := s.GetAccountValueRaw(contract.DNSAddr, key)
 	if err != nil {
