@@ -148,6 +148,7 @@ func main() {
 			FleetAddr:       config.DecFleetAddr,
 			EnableProxy:     config.RunProxyServer,
 			Blacklists:      config.Blacklists,
+			Whitelists:      config.Whitelists,
 		}
 		// start socks server
 		socksServer = client.NewSocksServer(socksConfig)

@@ -75,6 +75,7 @@ type Config struct {
 	EnableProxy     bool
 	FleetAddr       [20]byte
 	Blacklists      map[string]bool
+	Whitelists      map[string]bool
 }
 
 // Server is the only instances of the Socks Server
@@ -492,13 +493,25 @@ func (socksServer *Server) checkAccess(deviceID string) (*DeviceTicket, *HttpErr
 		deviceID = util.EncodeToString(id[:])
 	}
 
-	// Checking blacklist
-	if socksServer.Config.Blacklists[deviceID] {
-		err := fmt.Errorf(
-			"Device %v is on the black list",
-			deviceID,
-		)
-		return nil, &HttpError{403, err}
+	// Checking blacklist and whitelist
+	if len(socksServer.Config.Blacklists) > 0 {
+		if socksServer.Config.Blacklists[deviceID] {
+			err := fmt.Errorf(
+				"Device %v is in the black list",
+				deviceID,
+			)
+			return nil, &HttpError{403, err}
+		}
+	} else {
+		if len(socksServer.Config.Whitelists) > 0 {
+			if !socksServer.Config.Whitelists[deviceID] {
+				err := fmt.Errorf(
+					"Device %v is not in the white list",
+					deviceID,
+				)
+				return nil, &HttpError{403, err}
+			}
+		}
 	}
 	mc := socksServer.s.MemoryCache()
 	// decode device id

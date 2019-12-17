@@ -21,6 +21,7 @@ type RPCConfig struct {
 	RegistryAddr []byte
 	FleetAddr    [20]byte
 	Blacklists   map[string]bool
+	Whitelists   map[string]bool
 }
 
 type RPCServer struct {
@@ -68,14 +69,27 @@ func (rpcServer *RPCServer) Start() {
 					log.Println(err)
 					continue
 				}
-				// Checking blacklist
-				if rpcServer.Config.Blacklists[portOpen.DeviceID] {
-					err := fmt.Errorf(
-						"Device %v is on the black list",
-						portOpen.DeviceID,
-					)
-					_ = rpcServer.s.ResponsePortOpen(portOpen, err)
-					continue
+				// Checking blacklist and whitelist
+				if len(rpcServer.Config.Blacklists) > 0 {
+					if rpcServer.Config.Blacklists[portOpen.DeviceID] {
+						err := fmt.Errorf(
+							"Device %v is on the black list",
+							portOpen.DeviceID,
+						)
+						_ = rpcServer.s.ResponsePortOpen(portOpen, err)
+						continue
+					}
+				} else {
+					if len(rpcServer.Config.Whitelists) > 0 {
+						if !rpcServer.Config.Whitelists[portOpen.DeviceID] {
+							err := fmt.Errorf(
+								"Device %v is not in the white list",
+								portOpen.DeviceID,
+							)
+							_ = rpcServer.s.ResponsePortOpen(portOpen, err)
+							continue
+						}
+					}
 				}
 				clientID := fmt.Sprintf("%s%d", portOpen.DeviceID, portOpen.Ref)
 				connDevice := devices.GetDevice(clientID)
