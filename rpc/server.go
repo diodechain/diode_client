@@ -25,20 +25,27 @@ type RPCConfig struct {
 }
 
 type RPCServer struct {
-	s                      *SSL
-	wg                     *sync.WaitGroup
-	Config                 *RPCConfig
-	rm                     sync.Mutex
-	started                bool
-	closed                 bool
-	finishTicketTickerChan chan bool
-	ticketTicker           *time.Ticker
-	ticketTickerDuration   time.Duration
-	finishBlockTickerChan  chan bool
-	requestChan            chan *Request
-	blockTicker            *time.Ticker
-	blockTickerDuration    time.Duration
-	timeout                time.Duration
+	blockTicker           *time.Ticker
+	blockTickerDuration   time.Duration
+	closed                bool
+	Config                *RPCConfig
+	finishBlockTickerChan chan bool
+	requestChan           chan *Request
+	rm                    sync.Mutex
+	s                     *SSL
+	started               bool
+	ticketTicker          *time.Ticker
+	ticketTickerDuration  time.Duration
+	timeout               time.Duration
+	wg                    *sync.WaitGroup
+}
+
+func (rpcServer *RPCServer) addWorker(worker func()) {
+	rpcServer.wg.Add(1)
+	go func() {
+		defer rpcServer.wg.Done()
+		worker()
+	}()
 }
 
 // Started returns whether rpc server had started
@@ -53,12 +60,10 @@ func (rpcServer *RPCServer) Wait() {
 
 // Start rpc server
 func (rpcServer *RPCServer) Start() {
-	rpcServer.wg.Add(2)
-	go func() {
+	rpcServer.addWorker(func() {
 		for {
 			request, ok := <-rpcServer.requestChan
 			if !ok {
-				rpcServer.wg.Done()
 				break
 			}
 			switch request.Method {
@@ -162,9 +167,9 @@ func (rpcServer *RPCServer) Start() {
 				log.Println("Doesn't support rpc request: " + string(request.Method))
 			}
 		}
-	}()
-	// rpc server
-	go func() {
+	})
+
+	rpcServer.addWorker(func() {
 		// infinite read from stream
 		for {
 			err := rpcServer.s.readContext()
@@ -176,14 +181,42 @@ func (rpcServer *RPCServer) Start() {
 				} else {
 					rpcServer.rm.Unlock()
 				}
-				rpcServer.wg.Done()
 				return
 			}
 		}
-	}()
-	go func() {
+	})
+
+	rpcServer.addWorker(func() {
+		rpcServer.blockTicker = time.NewTicker(rpcServer.blockTickerDuration)
 		for {
 			select {
+			case <-rpcServer.finishBlockTickerChan:
+				return
+			case <-rpcServer.blockTicker.C:
+				go func() {
+					blockPeak, err := rpcServer.s.GetBlockPeak()
+					if err != nil {
+						log.Println(err)
+						return
+					}
+					if LBN >= blockPeak {
+						return
+					}
+					blockHeader, err := rpcServer.s.GetBlockHeader(blockPeak)
+					if err != nil {
+						log.Println(err)
+						return
+					}
+					isSigValid := blockHeader.ValidateSig()
+					if !isSigValid {
+						log.Printf("Miner signature was not valid, block header: %d", blockPeak)
+						return
+					}
+					LBN = blockPeak
+					// TODO: This is not validation
+					SetValidBlockHeader(blockPeak, blockHeader)
+					return
+				}()
 			case res := <-rpcServer.s.tcpIn:
 				rpcServer.s.CheckTicket()
 				// log.Printf("GOT: isResp=%v %v\n", isResponseType, string(res))
@@ -237,51 +270,8 @@ func (rpcServer *RPCServer) Start() {
 				}
 			}
 		}
-	}()
+	})
 	rpcServer.started = true
-}
-
-// WatchNewBlock setup ticker to count total bytes and send ticket
-func (rpcServer *RPCServer) WatchNewBlock() {
-	if rpcServer.blockTicker != nil {
-		return
-	}
-	rpcServer.wg.Add(1)
-	go func() {
-		rpcServer.blockTicker = time.NewTicker(rpcServer.blockTickerDuration)
-		for {
-			select {
-			case <-rpcServer.finishBlockTickerChan:
-				rpcServer.wg.Done()
-				return
-			case <-rpcServer.blockTicker.C:
-				go func() {
-					blockPeak, err := rpcServer.s.GetBlockPeak()
-					if err != nil {
-						log.Println(err)
-						return
-					}
-					if LBN >= blockPeak {
-						return
-					}
-					blockHeader, err := rpcServer.s.GetBlockHeader(blockPeak)
-					if err != nil {
-						log.Println(err)
-						return
-					}
-					isSigValid := blockHeader.ValidateSig()
-					if !isSigValid {
-						log.Printf("Miner signature was not valid, block header: %d", blockPeak)
-						return
-					}
-					LBN = blockPeak
-					// TODO: This is not validation
-					SetValidBlockHeader(blockPeak, blockHeader)
-					return
-				}()
-			}
-		}
-	}()
 }
 
 // Close the rpc server
@@ -308,17 +298,16 @@ func (rpcServer *RPCServer) Close() {
 // TODO: check blocking channel, error channel
 func (s *SSL) NewRPCServer(config *RPCConfig) *RPCServer {
 	rpcServer := &RPCServer{
-		s:                      s,
-		wg:                     &sync.WaitGroup{},
-		Config:                 config,
-		started:                false,
-		closed:                 false,
-		finishTicketTickerChan: make(chan bool),
-		ticketTickerDuration:   1 * time.Millisecond,
-		finishBlockTickerChan:  make(chan bool, 1),
-		requestChan:            make(chan *Request, 1024),
-		blockTickerDuration:    1 * time.Minute,
-		timeout:                5 * time.Second,
+		s:                     s,
+		wg:                    &sync.WaitGroup{},
+		Config:                config,
+		started:               false,
+		closed:                false,
+		ticketTickerDuration:  1 * time.Millisecond,
+		finishBlockTickerChan: make(chan bool, 1),
+		requestChan:           make(chan *Request, 1024),
+		blockTickerDuration:   1 * time.Minute,
+		timeout:               5 * time.Second,
 	}
 	return rpcServer
 }

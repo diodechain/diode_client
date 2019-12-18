@@ -120,12 +120,6 @@ func main() {
 		return
 	}
 
-	// watch new block
-	client.RPCServer.WatchNewBlock()
-
-	// maxout concurrency
-	// runtime.GOMAXPROCS(runtime.NumCPU())
-
 	// listen to signal
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT)
