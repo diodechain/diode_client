@@ -229,11 +229,24 @@ func (s *SSL) Close() error {
 	return err
 }
 
-// MemoryCache returns memory cache
-func (s *SSL) MemoryCache() *cache.Cache {
+func (s *SSL) GetCache(deviceID string) *DeviceTicket {
 	s.rm.Lock()
 	defer s.rm.Unlock()
-	return s.memoryCache
+		cacheObj, hit := s.memoryCache.Get(deviceID)
+	if !hit {
+		return nil
+	}
+	return cacheObj.(*DeviceTicket)
+}
+
+func (s *SSL) SetCache(deviceID string, ticket *DeviceTicket) {
+	s.rm.Lock()
+	defer s.rm.Unlock()
+		if ticket == nil {
+		s.memoryCache.Delete(deviceID)
+	} else {
+		s.memoryCache.Set(deviceID, ticket, cache.DefaultExpiration)
+	}
 }
 
 // EnableKeepAlive enable the tcp keepalive package in os level, could use ping instead

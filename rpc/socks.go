@@ -19,7 +19,6 @@ import (
 
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/util"
-	"github.com/diodechain/go-cache"
 )
 
 var (
@@ -322,6 +321,10 @@ func parseHost(host string) (isWS bool, deviceID string, mode string, port int, 
 }
 
 func (socksServer *Server) connectDevice(deviceName string, port int, mode string) (*ConnectedDevice, *HttpError) {
+	return socksServer.doConnectDevice(deviceName, port, mode, 1)
+}
+
+func (socksServer *Server) doConnectDevice(deviceName string, port int, mode string, retry int) (*ConnectedDevice, *HttpError) {
 	// This is double checked in some cases, but it does not hurt since
 	// checkAccess internally caches
 	device, httpErr := socksServer.checkAccess(deviceName)
@@ -343,12 +346,18 @@ func (socksServer *Server) connectDevice(deviceName string, port int, mode strin
 
 	portOpen, err := server.PortOpen(deviceID, int(port), mode)
 	if err != nil {
-		return nil, &HttpError{500, fmt.Errorf("PortOpen() failed: %v", err)}
+		// This might fail when a device has reconnected. Clearing the cache and trying once more
+		socksServer.s.SetCache(deviceID, nil)
+
+		if retry == 0 {
+			return nil, &HttpError{500, fmt.Errorf("PortOpen() failed: %v", err)}
+		}
+		return socksServer.doConnectDevice(deviceName, port, mode, 0)
 	}
-	// failed to open port
 	if portOpen != nil && portOpen.Err != nil {
 		return nil, &HttpError{500, fmt.Errorf("PortOpen() failed(2): %v", portOpen.Err)}
 	}
+
 	return &ConnectedDevice{
 		Ref:       portOpen.Ref,
 		DeviceID:  deviceID,
@@ -513,7 +522,6 @@ func (socksServer *Server) checkAccess(deviceID string) (*DeviceTicket, *HttpErr
 			}
 		}
 	}
-	mc := socksServer.s.MemoryCache()
 	// decode device id
 	bDeviceID, err := util.DecodeString(deviceID)
 	var dDeviceID [20]byte
@@ -522,30 +530,28 @@ func (socksServer *Server) checkAccess(deviceID string) (*DeviceTicket, *HttpErr
 		return nil, &HttpError{500, err}
 	}
 	// Calling GetObject to locate the device
-	var device *DeviceTicket
-	cacheObj, hit := mc.Get(deviceID)
-	if !hit {
-		device, err = socksServer.s.GetObject(dDeviceID)
-		if err != nil {
-			log.Println(err)
-			return nil, &HttpError{500, err}
-		}
-		if err = device.ResolveBlockHash(socksServer.s); err != nil {
-			err = fmt.Errorf("Failed to resolve() %v", err)
-			return nil, &HttpError{500, err}
-		}
-		if device.Err != nil {
-			err = fmt.Errorf("This device is offline - Or you entered the wrong id? %v", device.Err)
-			return nil, &HttpError{404, err}
-		}
-		if !device.ValidateSigs(dDeviceID) {
-			err = fmt.Errorf("Wrong signature in device object")
-			return nil, &HttpError{500, err}
-		}
-		mc.Set(deviceID, device, cache.DefaultExpiration)
-	} else {
-		device = cacheObj.(*DeviceTicket)
+	device := socksServer.s.GetCache(deviceID)
+	if device != nil {
+		return device, nil
 	}
+	device, err = socksServer.s.GetObject(dDeviceID)
+	if err != nil {
+		log.Println(err)
+		return nil, &HttpError{500, err}
+	}
+	if err = device.ResolveBlockHash(socksServer.s); err != nil {
+		err = fmt.Errorf("Failed to resolve() %v", err)
+		return nil, &HttpError{500, err}
+	}
+	if device.Err != nil {
+		err = fmt.Errorf("This device is offline - Or you entered the wrong id? %v", device.Err)
+		return nil, &HttpError{404, err}
+	}
+	if !device.ValidateSigs(dDeviceID) {
+		err = fmt.Errorf("Wrong signature in device object")
+		return nil, &HttpError{500, err}
+	}
+	socksServer.s.SetCache(deviceID, device)
 	return device, nil
 }
 
