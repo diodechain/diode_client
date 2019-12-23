@@ -11,6 +11,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"sync"
 	"time"
 
@@ -79,11 +80,14 @@ type Config struct {
 
 // Server is the only instances of the Socks Server
 type Server struct {
-	s        *SSL
-	pool     map[[20]byte]*SSL
-	Config   *Config
-	listener net.Listener
-	wg       *sync.WaitGroup
+	s           *SSL
+	pool        map[[20]byte]*SSL
+	Config      *Config
+	httpServer  *http.Server
+	httpsServer *http.Server
+	listener    net.Listener
+	wg          *sync.WaitGroup
+	started     bool
 }
 
 func handShake(conn net.Conn) (version int, url string, err error) {
@@ -589,6 +593,7 @@ func (socksServer *Server) Start() error {
 		return err
 	}
 	socksServer.listener = ln
+	socksServer.started = true
 
 	go func() {
 		for {
@@ -609,10 +614,11 @@ func (socksServer *Server) Start() error {
 // NewSocksServer generate socksserver struct
 func (s *SSL) NewSocksServer(config *Config) *Server {
 	return &Server{
-		s:      s,
-		Config: config,
-		wg:     &sync.WaitGroup{},
-		pool:   make(map[[20]byte]*SSL),
+		s:       s,
+		Config:  config,
+		wg:      &sync.WaitGroup{},
+		pool:    make(map[[20]byte]*SSL),
+		started: false,
 	}
 }
 
@@ -650,9 +656,19 @@ func (socksServer *Server) GetServer(nodeID [20]byte) (server *SSL, err error) {
 	return
 }
 
+// Started returns whether socks server had started
+func (socksServer *Server) Started() bool {
+	return socksServer.started
+}
+
 // Close the socks server
 func (socksServer *Server) Close() {
-	log.Println("Socks server exit")
 	socksServer.listener.Close()
+	if socksServer.Config.EnableProxy {
+		socksServer.httpServer.Close()
+		socksServer.httpsServer.Close()
+	}
+	socksServer.started = false
+	// Should we close gracefully?
 	socksServer.wg.Wait()
 }

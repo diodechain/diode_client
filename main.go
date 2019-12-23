@@ -130,6 +130,9 @@ func main() {
 			if client.RPCServer.Started() {
 				client.Close()
 			}
+			if socksServer.Started() {
+				socksServer.Close()
+			}
 			os.Exit(0)
 		}
 	}()

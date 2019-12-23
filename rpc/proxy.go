@@ -157,7 +157,8 @@ func (socksServer *Server) StartProxy() error {
 		}
 	})
 	go func() {
-		log.Println(http.ListenAndServe(":80", redirectHTTPSHandler))
+		socksServer.httpServer = &http.Server{Addr: ":80", Handler: redirectHTTPSHandler}
+		socksServer.httpServer.ListenAndServe()
 	}()
 
 	http.HandleFunc("/", socksServer.pipeProxy)
@@ -165,8 +166,8 @@ func (socksServer *Server) StartProxy() error {
 	go func() {
 		addr := socksServer.Config.ProxyServerAddr
 		protos := make(map[string]func(*http.Server, *tls.Conn, http.Handler))
-		server := &http.Server{Addr: addr, Handler: nil, TLSNextProto: protos}
-		server.ListenAndServeTLS("./priv/cert.pem", "./priv/privkey.pem")
+		socksServer.httpsServer = &http.Server{Addr: addr, Handler: nil, TLSNextProto: protos}
+		socksServer.httpsServer.ListenAndServeTLS("./priv/cert.pem", "./priv/privkey.pem")
 	}()
 	return nil
 }
