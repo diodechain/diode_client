@@ -67,7 +67,7 @@ type SSL struct {
 	counter           int64
 	rm                sync.Mutex
 	clientPrivKey     *ecdsa.PrivateKey
-	RegistryAddr      []byte
+	RegistryAddr      [20]byte
 	FleetAddr         [20]byte
 	RPCServer         *RPCServer
 }
@@ -232,7 +232,7 @@ func (s *SSL) Close() error {
 func (s *SSL) GetCache(deviceID string) *DeviceTicket {
 	s.rm.Lock()
 	defer s.rm.Unlock()
-		cacheObj, hit := s.memoryCache.Get(deviceID)
+	cacheObj, hit := s.memoryCache.Get(deviceID)
 	if !hit {
 		return nil
 	}
@@ -242,7 +242,7 @@ func (s *SSL) GetCache(deviceID string) *DeviceTicket {
 func (s *SSL) SetCache(deviceID string, ticket *DeviceTicket) {
 	s.rm.Lock()
 	defer s.rm.Unlock()
-		if ticket == nil {
+	if ticket == nil {
 		s.memoryCache.Delete(deviceID)
 	} else {
 		s.memoryCache.Set(deviceID, ticket, cache.DefaultExpiration)
@@ -701,7 +701,7 @@ func (s *SSL) GetNode(nodeID [20]byte) (*ServerObj, error) {
 }
 
 // NewTicket returns ticket
-func (s *SSL) NewTicket(localAddr []byte) (*DeviceTicket, error) {
+func (s *SSL) NewTicket(localAddr [20]byte) (*DeviceTicket, error) {
 	serverID, err := s.GetServerID()
 	s.counter = s.totalBytes
 	lvbn := LVBN
@@ -745,7 +745,7 @@ func (s *SSL) NewTicket(localAddr []byte) (*DeviceTicket, error) {
 // SubmitTicket submit ticket to server
 func (s *SSL) SubmitTicket(ticket *DeviceTicket) error {
 	encFleetAddr := util.EncodeToString(ticket.FleetAddr[:])
-	encLocalAddr := util.EncodeToString(ticket.LocalAddr)
+	encLocalAddr := util.EncodeToString(ticket.LocalAddr[:])
 	encSig := util.EncodeToString(ticket.DeviceSig)
 	future, err := s.CastContext("ticket", ticket.BlockNumber, encFleetAddr, ticket.TotalConnections, ticket.TotalBytes, encLocalAddr, encSig)
 	go func() {
@@ -761,15 +761,16 @@ func (s *SSL) SubmitTicket(ticket *DeviceTicket) error {
 			tc := util.DecodeStringToIntForce(string(resp.RawData[2]))
 			tb := util.DecodeStringToIntForce(string(resp.RawData[3]))
 			sid, _ := s.GetServerID()
+			localAddr := util.DecodeForce(resp.RawData[4])
 			lastTicket := DeviceTicket{
 				ServerID:         sid,
 				BlockHash:        util.DecodeForce(resp.RawData[1]),
 				FleetAddr:        s.FleetAddr,
 				TotalConnections: tc,
 				TotalBytes:       tb,
-				LocalAddr:        util.DecodeForce(resp.RawData[4]),
 				DeviceSig:        util.DecodeForce(resp.RawData[5]),
 			}
+			copy(lastTicket.LocalAddr[:], localAddr)
 
 			addr, err := s.GetClientAddress()
 			if err != nil {
@@ -779,7 +780,7 @@ func (s *SSL) SubmitTicket(ticket *DeviceTicket) error {
 			if lastTicket.ValidateDeviceSig(addr) {
 				s.totalBytes = tb + 1024
 				s.totalConnections = tc + 1
-				ticket, err := s.NewTicket(config.AppConfig.DecFleetAddr[:])
+				ticket, err := s.NewTicket(config.AppConfig.DecRegistryAddr)
 				if err != nil {
 					log.Println(err)
 					return

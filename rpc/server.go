@@ -18,7 +18,7 @@ import (
 
 type RPCConfig struct {
 	Verbose      bool
-	RegistryAddr []byte
+	RegistryAddr [20]byte
 	FleetAddr    [20]byte
 	Blacklists   map[string]bool
 	Whitelists   map[string]bool

@@ -20,7 +20,7 @@ type Config struct {
 	DBPath             string
 	Debug              bool
 	DecFleetAddr       [20]byte
-	DecRegistryAddr    []byte
+	DecRegistryAddr    [20]byte
 	EnableKeepAlive    bool
 	FleetAddr          string
 	ProxyServerAddr    string
@@ -96,7 +96,7 @@ func parseFlag() *Config {
 		panic(err)
 	}
 	decRegistryAddr, err := util.DecodeString(cfg.RegistryAddr)
-	cfg.DecRegistryAddr = decRegistryAddr
+	copy(cfg.DecRegistryAddr[:], decRegistryAddr)
 	if err != nil {
 		panic(err)
 	}

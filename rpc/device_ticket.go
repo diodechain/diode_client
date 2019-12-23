@@ -22,7 +22,7 @@ type DeviceTicket struct {
 	FleetAddr        [20]byte
 	TotalConnections int64
 	TotalBytes       int64
-	LocalAddr        []byte
+	LocalAddr        [20]byte
 	DeviceSig        []byte
 	ServerSig        []byte
 	Err              error
@@ -49,9 +49,6 @@ func (ct *DeviceTicket) ValidateValues() error {
 	if len(ct.BlockHash) != 32 {
 		return fmt.Errorf("Blockhash must be 32 bytes")
 	}
-	if len(ct.LocalAddr) != 20 {
-		return fmt.Errorf("Local contract address must be 20 bytes")
-	}
 	return nil
 }
 
@@ -60,7 +57,7 @@ func (ct *DeviceTicket) HashWithoutSig() ([]byte, error) {
 	if err := ct.ValidateValues(); err != nil {
 		return nil, err
 	}
-	msg, err := bert.Encode([6]bert.Term{ct.ServerID[:], ct.BlockHash, ct.FleetAddr[:], ct.TotalConnections, ct.TotalBytes, ct.LocalAddr})
+	msg, err := bert.Encode([6]bert.Term{ct.ServerID[:], ct.BlockHash, ct.FleetAddr[:], ct.TotalConnections, ct.TotalBytes, ct.LocalAddr[:]})
 	if err != nil {
 		return nil, err
 	}
@@ -72,7 +69,7 @@ func (ct *DeviceTicket) Hash() ([]byte, error) {
 	if err := ct.ValidateValues(); err != nil {
 		return nil, err
 	}
-	msg, err := bert.Encode([7]bert.Term{ct.ServerID[:], ct.BlockHash, ct.FleetAddr[:], ct.TotalConnections, ct.TotalBytes, ct.LocalAddr, ct.DeviceSig})
+	msg, err := bert.Encode([7]bert.Term{ct.ServerID[:], ct.BlockHash, ct.FleetAddr[:], ct.TotalConnections, ct.TotalBytes, ct.LocalAddr[:], ct.DeviceSig})
 	if err != nil {
 		return nil, err
 	}
