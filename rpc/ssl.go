@@ -370,6 +370,15 @@ func (s *SSL) incrementTotalBytes(n int) {
 	return
 }
 
+func (s *SSL) addCall(call Call) bool {
+	select {
+	case s.callChannel <- call:
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *SSL) readContext() error {
 	// read length of response
 	lenByt := make([]byte, 2)
@@ -423,11 +432,12 @@ func (s *SSL) sendPayload(method string, payload []byte, future ResponseFuture) 
 	for i, s := range payload {
 		bytPay[i+2] = byte(s)
 	}
-	s.callChannel <- Call{
+	call := Call{
 		method:          method,
 		responseChannel: future,
 		data:            bytPay,
 	}
+	s.callChannel <- call
 	if config.AppConfig.Debug {
 		log.Printf("Sent: %v\n", string(payload))
 	}
