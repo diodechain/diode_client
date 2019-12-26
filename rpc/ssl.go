@@ -229,23 +229,23 @@ func (s *SSL) Close() error {
 	return err
 }
 
-func (s *SSL) GetCache(deviceID string) *DeviceTicket {
+func (s *SSL) GetCache(key string) interface{} {
 	s.rm.Lock()
 	defer s.rm.Unlock()
-	cacheObj, hit := s.memoryCache.Get(deviceID)
+	cacheObj, hit := s.memoryCache.Get(key)
 	if !hit {
 		return nil
 	}
-	return cacheObj.(*DeviceTicket)
+	return cacheObj
 }
 
-func (s *SSL) SetCache(deviceID string, ticket *DeviceTicket) {
+func (s *SSL) SetCache(key string, object interface{}) {
 	s.rm.Lock()
 	defer s.rm.Unlock()
-	if ticket == nil {
-		s.memoryCache.Delete(deviceID)
+	if object == nil {
+		s.memoryCache.Delete(key)
 	} else {
-		s.memoryCache.Set(deviceID, ticket, cache.DefaultExpiration)
+		s.memoryCache.Set(key, object, cache.DefaultExpiration)
 	}
 }
 

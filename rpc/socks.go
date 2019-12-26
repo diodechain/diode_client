@@ -453,8 +453,10 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *De
 
 	// write request data to device
 	connDevice.copyToSSL()
-
-	log.Println("Close socks connection")
+	connDevice.Close()
+	if socksServer.Config.Verbose {
+		log.Println("Close socks connection")
+	}
 }
 
 func netCopy(input, output net.Conn) (err error) {
@@ -534,11 +536,11 @@ func (socksServer *Server) checkAccess(deviceID string) (*DeviceTicket, *HttpErr
 		return nil, &HttpError{500, err}
 	}
 	// Calling GetObject to locate the device
-	device := socksServer.s.GetCache(deviceID)
-	if device != nil {
-		return device, nil
+	cachedDevice := socksServer.s.GetCache(deviceID)
+	if cachedDevice != nil {
+		return cachedDevice.(*DeviceTicket), nil
 	}
-	device, err = socksServer.s.GetObject(dDeviceID)
+	device, err := socksServer.s.GetObject(dDeviceID)
 	if err != nil {
 		log.Println(err)
 		return nil, &HttpError{500, err}

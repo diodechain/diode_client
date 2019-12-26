@@ -136,6 +136,7 @@ func (socksServer *Server) pipeProxy(w http.ResponseWriter, r *http.Request) {
 	}
 	log.Printf("connDevice.copyToSSL()\n")
 	connDevice.copyToSSL()
+	connDevice.Close()
 }
 
 func (socksServer *Server) StartProxy() error {
