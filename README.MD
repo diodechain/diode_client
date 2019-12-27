@@ -55,10 +55,22 @@ $ go mod download
 $ go test `go list ./... | grep -v gowasm_test` // ignore gowasm_test folder
 ```
 
+or
+
+```BASH
+$ make test
+```
+
 ## Build
 
 ```BASH
 $ go build
+```
+
+or
+
+```BASH
+$ make build
 ```
 
 # Examples
