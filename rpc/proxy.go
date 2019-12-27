@@ -75,22 +75,18 @@ func (socksServer *Server) pipeProxy(w http.ResponseWriter, r *http.Request) {
 	}
 
 	clientIP := r.RemoteAddr
-	var httpErr *HttpError
-	connDevice := devices.GetDevice(clientIP)
-	// check device id
-	if connDevice == nil {
-		connDevice, httpErr = socksServer.connectDevice(deviceID, port, mode)
-		if httpErr != nil {
-			httpError(w, httpErr.code, httpErr.err.Error())
-			return
-		}
-		connDevice.ClientID = clientIP
+	connDevice, httpErr := socksServer.connectDevice(deviceID, port, mode)
+	if httpErr != nil {
+		httpError(w, httpErr.code, httpErr.err.Error())
+		return
 	}
+	connDevice.ClientID = clientIP
 
 	if connDevice == nil {
 		log.Panic("connDevice still nil")
 	}
-	devices.SetDevice(clientIP, connDevice)
+	deviceKey := fmt.Sprintf("connected_device:%d", connDevice.Ref)
+	socksServer.s.SetCache(deviceKey, connDevice)
 
 	if isWS {
 		upgrader := websocket.Upgrader{

@@ -29,9 +29,6 @@ var (
 	defaultMode      = "rw"
 	domainPattern    = regexp.MustCompile(`^(.+)\.(diode|diode\.link|diode\.ws)(:[\d]+)?$`)
 	subDomainpattern = regexp.MustCompile(`^([rws]{1,3}-)?(0x[A-Fa-f0-9]{40}|[A-Za-z0-9][A-Za-z0-9-]{5,30}[A-Za-z])(-[\d]+)?$`)
-	devices          = &Devices{
-		connectedDevice: make(map[string]*ConnectedDevice),
-	}
 	bitstringPattern = regexp.MustCompile(`^[01]+$`)
 
 	errAddrType      = errors.New("socks addr type not supported")
@@ -424,29 +421,24 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *De
 		log.Println("Connect remote ", deviceID, " mode: ", mode, "...")
 	}
 	clientIP := conn.RemoteAddr().String()
-	connDevice := devices.GetDevice(clientIP)
-	var httpErr *HttpError
+	connDevice, httpErr := socksServer.connectDevice(deviceID, port, mode)
 
-	// check device id
-	if connDevice == nil {
-		connDevice, httpErr = socksServer.connectDevice(deviceID, port, mode)
-
-		if httpErr != nil {
-			log.Printf("connectDevice() failed: %v", httpErr.err)
-			writeSocksError(conn, ver, socksRepNetworkUnreachable)
-			return
-		}
-
-		connDevice.ClientID = clientIP
-		connDevice.Conn = ConnectedConn{
-			Conn: conn,
-		}
-		devices.SetDevice(clientIP, connDevice)
+	if httpErr != nil {
+		log.Printf("connectDevice() failed: %v", httpErr.err)
+		writeSocksError(conn, ver, socksRepNetworkUnreachable)
+		return
 	}
+
+	connDevice.ClientID = clientIP
+	connDevice.Conn = ConnectedConn{
+		Conn: conn,
+	}
+	deviceKey := fmt.Sprintf("connected_device:%d", connDevice.Ref)
+	socksServer.s.SetCache(deviceKey, connDevice)
 
 	// send data or receive data from ref
 	if socksServer.Config.Verbose {
-		log.Println("Connect remote success @ ", clientIP, deviceID, port)
+		log.Println("Connect remote success @ ", clientIP, deviceID, port, strconv.Itoa(int(connDevice.Ref)))
 	}
 	tcpAddr := socksServer.s.LocalAddr().(*net.TCPAddr)
 	writeSocksReturn(conn, ver, tcpAddr, port)

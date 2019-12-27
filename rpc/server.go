@@ -97,10 +97,9 @@ func (rpcServer *RPCServer) Start() {
 					}
 				}
 				clientID := fmt.Sprintf("%s%d", portOpen.DeviceID, portOpen.Ref)
-				connDevice := devices.GetDevice(clientID)
-				if connDevice == nil {
-					connDevice = &ConnectedDevice{}
-				}
+				deviceKey := fmt.Sprintf("connected_device:%d", portOpen.Ref)
+				connDevice := &ConnectedDevice{}
+
 				// connect to stream service
 				host := net.JoinHostPort("localhost", strconv.Itoa(int(portOpen.Port)))
 				remoteConn, err := net.DialTimeout("tcp", host, rpcServer.timeout)
@@ -116,7 +115,7 @@ func (rpcServer *RPCServer) Start() {
 				connDevice.DeviceID = portOpen.DeviceID
 				connDevice.Conn.Conn = remoteConn
 				connDevice.Server = rpcServer.s
-				devices.SetDevice(clientID, connDevice)
+				rpcServer.s.SetCache(deviceKey, connDevice)
 
 				go func() {
 					connDevice.copyToSSL()
@@ -134,12 +133,15 @@ func (rpcServer *RPCServer) Start() {
 					log.Println(err)
 					continue
 				}
+				var connDevice *ConnectedDevice
+				deviceKey := fmt.Sprintf("connected_device:%d", portSend.Ref)
 				// start to write data
-				connDevice := devices.FindDeviceByRef(portSend.Ref)
-				if connDevice != nil && connDevice.ClientID != "" {
+				cachedConnDevice := rpcServer.s.GetCache(deviceKey)
+				if cachedConnDevice != nil {
+					connDevice = cachedConnDevice.(*ConnectedDevice)
 					connDevice.writeToTCP(decData)
 				} else {
-					log.Printf("Cannot find the connected device, drop data and close port %v\n", connDevice)
+					log.Printf("Cannot find the connected device, drop data and close port %v\n", cachedConnDevice)
 					rpcServer.s.CastPortClose(int(portSend.Ref))
 				}
 			case "portclose":
@@ -147,12 +149,14 @@ func (rpcServer *RPCServer) Start() {
 				if err != nil {
 					log.Println(err)
 				}
-				connDevice := devices.FindDeviceByRef(portClose.Ref)
-				if connDevice != nil && connDevice.ClientID != "" {
+				deviceKey := fmt.Sprintf("connected_device:%d", portClose.Ref)
+				cachedConnDevice := rpcServer.s.GetCache(deviceKey)
+				if cachedConnDevice != nil {
+					connDevice := cachedConnDevice.(*ConnectedDevice)
 					connDevice.Close()
-					devices.DelDevice(connDevice.ClientID)
+					rpcServer.s.SetCache(deviceKey, nil)
 				} else {
-					log.Println("Cannot find the connected device")
+					log.Println("Cannot find the connected device", deviceKey)
 				}
 			case "goodbye":
 				log.Printf("Server disconnected, reason: %s, %s\n", string(request.RawData[0]), string(request.RawData[1]))
