@@ -65,7 +65,7 @@ type SSL struct {
 	totalConnections  int64
 	totalBytes        int64
 	counter           int64
-	rm                sync.Mutex
+	rm                sync.RWMutex
 	clientPrivKey     *ecdsa.PrivateKey
 	RegistryAddr      [20]byte
 	FleetAddr         [20]byte
@@ -164,10 +164,8 @@ func (s *SSL) reconnect() error {
 	// This is a special call intercepted by the worker
 	resp, err := s.CallContext(":reconnect")
 	if err != nil {
-		log.Println(err)
 		return err
 	}
-
 	if isErrorType(resp.Raw) {
 		err = fmt.Errorf("Reconnect error: %v", string(resp.Raw))
 		log.Println(err)
@@ -184,36 +182,36 @@ func (s *SSL) LocalAddr() net.Addr {
 
 // TotalConnections returns total connections of device
 func (s *SSL) TotalConnections() int64 {
-	s.rm.Lock()
-	defer s.rm.Unlock()
+	s.rm.RLock()
+	defer s.rm.RUnlock()
 	return s.totalConnections
 }
 
 // TotalBytes returns total bytes that sent from device
 func (s *SSL) TotalBytes() int64 {
-	s.rm.Lock()
-	defer s.rm.Unlock()
+	s.rm.RLock()
+	defer s.rm.RUnlock()
 	return s.totalBytes
 }
 
 // Counter returns counter in ssl
 func (s *SSL) Counter() int64 {
-	s.rm.Lock()
-	defer s.rm.Unlock()
+	s.rm.RLock()
+	defer s.rm.RUnlock()
 	return s.counter
 }
 
 // UnderlyingConn returns connection of ssl
 func (s *SSL) UnderlyingConn() net.Conn {
-	s.rm.Lock()
-	defer s.rm.Unlock()
+	s.rm.RLock()
+	defer s.rm.RUnlock()
 	return s.conn.UnderlyingConn()
 }
 
 // Closed returns connection is closed
 func (s *SSL) Closed() bool {
-	s.rm.Lock()
-	defer s.rm.Unlock()
+	s.rm.RLock()
+	defer s.rm.RUnlock()
 	return s.closed
 }
 
@@ -230,8 +228,8 @@ func (s *SSL) Close() error {
 }
 
 func (s *SSL) GetCache(key string) interface{} {
-	s.rm.Lock()
-	defer s.rm.Unlock()
+	s.rm.RLock()
+	defer s.rm.RUnlock()
 	cacheObj, hit := s.memoryCache.Get(key)
 	if !hit {
 		return nil
@@ -358,8 +356,8 @@ func (s *SSL) GetClientAddress() ([20]byte, error) {
 
 // IsValid returns is network valid
 func (s *SSL) IsValid() bool {
-	s.rm.Lock()
-	defer s.rm.Unlock()
+	s.rm.RLock()
+	defer s.rm.RUnlock()
 	return s.isValid
 }
 
@@ -379,10 +377,23 @@ func (s *SSL) addCall(call Call) bool {
 	}
 }
 
+func (s *SSL) setOpensslConn(conn *openssl.Conn) {
+	s.rm.Lock()
+	defer s.rm.Unlock()
+	s.conn = conn
+}
+
+func (s *SSL) getOpensslConn() *openssl.Conn {
+	s.rm.RLock()
+	defer s.rm.RUnlock()
+	return s.conn
+}
+
 func (s *SSL) readContext() error {
 	// read length of response
 	lenByt := make([]byte, 2)
-	n, err := s.conn.Read(lenByt)
+	conn := s.getOpensslConn()
+	n, err := conn.Read(lenByt)
 	if err != nil {
 		if err == io.EOF ||
 			strings.Contains(err.Error(), "connection reset by peer") {
@@ -397,7 +408,7 @@ func (s *SSL) readContext() error {
 	lenr := binary.BigEndian.Uint16(lenByt)
 	// read response
 	res := make([]byte, lenr)
-	n, err = s.conn.Read(res)
+	n, err = conn.Read(res)
 	if err != nil {
 		if err == io.EOF ||
 			strings.Contains(err.Error(), "connection reset by peer") {

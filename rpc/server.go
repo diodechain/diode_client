@@ -259,7 +259,7 @@ func (rpcServer *RPCServer) Start() {
 						log.Println(err)
 						ret = []byte(fmt.Sprintf("[\"error\", \":reconnect\", \"%v\"]", err.Error()))
 					} else {
-						rpcServer.s.conn = conn
+						rpcServer.s.setOpensslConn(conn)
 						if rpcServer.s.enableKeepAlive {
 							rpcServer.s.EnableKeepAlive()
 						}
@@ -267,7 +267,8 @@ func (rpcServer *RPCServer) Start() {
 					call.responseChannel <- ret
 
 				} else {
-					rpcServer.s.conn.Write(call.data)
+					conn := rpcServer.s.getOpensslConn()
+					conn.Write(call.data)
 					if call.responseChannel != nil {
 						rpcServer.s.calls = append(rpcServer.s.calls, call)
 					}
