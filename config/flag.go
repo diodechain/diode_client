@@ -18,27 +18,36 @@ var AppConfig *Config
 
 // Config for poc-client
 type Config struct {
-	BlockQuickLimit    int
-	DBPath             string
-	Debug              bool
-	DecFleetAddr       [20]byte
-	DecRegistryAddr    [20]byte
-	EnableKeepAlive    bool
-	FleetAddr          string
-	ProxyServerAddr    string
-	RegistryAddr       string
-	RemoteRPCAddrs     []string
-	RemoteRPCTimeout   time.Duration
-	RetryTimes         int
-	RetryWait          time.Duration
-	RunProxyServer     bool
-	RunSocksServer     bool
-	SkipHostValidation bool
-	SocksServerAddr    string
-	SocksServerHost    string
-	SocksServerPort    int
-	Blacklists         map[string]bool
-	Whitelists         map[string]bool
+	BlockQuickLimit       int
+	DBPath                string
+	Debug                 bool
+	DecFleetAddr          [20]byte
+	DecRegistryAddr       [20]byte
+	EnableKeepAlive       bool
+	FleetAddr             string
+	ProxyServerAddr       string
+	ProxyServerHost       string
+	ProxyServerPort       int
+	SProxyServerAddr      string
+	SProxyServerHost      string
+	SProxyServerPort      int
+	SProxyServerCertPath  string
+	SProxyServerPrivPath  string
+	RegistryAddr          string
+	RemoteRPCAddrs        []string
+	RemoteRPCTimeout      time.Duration
+	RetryTimes            int
+	RetryWait             time.Duration
+	AllowRedirectToSProxy bool
+	RunProxyServer        bool
+	RunSProxyServer       bool
+	RunSocksServer        bool
+	SkipHostValidation    bool
+	SocksServerAddr       string
+	SocksServerHost       string
+	SocksServerPort       int
+	Blacklists            map[string]bool
+	Whitelists            map[string]bool
 }
 
 var (
@@ -57,6 +66,7 @@ OPTIONS
 func init() {
 	// commandFlags["help"] = &helpCommandFlag
 	commandFlags["socksd"] = &socksdCommandFlag
+	commandFlags["httpd"] = &httpdCommandFlag
 	AppConfig = parseFlag()
 }
 
@@ -75,6 +85,7 @@ func stringsContain(src []string, pivot *string) bool {
 func parseFlag() *Config {
 	cfg := &Config{}
 	wrapSocksdCommandFlag(cfg)
+	wrapHttpdCommandFlag(cfg)
 	flag.Usage = func() {
 		fmt.Printf(brandText)
 		fmt.Printf(commandText, "COMMAND")
@@ -104,8 +115,6 @@ func parseFlag() *Config {
 
 	flag.BoolVar(&cfg.SkipHostValidation, "skiphostvalidation", false, "skip host validation")
 	flag.IntVar(&cfg.BlockQuickLimit, "blockquicklimit", 100, "total number limit to run blockquick algorithm, only useful in debug mode")
-	flag.StringVar(&cfg.ProxyServerAddr, "proxyaddr", "127.0.0.1:8082", "proxy server address which socks server connect to")
-	flag.BoolVar(&cfg.RunProxyServer, "runproxy", true, "run proxy server")
 
 	flag.Parse()
 	commandName := flag.Arg(0)
@@ -116,6 +125,15 @@ func parseFlag() *Config {
 		commandFlag.Parse(args[1:])
 		cfg.RunSocksServer = true
 		cfg.SocksServerAddr = fmt.Sprintf("%s:%d", cfg.SocksServerHost, cfg.SocksServerPort)
+		break
+	case "httpd":
+		commandFlag.Parse(args[1:])
+		cfg.RunProxyServer = true
+		cfg.SocksServerAddr = fmt.Sprintf("%s:%d", cfg.SocksServerHost, cfg.SocksServerPort)
+		cfg.ProxyServerAddr = fmt.Sprintf("%s:%d", cfg.ProxyServerHost, cfg.ProxyServerPort)
+		if cfg.RunSProxyServer {
+			cfg.SProxyServerAddr = fmt.Sprintf("%s:%d", cfg.SProxyServerHost, cfg.SProxyServerPort)
+		}
 		break
 	default:
 		flag.Usage()

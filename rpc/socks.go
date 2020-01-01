@@ -65,14 +65,20 @@ const (
 )
 
 // Config is Socks Server configuration
+// TODO: refactor socks server and proxy server
 type Config struct {
-	Addr            string
-	ProxyServerAddr string
-	Verbose         bool
-	EnableProxy     bool
-	FleetAddr       [20]byte
-	Blacklists      map[string]bool
-	Whitelists      map[string]bool
+	Addr             string
+	ProxyServerAddr  string
+	SProxyServerAddr string
+	CertPath         string
+	PrivPath         string
+	Verbose          bool
+	EnableProxy      bool
+	EnableSProxy     bool
+	AllowRedirect    bool
+	FleetAddr        [20]byte
+	Blacklists       map[string]bool
+	Whitelists       map[string]bool
 }
 
 // Server is the only instances of the Socks Server
@@ -620,7 +626,8 @@ func (s *SSL) NewSocksServer(config *Config) *Server {
 func (socksServer *Server) GetServer(nodeID [20]byte) (server *SSL, err error) {
 	serverID, err := socksServer.s.GetServerID()
 	if err != nil {
-		panic("can't get my own server id")
+		// TODO: got error here, why?
+		panic(fmt.Sprintf("can't get my own server id: %s", err.Error()))
 	}
 
 	if nodeID == serverID {

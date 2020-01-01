@@ -136,35 +136,48 @@ func (socksServer *Server) pipeProxy(w http.ResponseWriter, r *http.Request) {
 }
 
 func (socksServer *Server) StartProxy() error {
-	// start websocket server
-	log.Printf("Start proxy server %s\n", socksServer.Config.ProxyServerAddr)
+	if socksServer.Config.AllowRedirect && !socksServer.Config.EnableSProxy {
+		return fmt.Errorf("wrond parameters, couldn't redirect to non-started httpsd server")
+	}
+	// start httpd proxy server
+	if socksServer.Config.EnableProxy {
+		log.Printf("Start httpd server %s\n", socksServer.Config.ProxyServerAddr)
+		prox, _ := url.Parse(fmt.Sprintf("socks5://%s", socksServer.Config.Addr))
+		proxyTransport.Proxy = http.ProxyURL(prox)
+		httpdHandler := http.HandlerFunc(socksServer.pipeProxy)
+		if socksServer.Config.AllowRedirect {
+			httpdHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+				// if host is not valid, throw bad request
+				host := req.Host
+				if len(host) <= 0 {
+					badRequest(w, "Bad request")
+				} else {
+					http.Redirect(w, req, fmt.Sprintf("https://%s%s", host, req.URL.String()), http.StatusPermanentRedirect)
+				}
+			})
+		}
+		go func() {
+			httpdAddr := socksServer.Config.ProxyServerAddr
+			socksServer.httpServer = &http.Server{Addr: httpdAddr, Handler: httpdHandler}
+			log.Println(socksServer.httpServer.ListenAndServe())
+		}()
+	}
+
+	// start httpsd proxy server
+	if socksServer.Config.EnableSProxy {
+		log.Printf("Start httpsd server %s\n", socksServer.Config.SProxyServerAddr)
+		http.HandleFunc("/", socksServer.pipeProxy)
+
+		go func() {
+			httpsdAddr := socksServer.Config.SProxyServerAddr
+			protos := make(map[string]func(*http.Server, *tls.Conn, http.Handler))
+			socksServer.httpsServer = &http.Server{Addr: httpsdAddr, Handler: nil, TLSNextProto: protos}
+			socksServer.httpsServer.ListenAndServeTLS(socksServer.Config.CertPath, socksServer.Config.PrivPath)
+		}()
+	}
 	// proxyTransport.Proxy = http.ProxyURL(&url.URL{
 	// 	Scheme: "socks5:",
 	// 	Host:   socksServer.Config.Addr,
 	// })
-	prox, _ := url.Parse("socks5://localhost:8080")
-	proxyTransport.Proxy = http.ProxyURL(prox)
-	redirectHTTPSHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		// if host is not valid, throw bad request
-		host := req.Host
-		if len(host) <= 0 {
-			badRequest(w, "Bad request")
-		} else {
-			http.Redirect(w, req, fmt.Sprintf("https://%s%s", host, req.URL.String()), http.StatusPermanentRedirect)
-		}
-	})
-	go func() {
-		socksServer.httpServer = &http.Server{Addr: ":80", Handler: redirectHTTPSHandler}
-		socksServer.httpServer.ListenAndServe()
-	}()
-
-	http.HandleFunc("/", socksServer.pipeProxy)
-
-	go func() {
-		addr := socksServer.Config.ProxyServerAddr
-		protos := make(map[string]func(*http.Server, *tls.Conn, http.Handler))
-		socksServer.httpsServer = &http.Server{Addr: addr, Handler: nil, TLSNextProto: protos}
-		socksServer.httpsServer.ListenAndServeTLS("./priv/cert.pem", "./priv/privkey.pem")
-	}()
 	return nil
 }
