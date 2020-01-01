@@ -5,6 +5,8 @@ package config
 
 import (
 	"flag"
+	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -33,11 +35,28 @@ type Config struct {
 	RunSocksServer     bool
 	SkipHostValidation bool
 	SocksServerAddr    string
+	SocksServerHost    string
+	SocksServerPort    int
 	Blacklists         map[string]bool
 	Whitelists         map[string]bool
 }
 
+var (
+	brandText = `Name
+  diode - Diode network command line interfaces
+`
+	commandText = `SYNOPSIS
+  diode [OPTIONS] %s [ARG...]
+OPTIONS
+`
+
+	usageText = `COMMANDS
+`
+)
+
 func init() {
+	// commandFlags["help"] = &helpCommandFlag
+	commandFlags["socksd"] = &socksdCommandFlag
 	AppConfig = parseFlag()
 }
 
@@ -52,28 +71,56 @@ func stringsContain(src []string, pivot *string) bool {
 }
 
 // parseFlag parse command line flags and return Config
+// TODO: refactor flag usage and commandFlag usage text
 func parseFlag() *Config {
 	cfg := &Config{}
+	wrapSocksdCommandFlag(cfg)
+	flag.Usage = func() {
+		fmt.Printf(brandText)
+		fmt.Printf(commandText, "COMMAND")
+		flag.PrintDefaults()
+		fmt.Printf(usageText)
+		for _, commandFlag := range commandFlags {
+			fmt.Println(commandFlag.Name)
+			fmt.Println(commandFlag.HelpText)
+			fmt.Println(`ARG`)
+			commandFlag.Flag.PrintDefaults()
+			fmt.Printf(commandFlag.ExampleText)
+		}
+	}
 
-	flag.IntVar(&cfg.BlockQuickLimit, "blockquicklimit", 100, "total number limit to run blockquick algorithm, only useful in debug mode")
 	flag.StringVar(&cfg.DBPath, "dbpath", "./db/private.db", "file path to db file")
-	flag.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
-	flag.BoolVar(&cfg.EnableKeepAlive, "enablekeepalive", true, "enable tcp keepalive")
-	flag.StringVar(&cfg.FleetAddr, "fleet", "0x6000000000000000000000000000000000000000", "fleet contract address")
-	flag.StringVar(&cfg.ProxyServerAddr, "proxyaddr", "127.0.0.1:8082", "proxy server address which socks server connect to")
 	flag.StringVar(&cfg.RegistryAddr, "registry", "0x5000000000000000000000000000000000000000", "registry contract address")
+	flag.StringVar(&cfg.FleetAddr, "fleet", "0x6000000000000000000000000000000000000000", "fleet contract address")
 	flag.IntVar(&cfg.RetryTimes, "retrytimes", 3, "retry times to connect the remote rpc server")
-	flag.BoolVar(&cfg.RunProxyServer, "runproxy", true, "run proxy server")
-	flag.BoolVar(&cfg.RunSocksServer, "runsocks", true, "run socks server")
-	flag.BoolVar(&cfg.SkipHostValidation, "skiphostvalidation", false, "skip host validation")
-	flag.StringVar(&cfg.SocksServerAddr, "socksaddr", "127.0.0.1:1080", "socks server address which listen to")
+	flag.BoolVar(&cfg.EnableKeepAlive, "keepalive", true, "enable tcp keepalive")
+	flag.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
 
-	remoteRPCAddr := flag.String("remoterpcaddr", "asia.testnet.diode.io:41043,europe.testnet.diode.io:41043,usa.testnet.diode.io:41043", "remote rpc address")
-	remoteRPCTimeout := flag.Int("remoterpctimeout", 1, "timeout seconds to connect to the remote rpc server")
+	remoteRPCAddr := flag.String("diodeaddrs", "asia.testnet.diode.io:41043,europe.testnet.diode.io:41043,usa.testnet.diode.io:41043", "addresses of Diode node server")
+	remoteRPCTimeout := flag.Int("timeout", 5, "timeout seconds to connect to the remote rpc server")
 	retryWait := flag.Int("retrywait", 1, "wait seconds before next retry")
-	blacklists := flag.String("blacklists", "", "blacklists to block the connection to/from the address")
-	whitelists := flag.String("whitelists", "", "whitelists allow the connection to/from the address")
+	blacklists := flag.String("blacklists", "", "addresses are not allowed to connect to published resource (worked when whitelists is empty)")
+	whitelists := flag.String("whitelists", "", "addresses are allowed to connect to published resource (worked when whitelists is empty)")
+
+	flag.BoolVar(&cfg.SkipHostValidation, "skiphostvalidation", false, "skip host validation")
+	flag.IntVar(&cfg.BlockQuickLimit, "blockquicklimit", 100, "total number limit to run blockquick algorithm, only useful in debug mode")
+	flag.StringVar(&cfg.ProxyServerAddr, "proxyaddr", "127.0.0.1:8082", "proxy server address which socks server connect to")
+	flag.BoolVar(&cfg.RunProxyServer, "runproxy", true, "run proxy server")
+
 	flag.Parse()
+	commandName := flag.Arg(0)
+	args := flag.Args()
+	commandFlag := commandFlags[commandName]
+	switch commandName {
+	case "socksd":
+		commandFlag.Parse(args[1:])
+		cfg.RunSocksServer = true
+		cfg.SocksServerAddr = fmt.Sprintf("%s:%d", cfg.SocksServerHost, cfg.SocksServerPort)
+		break
+	default:
+		flag.Usage()
+		os.Exit(0)
+	}
 
 	parsedRPCAddr := strings.Split(*remoteRPCAddr, ",")
 	remoteRPCAddrs := []string{}
