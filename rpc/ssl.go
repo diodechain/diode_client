@@ -513,7 +513,7 @@ func (s *SSL) CheckTicket() error {
 }
 
 // ValidateNetwork validate blockchain network is secure and valid
-// Run blockquick algorithm
+// Run blockquick algorithm, mor information see: https://eprint.iacr.org/2019/579.pdf
 func (s *SSL) ValidateNetwork() (bool, error) {
 	// test for api
 	bn, err := s.GetBlockPeak()
@@ -522,40 +522,32 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 	}
 	BN = bn
 	config := config.AppConfig
-	bpCh := 100
-	if config.Debug {
-		bpCh = config.BlockQuickLimit
-	}
-	lvbnByt, err := db.DB.Get("lvbn")
-	if BN < bpCh {
-		bpCh = BN - 1
+	BQLimit := 100
+	LVBNByt, err := db.DB.Get("lvbn")
+	if BN < BQLimit {
+		BQLimit = BN - 1
 		LVBN = BN
 	} else {
-		LVBN = BN - bpCh
+		LVBN = BN - BQLimit
 	}
 	if err != nil {
 		log.Printf("Cannot read data from file, error: %s\n", err.Error())
 	} else {
 		// TODO: ensure bytes are correct
-		lvbnBig := &big.Int{}
-		lvbnBig.SetBytes(lvbnByt)
-		LVBN = int(lvbnBig.Int64())
+		LVBN = util.DecodeBytesToInt(LVBNByt)
 	}
-	oriLvbn := LVBN
+	oriLVBN := LVBN
 	log.Printf("Last valid block number: %d\n", LVBN)
 
-	// for test purpose, only check LVBN + 100 block number
+	// we only check LVBN + 100 block number
 	bnLimit := BN + 1
-	if config.Debug && bnLimit > LVBN+bpCh {
-		bnLimit = LVBN + bpCh
-	}
 
 	// Note: map is not safe for concurrent usage
 	minerCount := map[string]int{}
 	minerPortion := map[string]float64{}
 
 	// fetch block header
-	for i := bnLimit - bpCh; i < bnLimit; i++ {
+	for i := bnLimit - BQLimit; i < bnLimit; i++ {
 		blockHeader, err := s.GetBlockHeader(i)
 		if err != nil {
 			log.Printf("Cannot fetch block header: %d, error: %s", i, err.Error())
@@ -573,7 +565,7 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 		SetValidBlockHeader(i, blockHeader)
 		minerCount[hexMiner]++
 	}
-	if LenValidBlockHeaders() < bpCh {
+	if LenValidBlockHeaders() < BQLimit {
 		return false, nil
 	}
 	// setup miner portion map
@@ -582,21 +574,18 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 			log.Printf("Miner count was zero, miner: %s\n", miner)
 			continue
 		}
-		portion := float64(count) / float64(bpCh)
+		portion := float64(count) / float64(BQLimit)
 		minerPortion[miner] = portion
 		if config.Debug {
 			log.Printf("Miner: %s count: %3d portion: %f\n", miner, count, portion)
 		}
 	}
 	if config.Debug {
-		for miner, bn := range minerPortion {
-			log.Println(miner, bn)
-		}
 		// simple implementation
 		log.Printf("Block number limit: %d\n", bnLimit)
 	}
 	// start to confirm the block if signature is valid
-	for i := bnLimit - bpCh; i < bnLimit; i++ {
+	for i := bnLimit - BQLimit; i < bnLimit; i++ {
 		blockHeader := GetValidBlockHeader(i)
 		if blockHeader == nil {
 			continue
@@ -618,7 +607,7 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 			if portion >= 0.51 {
 				isConfirmed = true
 				if config.Debug {
-					log.Printf(" %16.4f bang\n", portion)
+					log.Printf(" %16.4f %d pass\n", portion, i)
 				}
 				break
 			}
@@ -630,21 +619,16 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 		// update miner portion and count
 		if isConfirmed {
 			LVBN = i
+			BQLimit++
 			minerCount[hexMiner]++
-			minerPortion[hexMiner] = float64(minerCount[hexMiner]) / float64(i)
+			minerPortion[hexMiner] = float64(minerCount[hexMiner]) / float64(BQLimit)
 		}
 	}
-	if config.Debug {
-		for miner, bn := range minerPortion {
-			log.Println(miner, bn)
-		}
-	}
-	isValid := LVBN >= oriLvbn
+	isValid := LVBN >= oriLVBN
 	if isValid {
-		if LVBN != oriLvbn {
-			LVBNBig := &big.Int{}
-			LVBNBig.SetInt64(int64(LVBN))
-			err = db.DB.Put("lvbn", LVBNBig.Bytes())
+		if LVBN != oriLVBN {
+			LVBNByt = util.DecodeIntToBytes(LVBN)
+			err = db.DB.Put("lvbn", LVBNByt)
 			if err != nil {
 				log.Printf("Cannot save data to leveldb, error: %s\n", err.Error())
 			}

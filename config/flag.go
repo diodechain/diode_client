@@ -18,7 +18,6 @@ var AppConfig *Config
 
 // Config for poc-client
 type Config struct {
-	BlockQuickLimit       int
 	DBPath                string
 	Debug                 bool
 	DecFleetAddr          [20]byte
@@ -114,7 +113,6 @@ func parseFlag() *Config {
 	whitelists := flag.String("whitelists", "", "addresses are allowed to connect to published resource (worked when whitelists is empty)")
 
 	flag.BoolVar(&cfg.SkipHostValidation, "skiphostvalidation", false, "skip host validation")
-	flag.IntVar(&cfg.BlockQuickLimit, "blockquicklimit", 100, "total number limit to run blockquick algorithm, only useful in debug mode")
 
 	flag.Parse()
 	commandName := flag.Arg(0)

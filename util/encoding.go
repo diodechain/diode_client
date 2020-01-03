@@ -168,3 +168,17 @@ func RLPHash(src interface{}) ([]byte, error) {
 	hash := crypto.Sha256(encSrc)
 	return hash, nil
 }
+
+// DecodeBytesToInt returns int of given bytes
+func DecodeBytesToInt(src []byte) int {
+	outBig := &big.Int{}
+	outBig.SetBytes(src)
+	return int(outBig.Int64())
+}
+
+// DecodeIntToBytes returns bytes of the given int
+func DecodeIntToBytes(src int) []byte {
+	outBig := &big.Int{}
+	outBig.SetInt64(int64(src))
+	return outBig.Bytes()
+}

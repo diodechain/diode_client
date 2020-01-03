@@ -28,6 +28,11 @@ type DecodeStringTest struct {
 	Res []byte
 }
 
+type DecodeBytesIntTest struct {
+	Src []byte
+	Res int
+}
+
 var (
 	isHexTest = []IsHexTest{
 		IsHexTest{
@@ -97,6 +102,24 @@ var (
 			Res: false,
 		},
 	}
+	decodeBytesIntTest = []DecodeBytesIntTest{
+		DecodeBytesIntTest{
+			Src: []byte{1},
+			Res: 1,
+		},
+		DecodeBytesIntTest{
+			Src: []byte{10},
+			Res: 10,
+		},
+		DecodeBytesIntTest{
+			Src: []byte{1, 0},
+			Res: 256,
+		},
+		DecodeBytesIntTest{
+			Src: []byte{1, 1, 0},
+			Res: 65792,
+		},
+	}
 )
 
 func TestIsHex(t *testing.T) {
@@ -128,6 +151,24 @@ func TestDecodeString(t *testing.T) {
 		res, _ := DecodeString(v.Src)
 		if !bytes.Equal(v.Res, res) {
 			t.Errorf("Wrong result when call DecodeString")
+		}
+	}
+}
+
+func TestDecodeBytesToInt(t *testing.T) {
+	for _, v := range decodeBytesIntTest {
+		res := DecodeBytesToInt(v.Src)
+		if v.Res != res {
+			t.Errorf("Wrong result when call DecodeBytesToInt")
+		}
+	}
+}
+
+func TestDecodeIntToBytes(t *testing.T) {
+	for _, v := range decodeBytesIntTest {
+		res := DecodeIntToBytes(v.Res)
+		if !bytes.Equal(v.Src, res) {
+			t.Errorf("Wrong result when call DecodeIntToBytes")
 		}
 	}
 }
