@@ -137,7 +137,7 @@ func (socksServer *Server) pipeProxy(w http.ResponseWriter, r *http.Request) {
 
 func (socksServer *Server) StartProxy() error {
 	if socksServer.Config.AllowRedirect && !socksServer.Config.EnableSProxy {
-		return fmt.Errorf("wrond parameters, couldn't redirect to non-started httpsd server")
+		return fmt.Errorf("Wrong parameters, need started httpsd server for http redirect")
 	}
 	// start httpd proxy server
 	if socksServer.Config.EnableProxy {

@@ -158,23 +158,21 @@ func main() {
 	}
 	if config.RunProxyServer {
 		socksConfig := &rpc.Config{
-			Addr:            config.SocksServerAddr,
-			ProxyServerAddr: "",
-			Verbose:         config.Debug,
-			FleetAddr:       config.DecFleetAddr,
-			EnableProxy:     config.RunProxyServer,
-			EnableSProxy:    config.RunSProxyServer,
-			AllowRedirect:   config.AllowRedirectToSProxy,
-			Blacklists:      config.Blacklists,
-			Whitelists:      config.Whitelists,
+			Addr:             config.SocksServerAddr,
+			Verbose:          config.Debug,
+			FleetAddr:        config.DecFleetAddr,
+			EnableProxy:      config.RunProxyServer,
+			EnableSProxy:     config.RunSProxyServer,
+			AllowRedirect:    config.AllowRedirectToSProxy,
+			Blacklists:       config.Blacklists,
+			Whitelists:       config.Whitelists,
+			ProxyServerAddr:  config.ProxyServerAddr,
+			SProxyServerAddr: config.SProxyServerAddr,
+			CertPath:         config.SProxyServerCertPath,
+			PrivPath:         config.SProxyServerPrivPath,
 		}
-		// start socks server
+		// Start socks server
 		socksServer = client.NewSocksServer(socksConfig)
-		// start proxy server
-		socksServer.Config.ProxyServerAddr = config.ProxyServerAddr
-		if config.RunSProxyServer {
-			socksServer.Config.SProxyServerAddr = config.SProxyServerAddr
-		}
 		if err := socksServer.StartProxy(); err != nil {
 			log.Fatal(err)
 			return
