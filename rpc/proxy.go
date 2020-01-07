@@ -159,7 +159,10 @@ func (socksServer *Server) StartProxy() error {
 		go func() {
 			httpdAddr := socksServer.Config.ProxyServerAddr
 			socksServer.httpServer = &http.Server{Addr: httpdAddr, Handler: httpdHandler}
-			log.Println(socksServer.httpServer.ListenAndServe())
+			if err := socksServer.httpServer.ListenAndServe(); err != nil {
+				socksServer.httpServer = nil
+				log.Println(err)
+			}
 		}()
 	}
 
@@ -172,7 +175,10 @@ func (socksServer *Server) StartProxy() error {
 			httpsdAddr := socksServer.Config.SProxyServerAddr
 			protos := make(map[string]func(*http.Server, *tls.Conn, http.Handler))
 			socksServer.httpsServer = &http.Server{Addr: httpsdAddr, Handler: nil, TLSNextProto: protos}
-			socksServer.httpsServer.ListenAndServeTLS(socksServer.Config.CertPath, socksServer.Config.PrivPath)
+			if err := socksServer.httpsServer.ListenAndServeTLS(socksServer.Config.CertPath, socksServer.Config.PrivPath); err != nil {
+				socksServer.httpsServer = nil
+				log.Println(err)
+			}
 		}()
 	}
 	// proxyTransport.Proxy = http.ProxyURL(&url.URL{

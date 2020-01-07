@@ -666,8 +666,12 @@ func (socksServer *Server) Started() bool {
 func (socksServer *Server) Close() {
 	socksServer.listener.Close()
 	if socksServer.Config.EnableProxy {
-		socksServer.httpServer.Close()
-		socksServer.httpsServer.Close()
+		if socksServer.httpServer != nil {
+			socksServer.httpServer.Close()
+		}
+		if socksServer.httpsServer != nil {
+			socksServer.httpsServer.Close()
+		}
 	}
 	socksServer.started = false
 	// Should we close gracefully?

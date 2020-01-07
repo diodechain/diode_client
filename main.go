@@ -138,42 +138,35 @@ func main() {
 		}
 	}()
 
+	socksConfig := &rpc.Config{
+		Addr:             config.SocksServerAddr,
+		Verbose:          config.Debug,
+		FleetAddr:        config.DecFleetAddr,
+		EnableProxy:      config.RunProxyServer,
+		EnableSProxy:     config.RunSProxyServer,
+		AllowRedirect:    config.AllowRedirectToSProxy,
+		Blacklists:       config.Blacklists,
+		Whitelists:       config.Whitelists,
+		ProxyServerAddr:  "",
+		SProxyServerAddr: "",
+		CertPath:         "",
+		PrivPath:         "",
+	}
+	socksServer = client.NewSocksServer(socksConfig)
+
 	if config.RunSocksServer {
-		socksConfig := &rpc.Config{
-			Addr:            config.SocksServerAddr,
-			ProxyServerAddr: "",
-			Verbose:         config.Debug,
-			FleetAddr:       config.DecFleetAddr,
-			EnableProxy:     config.RunProxyServer,
-			EnableSProxy:    config.RunSProxyServer,
-			AllowRedirect:   config.AllowRedirectToSProxy,
-			Blacklists:      config.Blacklists,
-			Whitelists:      config.Whitelists,
-		}
 		// start socks server
-		socksServer = client.NewSocksServer(socksConfig)
 		if err := socksServer.Start(); err != nil {
 			log.Fatal(err)
 			return
 		}
 	}
 	if config.RunProxyServer {
-		socksConfig := &rpc.Config{
-			Addr:             config.SocksServerAddr,
-			Verbose:          config.Debug,
-			FleetAddr:        config.DecFleetAddr,
-			EnableProxy:      config.RunProxyServer,
-			EnableSProxy:     config.RunSProxyServer,
-			AllowRedirect:    config.AllowRedirectToSProxy,
-			Blacklists:       config.Blacklists,
-			Whitelists:       config.Whitelists,
-			ProxyServerAddr:  config.ProxyServerAddr,
-			SProxyServerAddr: config.SProxyServerAddr,
-			CertPath:         config.SProxyServerCertPath,
-			PrivPath:         config.SProxyServerPrivPath,
-		}
-		// Start socks server
-		socksServer = client.NewSocksServer(socksConfig)
+		// Start proxy server
+		socksServer.Config.ProxyServerAddr = config.ProxyServerAddr
+		socksServer.Config.SProxyServerAddr = config.SProxyServerAddr
+		socksServer.Config.CertPath = config.SProxyServerCertPath
+		socksServer.Config.PrivPath = config.SProxyServerPrivPath
 		if err := socksServer.StartProxy(); err != nil {
 			log.Fatal(err)
 			return
