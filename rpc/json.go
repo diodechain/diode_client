@@ -291,8 +291,8 @@ func parseDeviceTicket(rawObject []byte) (*DeviceTicket, error) {
 		TotalBytes:       dtotalBytes,
 		DeviceSig:        ddeviceSig,
 		ServerSig:        dserverSig,
+		LocalAddr:        dlocalAddr,
 	}
-	copy(deviceObj.LocalAddr[:], dlocalAddr)
 	return deviceObj, nil
 }
 

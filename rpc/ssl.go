@@ -503,7 +503,8 @@ func (s *SSL) CheckTicket() error {
 	counter := s.Counter()
 	if s.TotalBytes() > counter+40000 {
 		// send ticket
-		ticket, err := s.NewTicket(s.RegistryAddr)
+		localAddr := s.LocalAddr().String()
+		ticket, err := s.NewTicket([]byte(localAddr))
 		if err != nil {
 			return err
 		}
@@ -706,7 +707,7 @@ func (s *SSL) GetNode(nodeID [20]byte) (*ServerObj, error) {
 }
 
 // NewTicket returns ticket
-func (s *SSL) NewTicket(localAddr [20]byte) (*DeviceTicket, error) {
+func (s *SSL) NewTicket(localAddr []byte) (*DeviceTicket, error) {
 	serverID, err := s.GetServerID()
 	s.counter = s.totalBytes
 	lvbn := LVBN
@@ -715,6 +716,7 @@ func (s *SSL) NewTicket(localAddr [20]byte) (*DeviceTicket, error) {
 		return nil, fmt.Errorf("NewTicket(): No block header available for LVBN=%v", lvbn)
 	}
 	log.Printf("NewTicket(LVBN=%v)\n", lvbn)
+	encLocalAddr := util.EncodeToString(localAddr)
 	blockHash := header.BlockHash
 	ticket := &DeviceTicket{
 		ServerID:         serverID,
@@ -723,7 +725,7 @@ func (s *SSL) NewTicket(localAddr [20]byte) (*DeviceTicket, error) {
 		FleetAddr:        s.FleetAddr,
 		TotalConnections: s.totalConnections,
 		TotalBytes:       s.totalBytes,
-		LocalAddr:        localAddr,
+		LocalAddr:        []byte(encLocalAddr),
 	}
 	if err := ticket.ValidateValues(); err != nil {
 		return nil, err
@@ -750,7 +752,7 @@ func (s *SSL) NewTicket(localAddr [20]byte) (*DeviceTicket, error) {
 // SubmitTicket submit ticket to server
 func (s *SSL) SubmitTicket(ticket *DeviceTicket) error {
 	encFleetAddr := util.EncodeToString(ticket.FleetAddr[:])
-	encLocalAddr := util.EncodeToString(ticket.LocalAddr[:])
+	encLocalAddr := util.EncodeToString(ticket.LocalAddr)
 	encSig := util.EncodeToString(ticket.DeviceSig)
 	future, err := s.CastContext("ticket", ticket.BlockNumber, encFleetAddr, ticket.TotalConnections, ticket.TotalBytes, encLocalAddr, encSig)
 	go func() {
@@ -766,16 +768,17 @@ func (s *SSL) SubmitTicket(ticket *DeviceTicket) error {
 			tc := util.DecodeStringToIntForce(string(resp.RawData[2]))
 			tb := util.DecodeStringToIntForce(string(resp.RawData[3]))
 			sid, _ := s.GetServerID()
-			localAddr := util.DecodeForce(resp.RawData[4])
+			// if we decode the local addr, will break the signature
+			localAddr := resp.RawData[4]
 			lastTicket := DeviceTicket{
 				ServerID:         sid,
 				BlockHash:        util.DecodeForce(resp.RawData[1]),
 				FleetAddr:        s.FleetAddr,
 				TotalConnections: tc,
 				TotalBytes:       tb,
+				LocalAddr:        localAddr,
 				DeviceSig:        util.DecodeForce(resp.RawData[5]),
 			}
-			copy(lastTicket.LocalAddr[:], localAddr)
 
 			addr, err := s.GetClientAddress()
 			if err != nil {
@@ -785,7 +788,8 @@ func (s *SSL) SubmitTicket(ticket *DeviceTicket) error {
 			if lastTicket.ValidateDeviceSig(addr) {
 				s.totalBytes = tb + 1024
 				s.totalConnections = tc + 1
-				ticket, err := s.NewTicket(config.AppConfig.DecRegistryAddr)
+				localAddr := s.LocalAddr().String()
+				ticket, err := s.NewTicket([]byte(localAddr))
 				if err != nil {
 					log.Println(err)
 					return

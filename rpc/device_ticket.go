@@ -22,7 +22,7 @@ type DeviceTicket struct {
 	FleetAddr        [20]byte
 	TotalConnections int64
 	TotalBytes       int64
-	LocalAddr        [20]byte
+	LocalAddr        []byte
 	DeviceSig        []byte
 	ServerSig        []byte
 	Err              error
@@ -57,7 +57,7 @@ func (ct *DeviceTicket) HashWithoutSig() ([]byte, error) {
 	if err := ct.ValidateValues(); err != nil {
 		return nil, err
 	}
-	msg, err := bert.Encode([6]bert.Term{ct.ServerID[:], ct.BlockHash, ct.FleetAddr[:], ct.TotalConnections, ct.TotalBytes, ct.LocalAddr[:]})
+	msg, err := bert.Encode([6]bert.Term{ct.ServerID[:], ct.BlockHash, ct.FleetAddr[:], ct.TotalConnections, ct.TotalBytes, ct.LocalAddr})
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +69,7 @@ func (ct *DeviceTicket) Hash() ([]byte, error) {
 	if err := ct.ValidateValues(); err != nil {
 		return nil, err
 	}
-	msg, err := bert.Encode([7]bert.Term{ct.ServerID[:], ct.BlockHash, ct.FleetAddr[:], ct.TotalConnections, ct.TotalBytes, ct.LocalAddr[:], ct.DeviceSig})
+	msg, err := bert.Encode([7]bert.Term{ct.ServerID[:], ct.BlockHash, ct.FleetAddr[:], ct.TotalConnections, ct.TotalBytes, ct.LocalAddr, ct.DeviceSig})
 	if err != nil {
 		return nil, err
 	}

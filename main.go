@@ -109,7 +109,8 @@ func main() {
 	}
 	rpc.SetValidBlockHeader(bn, blockHeader)
 	// send ticket
-	ticket, err := client.NewTicket(config.DecRegistryAddr)
+	localAddr := client.LocalAddr().String()
+	ticket, err := client.NewTicket([]byte(localAddr))
 	if err != nil {
 		log.Println(err)
 		return
