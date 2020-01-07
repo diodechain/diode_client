@@ -720,7 +720,7 @@ func (s *SSL) NewTicket(localAddr []byte) (*DeviceTicket, error) {
 	blockHash := header.BlockHash
 	ticket := &DeviceTicket{
 		ServerID:         serverID,
-		BlockNumber:      LVBN,
+		BlockNumber:      lvbn,
 		BlockHash:        blockHash,
 		FleetAddr:        s.FleetAddr,
 		TotalConnections: s.totalConnections,
