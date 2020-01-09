@@ -728,7 +728,6 @@ func (s *SSL) NewTicket(localAddr []byte) (*DeviceTicket, error) {
 		return nil, fmt.Errorf("NewTicket(): No block header available for LVBN=%v", lvbn)
 	}
 	log.Printf("NewTicket(LVBN=%v)\n", lvbn)
-	encLocalAddr := util.EncodeToString(localAddr)
 	blockHash := header.BlockHash
 	ticket := &DeviceTicket{
 		ServerID:         serverID,
@@ -737,7 +736,7 @@ func (s *SSL) NewTicket(localAddr []byte) (*DeviceTicket, error) {
 		FleetAddr:        s.FleetAddr,
 		TotalConnections: s.totalConnections,
 		TotalBytes:       s.totalBytes,
-		LocalAddr:        []byte(encLocalAddr),
+		LocalAddr:        localAddr,
 	}
 	if err := ticket.ValidateValues(); err != nil {
 		return nil, err
@@ -780,14 +779,13 @@ func (s *SSL) SubmitTicket(ticket *DeviceTicket) error {
 			tc := util.DecodeStringToIntForce(string(resp.RawData[2]))
 			tb := util.DecodeStringToIntForce(string(resp.RawData[3]))
 			sid, _ := s.GetServerID()
-			localAddr := util.DecodeForce(resp.RawData[4])
 			lastTicket := DeviceTicket{
 				ServerID:         sid,
 				BlockHash:        util.DecodeForce(resp.RawData[1]),
 				FleetAddr:        s.FleetAddr,
 				TotalConnections: tc,
 				TotalBytes:       tb,
-				LocalAddr:        localAddr,
+				LocalAddr:        util.DecodeForce(resp.RawData[4]),
 				DeviceSig:        util.DecodeForce(resp.RawData[5]),
 			}
 
@@ -796,6 +794,9 @@ func (s *SSL) SubmitTicket(ticket *DeviceTicket) error {
 				log.Panicf("SubmitTicket can't identify self: %v\n", err)
 			}
 
+			if !lastTicket.ValidateDeviceSig(addr) {
+				lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)
+			}
 			if lastTicket.ValidateDeviceSig(addr) {
 				s.totalBytes = tb + 1024
 				s.totalConnections = tc + 1
@@ -812,7 +813,7 @@ func (s *SSL) SubmitTicket(ticket *DeviceTicket) error {
 				}
 
 			} else {
-				log.Printf("Received fake ticket.. %+v\n", lastTicket)
+				log.Printf("Received fake ticket..\n\t%+v\n\t(from %+v)\n", lastTicket, resp.RawData)
 			}
 
 		case "ok", "thanks!":
