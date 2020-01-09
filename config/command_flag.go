@@ -19,7 +19,12 @@ type CommandFlag struct {
 }
 
 var (
-	commandFlags      = map[string]*CommandFlag{}
+	commandFlags       = map[string]*CommandFlag{}
+	publishCommandFlag = CommandFlag{
+		Name:        "publish",
+		HelpText:    `  This command publishes ports of the local device to the Diode Network.`,
+		ExampleText: `  diode publish`,
+	}
 	socksdCommandFlag = CommandFlag{
 		Name:        "socksd",
 		HelpText:    `  This command enables a socks proxy on the local host for use with Browsers (Firefox), SSH, Java and other applications to communicate via the Diode Network.`,

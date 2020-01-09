@@ -64,6 +64,7 @@ OPTIONS
 
 func init() {
 	// commandFlags["help"] = &helpCommandFlag
+	commandFlags["publish"] = &publishCommandFlag
 	commandFlags["socksd"] = &socksdCommandFlag
 	commandFlags["httpd"] = &httpdCommandFlag
 	AppConfig = parseFlag()
@@ -130,6 +131,8 @@ func parseFlag() *Config {
 		if cfg.RunSProxyServer {
 			cfg.SProxyServerAddr = fmt.Sprintf("%s:%d", cfg.SProxyServerHost, cfg.SProxyServerPort)
 		}
+		break
+	case "publish":
 		break
 	default:
 		flag.Usage()
