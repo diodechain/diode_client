@@ -91,11 +91,9 @@ func parseFlag() *Config {
 		flag.PrintDefaults()
 		fmt.Printf(usageText)
 		for _, commandFlag := range commandFlags {
-			fmt.Println(commandFlag.Name)
-			fmt.Println(commandFlag.HelpText)
-			fmt.Println(`ARG`)
-			commandFlag.Flag.PrintDefaults()
-			fmt.Printf(commandFlag.ExampleText)
+			fmt.Printf("  %s\n", commandFlag.Name)
+			fmt.Printf("  %s\n", commandFlag.HelpText)
+			printCommandDefaults(commandFlag, 4)
 		}
 	}
 
