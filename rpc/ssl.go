@@ -142,7 +142,7 @@ func (s *SSL) Reconnect() bool {
 	isOk := false
 	for i := 1; i <= config.AppConfig.RetryTimes; i++ {
 		if config.AppConfig.Debug {
-			log.Printf("Retry to connect the host, wait %s\n", config.AppConfig.RetryWait.String())
+			log.Printf("Retry to connect to %s, wait %s\n", s.addr, config.AppConfig.RetryWait.String())
 		}
 		time.Sleep(config.AppConfig.RetryWait)
 		if s.Closed() {
@@ -994,7 +994,7 @@ func DoConnect(host string, config *config.Config) (*SSL, error) {
 		// retry to connect
 		isOk := false
 		for i := 1; i <= config.RetryTimes; i++ {
-			log.Printf("Retry to connect the host, wait %s\n", config.RetryWait.String())
+			log.Printf("Retry to connect to %s, wait %s\n", host, config.RetryWait.String())
 			time.Sleep(config.RetryWait)
 			client, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification)
 			if err == nil {
@@ -1091,10 +1091,11 @@ func initSSL(config *config.Config) *openssl.Ctx {
 	verifyOption := openssl.VerifyNone
 	// TODO: Verify certificate (check that it is self-signed)
 	cb := func(ok bool, store *openssl.CertificateStoreCtx) bool {
-		if config.Debug {
-			log.Println(ok, store.VerifyResult(), store.Err(), store.Depth())
+		if !ok {
+			err := store.Err()
+			return err.Error() == "openssl: self signed certificate"
 		}
-		return true
+		return ok
 	}
 	ctx.SetVerify(verifyOption, cb)
 	err = ctx.SetEllipticCurve(NID_secp256k1)
