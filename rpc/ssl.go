@@ -768,8 +768,7 @@ func (s *SSL) SubmitTicket(ticket *DeviceTicket) error {
 			tc := util.DecodeStringToIntForce(string(resp.RawData[2]))
 			tb := util.DecodeStringToIntForce(string(resp.RawData[3]))
 			sid, _ := s.GetServerID()
-			// if we decode the local addr, will break the signature
-			localAddr := resp.RawData[4]
+			localAddr := util.DecodeForce(resp.RawData[4])
 			lastTicket := DeviceTicket{
 				ServerID:         sid,
 				BlockHash:        util.DecodeForce(resp.RawData[1]),
