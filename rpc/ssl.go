@@ -38,7 +38,11 @@ const (
 	NID_secp256r1 openssl.EllipticCurve = 415
 )
 
-var null [20]byte
+var (
+	null          [20]byte
+	rpcTimeout    = 5 * time.Second
+	errRPCTimeout = fmt.Errorf("remote procedure call timeout")
+)
 
 type Call struct {
 	method          string
@@ -490,12 +494,18 @@ func (s *SSL) CallContext(method string, args ...interface{}) (*Response, error)
 
 // Await awaits a response future and returns a response
 func (f *ResponseFuture) Await() (*Response, error) {
-	resp := <-*f
-	res, err := parseResponse(resp)
-	if err != nil {
-		return nil, err
+	// TODO: move to command line flag
+	timeout := time.NewTimer(rpcTimeout)
+	select {
+	case resp := <-*f:
+		res, err := parseResponse(resp)
+		if err != nil {
+			return nil, err
+		}
+		return res, nil
+	case _ = <-timeout.C:
+		return nil, errRPCTimeout
 	}
-	return res, nil
 }
 
 // CheckTicket should client send traffic ticket to server
