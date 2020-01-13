@@ -30,6 +30,9 @@ func (device *ConnectedDevice) Close() {
 	deviceKey := fmt.Sprintf("connected_device:%d", ref)
 	// check if disconnect
 	if device.Server.GetCache(deviceKey) != nil {
+		device.Server.SetCache(deviceKey, nil)
+		device.Server.CastPortClose(ref)
+
 		// send portclose request and channel
 		if device.Conn.IsWS() {
 			device.Conn.WSConn.Close()
@@ -40,8 +43,6 @@ func (device *ConnectedDevice) Close() {
 			device.Conn.Close()
 			return
 		}
-		device.Server.SetCache(deviceKey, nil)
-		device.Server.CastPortClose(ref)
 	}
 }
 
@@ -51,13 +52,18 @@ func (device *ConnectedDevice) copyToSSL() {
 	ref := int(device.Ref)
 	err := device.Conn.copyToSSL(device.Server, ref)
 	if err != nil {
+		// log.Println("copyToSSL failed:", err)
 		device.Close()
 	}
 }
 
+// Maybe we should return error and call device Close
 func (device *ConnectedDevice) writeToTCP(data []byte) {
-	device.Conn.writeToTCP(data)
-	return
+	err := device.Conn.writeToTCP(data)
+	if err != nil {
+		log.Println("writeToTCP failed:", err)
+		device.Close()
+	}
 }
 
 // ConnectedConn connected net/websocket connection
@@ -132,17 +138,10 @@ func (conn *ConnectedConn) copyToSSL(s *SSL, ref int) error {
 
 }
 
-func (conn *ConnectedConn) writeToTCP(data []byte) {
+func (conn *ConnectedConn) writeToTCP(data []byte) error {
 	if conn.IsWS() {
-		err := conn.WSConn.WriteMessage(websocket.BinaryMessage, data)
-		if err != nil {
-			log.Println("writeToTCP(1) failed:", err)
-		}
-		return
+		return conn.WSConn.WriteMessage(websocket.BinaryMessage, data)
 	}
 	_, err := conn.Conn.Write(data)
-	if err != nil {
-		log.Println("writeToTCP(2) failed:", err)
-	}
-	return
+	return err
 }
