@@ -238,6 +238,10 @@ func parseDeviceTicket(rawObject []byte) (*DeviceTicket, error) {
 	if err != nil {
 		return nil, err
 	}
+	dlocalAddr, err := util.DecodeString(localAddr[:])
+	if err != nil {
+		return nil, err
+	}
 	deviceSig, err := jsonparser.GetString(rawObject, "[7]")
 	if err != nil {
 		return nil, err
@@ -270,7 +274,6 @@ func parseDeviceTicket(rawObject []byte) (*DeviceTicket, error) {
 	if err != nil {
 		return nil, err
 	}
-	dlocalAddr := []byte(localAddr)
 	ddeviceSig, err := util.DecodeString(deviceSig[:])
 	if err != nil {
 		return nil, err
