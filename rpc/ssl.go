@@ -148,19 +148,36 @@ func (s *SSL) Reconnect() bool {
 	isOk := false
 	for i := 1; i <= config.AppConfig.RetryTimes; i++ {
 		if config.AppConfig.Debug {
-			log.Printf("Retry to connect to %s, wait %s\n", s.addr, config.AppConfig.RetryWait.String())
+			log.Printf("Retry to connect to %s, wait %s (%d/%d)\n", s.addr, config.AppConfig.RetryWait.String(), i, config.AppConfig.RetryTimes)
 		}
 		time.Sleep(config.AppConfig.RetryWait)
 		if s.Closed() {
 			break
 		}
 		err := s.reconnect()
-		if err == nil {
-			isOk = true
-			break
+		if err != nil {
+			log.Println(err)
+			continue
+		}
+		// Send initial ticket
+		log.Printf("Sending ticket\n")
+		localAddr := s.LocalAddr().String()
+		ticket, err := s.NewTicket([]byte(localAddr))
+		if err != nil {
+			log.Println(err)
+			continue
+		}
+		err = s.SubmitTicket(ticket)
+		if err != nil {
+			log.Println(err)
+			continue
 		}
 		if config.AppConfig.Debug {
 			log.Println(err)
+		}
+		if err == nil {
+			isOk = true
+			break
 		}
 	}
 	return isOk
