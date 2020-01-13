@@ -177,7 +177,7 @@ func main() {
 }
 
 func connect(c chan *rpc.SSL, host string, config *config.Config, wg *sync.WaitGroup) {
-	client, err := rpc.DoConnect(host, config)
+	client, err := rpc.DoConnect(host, config, nil)
 	if err != nil {
 		log.Printf("Connection to host %s failed", host)
 		log.Print(err)

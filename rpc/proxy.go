@@ -85,8 +85,6 @@ func (socksServer *Server) pipeProxy(w http.ResponseWriter, r *http.Request) {
 	if connDevice == nil {
 		log.Panic("connDevice still nil")
 	}
-	deviceKey := fmt.Sprintf("connected_device:%d", connDevice.Ref)
-	socksServer.s.SetCache(deviceKey, connDevice)
 
 	if isWS {
 		upgrader := websocket.Upgrader{
@@ -130,6 +128,8 @@ func (socksServer *Server) pipeProxy(w http.ResponseWriter, r *http.Request) {
 			unread: header.Bytes(),
 		}
 	}
+	deviceKey := fmt.Sprintf("connected_device:%d", connDevice.Ref)
+	socksServer.s.SetCache(deviceKey, connDevice)
 	log.Printf("connDevice.copyToSSL()\n")
 	connDevice.copyToSSL()
 	connDevice.Close()

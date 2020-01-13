@@ -648,7 +648,7 @@ func (socksServer *Server) GetServer(nodeID [20]byte) (server *SSL, err error) {
 		return
 	}
 	host := fmt.Sprintf("%s:%d", string(serverObj.Host), serverObj.EdgePort)
-	server, err = DoConnect(host, config.AppConfig)
+	server, err = DoConnect(host, config.AppConfig, socksServer.s.memoryCache)
 	if err != nil {
 		err = fmt.Errorf("Couldn't connect to server '%+v' with error '%v'", serverObj, err)
 		return

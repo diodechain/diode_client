@@ -122,18 +122,20 @@ func (s *SSL) Host() string {
 }
 
 // DialContext connect to address with openssl context
-func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags) (*SSL, error) {
+func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags, memoryCache *cache.Cache) (*SSL, error) {
 	conn, err := openssl.Dial("tcp", addr, ctx, mode)
 	if err != nil {
 		return nil, err
 	}
-	c := cache.New(5*time.Minute, 10*time.Minute)
+	if memoryCache == nil {
+		memoryCache = cache.New(5*time.Minute, 10*time.Minute)
+	}
 	s := &SSL{
 		conn:        conn,
 		ctx:         ctx,
 		addr:        addr,
 		mode:        mode,
-		memoryCache: c,
+		memoryCache: memoryCache,
 		tcpIn:       make(chan []byte, 100),
 		callChannel: make(chan Call, 100),
 		calls:       make([]Call, 0),
@@ -993,9 +995,9 @@ func EnsurePrivatePEM() []byte {
 	return key
 }
 
-func DoConnect(host string, config *config.Config) (*SSL, error) {
+func DoConnect(host string, config *config.Config, memoryCache *cache.Cache) (*SSL, error) {
 	ctx := initSSL(config)
-	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification)
+	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification, memoryCache)
 	if err != nil {
 		if config.Debug {
 			log.Println(err)
@@ -1005,7 +1007,7 @@ func DoConnect(host string, config *config.Config) (*SSL, error) {
 		for i := 1; i <= config.RetryTimes; i++ {
 			log.Printf("Retry to connect to %s, wait %s\n", host, config.RetryWait.String())
 			time.Sleep(config.RetryWait)
-			client, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification)
+			client, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification, memoryCache)
 			if err == nil {
 				isOk = true
 				break
