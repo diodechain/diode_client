@@ -26,12 +26,10 @@ type ConnectedDevice struct {
 
 // Close the connection of device
 func (device *ConnectedDevice) Close() {
-	ref := int(device.Ref)
-	deviceKey := fmt.Sprintf("connected_device:%d", ref)
 	// check if disconnect
-	if device.Server.GetCache(deviceKey) != nil {
-		device.Server.SetCache(deviceKey, nil)
-		device.Server.CastPortClose(ref)
+	if device.Server.pool.GetDevice(device.Ref) != nil {
+		device.Server.pool.SetDevice(device.Ref, nil)
+		device.Server.CastPortClose(int(device.Ref))
 
 		// send portclose request and channel
 		if device.Conn.IsWS() {

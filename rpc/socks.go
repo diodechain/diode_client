@@ -85,6 +85,7 @@ type Config struct {
 type Server struct {
 	s           *SSL
 	pool        map[[20]byte]*SSL
+	datapool    *DataPool
 	Config      *Config
 	httpServer  *http.Server
 	httpsServer *http.Server
@@ -354,7 +355,7 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, mode str
 	portOpen, err := server.PortOpen(deviceID, int(port), mode)
 	if err != nil {
 		// This might fail when a device has reconnected. Clearing the cache and trying once more
-		socksServer.s.SetCache(deviceID, nil)
+		socksServer.datapool.SetCache(deviceID, nil)
 
 		if retry == 0 {
 			return nil, &HttpError{500, fmt.Errorf("PortOpen() failed: %v", err)}
@@ -439,8 +440,7 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *De
 	connDevice.Conn = ConnectedConn{
 		Conn: conn,
 	}
-	deviceKey := fmt.Sprintf("connected_device:%d", connDevice.Ref)
-	socksServer.s.SetCache(deviceKey, connDevice)
+	socksServer.datapool.SetDevice(connDevice.Ref, connDevice)
 
 	// send data or receive data from ref
 	if socksServer.Config.Verbose {
@@ -534,9 +534,9 @@ func (socksServer *Server) checkAccess(deviceID string) (*DeviceTicket, *HttpErr
 		return nil, &HttpError{500, err}
 	}
 	// Calling GetObject to locate the device
-	cachedDevice := socksServer.s.GetCache(deviceID)
+	cachedDevice := socksServer.datapool.GetCache(deviceID)
 	if cachedDevice != nil {
-		return cachedDevice.(*DeviceTicket), nil
+		return cachedDevice, nil
 	}
 	device, err := socksServer.s.GetObject(dDeviceID)
 	if err != nil {
@@ -555,7 +555,7 @@ func (socksServer *Server) checkAccess(deviceID string) (*DeviceTicket, *HttpErr
 		err = fmt.Errorf("Wrong signature in device object")
 		return nil, &HttpError{500, err}
 	}
-	socksServer.s.SetCache(deviceID, device)
+	socksServer.s.pool.SetCache(deviceID, device)
 	return device, nil
 }
 
@@ -612,13 +612,14 @@ func (socksServer *Server) Start() error {
 }
 
 // NewSocksServer generate socksserver struct
-func (s *SSL) NewSocksServer(config *Config) *Server {
+func (s *SSL) NewSocksServer(config *Config, pool *DataPool) *Server {
 	return &Server{
-		s:       s,
-		Config:  config,
-		wg:      &sync.WaitGroup{},
-		pool:    make(map[[20]byte]*SSL),
-		started: false,
+		s:        s,
+		Config:   config,
+		wg:       &sync.WaitGroup{},
+		pool:     make(map[[20]byte]*SSL),
+		datapool: pool,
+		started:  false,
 	}
 }
 
@@ -648,7 +649,7 @@ func (socksServer *Server) GetServer(nodeID [20]byte) (server *SSL, err error) {
 		return
 	}
 	host := fmt.Sprintf("%s:%d", string(serverObj.Host), serverObj.EdgePort)
-	server, err = DoConnect(host, config.AppConfig, socksServer.s.memoryCache)
+	server, err = DoConnect(host, config.AppConfig, socksServer.datapool)
 	if err != nil {
 		err = fmt.Errorf("Couldn't connect to server '%+v' with error '%v'", serverObj, err)
 		return

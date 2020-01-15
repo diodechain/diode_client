@@ -38,6 +38,7 @@ type RPCServer struct {
 	ticketTickerDuration  time.Duration
 	timeout               time.Duration
 	wg                    *sync.WaitGroup
+	pool                  *DataPool
 }
 
 func (rpcServer *RPCServer) addWorker(worker func()) {
@@ -97,7 +98,6 @@ func (rpcServer *RPCServer) Start() {
 					}
 				}
 				clientID := fmt.Sprintf("%s%d", portOpen.DeviceID, portOpen.Ref)
-				deviceKey := fmt.Sprintf("connected_device:%d", portOpen.Ref)
 				connDevice := &ConnectedDevice{}
 
 				// connect to stream service
@@ -115,7 +115,7 @@ func (rpcServer *RPCServer) Start() {
 				connDevice.DeviceID = portOpen.DeviceID
 				connDevice.Conn.Conn = remoteConn
 				connDevice.Server = rpcServer.s
-				rpcServer.s.SetCache(deviceKey, connDevice)
+				rpcServer.pool.SetDevice(portOpen.Ref, connDevice)
 
 				go func() {
 					connDevice.copyToSSL()
@@ -133,15 +133,12 @@ func (rpcServer *RPCServer) Start() {
 					log.Println(err)
 					continue
 				}
-				var connDevice *ConnectedDevice
-				deviceKey := fmt.Sprintf("connected_device:%d", portSend.Ref)
 				// start to write data
-				cachedConnDevice := rpcServer.s.GetCache(deviceKey)
+				cachedConnDevice := rpcServer.pool.GetDevice(portSend.Ref)
 				if cachedConnDevice != nil {
-					connDevice = cachedConnDevice.(*ConnectedDevice)
-					connDevice.writeToTCP(decData)
+					cachedConnDevice.writeToTCP(decData)
 				} else {
-					log.Printf("Cannot find the connected device, drop data and close port %v\n", cachedConnDevice)
+					log.Printf("portsend: Cannot find the connected device ref %v\n", portSend.Ref)
 					rpcServer.s.CastPortClose(int(portSend.Ref))
 				}
 			case "portclose":
@@ -149,14 +146,12 @@ func (rpcServer *RPCServer) Start() {
 				if err != nil {
 					log.Println(err)
 				}
-				deviceKey := fmt.Sprintf("connected_device:%d", portClose.Ref)
-				cachedConnDevice := rpcServer.s.GetCache(deviceKey)
+				cachedConnDevice := rpcServer.pool.GetDevice(portClose.Ref)
 				if cachedConnDevice != nil {
-					connDevice := cachedConnDevice.(*ConnectedDevice)
-					connDevice.Close()
-					rpcServer.s.SetCache(deviceKey, nil)
+					cachedConnDevice.Close()
+					rpcServer.pool.SetDevice(portClose.Ref, nil)
 				} else {
-					log.Println("Cannot find the connected device", deviceKey)
+					log.Printf("portclose: Cannot find the connected device ref %v\n", portClose.Ref)
 				}
 			case "goodbye":
 				log.Printf("Server disconnected, reason: %s, %s\n", string(request.RawData[0]), string(request.RawData[1]))
@@ -307,7 +302,7 @@ func (rpcServer *RPCServer) Close() {
 
 // NewRPCServer start rpc server
 // TODO: check blocking channel, error channel
-func (s *SSL) NewRPCServer(config *RPCConfig) *RPCServer {
+func (s *SSL) NewRPCServer(config *RPCConfig, pool *DataPool) *RPCServer {
 	rpcServer := &RPCServer{
 		s:                     s,
 		wg:                    &sync.WaitGroup{},
@@ -319,6 +314,7 @@ func (s *SSL) NewRPCServer(config *RPCConfig) *RPCServer {
 		requestChan:           make(chan *Request, 1024),
 		blockTickerDuration:   1 * time.Minute,
 		timeout:               5 * time.Second,
+		pool:                  pool,
 	}
 	return rpcServer
 }

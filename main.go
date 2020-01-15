@@ -28,6 +28,7 @@ const (
 func main() {
 	var socksServer *rpc.Server
 	var err error
+	pool := rpc.NewPool()
 
 	config := config.AppConfig
 	if config.Debug {
@@ -47,7 +48,7 @@ func main() {
 	c := make(chan *rpc.SSL, rpcAddrLen)
 	wg.Add(rpcAddrLen)
 	for _, RemoteRPCAddr := range config.RemoteRPCAddrs {
-		go connect(c, RemoteRPCAddr, config, wg)
+		go connect(c, RemoteRPCAddr, config, wg, pool)
 	}
 
 	var client *rpc.SSL
@@ -146,7 +147,7 @@ func main() {
 		CertPath:         "",
 		PrivPath:         "",
 	}
-	socksServer = client.NewSocksServer(socksConfig)
+	socksServer = client.NewSocksServer(socksConfig, pool)
 
 	if config.RunSocksServer {
 		// start socks server
@@ -170,8 +171,8 @@ func main() {
 	client.RPCServer.Wait()
 }
 
-func connect(c chan *rpc.SSL, host string, config *config.Config, wg *sync.WaitGroup) {
-	client, err := rpc.DoConnect(host, config, nil)
+func connect(c chan *rpc.SSL, host string, config *config.Config, wg *sync.WaitGroup, pool *rpc.DataPool) {
+	client, err := rpc.DoConnect(host, config, pool)
 	if err != nil {
 		log.Printf("Connection to host %s failed", host)
 		log.Print(err)

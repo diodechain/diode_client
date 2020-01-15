@@ -65,18 +65,31 @@ type SSL struct {
 	keepAliveCount    int
 	keepAliveIdle     time.Duration
 	keepAliveInterval time.Duration
-	memoryCache       *cache.Cache
 	closed            bool
 	totalConnections  int64
 	totalBytes        int64
 	counter           int64
-	rm                sync.RWMutex
 	clientPrivKey     *ecdsa.PrivateKey
 	RegistryAddr      [20]byte
 	FleetAddr         [20]byte
 	RPCServer         *RPCServer
 	enableMetrics     bool
 	metrics           *Metrics
+	pool              *DataPool
+	rm                sync.RWMutex
+}
+
+type DataPool struct {
+	rm          sync.RWMutex
+	devices     map[int64]*ConnectedDevice
+	memoryCache *cache.Cache
+}
+
+func NewPool() *DataPool {
+	return &DataPool{
+		memoryCache: cache.New(5*time.Minute, 10*time.Minute),
+		devices:     make(map[int64]*ConnectedDevice),
+	}
 }
 
 var (
@@ -125,20 +138,17 @@ func (s *SSL) Host() string {
 }
 
 // DialContext connect to address with openssl context
-func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags, memoryCache *cache.Cache) (*SSL, error) {
+func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags, pool *DataPool) (*SSL, error) {
 	conn, err := openssl.Dial("tcp", addr, ctx, mode)
 	if err != nil {
 		return nil, err
-	}
-	if memoryCache == nil {
-		memoryCache = cache.New(5*time.Minute, 10*time.Minute)
 	}
 	s := &SSL{
 		conn:        conn,
 		ctx:         ctx,
 		addr:        addr,
 		mode:        mode,
-		memoryCache: memoryCache,
+		pool:        pool,
 		tcpIn:       make(chan []byte, 100),
 		callChannel: make(chan Call, 100),
 		calls:       make([]Call, 0),
@@ -197,22 +207,16 @@ func (s *SSL) LocalAddr() net.Addr {
 
 // TotalConnections returns total connections of device
 func (s *SSL) TotalConnections() int64 {
-	s.rm.RLock()
-	defer s.rm.RUnlock()
 	return s.totalConnections
 }
 
 // TotalBytes returns total bytes that sent from device
 func (s *SSL) TotalBytes() int64 {
-	s.rm.RLock()
-	defer s.rm.RUnlock()
 	return s.totalBytes
 }
 
 // Counter returns counter in ssl
 func (s *SSL) Counter() int64 {
-	s.rm.RLock()
-	defer s.rm.RUnlock()
 	return s.counter
 }
 
@@ -242,23 +246,39 @@ func (s *SSL) Close() error {
 	return err
 }
 
-func (s *SSL) GetCache(key string) interface{} {
-	s.rm.RLock()
-	defer s.rm.RUnlock()
-	cacheObj, hit := s.memoryCache.Get(key)
+func (p *DataPool) GetCache(key string) *DeviceTicket {
+	p.rm.RLock()
+	defer p.rm.RUnlock()
+	cacheObj, hit := p.memoryCache.Get(key)
 	if !hit {
 		return nil
 	}
-	return cacheObj
+	return cacheObj.(*DeviceTicket)
 }
 
-func (s *SSL) SetCache(key string, object interface{}) {
-	s.rm.Lock()
-	defer s.rm.Unlock()
-	if object == nil {
-		s.memoryCache.Delete(key)
+func (p *DataPool) SetCache(key string, tck *DeviceTicket) {
+	p.rm.Lock()
+	defer p.rm.Unlock()
+	if tck == nil {
+		p.memoryCache.Delete(key)
 	} else {
-		s.memoryCache.Set(key, object, cache.DefaultExpiration)
+		p.memoryCache.Set(key, tck, cache.DefaultExpiration)
+	}
+}
+
+func (p *DataPool) GetDevice(ref int64) *ConnectedDevice {
+	p.rm.RLock()
+	defer p.rm.RUnlock()
+	return p.devices[ref]
+}
+
+func (p *DataPool) SetDevice(ref int64, dev *ConnectedDevice) {
+	p.rm.Lock()
+	defer p.rm.Unlock()
+	if dev == nil {
+		delete(p.devices, ref)
+	} else {
+		p.devices[ref] = dev
 	}
 }
 
@@ -1033,9 +1053,9 @@ func EnsurePrivatePEM() []byte {
 	return key
 }
 
-func DoConnect(host string, config *config.Config, memoryCache *cache.Cache) (*SSL, error) {
+func DoConnect(host string, config *config.Config, pool *DataPool) (*SSL, error) {
 	ctx := initSSL(config)
-	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification, memoryCache)
+	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
 	if err != nil {
 		if config.Debug {
 			log.Println(err)
@@ -1045,7 +1065,7 @@ func DoConnect(host string, config *config.Config, memoryCache *cache.Cache) (*S
 		for i := 1; i <= config.RetryTimes; i++ {
 			log.Printf("Retry to connect to %s, wait %s\n", host, config.RetryWait.String())
 			time.Sleep(config.RetryWait)
-			client, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification, memoryCache)
+			client, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
 			if err == nil {
 				isOk = true
 				break
@@ -1094,7 +1114,7 @@ func DoConnect(host string, config *config.Config, memoryCache *cache.Cache) (*S
 		Blacklists:   config.Blacklists,
 		Whitelists:   config.Whitelists,
 	}
-	client.RPCServer = client.NewRPCServer(rpcConfig)
+	client.RPCServer = client.NewRPCServer(rpcConfig, pool)
 	client.RPCServer.Start()
 	return client, nil
 }
