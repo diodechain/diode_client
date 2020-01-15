@@ -163,18 +163,7 @@ func (s *SSL) Reconnect() bool {
 			continue
 		}
 		// Send initial ticket
-		log.Printf("Sending ticket\n")
-		localAddr := s.LocalAddr().String()
-		ticket, err := s.NewTicket([]byte(localAddr))
-		if err != nil {
-			log.Println(err)
-			continue
-		}
-		err = s.SubmitTicket(ticket)
-		if err != nil {
-			log.Println(err)
-			continue
-		}
+		err = s.SubmitNewTicket()
 		if config.AppConfig.Debug {
 			log.Println(err)
 		}
@@ -560,13 +549,7 @@ func (f *ResponseFuture) Await() (*Response, error) {
 func (s *SSL) CheckTicket() error {
 	counter := s.Counter()
 	if s.TotalBytes() > counter+40000 {
-		// send ticket
-		localAddr := s.LocalAddr().String()
-		ticket, err := s.NewTicket([]byte(localAddr))
-		if err != nil {
-			return err
-		}
-		return s.SubmitTicket(ticket)
+		return s.SubmitNewTicket()
 	}
 	return nil
 }
@@ -764,8 +747,17 @@ func (s *SSL) GetNode(nodeID [20]byte) (*ServerObj, error) {
 	return obj, nil
 }
 
+// SubmitNewTicket creates and submits a new ticket
+func (s *SSL) SubmitNewTicket() error {
+	ticket, err := s.newTicket()
+	if err != nil {
+		return err
+	}
+	return s.submitTicket(ticket)
+}
+
 // NewTicket returns ticket
-func (s *SSL) NewTicket(localAddr []byte) (*DeviceTicket, error) {
+func (s *SSL) newTicket() (*DeviceTicket, error) {
 	serverID, err := s.GetServerID()
 	s.counter = s.totalBytes
 	lvbn := LVBN
@@ -782,7 +774,7 @@ func (s *SSL) NewTicket(localAddr []byte) (*DeviceTicket, error) {
 		FleetAddr:        s.FleetAddr,
 		TotalConnections: s.totalConnections,
 		TotalBytes:       s.totalBytes,
-		LocalAddr:        localAddr,
+		LocalAddr:        []byte(s.LocalAddr().String()),
 	}
 	if err := ticket.ValidateValues(); err != nil {
 		return nil, err
@@ -807,7 +799,7 @@ func (s *SSL) NewTicket(localAddr []byte) (*DeviceTicket, error) {
 }
 
 // SubmitTicket submit ticket to server
-func (s *SSL) SubmitTicket(ticket *DeviceTicket) error {
+func (s *SSL) submitTicket(ticket *DeviceTicket) error {
 	encFleetAddr := util.EncodeToString(ticket.FleetAddr[:])
 	encLocalAddr := util.EncodeToString(ticket.LocalAddr)
 	encSig := util.EncodeToString(ticket.DeviceSig)
@@ -851,13 +843,7 @@ func (s *SSL) SubmitTicket(ticket *DeviceTicket) error {
 			if lastTicket.ValidateDeviceSig(addr) {
 				s.totalBytes = tb + 1024
 				s.totalConnections = tc + 1
-				localAddr := s.LocalAddr().String()
-				ticket, err := s.NewTicket([]byte(localAddr))
-				if err != nil {
-					log.Println(err)
-					return
-				}
-				err = s.SubmitTicket(ticket)
+				err = s.SubmitNewTicket()
 				if err != nil {
 					log.Println(err)
 					return

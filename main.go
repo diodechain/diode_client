@@ -109,13 +109,7 @@ func main() {
 	}
 	rpc.SetValidBlockHeader(bn, blockHeader)
 	// send ticket
-	localAddr := client.LocalAddr().String()
-	ticket, err := client.NewTicket([]byte(localAddr))
-	if err != nil {
-		log.Println(err)
-		return
-	}
-	err = client.SubmitTicket(ticket)
+	err = client.SubmitNewTicket()
 	if err != nil {
 		log.Println(err)
 		return
