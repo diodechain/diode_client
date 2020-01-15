@@ -42,6 +42,7 @@ var (
 	null          [20]byte
 	rpcTimeout    = 5 * time.Second
 	errRPCTimeout = fmt.Errorf("remote procedure call timeout")
+	debugRPCID    = 0
 )
 
 type Call struct {
@@ -74,6 +75,8 @@ type SSL struct {
 	RegistryAddr      [20]byte
 	FleetAddr         [20]byte
 	RPCServer         *RPCServer
+	enableMetrics     bool
+	metrics           *Metrics
 }
 
 var (
@@ -416,6 +419,7 @@ func (s *SSL) readContext() error {
 	// read length of response
 	lenByt := make([]byte, 2)
 	conn := s.getOpensslConn()
+	ts := time.Now()
 	n, err := conn.Read(lenByt)
 	if err != nil {
 		if err == io.EOF ||
@@ -429,9 +433,17 @@ func (s *SSL) readContext() error {
 		return err
 	}
 	lenr := binary.BigEndian.Uint16(lenByt)
+	if lenr <= 0 {
+		return nil
+	}
 	// read response
 	res := make([]byte, lenr)
 	n, err = conn.Read(res)
+	tsDiff := time.Since(ts)
+	if s.enableMetrics {
+		s.metrics.UpdateReadTimer(tsDiff)
+	}
+	log.Println("Read time:", tsDiff)
 	if err != nil {
 		if err == io.EOF ||
 			strings.Contains(err.Error(), "connection reset by peer") {
@@ -503,12 +515,29 @@ func (s *SSL) CastContext(method string, args ...interface{}) (ResponseFuture, e
 }
 
 // CallContext returns the response after calling the rpc
-func (s *SSL) CallContext(method string, args ...interface{}) (*Response, error) {
-	future, err := s.CastContext(method, args...)
+func (s *SSL) CallContext(method string, args ...interface{}) (res *Response, err error) {
+	var future ResponseFuture
+	var ts time.Time
+	var tsDiff time.Duration
+	future, err = s.CastContext(method, args...)
 	if err != nil {
 		return nil, err
 	}
-	return future.Await()
+	ts = time.Now()
+	res, err = future.Await()
+	tsDiff = time.Since(ts)
+	methodd := fmt.Sprintf("%s-%d", method, debugRPCID)
+	debugRPCID++
+	if s.enableMetrics {
+		s.metrics.UpdateRPCTimer(tsDiff)
+	}
+	if err != nil {
+		log.Println("Got error: ", methodd, err, tsDiff)
+
+		return nil, err
+	}
+	log.Println("Got response: ", methodd, tsDiff)
+	return res, nil
 }
 
 // Await awaits a response future and returns a response
@@ -784,7 +813,12 @@ func (s *SSL) SubmitTicket(ticket *DeviceTicket) error {
 	encSig := util.EncodeToString(ticket.DeviceSig)
 	future, err := s.CastContext("ticket", ticket.BlockNumber, encFleetAddr, ticket.TotalConnections, ticket.TotalBytes, encLocalAddr, encSig)
 	go func() {
+		ts := time.Now()
 		resp, err := future.Await()
+		tsDiff := time.Since(ts)
+		if s.enableMetrics {
+			s.metrics.UpdateRPCTimer(tsDiff)
+		}
 		if err != nil {
 			log.Printf("SubmitTicket.Error: %v\n", err)
 			return
@@ -1059,6 +1093,11 @@ func DoConnect(host string, config *config.Config, memoryCache *cache.Cache) (*S
 		if err != nil {
 			return nil, err
 		}
+	}
+
+	if config.EnableMetrics {
+		client.enableMetrics = true
+		client.metrics = NewMetrics()
 	}
 
 	// initialize rpc server

@@ -12,6 +12,7 @@ require (
 	github.com/felixge/tcpkeepalive v0.0.0-20160804073959-5bb0b2dea91e
 	github.com/gorilla/websocket v1.4.1
 	github.com/kr/pretty v0.1.0 // indirect
+	github.com/rcrowley/go-metrics v0.0.0-20190826022208-cac0b30c2563
 	github.com/spacemonkeygo/openssl v0.0.0-20181017203307-c2dcc5cca94a // indirect
 	github.com/stretchr/testify v1.4.0
 	github.com/tatsushid/go-fastping v0.0.0-20160109021039-d7bb493dee3e

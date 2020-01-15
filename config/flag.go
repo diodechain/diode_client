@@ -20,6 +20,7 @@ var AppConfig *Config
 type Config struct {
 	DBPath                string
 	Debug                 bool
+	EnableMetrics         bool
 	DecFleetAddr          [20]byte
 	DecRegistryAddr       [20]byte
 	EnableKeepAlive       bool
@@ -103,6 +104,7 @@ func parseFlag() *Config {
 	flag.StringVar(&cfg.FleetAddr, "fleet", "0x6000000000000000000000000000000000000000", "fleet contract address")
 	flag.IntVar(&cfg.RetryTimes, "retrytimes", 3, "retry times to connect the remote rpc server")
 	flag.BoolVar(&cfg.EnableKeepAlive, "keepalive", true, "enable tcp keepalive")
+	flag.BoolVar(&cfg.EnableMetrics, "metrics", false, "enable metrics stats")
 	flag.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
 
 	remoteRPCAddr := flag.String("diodeaddrs", "asia.testnet.diode.io:41043,europe.testnet.diode.io:41043,usa.testnet.diode.io:41043", "addresses of Diode node server")

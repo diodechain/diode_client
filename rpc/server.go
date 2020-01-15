@@ -267,8 +267,14 @@ func (rpcServer *RPCServer) Start() {
 					call.responseChannel <- ret
 
 				} else {
+					ts := time.Now()
 					conn := rpcServer.s.getOpensslConn()
 					conn.Write(call.data)
+					tsDiff := time.Since(ts)
+					log.Println("Write time:", tsDiff)
+					if rpcServer.s.enableMetrics {
+						rpcServer.s.metrics.UpdateWriteTimer(tsDiff)
+					}
 					if call.responseChannel != nil {
 						rpcServer.s.calls = append(rpcServer.s.calls, call)
 					}
