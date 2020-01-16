@@ -42,7 +42,7 @@ var (
 	null          [20]byte
 	rpcTimeout    = 5 * time.Second
 	errRPCTimeout = fmt.Errorf("remote procedure call timeout")
-	debugRPCID    = 0
+	debugRPCID    = 1
 )
 
 type Call struct {
@@ -452,7 +452,6 @@ func (s *SSL) readContext() error {
 	if s.enableMetrics {
 		s.metrics.UpdateReadTimer(tsDiff)
 	}
-	log.Println("Read time:", tsDiff)
 	if err != nil {
 		if err == io.EOF ||
 			strings.Contains(err.Error(), "connection reset by peer") {
@@ -535,17 +534,22 @@ func (s *SSL) CallContext(method string, args ...interface{}) (res *Response, er
 	ts = time.Now()
 	res, err = future.Await()
 	tsDiff = time.Since(ts)
-	methodd := fmt.Sprintf("%s-%d", method, debugRPCID)
-	debugRPCID++
+	if config.AppConfig.Debug {
+		method = fmt.Sprintf("%s-%d", method, debugRPCID)
+		debugRPCID++
+	}
 	if s.enableMetrics {
 		s.metrics.UpdateRPCTimer(tsDiff)
 	}
 	if err != nil {
-		log.Println("Got error: ", methodd, err, tsDiff)
-
+		if config.AppConfig.Debug {
+			log.Println("Got error: ", method, err, tsDiff)
+		}
 		return nil, err
 	}
-	log.Println("Got response: ", methodd, tsDiff)
+	if config.AppConfig.Debug {
+		log.Println("Got response: ", method, tsDiff)
+	}
 	return res, nil
 }
 
@@ -823,61 +827,53 @@ func (s *SSL) submitTicket(ticket *DeviceTicket) error {
 	encFleetAddr := util.EncodeToString(ticket.FleetAddr[:])
 	encLocalAddr := util.EncodeToString(ticket.LocalAddr)
 	encSig := util.EncodeToString(ticket.DeviceSig)
-	future, err := s.CastContext("ticket", ticket.BlockNumber, encFleetAddr, ticket.TotalConnections, ticket.TotalBytes, encLocalAddr, encSig)
-	go func() {
-		ts := time.Now()
-		resp, err := future.Await()
-		tsDiff := time.Since(ts)
-		if s.enableMetrics {
-			s.metrics.UpdateRPCTimer(tsDiff)
+	resp, err := s.CallContext("ticket", ticket.BlockNumber, encFleetAddr, ticket.TotalConnections, ticket.TotalBytes, encLocalAddr, encSig)
+	if err != nil {
+		log.Printf("SubmitTicket.Error: %v\n", err)
+		return err
+	}
+	status := string(resp.RawData[0])
+	switch status {
+	case "too_low":
+
+		tc := util.DecodeStringToIntForce(string(resp.RawData[2]))
+		tb := util.DecodeStringToIntForce(string(resp.RawData[3]))
+		sid, _ := s.GetServerID()
+		lastTicket := DeviceTicket{
+			ServerID:         sid,
+			BlockHash:        util.DecodeForce(resp.RawData[1]),
+			FleetAddr:        s.FleetAddr,
+			TotalConnections: tc,
+			TotalBytes:       tb,
+			LocalAddr:        util.DecodeForce(resp.RawData[4]),
+			DeviceSig:        util.DecodeForce(resp.RawData[5]),
 		}
+
+		addr, err := s.GetClientAddress()
 		if err != nil {
-			log.Printf("SubmitTicket.Error: %v\n", err)
-			return
+			log.Panicf("SubmitTicket can't identify self: %v\n", err)
 		}
-		status := string(resp.RawData[0])
-		switch status {
-		case "too_low":
 
-			tc := util.DecodeStringToIntForce(string(resp.RawData[2]))
-			tb := util.DecodeStringToIntForce(string(resp.RawData[3]))
-			sid, _ := s.GetServerID()
-			lastTicket := DeviceTicket{
-				ServerID:         sid,
-				BlockHash:        util.DecodeForce(resp.RawData[1]),
-				FleetAddr:        s.FleetAddr,
-				TotalConnections: tc,
-				TotalBytes:       tb,
-				LocalAddr:        util.DecodeForce(resp.RawData[4]),
-				DeviceSig:        util.DecodeForce(resp.RawData[5]),
-			}
-
-			addr, err := s.GetClientAddress()
+		if !lastTicket.ValidateDeviceSig(addr) {
+			lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)
+		}
+		if lastTicket.ValidateDeviceSig(addr) {
+			s.totalBytes = tb + 1024
+			s.totalConnections = tc + 1
+			err = s.SubmitNewTicket()
 			if err != nil {
-				log.Panicf("SubmitTicket can't identify self: %v\n", err)
+				log.Println(err)
+				return nil
 			}
 
-			if !lastTicket.ValidateDeviceSig(addr) {
-				lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)
-			}
-			if lastTicket.ValidateDeviceSig(addr) {
-				s.totalBytes = tb + 1024
-				s.totalConnections = tc + 1
-				err = s.SubmitNewTicket()
-				if err != nil {
-					log.Println(err)
-					return
-				}
-
-			} else {
-				log.Printf("Received fake ticket..\n\t%+v\n\t(from %+v)\n", lastTicket, resp.RawData)
-			}
-
-		case "ok", "thanks!":
-		default:
-			log.Printf("SubmitTicket.Response: %v %v\n", status, len(resp.RawData))
+		} else {
+			log.Printf("Received fake ticket..\n\t%+v\n\t(from %+v)\n", lastTicket, resp.RawData)
 		}
-	}()
+
+	case "ok", "thanks!":
+	default:
+		log.Printf("SubmitTicket.Response: %v %v\n", status, len(resp.RawData))
+	}
 	return err
 }
 

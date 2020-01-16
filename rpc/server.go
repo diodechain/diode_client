@@ -217,7 +217,7 @@ func (rpcServer *RPCServer) Start() {
 					return
 				}()
 			case res := <-rpcServer.s.tcpIn:
-				rpcServer.s.CheckTicket()
+				go rpcServer.s.CheckTicket()
 				// log.Printf("GOT: isResp=%v %v\n", isResponseType, string(res))
 				if isResponseType(res) || isErrorType(res) {
 					call := rpcServer.s.calls[0]
@@ -266,7 +266,6 @@ func (rpcServer *RPCServer) Start() {
 					conn := rpcServer.s.getOpensslConn()
 					conn.Write(call.data)
 					tsDiff := time.Since(ts)
-					log.Println("Write time:", tsDiff)
 					if rpcServer.s.enableMetrics {
 						rpcServer.s.metrics.UpdateWriteTimer(tsDiff)
 					}
