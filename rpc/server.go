@@ -109,13 +109,14 @@ func (rpcServer *RPCServer) Start() {
 					continue
 				}
 				_ = rpcServer.s.ResponsePortOpen(portOpen, nil)
+				deviceKey := rpcServer.s.GetDeviceKey(portOpen.Ref)
 
 				connDevice.Ref = portOpen.Ref
 				connDevice.ClientID = clientID
 				connDevice.DeviceID = portOpen.DeviceID
 				connDevice.Conn.Conn = remoteConn
 				connDevice.Server = rpcServer.s
-				rpcServer.pool.SetDevice(portOpen.Ref, connDevice)
+				rpcServer.pool.SetDevice(deviceKey, connDevice)
 
 				go func() {
 					connDevice.copyToSSL()
@@ -134,7 +135,8 @@ func (rpcServer *RPCServer) Start() {
 					continue
 				}
 				// start to write data
-				cachedConnDevice := rpcServer.pool.GetDevice(portSend.Ref)
+				deviceKey := rpcServer.s.GetDeviceKey(portSend.Ref)
+				cachedConnDevice := rpcServer.pool.GetDevice(deviceKey)
 				if cachedConnDevice != nil {
 					cachedConnDevice.writeToTCP(decData)
 				} else {
@@ -146,10 +148,11 @@ func (rpcServer *RPCServer) Start() {
 				if err != nil {
 					log.Println(err)
 				}
-				cachedConnDevice := rpcServer.pool.GetDevice(portClose.Ref)
+				deviceKey := rpcServer.s.GetDeviceKey(portClose.Ref)
+				cachedConnDevice := rpcServer.pool.GetDevice(deviceKey)
 				if cachedConnDevice != nil {
 					cachedConnDevice.Close()
-					rpcServer.pool.SetDevice(portClose.Ref, nil)
+					rpcServer.pool.SetDevice(deviceKey, nil)
 				} else {
 					log.Printf("portclose: Cannot find the connected device ref %v\n", portClose.Ref)
 				}

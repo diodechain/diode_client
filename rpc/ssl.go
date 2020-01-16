@@ -81,14 +81,14 @@ type SSL struct {
 
 type DataPool struct {
 	rm          sync.RWMutex
-	devices     map[int64]*ConnectedDevice
+	devices     map[string]*ConnectedDevice
 	memoryCache *cache.Cache
 }
 
 func NewPool() *DataPool {
 	return &DataPool{
 		memoryCache: cache.New(5*time.Minute, 10*time.Minute),
-		devices:     make(map[int64]*ConnectedDevice),
+		devices:     make(map[string]*ConnectedDevice),
 	}
 }
 
@@ -266,20 +266,29 @@ func (p *DataPool) SetCache(key string, tck *DeviceTicket) {
 	}
 }
 
-func (p *DataPool) GetDevice(ref int64) *ConnectedDevice {
+func (p *DataPool) GetDevice(key string) *ConnectedDevice {
 	p.rm.RLock()
 	defer p.rm.RUnlock()
-	return p.devices[ref]
+	return p.devices[key]
 }
 
-func (p *DataPool) SetDevice(ref int64, dev *ConnectedDevice) {
+func (p *DataPool) SetDevice(key string, dev *ConnectedDevice) {
 	p.rm.Lock()
 	defer p.rm.Unlock()
 	if dev == nil {
-		delete(p.devices, ref)
+		delete(p.devices, key)
 	} else {
-		p.devices[ref] = dev
+		p.devices[key] = dev
 	}
+}
+
+func (s *SSL) GetDeviceKey(ref int64) string {
+	prefixByt, err := s.GetServerID()
+	if err != nil {
+		return ""
+	}
+	prefix := util.EncodeToString(prefixByt[:])
+	return fmt.Sprintf("%s:%d", prefix, ref)
 }
 
 // EnableKeepAlive enable the tcp keepalive package in os level, could use ping instead

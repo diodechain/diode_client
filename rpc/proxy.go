@@ -128,7 +128,8 @@ func (socksServer *Server) pipeProxy(w http.ResponseWriter, r *http.Request) {
 			unread: header.Bytes(),
 		}
 	}
-	socksServer.datapool.SetDevice(connDevice.Ref, connDevice)
+	deviceKey := socksServer.s.GetDeviceKey(connDevice.Ref)
+	socksServer.datapool.SetDevice(deviceKey, connDevice)
 	log.Printf("connDevice.copyToSSL()\n")
 	connDevice.copyToSSL()
 	connDevice.Close()

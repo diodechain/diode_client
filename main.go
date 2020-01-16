@@ -28,8 +28,8 @@ const (
 func main() {
 	var socksServer *rpc.Server
 	var err error
-	pool := rpc.NewPool()
 
+	pool := rpc.NewPool()
 	config := config.AppConfig
 	if config.Debug {
 		log.SetFlags(log.LstdFlags | log.Lshortfile)

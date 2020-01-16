@@ -435,12 +435,13 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *De
 		writeSocksError(conn, ver, socksRepNetworkUnreachable)
 		return
 	}
+	deviceKey := socksServer.s.GetDeviceKey(connDevice.Ref)
 
 	connDevice.ClientID = clientIP
 	connDevice.Conn = ConnectedConn{
 		Conn: conn,
 	}
-	socksServer.datapool.SetDevice(connDevice.Ref, connDevice)
+	socksServer.datapool.SetDevice(deviceKey, connDevice)
 
 	// send data or receive data from ref
 	if socksServer.Config.Verbose {
