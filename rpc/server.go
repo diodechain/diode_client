@@ -265,9 +265,13 @@ func (rpcServer *RPCServer) Start() {
 					call.responseChannel <- ret
 
 				} else {
+					// log.Println("write to tcp")
 					ts := time.Now()
 					conn := rpcServer.s.getOpensslConn()
-					conn.Write(call.data)
+					_, err := conn.Write(call.data)
+					if err != nil {
+						log.Println("WriteToSSL error:", err)
+					}
 					tsDiff := time.Since(ts)
 					if rpcServer.s.enableMetrics {
 						rpcServer.s.metrics.UpdateWriteTimer(tsDiff)

@@ -39,10 +39,8 @@ const (
 )
 
 var (
-	null          [20]byte
-	rpcTimeout    = 5 * time.Second
-	errRPCTimeout = fmt.Errorf("remote procedure call timeout")
-	debugRPCID    = 1
+	null       [20]byte
+	debugRPCID = 1
 )
 
 type Call struct {
@@ -541,7 +539,8 @@ func (s *SSL) CallContext(method string, args ...interface{}) (res *Response, er
 		return nil, err
 	}
 	ts = time.Now()
-	res, err = future.Await()
+	rpcTimeout, _ := time.ParseDuration(fmt.Sprintf("%ds", 5+len(s.calls)))
+	res, err = future.Await(rpcTimeout)
 	tsDiff = time.Since(ts)
 	if config.AppConfig.Debug {
 		method = fmt.Sprintf("%s-%d", method, debugRPCID)
@@ -563,7 +562,7 @@ func (s *SSL) CallContext(method string, args ...interface{}) (res *Response, er
 }
 
 // Await awaits a response future and returns a response
-func (f *ResponseFuture) Await() (*Response, error) {
+func (f *ResponseFuture) Await(rpcTimeout time.Duration) (*Response, error) {
 	// TODO: move to command line flag
 	timeout := time.NewTimer(rpcTimeout)
 	select {
@@ -574,7 +573,7 @@ func (f *ResponseFuture) Await() (*Response, error) {
 		}
 		return res, nil
 	case _ = <-timeout.C:
-		return nil, errRPCTimeout
+		return nil, fmt.Errorf("remote procedure call timeout: %s", rpcTimeout.String())
 	}
 }
 
@@ -917,6 +916,11 @@ func (s *SSL) PortSend(ref int, data []byte) (*Response, error) {
 func (s *SSL) CastPortClose(ref int) (err error) {
 	_, err = s.CastContext("portclose", ref)
 	return err
+}
+
+// PortClose portclose RPC
+func (s *SSL) PortClose(ref int) (*Response, error) {
+	return s.CallContext("portclose", ref)
 }
 
 // Ping call ping RPC

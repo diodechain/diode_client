@@ -32,7 +32,7 @@ func main() {
 	pool := rpc.NewPool()
 	config := config.AppConfig
 	if config.Debug {
-		log.SetFlags(log.LstdFlags | log.Lshortfile)
+		log.SetFlags(log.LstdFlags | log.Lshortfile | log.Lmicroseconds)
 	}
 
 	// Initialize db
