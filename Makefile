@@ -8,17 +8,12 @@ test:
 install:
 	go install
 
-.PHONY: gateway
-gateway:
-	go build
-	$(MAKE) gateway_copy
-
-gateway_copy: diode_go_client
+gateway: diode_go_client
 	strip -s diode_go_client
 	scp -C diode_go_client root@diode.ws:
 	ssh root@diode.ws 'svc -k .'
-	touch gateway_copy
+	touch gateway
 
-.PHONY: build
-build:
+.PHONY: diode_go_client
+diode_go_client:
 	go build -ldflags "-X main.version=`git rev-list -1 HEAD`"
