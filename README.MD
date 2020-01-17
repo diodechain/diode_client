@@ -78,38 +78,79 @@ $ make build
 ## Command line options
 
 ```BASH
-Usage of:
-  -blockquicklimit int
-    	total number limit to run blockquick algorithm, only useful in debug mode (default 100)
+Name
+  diode - Diode network command line interfaces
+SYNOPSIS
+  diode [OPTIONS] COMMAND [ARG...]
+OPTIONS
+  -blacklists string
+    	addresses are not allowed to connect to published resource (worked when whitelists is empty)
   -dbpath string
     	file path to db file (default "./db/private.db")
   -debug
     	turn on debug mode
-  -enablekeepalive
-    	enable tcp keepalive (default true)
+  -diodeaddrs string
+    	addresses of Diode node server (default "asia.testnet.diode.io:41043,europe.testnet.diode.io:41043,usa.testnet.diode.io:41043")
   -fleet string
     	fleet contract address (default "0x6000000000000000000000000000000000000000")
+  -keepalive
+    	enable tcp keepalive (default true)
+  -metrics
+    	enable metrics stats
   -registry string
     	registry contract address (default "0x5000000000000000000000000000000000000000")
-  -remoterpcaddr string
-    	remote rpc address (default "127.0.0.1:41043")
-  -remoterpctimeout int
-    	timeout seconds to connect to the remote rpc server (default 1)
   -retrytimes int
     	retry times to connect the remote rpc server (default 3)
   -retrywait int
     	wait seconds before next retry (default 1)
-  -runsocks
-    	run socks server
-  -runsocksws
-    	run socks with websocket server
   -skiphostvalidation
     	skip host validation
-  -socksaddr string
-    	socks server address which listen to (default "127.0.0.1:1080")
-  -wsaddr string
-    	websocket server address which socks server connect to (default "127.0.0.1:8081")
-
+  -timeout int
+    	timeout seconds to connect to the remote rpc server (default 5)
+  -whitelists string
+    	addresses are allowed to connect to published resource (worked when whitelists is empty)
+COMMANDS
+  socksd
+    This command enables a socks proxy on the local host for use with Browsers (Firefox), SSH, Java and other applications to communicate via the Diode Network.
+    ARG
+      -socksd_host string
+    	host of socks server listening to (default "127.0.0.1")
+      -socksd_port int
+    	port of socks server listening to (default 1080)
+    EXAMPLE
+      diode socksd -socksd_port 8082 -socksd_host 127.0.0.1
+  httpd
+    This command enables a public http server as is used by the "diode.link" website
+    ARG
+      -allow_redirect
+    	allow redirect all http transmission to httpsd
+      -certpath string
+    	Pem format of certificate file path of httpsd secure server (default "./priv/cert.pem")
+      -httpd_host string
+    	host of httpd server listening to (default "127.0.0.1")
+      -httpd_port int
+    	port of httpd server listening to (default 80)
+      -httpsd_host string
+    	host of httpsd server listening to (default "127.0.0.1")
+      -httpsd_port int
+    	port of httpsd server listening to (default 443)
+      -privpath string
+    	Pem format of private key file path of httpsd secure server (default "./priv/priv.pem")
+      -proxy_host string
+    	host of socksd proxy server (default "127.0.0.1")
+      -proxy_port int
+    	port of socksd proxy server (default 1080)
+      -secure
+    	enable httpsd server
+      -socksd
+    	enable socksd proxy server
+    EXAMPLE
+      diode httpd -httpd_port 8080 -httpsd_port 443 -secure -certpath ./cert.pem -privpath ./priv.pem
+  publish
+    This command publishes ports of the local device to the Diode Network.
+    ARG
+    EXAMPLE
+      diode publish
 ```
 
 ## Tunnel to ssh using your diode socks proxy
