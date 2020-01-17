@@ -11,7 +11,7 @@ import (
 	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/crypto/secp256k1"
 	"github.com/diodechain/diode_go_client/util"
-	bert "github.com/exosite/gobert"
+	bert "github.com/diodechain/gobert"
 )
 
 // DeviceTicket struct for connection and transmission

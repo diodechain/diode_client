@@ -14,7 +14,7 @@ import (
 
 	"github.com/diodechain/diode_go_client/rlp"
 
-	bert "github.com/exosite/gobert"
+	bert "github.com/diodechain/gobert"
 )
 
 var (

@@ -27,7 +27,7 @@ import (
 	"github.com/diodechain/diode_go_client/util"
 	"github.com/diodechain/go-cache"
 
-	"github.com/exosite/openssl"
+	"github.com/diodechain/openssl"
 	"github.com/felixge/tcpkeepalive"
 )
 

@@ -15,7 +15,7 @@ import (
 	// "github.com/diodechain/diode_go_client/crypto/sha3"
 	// "github.com/diodechain/diode_go_client/util"
 
-	bert "github.com/exosite/gobert"
+	bert "github.com/diodechain/gobert"
 	// "strings"
 )
 
