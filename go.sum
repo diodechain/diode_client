@@ -17,8 +17,8 @@ github.com/diodechain/go-cache v2.1.0+incompatible h1:hwwJSO9NA0iG40CxCWYF80lJOE
 github.com/diodechain/go-cache v2.1.0+incompatible/go.mod h1:yG22NI4DfcPMlZ6vtzCCdx9PRBULGG8YKN/yeBn9UUQ=
 github.com/diodechain/gobert v1.0.0 h1:tdmPG++bY8JcjeAbQp0IkiXPYIbaPAfbctFfwf3W724=
 github.com/diodechain/gobert v1.0.0/go.mod h1:X9tC96925Yf6P16ii8Uo4nGdqDH7mLfxD9FDpKxEyrU=
-github.com/diodechain/openssl v0.0.0-20200117145236-e8988a8f3027 h1:kaznPgIihlMEcpyW4qIfxqKQcB4tXd5MZrZSsWEdepo=
-github.com/diodechain/openssl v0.0.0-20200117145236-e8988a8f3027/go.mod h1:WVhOaZ63f6ugO8xEQzuOF1D7rvU4HvgqaPdFCg0/F8o=
+github.com/diodechain/openssl v1.0.1 h1:gXKA0lm2qDielHUItJ1HNh3EeAxSSOrZJ4DyTxS6Rl0=
+github.com/diodechain/openssl v1.0.1/go.mod h1:WVhOaZ63f6ugO8xEQzuOF1D7rvU4HvgqaPdFCg0/F8o=
 github.com/ethereum/go-ethereum v1.9.5 h1:4oxsF+/3N/sTgda9XTVG4r+wMVLsveziSMcK83hPbsk=
 github.com/ethereum/go-ethereum v1.9.5/go.mod h1:PwpWDrCLZrV+tfrhqqF6kPknbISMHaJv9Ln3kPCZLwY=
 github.com/felixge/tcpkeepalive v0.0.0-20160804073959-5bb0b2dea91e h1:mVIjvOd7NckIwf9J4hLB2YWXBYjhREF4vBeZXZ8mrWM=
