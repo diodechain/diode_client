@@ -25,6 +25,10 @@ const (
 	NID_secp256r1 openssl.EllipticCurve = 415
 )
 
+var (
+	version string = "development"
+)
+
 func main() {
 	var socksServer *rpc.Server
 	var err error
@@ -34,6 +38,8 @@ func main() {
 	if config.Debug {
 		log.SetFlags(log.LstdFlags | log.Lshortfile | log.Lmicroseconds)
 	}
+
+	log.Printf("Diode client - version %s\n", version)
 
 	// Initialize db
 	clidb, err := db.OpenFile(config.DBPath)
