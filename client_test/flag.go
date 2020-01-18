@@ -12,6 +12,7 @@ import (
 type Config struct {
 	Target          string
 	Conn            int
+	EnableTransport bool
 	SocksServerAddr string
 	SocksServerHost string
 	SocksServerPort int
@@ -22,6 +23,7 @@ func parseFlag() *Config {
 	cfg := &Config{}
 
 	flag.StringVar(&cfg.Target, "target", "http://pi-taipei.diode", "test target")
+	flag.BoolVar(&cfg.EnableTransport, "transport", true, "enable http transport")
 	flag.StringVar(&cfg.SocksServerHost, "socksd_host", "127.0.0.1", "host of socks server")
 	flag.IntVar(&cfg.SocksServerPort, "socksd_port", 1080, "port of socks server")
 	flag.IntVar(&cfg.Conn, "conn", 100, "total connection concurrently")

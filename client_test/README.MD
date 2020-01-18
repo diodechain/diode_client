@@ -20,4 +20,6 @@ Usage:
     	port of socks server (default 1080)
   -target string
     	test target (default "http://pi-taipei.diode")
+  -transport
+    	enable http transport (default true)
 ```

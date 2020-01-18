@@ -4,6 +4,7 @@
 package main
 
 import (
+	"crypto/tls"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -32,6 +33,16 @@ func main() {
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 	}
+	var tlsTransport *http.Transport = &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
+		},
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
 	var wg sync.WaitGroup
 	config = parseFlag()
 	prox, _ := url.Parse(fmt.Sprintf("socks5://%s", config.SocksServerAddr))
@@ -40,8 +51,11 @@ func main() {
 	for i := 0; i < config.Conn; i++ {
 		wg.Add(1)
 		go func() {
-			client := &http.Client{
-				Transport: proxyTransport,
+			client := &http.Client{}
+			if config.EnableTransport {
+				client.Transport = proxyTransport
+			} else {
+				client.Transport = tlsTransport
 			}
 			resp, err := client.Get(config.Target)
 			if err != nil {
