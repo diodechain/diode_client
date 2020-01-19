@@ -103,6 +103,8 @@ OPTIONS
     	retry times to connect the remote rpc server (default 3)
   -retrywait int
     	wait seconds before next retry (default 1)
+  -rlimit_nofile int
+    	specify the file descriptor numbers that can be opened by this process
   -skiphostvalidation
     	skip host validation
   -timeout int
