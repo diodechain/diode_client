@@ -78,15 +78,25 @@ type SSL struct {
 }
 
 type DataPool struct {
-	rm          sync.RWMutex
-	devices     map[string]*ConnectedDevice
-	memoryCache *cache.Cache
+	rm             sync.RWMutex
+	devices        map[string]*ConnectedDevice
+	publishedPorts map[int]*config.Port
+	memoryCache    *cache.Cache
 }
 
 func NewPool() *DataPool {
 	return &DataPool{
-		memoryCache: cache.New(5*time.Minute, 10*time.Minute),
-		devices:     make(map[string]*ConnectedDevice),
+		memoryCache:    cache.New(5*time.Minute, 10*time.Minute),
+		devices:        make(map[string]*ConnectedDevice),
+		publishedPorts: make(map[int]*config.Port),
+	}
+}
+
+func NewPoolWithPublishedPorts(publishedPorts map[int]*config.Port) *DataPool {
+	return &DataPool{
+		memoryCache:    cache.New(5*time.Minute, 10*time.Minute),
+		devices:        make(map[string]*ConnectedDevice),
+		publishedPorts: publishedPorts,
 	}
 }
 
@@ -277,6 +287,22 @@ func (p *DataPool) SetDevice(key string, dev *ConnectedDevice) {
 		delete(p.devices, key)
 	} else {
 		p.devices[key] = dev
+	}
+}
+
+func (p *DataPool) GetPublishedPort(port int) *config.Port {
+	p.rm.RLock()
+	defer p.rm.RUnlock()
+	return p.publishedPorts[port]
+}
+
+func (p *DataPool) SetPublishedPort(port int, publishedPort *config.Port) {
+	p.rm.Lock()
+	defer p.rm.Unlock()
+	if publishedPort == nil {
+		delete(p.publishedPorts, port)
+	} else {
+		p.publishedPorts[port] = publishedPort
 	}
 }
 

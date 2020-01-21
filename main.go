@@ -32,11 +32,17 @@ var (
 func main() {
 	var socksServer *rpc.Server
 	var err error
+	var pool *rpc.DataPool
 
-	pool := rpc.NewPool()
 	config := config.AppConfig
 	if config.Debug {
 		log.SetFlags(log.LstdFlags | log.Lshortfile | log.Lmicroseconds)
+	}
+
+	if len(config.PublishedPorts) > 0 {
+		pool = rpc.NewPoolWithPublishedPorts(config.PublishedPorts)
+	} else {
+		pool = rpc.NewPool()
 	}
 
 	log.Printf("Diode client - version %s\n", version)

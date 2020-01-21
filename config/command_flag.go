@@ -23,7 +23,7 @@ var (
 	publishCommandFlag = CommandFlag{
 		Name:        "publish",
 		HelpText:    `  This command publishes ports of the local device to the Diode Network.`,
-		ExampleText: `  diode publish`,
+		ExampleText: `  diode publish -public 80:80 -protected 22:22`,
 	}
 	socksdCommandFlag = CommandFlag{
 		Name:        "socksd",
@@ -51,6 +51,18 @@ func (commandFlag *CommandFlag) Parse(args []string) {
 			commandFlag.Flag.Usage()
 			os.Exit(2)
 		}
+	}
+}
+
+func wrapPublishCommandFlag(cfg *Config) {
+	publishCommandFlag.Flag.StringVar(&cfg.PublicPublishedPorts, "public", "80:80", "expose ports to public users, so that user could connect to")
+	publishCommandFlag.Flag.StringVar(&cfg.ProtectedPublishedPorts, "protected", "22:22", "expose ports to protected users, so that user could connect to")
+	publishCommandFlag.Flag.StringVar(&cfg.PrivatePublishedPorts, "private", "22:22", "expose ports to private users, so that user could connect to")
+	publishCommandFlag.Flag.Usage = func() {
+		fmt.Printf(brandText)
+		fmt.Printf(commandText, socksdCommandFlag.Name)
+		flag.PrintDefaults()
+		printCommandDefaults(&publishCommandFlag, 0)
 	}
 }
 

@@ -14,41 +14,59 @@ import (
 	"github.com/diodechain/diode_go_client/util"
 )
 
+const (
+	PublicPublishedMode = 1 << iota
+	ProtectedPublishedMode
+	PrivatePublishedMode
+)
+
 var AppConfig *Config
 
 // Config for poc-client
 type Config struct {
-	DBPath                string
-	Debug                 bool
-	EnableMetrics         bool
-	DecFleetAddr          [20]byte
-	DecRegistryAddr       [20]byte
-	EnableKeepAlive       bool
-	FleetAddr             string
-	ProxyServerAddr       string
-	ProxyServerHost       string
-	ProxyServerPort       int
-	SProxyServerAddr      string
-	SProxyServerHost      string
-	SProxyServerPort      int
-	SProxyServerCertPath  string
-	SProxyServerPrivPath  string
-	RegistryAddr          string
-	RemoteRPCAddrs        []string
-	RemoteRPCTimeout      time.Duration
-	RetryTimes            int
-	RetryWait             time.Duration
-	AllowRedirectToSProxy bool
-	RunProxyServer        bool
-	RunSProxyServer       bool
-	RunSocksServer        bool
-	SkipHostValidation    bool
-	SocksServerAddr       string
-	SocksServerHost       string
-	SocksServerPort       int
-	RlimitNofile          int
-	Blacklists            map[string]bool
-	Whitelists            map[string]bool
+	DBPath                  string
+	Debug                   bool
+	EnableMetrics           bool
+	DecFleetAddr            [20]byte
+	DecRegistryAddr         [20]byte
+	EnableKeepAlive         bool
+	FleetAddr               string
+	ProxyServerAddr         string
+	ProxyServerHost         string
+	ProxyServerPort         int
+	SProxyServerAddr        string
+	SProxyServerHost        string
+	SProxyServerPort        int
+	SProxyServerCertPath    string
+	SProxyServerPrivPath    string
+	RegistryAddr            string
+	RemoteRPCAddrs          []string
+	RemoteRPCTimeout        time.Duration
+	RetryTimes              int
+	RetryWait               time.Duration
+	AllowRedirectToSProxy   bool
+	RunProxyServer          bool
+	RunSProxyServer         bool
+	RunSocksServer          bool
+	SkipHostValidation      bool
+	SocksServerAddr         string
+	SocksServerHost         string
+	SocksServerPort         int
+	RlimitNofile            int
+	Blacklists              map[string]bool
+	Whitelists              map[string]bool
+	PublishedPorts          map[int]*Port
+	PublicPublishedPorts    string
+	ProtectedPublishedPorts string
+	PrivatePublishedPorts   string
+}
+
+// Port struct for listening port
+type Port struct {
+	Src       int
+	To        int
+	Mode      int
+	Whitelist [][]byte
 }
 
 var (
@@ -82,10 +100,31 @@ func stringsContain(src []string, pivot *string) bool {
 	return false
 }
 
+func parsePublishedPorts(publishedPorts string, mode int) []*Port {
+	parsedPublishedPorts := strings.Split(publishedPorts, ",")
+	ports := []*Port{}
+	for _, parsedPort := range parsedPublishedPorts {
+		parsedPort = strings.TrimSpace(parsedPort)
+		portMap := strings.Split(parsedPort, ":")
+		if len(portMap) == 2 {
+			srcPort, _ := strconv.Atoi(portMap[0])
+			toPort, _ := strconv.Atoi(portMap[1])
+			port := &Port{
+				Src:  srcPort,
+				To:   toPort,
+				Mode: mode,
+			}
+			ports = append(ports, port)
+		}
+	}
+	return ports
+}
+
 // parseFlag parse command line flags and return Config
 // TODO: refactor flag usage and commandFlag usage text
 func parseFlag() *Config {
 	cfg := &Config{}
+	wrapPublishCommandFlag(cfg)
 	wrapSocksdCommandFlag(cfg)
 	wrapHttpdCommandFlag(cfg)
 	flag.Usage = func() {
@@ -137,6 +176,14 @@ func parseFlag() *Config {
 		}
 		break
 	case "publish":
+		commandFlag.Parse(args[1:])
+		parsedPublicPublishedPort := parsePublishedPorts(cfg.PublicPublishedPorts, PublicPublishedMode)
+		publishedPorts := make(map[int]*Port)
+		// copy to config
+		for _, port := range parsedPublicPublishedPort {
+			publishedPorts[port.To] = port
+		}
+		cfg.PublishedPorts = publishedPorts
 		break
 	default:
 		flag.Usage()

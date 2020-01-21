@@ -16,6 +16,10 @@ import (
 	"github.com/diodechain/openssl"
 )
 
+var (
+	errPortNotPublished = fmt.Errorf("port was not published")
+)
+
 type RPCConfig struct {
 	Verbose      bool
 	RegistryAddr [20]byte
@@ -97,11 +101,19 @@ func (rpcServer *RPCServer) Start() {
 						}
 					}
 				}
+
+				// find published port
+				publishedPort := rpcServer.pool.GetPublishedPort(int(portOpen.Port))
+				if publishedPort == nil {
+					_ = rpcServer.s.ResponsePortOpen(portOpen, errPortNotPublished)
+					log.Println("Connect remote failed:", errPortNotPublished)
+					continue
+				}
 				clientID := fmt.Sprintf("%s%d", portOpen.DeviceID, portOpen.Ref)
 				connDevice := &ConnectedDevice{}
 
 				// connect to stream service
-				host := net.JoinHostPort("localhost", strconv.Itoa(int(portOpen.Port)))
+				host := net.JoinHostPort("localhost", strconv.Itoa(int(publishedPort.Src)))
 				remoteConn, err := net.DialTimeout("tcp", host, rpcServer.timeout)
 				if err != nil {
 					_ = rpcServer.s.ResponsePortOpen(portOpen, err)
