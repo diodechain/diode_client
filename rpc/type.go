@@ -50,18 +50,6 @@ type Error struct {
 	Method []byte
 }
 
-type BlockHeader struct {
-	TxHash      []byte
-	StateHash   []byte
-	PrevBlock   []byte
-	MinerSig    []byte
-	Miner       []byte
-	MinerPubkey []byte
-	BlockHash   []byte
-	Timestamp   int64
-	Nonce       int64
-}
-
 type PortOpen struct {
 	Ref      int64
 	Port     int64
@@ -259,36 +247,6 @@ func (acv *AccountValue) AccountRoot() []byte {
 // AccountTree returns merkle tree of account value
 func (acv *AccountValue) AccountTree() *MerkleTree {
 	return acv.accountTree
-}
-
-// Hash returns sha3 of bert encoded block header
-func (blockHeader *BlockHeader) Hash() ([]byte, error) {
-	encHeader, err := bert.Encode([7]bert.Term{blockHeader.PrevBlock, blockHeader.MinerPubkey, blockHeader.StateHash, blockHeader.TxHash, blockHeader.Timestamp, blockHeader.Nonce, blockHeader.MinerSig})
-	if err != nil {
-		return nil, err
-	}
-	return crypto.Sha256(encHeader), nil
-}
-
-// HashWithoutSig returns sha3 of bert encoded block header without miner signature
-func (blockHeader *BlockHeader) HashWithoutSig() ([]byte, error) {
-	encHeader, err := bert.Encode([6]bert.Term{blockHeader.PrevBlock, blockHeader.MinerPubkey, blockHeader.StateHash, blockHeader.TxHash, blockHeader.Timestamp, blockHeader.Nonce})
-	if err != nil {
-		return nil, err
-	}
-	return crypto.Sha256(encHeader), nil
-}
-
-// ValidateSig check miner signature is valid
-func (blockHeader *BlockHeader) ValidateSig() bool {
-	msgHash, err := blockHeader.HashWithoutSig()
-	if err != nil {
-		return false
-	}
-	sig := []byte{}
-	sig = append(sig, blockHeader.MinerSig[1:65]...)
-	pubkey := blockHeader.Miner
-	return secp256k1.VerifySignature(pubkey, msgHash, sig)
 }
 
 // Hash returns hash of server object

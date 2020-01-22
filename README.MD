@@ -90,7 +90,7 @@ OPTIONS
   -debug
     	turn on debug mode
   -diodeaddrs string
-    	addresses of Diode node server (default "asia.testnet.diode.io:41043,europe.testnet.diode.io:41043,usa.testnet.diode.io:41043")
+    	addresses of Diode node server (default "asia.testnet.diode.io:41045,europe.testnet.diode.io:41045,usa.testnet.diode.io:41045")
   -fleet string
     	fleet contract address (default "0x6000000000000000000000000000000000000000")
   -keepalive

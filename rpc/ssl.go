@@ -7,7 +7,6 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"encoding/binary"
-	"encoding/hex"
 	"encoding/pem"
 	"fmt"
 	"io"
@@ -18,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/diodechain/diode_go_client/blockquick"
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/contract"
 	"github.com/diodechain/diode_go_client/crypto"
@@ -39,19 +39,10 @@ const (
 )
 
 var (
-	// null byte
-	null [20]byte
 	// debug rpc id
 	debugRPCID = 1
-	// BN latest block numebr
-	BN int
-	// LVBN last valid block numebr
-	LVBN int
-	// LBN last downloaded block header
-	LBN int
-	// ValidBlockHeaders map of validate block headers reference, do not loop this
-	validBlockHeaders = make(map[int]*BlockHeader)
-	m                 sync.Mutex
+	bq         *blockquick.Window
+	m          sync.RWMutex
 )
 
 type Call struct {
@@ -113,28 +104,35 @@ func NewPoolWithPublishedPorts(publishedPorts map[int]*config.Port) *DataPool {
 	}
 }
 
-// LenValidBlockHeaders returns the size of the validated block headers
-func LenValidBlockHeaders() int {
-	m.Lock()
-	defer m.Unlock()
-	return len(validBlockHeaders)
+func (s *SSL) addCall(c Call) {
+	s.rm.Lock()
+	defer s.rm.Unlock()
+	s.calls = append(s.calls, c)
 }
 
-// GetValidBlockHeader gets a validated block header
-func GetValidBlockHeader(num int) *BlockHeader {
-	m.Lock()
-	defer m.Unlock()
-	return validBlockHeaders[num]
+func (s *SSL) popCall() Call {
+	s.rm.Lock()
+	defer s.rm.Unlock()
+	c := s.calls[0]
+	s.calls = s.calls[1:]
+	return c
 }
 
-// SetValidBlockHeader sets a validated block header
-func SetValidBlockHeader(num int, bh *BlockHeader) {
-	m.Lock()
-	defer m.Unlock()
-	if num > LVBN {
-		LVBN = num
+func (s *SSL) recall() {
+	s.rm.Lock()
+	defer s.rm.Unlock()
+	for _, call := range s.calls {
+		s.callChannel <- call
 	}
-	validBlockHeaders[num] = bh
+	s.calls = make([]Call, 0, len(s.calls))
+}
+
+// LastValid returns the last valid header
+func LastValid() (int, blockquick.Hash) {
+	if bq == nil {
+		return restoreLastValid()
+	}
+	return bq.Last()
 }
 
 // Host returns the non-resolved addr name of the host
@@ -154,8 +152,8 @@ func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags, pool *Da
 		addr:        addr,
 		mode:        mode,
 		pool:        pool,
-		tcpIn:       make(chan []byte, 100),
-		callChannel: make(chan Call, 100),
+		tcpIn:       make(chan []byte, 1000),
+		callChannel: make(chan Call, 1000),
 		calls:       make([]Call, 0),
 	}
 	return s, nil
@@ -354,7 +352,7 @@ func (s *SSL) SetKeepAliveInterval(d time.Duration) error {
 func (s *SSL) GetServerID() ([20]byte, error) {
 	pubKey, err := s.GetServerPubKey()
 	if err != nil {
-		return null, err
+		return [20]byte{}, err
 	}
 	hashPubKey := crypto.PubkeyToAddress(pubKey)
 	return hashPubKey, nil
@@ -412,7 +410,7 @@ func (s *SSL) GetClientPubKey() ([]byte, error) {
 func (s *SSL) GetClientAddress() ([20]byte, error) {
 	clientPubKey, err := s.GetClientPubKey()
 	if err != nil {
-		return null, err
+		return [20]byte{}, err
 	}
 	return crypto.PubkeyToAddress(clientPubKey), nil
 }
@@ -429,15 +427,6 @@ func (s *SSL) incrementTotalBytes(n int) {
 	defer s.rm.Unlock()
 	s.totalBytes += int64(n)
 	return
-}
-
-func (s *SSL) addCall(call Call) bool {
-	select {
-	case s.callChannel <- call:
-		return true
-	default:
-		return false
-	}
 }
 
 func (s *SSL) setOpensslConn(conn *openssl.Conn) {
@@ -475,7 +464,11 @@ func (s *SSL) readContext() error {
 	}
 	// read response
 	res := make([]byte, lenr)
-	n, err = conn.Read(res)
+	read := 0
+	for read < int(lenr) && err == nil {
+		n, err = conn.Read(res[read:])
+		read += n
+	}
 	tsDiff := time.Since(ts)
 	if s.enableMetrics {
 		s.metrics.UpdateReadTimer(tsDiff)
@@ -494,11 +487,11 @@ func (s *SSL) readContext() error {
 		}
 		return err
 	}
-	n += 2
-	s.incrementTotalBytes(n)
+	read += 2
+	s.incrementTotalBytes(read)
 	s.tcpIn <- res
-	if s.Verbose {
-		s.Logger.Debug(fmt.Sprintf("receive %d bytes data from ssl", n), "module", "ssl")
+	if config.AppConfig.Debug {
+		s.Logger.Info("Receive %d bytes data from ssl", read)
 	}
 	return nil
 }
@@ -517,12 +510,11 @@ func (s *SSL) sendPayload(method string, payload []byte, future ResponseFuture) 
 	call := Call{
 		method:          method,
 		responseChannel: future,
-		data:            bytPay,
+
+		data: bytPay,
 	}
 	s.callChannel <- call
-	if s.Verbose {
-		s.Logger.Debug(fmt.Sprintf("sent rpc %s", string(payload)), "module", "ssl")
-	}
+	s.Logger.Debug("Sent: %v -> %v\n", string(payload), call.responseChannel)
 	return nil
 }
 
@@ -584,7 +576,7 @@ func (s *SSL) CallContext(method string, args ...interface{}) (res *Response, er
 
 // Await awaits a response future and returns a response
 func (f *ResponseFuture) Await(rpcTimeout time.Duration) (*Response, error) {
-	// TODO: move to command line flag
+	// TODO: Move rpcTimeout to command line flag
 	timeout := time.NewTimer(rpcTimeout)
 	select {
 	case resp := <-*f:
@@ -607,127 +599,95 @@ func (s *SSL) CheckTicket() error {
 	return nil
 }
 
+func restoreLastValid() (int, blockquick.Hash) {
+	lvbn, err := db.DB.Get("lvbn")
+	var lvbh []byte
+	if err == nil {
+		lvbnNum := util.DecodeBytesToInt(lvbn)
+		lvbh, err = db.DB.Get("lvbh")
+		if err == nil {
+			var hash [32]byte
+			copy(hash[:], lvbh)
+			return lvbnNum, hash
+		}
+	}
+	return 102, [32]byte{0, 0, 69, 211, 111, 119, 94, 95, 10, 90, 217, 27, 84, 149, 212, 191, 245, 174,
+		113, 57, 16, 77, 135, 6, 128, 186, 44, 201, 75, 111, 173, 13}
+}
+
+func storeLastValid() {
+	lvbn, lvbh := LastValid()
+	db.DB.Put("lvbn", util.DecodeIntToBytes(lvbn))
+	db.DB.Put("lvbh", lvbh[:])
+}
+
 // ValidateNetwork validate blockchain network is secure and valid
 // Run blockquick algorithm, mor information see: https://eprint.iacr.org/2019/579.pdf
 func (s *SSL) ValidateNetwork() (bool, error) {
-	// test for api
-	bn, err := s.GetBlockPeak()
+	m.Lock()
+	defer m.Unlock()
+
+	const windowSize = 100
+	lvbn, lvbh := restoreLastValid()
+
+	// Fetching at least window size blocks -- this should be cached on disk instead.
+	blockHeaders, err := s.GetBlockHeadersUnsafe(lvbn-windowSize+1, lvbn)
+	if err != nil {
+		s.Logger.Error("Cannot fetch blocks %v-%v error: %s", lvbn-windowSize, lvbn, err.Error())
+		return false, err
+	}
+	if len(blockHeaders) != windowSize {
+		s.Logger.Error("ValidateNetwork(): len(blockHeaders) != windowSize (%v, %v)", len(blockHeaders), windowSize)
+		return false, err
+	}
+
+	// Checking last valid header
+	hash := blockHeaders[windowSize-1].Hash()
+	if hash != lvbh {
+		return false, fmt.Errorf("Sent reference block does not match")
+	}
+
+	// Checking chain of previous blocks
+	for i := windowSize - 2; i >= 0; i-- {
+		if blockHeaders[i].Hash() != blockHeaders[i+1].Parent() {
+			return false, fmt.Errorf("Recevied blocks parent is not his parent: %v %v", blockHeaders[i+1], blockHeaders[i])
+		}
+		if !blockHeaders[i].ValidateSig() {
+			return false, fmt.Errorf("Recevied blocks signature is not valid: %v", blockHeaders[i])
+		}
+	}
+
+	// Starting to fetch new blocks
+	blocks, err := s.GetBlockQuick(lvbn, windowSize)
 	if err != nil {
 		return false, err
 	}
-	BN = bn
-	config := config.AppConfig
-	BQLimit := 100
-	LVBNByt, err := db.DB.Get("lvbn")
-	if BN < BQLimit {
-		BQLimit = BN - 1
-		LVBN = BN
-	} else {
-		LVBN = BN - BQLimit
-	}
+
+	win, err := blockquick.New(blockHeaders, len(blockHeaders))
 	if err != nil {
-		s.Logger.Error(fmt.Sprintf("failed to read date from file: %s", err.Error()), "module", "ssl")
-	} else {
-		// TODO: ensure bytes are correct
-		LVBN = util.DecodeBytesToInt(LVBNByt)
+		return false, err
 	}
-	oriLVBN := LVBN
-	s.Logger.Info(fmt.Sprintf("last valid block number: %d", LVBN), "module", "ssl")
 
-	// we only check LVBN + 100 block number
-	bnLimit := BN + 1
-
-	// Note: map is not safe for concurrent usage
-	minerCount := map[string]int{}
-	minerPortion := map[string]float64{}
-
-	// fetch block header
-	for i := bnLimit - BQLimit; i < bnLimit; i++ {
-		blockHeader, err := s.GetBlockHeader(i)
+	for _, block := range blocks {
+		err := win.AddBlock(block, true)
 		if err != nil {
-			s.Logger.Error(fmt.Sprintf("failed to fetch block header: %d, %s", i, err.Error()), "module", "ssl")
 			return false, err
 		}
-		LBN = i
-		hexMiner := hex.EncodeToString(blockHeader.Miner)
-		isSigValid := blockHeader.ValidateSig()
-		if !isSigValid {
-			if s.Verbose {
-				s.Logger.Debug(fmt.Sprintf("miner signature was not valid, block header: %d", i), "module", "ssl")
-			}
-			continue
-		}
-		SetValidBlockHeader(i, blockHeader)
-		minerCount[hexMiner]++
 	}
-	if LenValidBlockHeaders() < BQLimit {
-		return false, nil
-	}
-	// setup miner portion map
-	for miner, count := range minerCount {
-		if count == 0 {
-			s.Logger.Warn(fmt.Sprintf("miner count was zero, miner: %s", miner), "module", "ssl")
-			continue
+
+	newlvbn, _ := win.Last()
+	if newlvbn == lvbn {
+		peak, err := s.GetBlockPeak()
+		if err != nil {
+			return false, err
 		}
-		portion := float64(count) / float64(BQLimit)
-		minerPortion[miner] = portion
-		if config.Debug {
-			s.Logger.Debug(fmt.Sprintf("miner: %s count: %3d portion: %f", miner, count, portion), "module", "ssl")
+		if peak-windowSize > lvbn {
+			return false, fmt.Errorf("couldn't validate any new blocks %v < %v", lvbn, peak)
 		}
 	}
-	if config.Debug {
-		// simple implementation
-		s.Logger.Debug(fmt.Sprintf("block number limit: %d", bnLimit), "module", "ssl")
-	}
-	// start to confirm the block if signature is valid
-	for i := bnLimit - BQLimit; i < bnLimit; i++ {
-		blockHeader := GetValidBlockHeader(i)
-		if blockHeader == nil {
-			continue
-		}
-		hexMiner := hex.EncodeToString(blockHeader.Miner)
-		portion := float64(0)
-		isConfirmed := false
-		for j := i + 1; j < bnLimit; j++ {
-			blockHeader2 := GetValidBlockHeader(j)
-			if blockHeader2 == nil {
-				continue
-			}
-			hexMiner2 := hex.EncodeToString(blockHeader2.Miner)
-			// we might check this
-			// if hexMiner2 == hexMiner {
-			// 	continue
-			// }
-			portion += minerPortion[hexMiner2]
-			if portion >= 0.51 {
-				isConfirmed = true
-				break
-			}
-		}
-		// maybe skip some block number
-		// if !isConfirmed {
-		// 	break
-		// }
-		// update miner portion and count
-		if isConfirmed {
-			LVBN = i
-			BQLimit++
-			minerCount[hexMiner]++
-			minerPortion[hexMiner] = float64(minerCount[hexMiner]) / float64(BQLimit)
-		}
-	}
-	isValid := LVBN >= oriLVBN
-	if isValid {
-		if LVBN != oriLVBN {
-			LVBNByt = util.DecodeIntToBytes(LVBN)
-			err = db.DB.Put("lvbn", LVBNByt)
-			if err != nil {
-				s.Logger.Error(fmt.Sprintf("failed to save data to file: %s", err.Error()), "module", "ssl")
-			}
-		}
-	}
-	s.isValid = isValid
-	return isValid, nil
+
+	bq = win
+	return true, nil
 }
 
 /**
@@ -747,13 +707,66 @@ func (s *SSL) GetBlockPeak() (int, error) {
 	return int(peak), nil
 }
 
-// GetBlockHeader returns block header
-func (s *SSL) GetBlockHeader(blockNum int) (*BlockHeader, error) {
-	rawHeader, err := s.CallContext("getblockheader", blockNum)
+// GetBlockQuick returns block header
+func (s *SSL) GetBlockQuick(lastValid int, windowSize int) ([]*blockquick.BlockHeader, error) {
+	rawHeader, err := s.CallContext("getblockquick", lastValid, windowSize)
 	if err != nil {
 		return nil, err
 	}
-	return parseBlockHeader(rawHeader.RawData[0])
+
+	responses, err := parseBlockHeaders(rawHeader.RawData[0], windowSize)
+	if err != nil {
+		return nil, err
+	}
+	return responses, nil
+}
+
+// GetBlockHeaderValid returns a validated recent block header
+// (only available for the last windowsSize blocks)
+func (s *SSL) GetBlockHeaderValid(blockNum int) *blockquick.BlockHeader {
+	return bq.GetBlockHeader(blockNum)
+}
+
+// GetBlockHeaderUnsafe returns an unchecked block header from the server
+func (s *SSL) GetBlockHeaderUnsafe(blockNum int) (*blockquick.BlockHeader, error) {
+	rawHeader, err := s.CallContext("getblockheader2", blockNum)
+	if err != nil {
+		return nil, err
+	}
+	return parseBlockHeader(rawHeader.RawData[0], rawHeader.RawData[1])
+}
+
+// GetBlockHeadersUnsafe returns a range of block headers
+func (s *SSL) GetBlockHeadersUnsafe(blockNumMin int, blockNumMax int) ([]*blockquick.BlockHeader, error) {
+	if blockNumMin > blockNumMax {
+		return nil, fmt.Errorf("GetBlockHeadersUnsafe(): blockNumMin needs to be <= max")
+	}
+
+	count := blockNumMax - blockNumMin + 1
+	timeout := time.Second * time.Duration(count*5)
+	responses := make([]*blockquick.BlockHeader, 0, count)
+
+	futures := make([]ResponseFuture, 0, count)
+	for i := blockNumMin; i <= blockNumMax; i++ {
+		future, err := s.CastContext("getblockheader2", i)
+		if err != nil {
+			return nil, err
+		}
+		futures = append(futures, future)
+	}
+
+	for _, future := range futures {
+		response, err := future.Await(timeout)
+		if err != nil {
+			return nil, err
+		}
+		header, err := parseBlockHeader(response.RawData[0], response.RawData[1])
+		if err != nil {
+			return nil, err
+		}
+		responses = append(responses, header)
+	}
+	return responses, nil
 }
 
 // GetBlock returns block
@@ -810,17 +823,12 @@ func (s *SSL) SubmitNewTicket() error {
 func (s *SSL) newTicket() (*DeviceTicket, error) {
 	serverID, err := s.GetServerID()
 	s.counter = s.totalBytes
-	lvbn := LVBN
-	header := GetValidBlockHeader(lvbn)
-	if header == nil {
-		return nil, fmt.Errorf("NewTicket(): No block header available for LVBN=%v", lvbn)
-	}
+	lvbn, lvbh := LastValid()
 	s.Logger.Info(fmt.Sprintf("new ticket: %d", lvbn), "module", "ssl")
-	blockHash := header.BlockHash
 	ticket := &DeviceTicket{
 		ServerID:         serverID,
 		BlockNumber:      lvbn,
-		BlockHash:        blockHash,
+		BlockHash:        lvbh[:],
 		FleetAddr:        s.FleetAddr,
 		TotalConnections: s.totalConnections,
 		TotalBytes:       s.totalBytes,
@@ -948,7 +956,8 @@ func (s *SSL) Ping() (*Response, error) {
 }
 
 // GetAccountValue returns account storage value
-func (s *SSL) GetAccountValue(blockNumber int, account [20]byte, rawKey []byte) (*AccountValue, error) {
+func (s *SSL) GetAccountValue(account [20]byte, rawKey []byte) (*AccountValue, error) {
+	blockNumber, _ := LastValid()
 	encAccount := util.EncodeToString(account[:])
 	// pad key to 32 bytes
 	key := util.PaddingBytesPrefix(rawKey, 0, 32)
@@ -987,7 +996,8 @@ func (s *SSL) GetAccount(blockNumber int, account []byte) (*Account, error) {
 }
 
 // GetAccountRoots returns account state roots
-func (s *SSL) GetAccountRoots(blockNumber int, account [20]byte) (*AccountRoots, error) {
+func (s *SSL) GetAccountRoots(account [20]byte) (*AccountRoots, error) {
+	blockNumber, _ := LastValid()
 	encAccount := util.EncodeToString(account[:])
 	rawAccountRoots, err := s.CallContext("getaccountroots", blockNumber, encAccount)
 	if err != nil {
@@ -997,12 +1007,12 @@ func (s *SSL) GetAccountRoots(blockNumber int, account [20]byte) (*AccountRoots,
 }
 
 func (s *SSL) GetAccountValueRaw(addr [20]byte, key []byte) ([]byte, error) {
-	acv, err := s.GetAccountValue(LVBN, addr, key)
+	acv, err := s.GetAccountValue(addr, key)
 	if err != nil {
 		return NullData, err
 	}
 	// get account roots
-	acr, err := s.GetAccountRoots(LVBN, addr)
+	acr, err := s.GetAccountRoots(addr)
 	if err != nil {
 		return NullData, err
 	}
@@ -1024,11 +1034,11 @@ func (s *SSL) ResolveDNS(name string) (addr [20]byte, err error) {
 	key := contract.DNSMetaKey(name)
 	raw, err := s.GetAccountValueRaw(contract.DNSAddr, key)
 	if err != nil {
-		return null, err
+		return [20]byte{}, err
 	}
 	copy(addr[:], raw[12:])
-	if addr == null {
-		return null, fmt.Errorf("Couldn't resolve name")
+	if addr == [20]byte{} {
+		return [20]byte{}, fmt.Errorf("Couldn't resolve name")
 	}
 	return addr, nil
 }

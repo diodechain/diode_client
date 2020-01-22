@@ -32,14 +32,18 @@ func (ct *DeviceTicket) ResolveBlockHash(client *SSL) (err error) {
 	if ct.BlockHash != nil {
 		return
 	}
-	blockHeader := GetValidBlockHeader(ct.BlockNumber)
+	blockHeader := bq.GetBlockHeader(ct.BlockNumber)
 	if blockHeader == nil {
-		blockHeader, err = client.GetBlockHeader(ct.BlockNumber)
-		if err != nil {
-			return
-		}
+		lvbn, lvbh := bq.Last()
+		client.Logger.Crit("Can't fetch block %v %v %v", ct.BlockNumber, lvbn, lvbh)
+		return fmt.Errorf("Can't fetch block %v %v %v", ct.BlockNumber, lvbn, lvbh)
+		// blockHeader, err = client.GetBlockHeader(ct.BlockNumber)
+		// if err != nil {
+		// 	return
+		// }
 	}
-	ct.BlockHash = blockHeader.BlockHash
+	hash := blockHeader.Hash()
+	ct.BlockHash = hash[:]
 	return
 }
 
@@ -106,7 +110,7 @@ func (ct *DeviceTicket) RecoverDevicePubKey() ([]byte, error) {
 func (ct *DeviceTicket) DeviceAddress() ([20]byte, error) {
 	devicePubkey, err := ct.RecoverDevicePubKey()
 	if err != nil {
-		return null, err
+		return [20]byte{}, err
 	}
 	return crypto.PubkeyToAddress(devicePubkey), nil
 }

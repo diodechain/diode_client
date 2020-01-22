@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/buger/jsonparser"
+	"github.com/diodechain/diode_go_client/blockquick"
 	"github.com/diodechain/diode_go_client/crypto/secp256k1"
 	"github.com/diodechain/diode_go_client/util"
 )
@@ -126,19 +127,41 @@ func parseError(rawError []byte) (*Error, error) {
 	return err, nil
 }
 
+func parseBlockHeaders(raw []byte, size int) ([]*blockquick.BlockHeader, error) {
+	responses := make([]*blockquick.BlockHeader, 0, size)
+	var err error = nil
+	jsonparser.ArrayEach(raw, func(value []byte, _type jsonparser.ValueType, offset int, err2 error) {
+		if err != nil {
+			return
+		}
+		if err != nil {
+			err = err2
+			return
+		}
+		rawHeader, _, _, _ := jsonparser.Get(value, "[0]")
+		miner, _, _, _ := jsonparser.Get(value, "[1]")
+		header, err := parseBlockHeader(rawHeader, miner)
+		if err != nil {
+			return
+		}
+		responses = append(responses, header)
+	})
+	return responses, err
+}
+
 // TODO: check error from jsonparser
-func parseBlockHeader(rawHeader []byte) (*BlockHeader, error) {
+func parseBlockHeader(rawHeader []byte, minerPubkey []byte) (*blockquick.BlockHeader, error) {
+	// log.Printf("parseBlockHeader(%v,%v)", string(rawHeader), string(minerPubkey))
+
 	txHash, _, _, _ := jsonparser.Get(rawHeader, "transaction_hash")
 	stateHash, _, _, _ := jsonparser.Get(rawHeader, "state_hash")
 	blockHash, _, _, _ := jsonparser.Get(rawHeader, "block_hash")
 	prevBlock, _, _, _ := jsonparser.Get(rawHeader, "previous_block")
 	nonce, _, _, _ := jsonparser.Get(rawHeader, "nonce")
 	minerSig, _, _, _ := jsonparser.Get(rawHeader, "miner_signature")
-	minerPubkey, _, _, _ := jsonparser.Get(rawHeader, "miner_pubkey")
 	timestamp, _, _, _ := jsonparser.Get(rawHeader, "timestamp")
-	// miner was removed
-	// miner, _, _, _ := jsonparser.Get(rawHeader, "miner")
-	// decode header
+	number, _, _, _ := jsonparser.Get(rawHeader, "number")
+
 	dtxHash, err := util.DecodeString(string(txHash[:]))
 	if err != nil {
 		return nil, err
@@ -167,24 +190,36 @@ func parseBlockHeader(rawHeader []byte) (*BlockHeader, error) {
 	if err != nil {
 		return nil, err
 	}
+	dnumber, err := util.DecodeStringToInt(string(number[:]))
+	if err != nil {
+		return nil, err
+	}
 	dnonce, err := util.DecodeStringToInt(string(nonce[:]))
 	if err != nil {
 		return nil, err
 	}
 	// also can decompress pubkey and marshal to pubkey bytes
 	dcminerPubkey := secp256k1.DecompressPubkeyBytes(dminerPubkey)
-	blockHeader := &BlockHeader{
-		TxHash:      dtxHash,
-		StateHash:   dstateHash,
-		PrevBlock:   dprevBlock,
-		MinerSig:    dminerSig,
-		MinerPubkey: dminerPubkey,
-		BlockHash:   dblockHash,
-		Timestamp:   dtimestamp,
-		Miner:       dcminerPubkey,
-		Nonce:       dnonce,
+	header, err := blockquick.NewHeader(
+		dtxHash,
+		dstateHash,
+		dprevBlock,
+		dminerSig,
+		dcminerPubkey,
+		dtimestamp,
+		dnumber,
+		dnonce,
+	)
+	if err != nil {
+		return nil, err
 	}
-	return blockHeader, nil
+	hash := header.Hash()
+	var dbhash blockquick.Hash
+	copy(dbhash[:], dblockHash)
+	if hash != dbhash {
+		return nil, fmt.Errorf("Blockhash != real hash %v %v", dblockHash, header)
+	}
+	return header, nil
 }
 
 func parsePortOpen(rawResponse [][]byte) (*PortOpen, error) {

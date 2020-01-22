@@ -19,6 +19,7 @@ gateway: diode_go_client
 
 .PHONY: diode_go_client
 diode_go_client:
+	go build
 	go build -ldflags "-X main.version=`git rev-list -1 HEAD`"
 
 .PHONY: static

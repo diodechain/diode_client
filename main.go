@@ -88,7 +88,8 @@ func main() {
 		config.Logger.Error("Could not connect to any server.", "module", "main")
 		os.Exit(129)
 	}
-	config.Logger.Info(fmt.Sprintf("Network is validated, last valid block number: %d", rpc.LVBN), "module", "main")
+	lvbn, _ := rpc.LastValid()
+	config.Logger.Info("Network is validated, last valid block number: %d", lvbn)
 
 	// check device access to fleet contract and registry
 	clientAddr, err := client.GetClientAddress()
@@ -105,19 +106,6 @@ func main() {
 		return
 	}
 
-	// send first ticket
-	bn := rpc.BN
-	blockHeader, err := client.GetBlockHeader(bn)
-	if blockHeader == nil || err != nil {
-		config.Logger.Error("Cannot fetch blockheader", "module", "main")
-		return
-	}
-	isValid := blockHeader.ValidateSig()
-	if !isValid {
-		config.Logger.Error("Cannot validate blockheader signature", "module", "main")
-		return
-	}
-	rpc.SetValidBlockHeader(bn, blockHeader)
 	// send ticket
 	err = client.SubmitNewTicket()
 	if err != nil {

@@ -168,7 +168,7 @@ func parseFlag() *Config {
 	flag.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
 	flag.IntVar(&cfg.RlimitNofile, "rlimit_nofile", 0, "specify the file descriptor numbers that can be opened by this process")
 
-	remoteRPCAddr := flag.String("diodeaddrs", "asia.testnet.diode.io:41043,europe.testnet.diode.io:41043,usa.testnet.diode.io:41043", "addresses of Diode node server")
+	remoteRPCAddr := flag.String("diodeaddrs", "asia.testnet.diode.io:41045,europe.testnet.diode.io:41045,usa.testnet.diode.io:41045", "addresses of Diode node server")
 	remoteRPCTimeout := flag.Int("timeout", 5, "timeout seconds to connect to the remote rpc server")
 	retryWait := flag.Int("retrywait", 1, "wait seconds before next retry")
 	blacklists := flag.String("blacklists", "", "addresses are not allowed to connect to published resource (worked when whitelists is empty)")

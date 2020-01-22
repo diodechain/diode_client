@@ -203,39 +203,56 @@ func (rpcServer *RPCServer) Start() {
 
 	rpcServer.addWorker(func() {
 		rpcServer.blockTicker = time.NewTicker(rpcServer.blockTickerDuration)
+		lastblock := 0
 		for {
 			select {
 			case <-rpcServer.finishBlockTickerChan:
 				return
 			case <-rpcServer.blockTicker.C:
 				go func() {
+					if bq == nil {
+						return
+					}
+					if lastblock == 0 {
+						lastblock, _ = bq.Last()
+					}
 					blockPeak, err := rpcServer.s.GetBlockPeak()
-					if err != nil {
-						rpcServer.s.Logger.Error(fmt.Sprintf("cannot getblockpeak: %s", err.Error()), "module", "rpc")
-						return
-					}
-					if LBN >= blockPeak {
-						return
-					}
-					blockHeader, err := rpcServer.s.GetBlockHeader(blockPeak)
 					if err != nil {
 						rpcServer.s.Logger.Error(fmt.Sprintf("cannot getblockheader: %s", err.Error()), "module", "rpc")
 						return
 					}
-					isSigValid := blockHeader.ValidateSig()
-					if !isSigValid {
-						rpcServer.s.Logger.Warn(fmt.Sprintf("miner signature was not valid, block header: %d", blockPeak), "module", "rpc")
+					if lastblock == blockPeak {
+						// Nothing to do
 						return
 					}
-					LBN = blockPeak
-					// TODO: This is not validation
-					SetValidBlockHeader(blockPeak, blockHeader)
+
+					for num := lastblock + 1; num <= blockPeak; num++ {
+						blockHeader, err := rpcServer.s.GetBlockHeaderUnsafe(num)
+						if err != nil {
+							rpcServer.s.Logger.Error("Couldn't download block header %v", err)
+							return
+						}
+						err = bq.AddBlock(blockHeader, false)
+						if err != nil {
+							rpcServer.s.Logger.Error("Couldn't add block %v %v: %v", num, blockHeader.Hash(), err)
+							// This could happen on an uncle block, in that case we reset
+							// the counter the last finalized block
+							lastblock, _ = bq.Last()
+							return
+						}
+					}
+
+					lastn, _ := bq.Last()
+					rpcServer.s.Logger.Info("Added block(s) %v-%v, last valid %v", lastblock, blockPeak, lastn)
+					lastblock = blockPeak
+					// storeLastValid()
 					return
 				}()
 			case res := <-rpcServer.s.tcpIn:
 				go rpcServer.s.CheckTicket()
+				// rpcServer.s.Logger.Info("GOT: isResp=%v %v\n", isResponseType(res), string(res))
 				if isResponseType(res) || isErrorType(res) {
-					call := rpcServer.s.calls[0]
+					call := rpcServer.s.popCall()
 					if responseMethod(res) != call.method {
 						// should not happen
 						rpcServer.s.Logger.Error(fmt.Sprintf("got different response type: %s %s", call.method, string(res)), "module", "rpc")
@@ -245,8 +262,6 @@ func (rpcServer *RPCServer) Start() {
 					if rpcServer.Config.Verbose {
 						rpcServer.s.Logger.Debug(fmt.Sprintf("got response: %s", call.method), "module", "rpc")
 					}
-
-					rpcServer.s.calls = rpcServer.s.calls[1:]
 					call.responseChannel <- res
 					close(call.responseChannel)
 					continue
@@ -263,11 +278,8 @@ func (rpcServer *RPCServer) Start() {
 				}
 				if call.method == ":reconnect" {
 					// Resetting buffers to not mix old messages with new messages
-					rpcServer.s.tcpIn = make(chan []byte, 100)
-					for _, call := range rpcServer.s.calls {
-						rpcServer.s.callChannel <- call
-					}
-					rpcServer.s.calls = make([]Call, 0)
+					rpcServer.s.tcpIn = make(chan []byte, 1000)
+					rpcServer.s.recall()
 
 					// Recreating connection
 					conn, err := openssl.Dial("tcp", rpcServer.s.addr, rpcServer.s.ctx, rpcServer.s.mode)
@@ -286,16 +298,17 @@ func (rpcServer *RPCServer) Start() {
 				} else {
 					ts := time.Now()
 					conn := rpcServer.s.getOpensslConn()
-					_, err := conn.Write(call.data)
+					n, err := conn.Write(call.data)
 					if err != nil {
 						rpcServer.s.Logger.Error(fmt.Sprintf("failed to write to tcp: %s", err.Error()), "module", "rpc")
 					}
+					rpcServer.s.incrementTotalBytes(n)
 					tsDiff := time.Since(ts)
 					if rpcServer.s.enableMetrics {
 						rpcServer.s.metrics.UpdateWriteTimer(tsDiff)
 					}
 					if call.responseChannel != nil {
-						rpcServer.s.calls = append(rpcServer.s.calls, call)
+						rpcServer.s.addCall(call)
 					}
 				}
 			}
