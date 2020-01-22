@@ -6,7 +6,6 @@ package rpc
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"math/big"
 	"strconv"
 	"strings"
@@ -74,11 +73,11 @@ func parseResponse(rawResponse []byte) (*Response, error) {
 	tmpRawData := jsonparser.Delete(copyRawResponse, "[0]")
 	tmpRawData = jsonparser.Delete(tmpRawData, "[0]")
 	handler := func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-		if err != nil {
-			log.Fatal(err)
+		if err == nil {
+			rawData = append(rawData, value)
 		}
-		rawData = append(rawData, value)
 	}
+	// should not catch error here
 	jsonparser.ArrayEach(tmpRawData, handler)
 	response := &Response{
 		Raw:     rawResponse,
@@ -100,11 +99,11 @@ func parseRPCRequest(rawRequest []byte) (*Request, error) {
 	copy(copyRawRequest, rawRequest)
 	tmpRawData := jsonparser.Delete(copyRawRequest, "[0]")
 	handler := func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-		if err != nil {
-			log.Fatal(err)
+		if err == nil {
+			rawData = append(rawData, value)
 		}
-		rawData = append(rawData, value)
 	}
+	// should not catch error here
 	jsonparser.ArrayEach(tmpRawData, handler)
 	request := &Request{
 		Raw:     rawRequest,
@@ -129,7 +128,6 @@ func parseError(rawError []byte) (*Error, error) {
 
 // TODO: check error from jsonparser
 func parseBlockHeader(rawHeader []byte) (*BlockHeader, error) {
-	// log.Println(string(rawHeader[:]))
 	txHash, _, _, _ := jsonparser.Get(rawHeader, "transaction_hash")
 	stateHash, _, _, _ := jsonparser.Get(rawHeader, "state_hash")
 	blockHash, _, _, _ := jsonparser.Get(rawHeader, "block_hash")
@@ -323,18 +321,18 @@ func parseStateRoots(rawStateRoots []byte) (*StateRoots, error) {
 	ind := 0
 	handler := func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
 		if err != nil {
-			log.Fatal(err)
+			return
 		}
 		// Decode error: index out of range
 		// decodedValue := make([]byte, 32)
 		// _, err = Decode(decodedValue, value[:])
 		decodedValue, err := util.DecodeString(string(value[:]))
-		if err != nil {
-			log.Fatal(err)
+		if err == nil {
+			parsedStateRoots[ind] = decodedValue
+			ind++
 		}
-		parsedStateRoots[ind] = decodedValue
-		ind++
 	}
+	// should not catch error here
 	jsonparser.ArrayEach(rawStateRoots, handler)
 	stateRoots := &StateRoots{
 		StateRoots: parsedStateRoots,
@@ -348,18 +346,18 @@ func parseAccountRoots(rawAccountRoots []byte) (*AccountRoots, error) {
 	ind := 0
 	handler := func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
 		if err != nil {
-			log.Fatal(err)
+			return
 		}
 		// Decode error: index out of range
 		// decodedValue := make([]byte, 32)
 		// _, err = Decode(decodedValue, value[:])
 		decodedValue, err := util.DecodeString(string(value[:]))
-		if err != nil {
-			log.Fatal(err)
+		if err == nil {
+			parsedAccountRoots[ind] = decodedValue
+			ind++
 		}
-		parsedAccountRoots[ind] = decodedValue
-		ind++
 	}
+	// should not catch error here
 	jsonparser.ArrayEach(rawAccountRoots, handler)
 	accountRoots := &AccountRoots{
 		AccountRoots: parsedAccountRoots,
