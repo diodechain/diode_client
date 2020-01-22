@@ -6,7 +6,6 @@ package rpc
 import (
 	"crypto/ecdsa"
 	"fmt"
-	"log"
 
 	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/crypto/secp256k1"
@@ -143,27 +142,18 @@ func (ct *DeviceTicket) ValidateSigs(deviceID [20]byte) bool {
 func (ct *DeviceTicket) ValidateDeviceSig(deviceID [20]byte) bool {
 	addr, err := ct.DeviceAddress()
 	if err != nil {
-		log.Printf("No Device Addr %v\n", err)
+		ct.Err = fmt.Errorf("failed to recover device public key: %s", err.Error())
 		return false
 	}
-	if addr != deviceID {
-		log.Printf("Wrong Device Addr %v != %v\n%+v\n", util.EncodeToString(addr[:]), util.EncodeToString(deviceID[:]), ct)
-		return false
-	}
-	return true
+	return addr == deviceID
 }
 
 // ValidateServerSig returns true if server sig is valid
 func (ct *DeviceTicket) ValidateServerSig() bool {
 	pub, err := ct.RecoverServerPubKey()
 	if err != nil {
-		log.Printf("Couldn't recover server key %v\n", err)
+		ct.Err = fmt.Errorf("failed to recover server public key: %s", err.Error())
 		return false
 	}
-
-	if crypto.PubkeyToAddress(pub) != ct.ServerID {
-		log.Printf("Key mismatch addr(%v) => %v != %v\n", crypto.PubkeyToAddress(pub), ct.ServerID, pub)
-		return false
-	}
-	return true
+	return crypto.PubkeyToAddress(pub) == ct.ServerID
 }
