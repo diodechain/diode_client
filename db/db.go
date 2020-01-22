@@ -7,7 +7,6 @@ import (
 	"bufio"
 	"encoding/binary"
 	"fmt"
-	"log"
 	"os"
 	"sync"
 )
@@ -17,8 +16,9 @@ const (
 )
 
 var (
-	DB     *Database
-	DBPath string
+	DB                 *Database
+	DBPath             string
+	errSizeDidNotMatch = fmt.Errorf("incorrect size of written bytes")
 )
 
 type Database struct {
@@ -41,20 +41,20 @@ func OpenFile(path string) (*Database, error) {
 	if magic == databaseVersionMagic {
 		numTuples, err := binary.ReadUvarint(r)
 		if err != nil {
-			log.Fatal(err)
+			return nil, err
 		}
 		for i := numTuples; i > 0; i-- {
 			size64, err := binary.ReadUvarint(r)
 			key := make([]byte, size64)
 			size, err := r.Read(key)
 			if size != len(key) || err != nil {
-				log.Fatal(err)
+				return nil, err
 			}
 			size64, err = binary.ReadUvarint(r)
 			value := make([]byte, size64)
 			size, err = r.Read(value)
 			if size != len(value) || err != nil {
-				log.Fatal(err)
+				return nil, err
 			}
 			values[string(key)] = value
 		}
@@ -92,39 +92,49 @@ func (db *Database) store() error {
 		return err
 	}
 	w := bufio.NewWriter(f)
-	db.put(w, databaseVersionMagic)
-	db.put(w, uint64(len(db.values)))
+	err = db.put(w, databaseVersionMagic)
+	if err != nil {
+		return err
+	}
+	err = db.put(w, uint64(len(db.values)))
+	if err != nil {
+		return err
+	}
 	for key, value := range db.values {
 		db.put(w, uint64(len(key)))
 		r, err := w.Write([]byte(key))
 		if len(key) != r || err != nil {
-			log.Fatal(err)
+			return err
 		}
 		db.put(w, uint64(len(value)))
 		r, err = w.Write(value)
 		if len(value) != r || err != nil {
-			log.Fatal(err)
+			return err
 		}
 	}
 	err = w.Flush()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	err = f.Close()
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	// This renaming makes the operation atomic
 	// the database will be written 100% correct or not at
 	return os.Rename(db.path+".tmp", db.path)
 }
 
-func (db *Database) put(w *bufio.Writer, num uint64) {
+func (db *Database) put(w *bufio.Writer, num uint64) error {
 	size := binary.PutUvarint(db.buffer, num)
 	r, err := w.Write(db.buffer[:size])
-	if size != r || err != nil {
-		log.Fatal(err)
+	if err != nil {
+		return err
 	}
+	if size != r {
+		return errSizeDidNotMatch
+	}
+	return nil
 }
 
 func (db *Database) Close() error {
