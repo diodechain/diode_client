@@ -5,6 +5,7 @@ package util
 
 import (
 	"bytes"
+	"math"
 	"testing"
 )
 
@@ -24,6 +25,11 @@ type IntBigTest struct {
 	Src      int
 	AddedOne int
 	Bytes    []byte
+}
+
+type EmptyBytesTest struct {
+	Length int
+	Bytes  []byte
 }
 
 var (
@@ -93,6 +99,28 @@ var (
 			Bytes:    []byte{2, 0},
 		},
 	}
+	emptyBytesTests = []EmptyBytesTest{
+		EmptyBytesTest{
+			Length: -1,
+			Bytes:  []byte{},
+		},
+		EmptyBytesTest{
+			Length: 0,
+			Bytes:  []byte{},
+		},
+		EmptyBytesTest{
+			Length: math.MaxInt64,
+			Bytes:  []byte{},
+		},
+		EmptyBytesTest{
+			Length: 10,
+			Bytes:  []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+		},
+		EmptyBytesTest{
+			Length: 3,
+			Bytes:  []byte{0, 0, 0},
+		},
+	}
 )
 
 func TestPaddingBytesPrefix(t *testing.T) {
@@ -147,6 +175,14 @@ func TestBytesAddOne(t *testing.T) {
 	for _, v := range intBigTests {
 		if int64(v.AddedOne) != BytesToBigInt(BytesAddOne(v.Bytes)).Int64() {
 			t.Errorf("Cannot call BytesAddOne")
+		}
+	}
+}
+
+func TestEmptyBytes(t *testing.T) {
+	for _, v := range emptyBytesTests {
+		if !bytes.Equal(v.Bytes, EmptyBytes(v.Length)) {
+			t.Errorf("Cannot create empty bytes")
 		}
 	}
 }

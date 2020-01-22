@@ -4,6 +4,7 @@
 package util
 
 import (
+	"math"
 	"math/big"
 )
 
@@ -90,4 +91,16 @@ func SplitBytesByN(a []byte, n int) [][]byte {
 		splitPrefix[i] = partPrefix
 	}
 	return splitPrefix
+}
+
+// EmptyBytes returns empty bytes for the given length
+func EmptyBytes(len int) []byte {
+	var out []byte
+	if len < 0 || len > math.MaxInt32 {
+		return out
+	}
+	for i := 0; i < len; i++ {
+		out = append(out, byte(0))
+	}
+	return out
 }
