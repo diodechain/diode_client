@@ -4,7 +4,7 @@
 package main
 
 import (
-	"log"
+	"fmt"
 	"os"
 	"os/signal"
 	"sync"
@@ -35,17 +35,13 @@ func main() {
 	var pool *rpc.DataPool
 
 	config := config.AppConfig
-	if config.Debug {
-		log.SetFlags(log.LstdFlags | log.Lshortfile | log.Lmicroseconds)
-	}
-
 	if len(config.PublishedPorts) > 0 {
 		pool = rpc.NewPoolWithPublishedPorts(config.PublishedPorts)
 	} else {
 		pool = rpc.NewPool()
 	}
 
-	log.Printf("Diode client - version %s\n", version)
+	config.Logger.Info(fmt.Sprintf("Diode client - version %s", version), "module", "main")
 
 	// Initialize db
 	clidb, err := db.OpenFile(config.DBPath)
@@ -67,15 +63,15 @@ func main() {
 	go func() {
 		for cclient := range c {
 			if client == nil && cclient != nil {
-				log.Printf("Connected to %s, validating...\n", cclient.Host())
+				config.Logger.Info(fmt.Sprintf("Connected to %s, validating...", cclient.Host()), "module", "main")
 				isValid, err := cclient.ValidateNetwork()
 				if isValid {
 					client = cclient
 				} else {
 					if err != nil {
-						log.Printf("Network is not valid (err: %s), trying next...\n", err.Error())
+						config.Logger.Error(fmt.Sprintf("Network is not valid (err: %s), trying next...", err.Error()), "module", "main")
 					} else {
-						log.Printf("Network is not valid for unknown reasons\n")
+						config.Logger.Error("Network is not valid for unknown reasons", "module", "main")
 					}
 					cclient.Close()
 				}
@@ -89,22 +85,22 @@ func main() {
 	close(c)
 
 	if client == nil {
-		log.Fatal("Could not connect to any server.")
+		config.Logger.Error("Could not connect to any server.", "module", "main")
 	}
-	log.Printf("Network is validated, last valid block number: %d\n", rpc.LVBN)
+	config.Logger.Info(fmt.Sprintf("Network is validated, last valid block number: %d", rpc.LVBN), "module", "main")
 
 	// check device access to fleet contract and registry
 	clientAddr, err := client.GetClientAddress()
 	if err != nil {
-		log.Fatal(err)
+		config.Logger.Error(err.Error())
 		return
 	}
-	log.Printf("Client address: %s\n", util.EncodeToString(clientAddr[:]))
+	config.Logger.Info(fmt.Sprintf("Client address: %s", util.EncodeToString(clientAddr[:])), "module", "main")
 
 	// check device whitelist
 	isDeviceWhitelisted, err := client.IsDeviceWhitelisted(clientAddr)
 	if !isDeviceWhitelisted {
-		log.Printf("Device was not whitelisted: <%v>\n", err)
+		config.Logger.Error(fmt.Sprintf("Device was not whitelisted: <%v>", err), "module", "main")
 		return
 	}
 
@@ -112,19 +108,19 @@ func main() {
 	bn := rpc.BN
 	blockHeader, err := client.GetBlockHeader(bn)
 	if blockHeader == nil || err != nil {
-		log.Println("Cannot fetch blockheader")
+		config.Logger.Error("Cannot fetch blockheader", "module", "main")
 		return
 	}
 	isValid := blockHeader.ValidateSig()
 	if !isValid {
-		log.Println("Cannot validate blockheader signature")
+		config.Logger.Error("Cannot validate blockheader signature", "module", "main")
 		return
 	}
 	rpc.SetValidBlockHeader(bn, blockHeader)
 	// send ticket
 	err = client.SubmitNewTicket()
 	if err != nil {
-		log.Println(err)
+		config.Logger.Error(err.Error(), "module", "main")
 		return
 	}
 
@@ -164,7 +160,7 @@ func main() {
 	if config.RunSocksServer {
 		// start socks server
 		if err := socksServer.Start(); err != nil {
-			log.Fatal(err)
+			config.Logger.Error(err.Error(), "module", "main")
 			return
 		}
 	}
@@ -175,7 +171,7 @@ func main() {
 		socksServer.Config.CertPath = config.SProxyServerCertPath
 		socksServer.Config.PrivPath = config.SProxyServerPrivPath
 		if err := socksServer.StartProxy(); err != nil {
-			log.Fatal(err)
+			config.Logger.Error(err.Error(), "module", "main")
 			return
 		}
 	}
@@ -186,8 +182,7 @@ func main() {
 func connect(c chan *rpc.SSL, host string, config *config.Config, wg *sync.WaitGroup, pool *rpc.DataPool) {
 	client, err := rpc.DoConnect(host, config, pool)
 	if err != nil {
-		log.Printf("Connection to host %s failed", host)
-		log.Print(err)
+		config.Logger.Error(fmt.Sprintf("Connection to host %s failed", host), "module", "main")
 		wg.Done()
 	} else {
 		c <- client

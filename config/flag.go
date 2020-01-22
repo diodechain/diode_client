@@ -12,15 +12,30 @@ import (
 	"time"
 
 	"github.com/diodechain/diode_go_client/util"
+	log "github.com/diodechain/log15"
 )
 
 const (
 	PublicPublishedMode = 1 << iota
 	ProtectedPublishedMode
 	PrivatePublishedMode
+	LogToConsole = 1 << iota
+	LogToFile
 )
 
-var AppConfig *Config
+var (
+	AppConfig *Config
+	brandText = `Name
+  diode - Diode network command line interfaces
+`
+	commandText = `SYNOPSIS
+  diode [OPTIONS] %s [ARG...]
+OPTIONS
+`
+
+	usageText = `COMMANDS
+`
+)
 
 // Config for poc-client
 type Config struct {
@@ -59,6 +74,8 @@ type Config struct {
 	PublicPublishedPorts    string
 	ProtectedPublishedPorts string
 	PrivatePublishedPorts   string
+	LogMode                 int
+	Logger                  log.Logger
 }
 
 // Port struct for listening port
@@ -69,25 +86,28 @@ type Port struct {
 	Whitelist [][]byte
 }
 
-var (
-	brandText = `Name
-  diode - Diode network command line interfaces
-`
-	commandText = `SYNOPSIS
-  diode [OPTIONS] %s [ARG...]
-OPTIONS
-`
-
-	usageText = `COMMANDS
-`
-)
-
 func init() {
 	// commandFlags["help"] = &helpCommandFlag
 	commandFlags["publish"] = &publishCommandFlag
 	commandFlags["socksd"] = &socksdCommandFlag
 	commandFlags["httpd"] = &httpdCommandFlag
 	AppConfig = parseFlag()
+}
+
+func newLogger(logMode int) log.Logger {
+	var logHandler log.Handler
+	logger := log.New()
+	if (logMode & LogToConsole) > 0 {
+		logHandler = log.StreamHandler(os.Stderr, log.TerminalFormat())
+	}
+	logger.SetHandler(log.MultiHandler(
+		log.MatchFilterHandler("module", "main", logHandler),
+		log.MatchFilterHandler("module", "ssl", logHandler),
+		log.MatchFilterHandler("module", "rpc", logHandler),
+		log.MatchFilterHandler("module", "socks", logHandler),
+		log.MatchFilterHandler("module", "httpd", logHandler),
+	))
+	return logger
 }
 
 // stringsContain
@@ -190,6 +210,10 @@ func parseFlag() *Config {
 		os.Exit(0)
 	}
 
+	// TODO: add another log mode
+	cfg.LogMode = LogToConsole
+	cfg.Logger = newLogger(cfg.LogMode)
+
 	parsedRPCAddr := strings.Split(*remoteRPCAddr, ",")
 	remoteRPCAddrs := []string{}
 	// TODO: check domain is valid
@@ -237,7 +261,10 @@ func parseFlag() *Config {
 	}
 	cfg.Whitelists = whitelistsIDs
 	if cfg.RlimitNofile > 0 {
-		setRlimitNofile(cfg.RlimitNofile)
+		if err := setRlimitNofile(cfg.RlimitNofile); err != nil {
+			cfg.Logger.Error(fmt.Sprintf("cannot set rlimit: %s", err.Error()), "module", "main")
+			os.Exit(2)
+		}
 	}
 	return cfg
 }

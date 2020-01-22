@@ -12,6 +12,7 @@ import (
 )
 
 // TODO: Enable other metrics?
+// TODO: Update logger
 type Metrics struct {
 	// rpcMeter   gometrics.Meter
 	// socksMeter gometrics.Meter

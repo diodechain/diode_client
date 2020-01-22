@@ -11,7 +11,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
-	"log"
 	"math/big"
 	"net"
 	"os"
@@ -27,6 +26,7 @@ import (
 	"github.com/diodechain/diode_go_client/util"
 	"github.com/diodechain/go-cache"
 
+	logg "github.com/diodechain/log15"
 	"github.com/diodechain/openssl"
 	"github.com/felixge/tcpkeepalive"
 )
@@ -39,8 +39,19 @@ const (
 )
 
 var (
-	null       [20]byte
+	// null byte
+	null [20]byte
+	// debug rpc id
 	debugRPCID = 1
+	// BN latest block numebr
+	BN int
+	// LVBN last valid block numebr
+	LVBN int
+	// LBN last downloaded block header
+	LBN int
+	// ValidBlockHeaders map of validate block headers reference, do not loop this
+	validBlockHeaders = make(map[int]*BlockHeader)
+	m                 sync.Mutex
 )
 
 type Call struct {
@@ -75,6 +86,8 @@ type SSL struct {
 	metrics           *Metrics
 	pool              *DataPool
 	rm                sync.RWMutex
+	Verbose           bool
+	Logger            logg.Logger
 }
 
 type DataPool struct {
@@ -99,22 +112,6 @@ func NewPoolWithPublishedPorts(publishedPorts map[int]*config.Port) *DataPool {
 		publishedPorts: publishedPorts,
 	}
 }
-
-var (
-	// BN latest block numebr
-	BN int
-
-	// LVBN last valid block numebr
-	LVBN int
-
-	// LBN last downloaded block header
-	LBN int
-
-	// ValidBlockHeaders map of validate block headers reference, do not loop this
-	validBlockHeaders = make(map[int]*BlockHeader)
-
-	m sync.Mutex
-)
 
 // LenValidBlockHeaders returns the size of the validated block headers
 func LenValidBlockHeaders() int {
@@ -168,8 +165,8 @@ func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags, pool *Da
 func (s *SSL) Reconnect() bool {
 	isOk := false
 	for i := 1; i <= config.AppConfig.RetryTimes; i++ {
-		if config.AppConfig.Debug {
-			log.Printf("Retry to connect to %s, wait %s (%d/%d)\n", s.addr, config.AppConfig.RetryWait.String(), i, config.AppConfig.RetryTimes)
+		if s.Verbose {
+			s.Logger.Debug(fmt.Sprintf("retry to connect to %s, wait %s (%d/%d)", s.addr, config.AppConfig.RetryWait.String(), i, config.AppConfig.RetryTimes), "module", "ssl")
 		}
 		time.Sleep(config.AppConfig.RetryWait)
 		if s.Closed() {
@@ -177,13 +174,13 @@ func (s *SSL) Reconnect() bool {
 		}
 		err := s.reconnect()
 		if err != nil {
-			log.Println(err)
+			s.Logger.Error(fmt.Sprintf("failed to reconnect: %s", err.Error()), "module", "ssl")
 			continue
 		}
 		// Send initial ticket
 		err = s.SubmitNewTicket()
-		if config.AppConfig.Debug {
-			log.Println(err)
+		if s.Verbose {
+			s.Logger.Error(fmt.Sprintf("failed to submit ticket: %s", err.Error()), "module", "ssl")
 		}
 		if err == nil {
 			isOk = true
@@ -200,8 +197,7 @@ func (s *SSL) reconnect() error {
 		return err
 	}
 	if isErrorType(resp.Raw) {
-		err = fmt.Errorf("Reconnect error: %v", string(resp.Raw))
-		log.Println(err)
+		s.Logger.Error(fmt.Sprintf("failed to reconnect: %s", err.Error()), "module", "ssl")
 		return err
 	}
 	return nil
@@ -395,8 +391,7 @@ func (s *SSL) GetClientPrivateKey() (*ecdsa.PrivateKey, error) {
 	block, _ := pem.Decode(kd)
 	clientPrivKey, err := crypto.DerToECDSA(block.Bytes)
 	if err != nil {
-		log.Fatal(err)
-		// return nil, err
+		return nil, err
 	}
 	s.clientPrivKey = clientPrivKey
 	return clientPrivKey, nil
@@ -502,8 +497,8 @@ func (s *SSL) readContext() error {
 	n += 2
 	s.incrementTotalBytes(n)
 	s.tcpIn <- res
-	if config.AppConfig.Debug {
-		log.Printf("Receive %d bytes data from ssl\n", n)
+	if s.Verbose {
+		s.Logger.Debug(fmt.Sprintf("receive %d bytes data from ssl", n), "module", "ssl")
 	}
 	return nil
 }
@@ -525,8 +520,8 @@ func (s *SSL) sendPayload(method string, payload []byte, future ResponseFuture) 
 		data:            bytPay,
 	}
 	s.callChannel <- call
-	if config.AppConfig.Debug {
-		log.Printf("Sent: %v\n", string(payload))
+	if s.Verbose {
+		s.Logger.Debug(fmt.Sprintf("sent rpc %s", string(payload)), "module", "ssl")
 	}
 	return nil
 }
@@ -576,13 +571,13 @@ func (s *SSL) CallContext(method string, args ...interface{}) (res *Response, er
 		s.metrics.UpdateRPCTimer(tsDiff)
 	}
 	if err != nil {
-		if config.AppConfig.Debug {
-			log.Println("Got error: ", method, err, tsDiff)
+		if s.Verbose {
+			s.Logger.Error(fmt.Sprintf("failed to call: %s", method), "module", "ssl", "after", tsDiff)
 		}
 		return nil, err
 	}
-	if config.AppConfig.Debug {
-		log.Println("Got response: ", method, tsDiff)
+	if s.Verbose {
+		s.Logger.Debug(fmt.Sprintf("got response: %s", method), "module", "ssl", "after", tsDiff)
 	}
 	return res, nil
 }
@@ -631,13 +626,13 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 		LVBN = BN - BQLimit
 	}
 	if err != nil {
-		log.Printf("Cannot read data from file, error: %s\n", err.Error())
+		s.Logger.Error(fmt.Sprintf("failed to read date from file: %s", err.Error()), "module", "ssl")
 	} else {
 		// TODO: ensure bytes are correct
 		LVBN = util.DecodeBytesToInt(LVBNByt)
 	}
 	oriLVBN := LVBN
-	log.Printf("Last valid block number: %d\n", LVBN)
+	s.Logger.Info(fmt.Sprintf("last valid block number: %d", LVBN), "module", "ssl")
 
 	// we only check LVBN + 100 block number
 	bnLimit := BN + 1
@@ -650,15 +645,15 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 	for i := bnLimit - BQLimit; i < bnLimit; i++ {
 		blockHeader, err := s.GetBlockHeader(i)
 		if err != nil {
-			log.Printf("Cannot fetch block header: %d, error: %s", i, err.Error())
+			s.Logger.Error(fmt.Sprintf("failed to fetch block header: %d, %s", i, err.Error()), "module", "ssl")
 			return false, err
 		}
 		LBN = i
 		hexMiner := hex.EncodeToString(blockHeader.Miner)
 		isSigValid := blockHeader.ValidateSig()
 		if !isSigValid {
-			if config.Debug {
-				log.Printf("Miner signature was not valid, block header: %d", i)
+			if s.Verbose {
+				s.Logger.Debug(fmt.Sprintf("miner signature was not valid, block header: %d", i), "module", "ssl")
 			}
 			continue
 		}
@@ -671,18 +666,18 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 	// setup miner portion map
 	for miner, count := range minerCount {
 		if count == 0 {
-			log.Printf("Miner count was zero, miner: %s\n", miner)
+			s.Logger.Warn(fmt.Sprintf("miner count was zero, miner: %s", miner), "module", "ssl")
 			continue
 		}
 		portion := float64(count) / float64(BQLimit)
 		minerPortion[miner] = portion
 		if config.Debug {
-			log.Printf("Miner: %s count: %3d portion: %f\n", miner, count, portion)
+			s.Logger.Debug(fmt.Sprintf("miner: %s count: %3d portion: %f", miner, count, portion), "module", "ssl")
 		}
 	}
 	if config.Debug {
 		// simple implementation
-		log.Printf("Block number limit: %d\n", bnLimit)
+		s.Logger.Debug(fmt.Sprintf("block number limit: %d", bnLimit), "module", "ssl")
 	}
 	// start to confirm the block if signature is valid
 	for i := bnLimit - BQLimit; i < bnLimit; i++ {
@@ -706,9 +701,6 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 			portion += minerPortion[hexMiner2]
 			if portion >= 0.51 {
 				isConfirmed = true
-				if config.Debug {
-					log.Printf(" %16.4f %d pass\n", portion, i)
-				}
 				break
 			}
 		}
@@ -730,7 +722,7 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 			LVBNByt = util.DecodeIntToBytes(LVBN)
 			err = db.DB.Put("lvbn", LVBNByt)
 			if err != nil {
-				log.Printf("Cannot save data to leveldb, error: %s\n", err.Error())
+				s.Logger.Error(fmt.Sprintf("failed to save data to file: %s", err.Error()), "module", "ssl")
 			}
 		}
 	}
@@ -823,7 +815,7 @@ func (s *SSL) newTicket() (*DeviceTicket, error) {
 	if header == nil {
 		return nil, fmt.Errorf("NewTicket(): No block header available for LVBN=%v", lvbn)
 	}
-	log.Printf("NewTicket(LVBN=%v)\n", lvbn)
+	s.Logger.Info(fmt.Sprintf("new ticket: %d", lvbn), "module", "ssl")
 	blockHash := header.BlockHash
 	ticket := &DeviceTicket{
 		ServerID:         serverID,
@@ -863,7 +855,7 @@ func (s *SSL) submitTicket(ticket *DeviceTicket) error {
 	encSig := util.EncodeToString(ticket.DeviceSig)
 	resp, err := s.CallContext("ticket", ticket.BlockNumber, encFleetAddr, ticket.TotalConnections, ticket.TotalBytes, encLocalAddr, encSig)
 	if err != nil {
-		log.Printf("SubmitTicket.Error: %v\n", err)
+		s.Logger.Error(fmt.Sprintf("failed to submit ticket: %s", err.Error()), "module", "ssl")
 		return err
 	}
 	status := string(resp.RawData[0])
@@ -885,7 +877,8 @@ func (s *SSL) submitTicket(ticket *DeviceTicket) error {
 
 		addr, err := s.GetClientAddress()
 		if err != nil {
-			log.Panicf("SubmitTicket can't identify self: %v\n", err)
+			// s.Logger.Error(fmt.Sprintf("SubmitTicket can't identify self: %s", err.Error()), "module", "ssl")
+			return err
 		}
 
 		if !lastTicket.ValidateDeviceSig(addr) {
@@ -896,17 +889,17 @@ func (s *SSL) submitTicket(ticket *DeviceTicket) error {
 			s.totalConnections = tc + 1
 			err = s.SubmitNewTicket()
 			if err != nil {
-				log.Println(err)
+				// s.Logger.Error(fmt.Sprintf("failed to submit ticket: %s", err.Error()), "module", "ssl")
 				return nil
 			}
 
 		} else {
-			log.Printf("Received fake ticket..\n\t%+v\n\t(from %+v)\n", lastTicket, resp.RawData)
+			s.Logger.Warn("received fake ticket..", "module", "ssl", "last_ticket", lastTicket, "response", string(resp.Raw))
 		}
 
 	case "ok", "thanks!":
 	default:
-		log.Printf("SubmitTicket.Response: %v %v\n", status, len(resp.RawData))
+		s.Logger.Info(fmt.Sprintf("response of submit ticket: %s %s", status, string(resp.Raw)), "module", "ssl")
 	}
 	return err
 }
@@ -1021,14 +1014,13 @@ func (s *SSL) GetAccountValueRaw(addr [20]byte, key []byte) ([]byte, error) {
 	}
 	raw, err := acvTree.Get(key)
 	if err != nil {
-		log.Println(err)
 		return NullData, err
 	}
 	return raw, nil
 }
 
 func (s *SSL) ResolveDNS(name string) (addr [20]byte, err error) {
-	log.Printf("Resolving DN: '%v'\n", name)
+	s.Logger.Info(fmt.Sprintf("resolving DN: %s", name), "module", "ssl")
 	key := contract.DNSMetaKey(name)
 	raw, err := s.GetAccountValueRaw(contract.DNSAddr, key)
 	if err != nil {
@@ -1051,7 +1043,6 @@ func (s *SSL) IsDeviceWhitelisted(addr [20]byte) (bool, error) {
 	key := contract.DeviceWhitelistKey(addr)
 	raw, err := s.GetAccountValueRaw(s.FleetAddr, key)
 	if err != nil {
-		log.Println(err)
 		return false, err
 	}
 	return (util.BytesToInt(raw) == 1), nil
@@ -1062,7 +1053,6 @@ func (s *SSL) IsAccessWhitelisted(fleetAddr [20]byte, deviceAddr [20]byte, clien
 	key := contract.AccessWhitelistKey(deviceAddr, clientAddr)
 	raw, err := s.GetAccountValueRaw(fleetAddr, key)
 	if err != nil {
-		log.Println(err)
 		return false, err
 	}
 	return (util.BytesToInt(raw) == 1), nil
@@ -1073,15 +1063,18 @@ func EnsurePrivatePEM() []byte {
 	if key == nil {
 		privKey, err := openssl.GenerateECKey(NID_secp256k1)
 		if err != nil {
-			log.Fatal(err)
+			config.AppConfig.Logger.Error(fmt.Sprintf("failed to generate ec key: %s", err.Error()), "module", "ssl")
+			os.Exit(-1)
 		}
 		bytes, err := privKey.MarshalPKCS1PrivateKeyPEM()
 		if err != nil {
-			log.Fatal(err)
+			config.AppConfig.Logger.Error(fmt.Sprintf("failed to marshal ec key: %s", err.Error()), "module", "ssl")
+			os.Exit(-1)
 		}
 		err = db.DB.Put("private", bytes)
 		if err != nil {
-			log.Fatal(err)
+			config.AppConfig.Logger.Error(fmt.Sprintf("failed to svae ec key to file: %s", err.Error()), "module", "ssl")
+			os.Exit(-1)
 		}
 		return bytes
 	}
@@ -1093,12 +1086,12 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*SSL, error)
 	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
 	if err != nil {
 		if config.Debug {
-			log.Println(err)
+			config.Logger.Debug(fmt.Sprintf("failed to connect to host: %s", err.Error()), "module", "ssl")
 		}
 		// retry to connect
 		isOk := false
 		for i := 1; i <= config.RetryTimes; i++ {
-			log.Printf("Retry to connect to %s, wait %s\n", host, config.RetryWait.String())
+			config.Logger.Info(fmt.Sprintf("retry to connect to %s, wait %s", host, config.RetryWait.String()), "module", "ssl")
 			time.Sleep(config.RetryWait)
 			client, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
 			if err == nil {
@@ -1106,7 +1099,7 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*SSL, error)
 				break
 			}
 			if config.Debug {
-				log.Println(err)
+				config.Logger.Debug(fmt.Sprintf("failed to connect to host: %s", err.Error()), "module", "ssl")
 			}
 		}
 		if !isOk {
@@ -1136,6 +1129,9 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*SSL, error)
 		}
 	}
 
+	client.Verbose = config.Debug
+	client.Logger = config.Logger
+
 	if config.EnableMetrics {
 		client.enableMetrics = true
 		client.metrics = NewMetrics()
@@ -1159,11 +1155,13 @@ func initSSL(config *config.Config) *openssl.Ctx {
 	serial := new(big.Int)
 	_, err := fmt.Sscan("18446744073709551617", serial)
 	if err != nil {
-		log.Fatal(err)
+		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
+		os.Exit(-1)
 	}
 	name, err := os.Hostname()
 	if err != nil {
-		log.Fatal(err)
+		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
+		os.Exit(-1)
 	}
 	info := &openssl.CertificateInfo{
 		Serial:       serial,
@@ -1176,24 +1174,33 @@ func initSSL(config *config.Config) *openssl.Ctx {
 	privPEM := EnsurePrivatePEM()
 	key, err := openssl.LoadPrivateKeyFromPEM(privPEM)
 	if err != nil {
-		log.Fatal(err)
+		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
+		os.Exit(-1)
 	}
 	cert, err := openssl.NewCertificate(info, key)
 	if err != nil {
-		log.Fatal(err)
+		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
+		os.Exit(-1)
 	}
 	err = cert.Sign(key, openssl.EVP_SHA256)
 	if err != nil {
-		log.Fatal(err)
+		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
+		os.Exit(-1)
 	}
 	ctx, err := openssl.NewCtx()
 	if err != nil {
-		log.Fatal(err)
+		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
+		os.Exit(-1)
 	}
 	err = ctx.UseCertificate(cert)
+	if err != nil {
+		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
+		os.Exit(-1)
+	}
 	err = ctx.UsePrivateKey(key)
 	if err != nil {
-		log.Fatal(err)
+		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
+		os.Exit(-1)
 	}
 
 	// We only use self-signed certificates.
@@ -1209,12 +1216,14 @@ func initSSL(config *config.Config) *openssl.Ctx {
 	ctx.SetVerify(verifyOption, cb)
 	err = ctx.SetEllipticCurve(NID_secp256k1)
 	if err != nil {
-		panic(err)
+		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
+		os.Exit(-1)
 	}
 	curves := []openssl.EllipticCurve{NID_secp256k1, NID_secp256r1}
 	err = ctx.SetSupportedEllipticCurves(curves)
 	if err != nil {
-		panic(err)
+		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
+		os.Exit(-1)
 	}
 
 	// TODO: Need to handle timeouts, right now we're using

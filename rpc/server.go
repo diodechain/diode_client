@@ -6,7 +6,6 @@ package rpc
 import (
 	"encoding/hex"
 	"fmt"
-	"log"
 	"net"
 	"strconv"
 	"sync"
@@ -76,7 +75,7 @@ func (rpcServer *RPCServer) Start() {
 				portOpen, err := newPortOpenRequest(request)
 				if err != nil {
 					_ = rpcServer.s.ResponsePortOpen(portOpen, err)
-					log.Println(err)
+					rpcServer.s.Logger.Error(fmt.Sprintf("failed to decode portopen request: %s", err.Error()), "module", "rpc")
 					continue
 				}
 				// Checking blacklist and whitelist
@@ -106,7 +105,9 @@ func (rpcServer *RPCServer) Start() {
 				publishedPort := rpcServer.pool.GetPublishedPort(int(portOpen.Port))
 				if publishedPort == nil {
 					_ = rpcServer.s.ResponsePortOpen(portOpen, errPortNotPublished)
-					log.Println("Connect remote failed:", errPortNotPublished)
+					if rpcServer.Config.Verbose {
+						rpcServer.s.Logger.Debug("port was not published", "module", "rpc", "port", portOpen.Port)
+					}
 					continue
 				}
 				clientID := fmt.Sprintf("%s%d", portOpen.DeviceID, portOpen.Ref)
@@ -117,7 +118,7 @@ func (rpcServer *RPCServer) Start() {
 				remoteConn, err := net.DialTimeout("tcp", host, rpcServer.timeout)
 				if err != nil {
 					_ = rpcServer.s.ResponsePortOpen(portOpen, err)
-					log.Println("Connect remote failed:", err)
+					rpcServer.s.Logger.Error(fmt.Sprintf("failed to connect local: %s", err.Error()), "module", "rpc")
 					continue
 				}
 				_ = rpcServer.s.ResponsePortOpen(portOpen, nil)
@@ -137,13 +138,13 @@ func (rpcServer *RPCServer) Start() {
 			case "portsend":
 				portSend, err := newPortSendRequest(request)
 				if err != nil {
-					log.Println(err)
+					rpcServer.s.Logger.Error(fmt.Sprintf("failed to decode portsend request: %s", err.Error()), "module", "rpc")
 					continue
 				}
 				decData := make([]byte, hex.DecodedLen(len(portSend.Data)))
 				_, err = util.Decode(decData, portSend.Data)
 				if err != nil {
-					log.Println(err)
+					rpcServer.s.Logger.Error(fmt.Sprintf("failed to decode portsend data: %s", err.Error()), "module", "rpc")
 					continue
 				}
 				// start to write data
@@ -152,13 +153,13 @@ func (rpcServer *RPCServer) Start() {
 				if cachedConnDevice != nil {
 					cachedConnDevice.writeToTCP(decData)
 				} else {
-					log.Printf("portsend: Cannot find the connected device ref %v\n", portSend.Ref)
+					rpcServer.s.Logger.Error(fmt.Sprintf("cannot find the portsend connected device %d", portSend.Ref), "module", "rpc")
 					rpcServer.s.CastPortClose(int(portSend.Ref))
 				}
 			case "portclose":
 				portClose, err := newPortCloseRequest(request)
 				if err != nil {
-					log.Println(err)
+					rpcServer.s.Logger.Error(fmt.Sprintf("failed to decode portclose request: %s", err.Error()), "module", "rpc")
 				}
 				deviceKey := rpcServer.s.GetDeviceKey(portClose.Ref)
 				cachedConnDevice := rpcServer.pool.GetDevice(deviceKey)
@@ -166,10 +167,10 @@ func (rpcServer *RPCServer) Start() {
 					cachedConnDevice.Close()
 					rpcServer.pool.SetDevice(deviceKey, nil)
 				} else {
-					log.Printf("portclose: Cannot find the connected device ref %v\n", portClose.Ref)
+					rpcServer.s.Logger.Error(fmt.Sprintf("cannot find the portclose connected device %d", portClose.Ref), "module", "rpc")
 				}
 			case "goodbye":
-				log.Printf("Server disconnected, reason: %s, %s\n", string(request.RawData[0]), string(request.RawData[1]))
+				rpcServer.s.Logger.Warn(fmt.Sprintf("server disconnected, reason: %s, %s", string(request.RawData[0]), string(request.RawData[1])), "module", "rpc")
 				rpcServer.rm.Lock()
 				if !rpcServer.closed {
 					rpcServer.rm.Unlock()
@@ -178,7 +179,7 @@ func (rpcServer *RPCServer) Start() {
 					rpcServer.rm.Unlock()
 				}
 			default:
-				log.Println("Doesn't support rpc request: " + string(request.Method))
+				rpcServer.s.Logger.Warn(fmt.Sprintf("doesn't support rpc request: "+string(request.Method)), "module", "rpc")
 			}
 		}
 	})
@@ -210,7 +211,7 @@ func (rpcServer *RPCServer) Start() {
 				go func() {
 					blockPeak, err := rpcServer.s.GetBlockPeak()
 					if err != nil {
-						log.Println(err)
+						rpcServer.s.Logger.Error(fmt.Sprintf("cannot getblockpeak: %s", err.Error()), "module", "rpc")
 						return
 					}
 					if LBN >= blockPeak {
@@ -218,12 +219,12 @@ func (rpcServer *RPCServer) Start() {
 					}
 					blockHeader, err := rpcServer.s.GetBlockHeader(blockPeak)
 					if err != nil {
-						log.Println(err)
+						rpcServer.s.Logger.Error(fmt.Sprintf("cannot getblockheader: %s", err.Error()), "module", "rpc")
 						return
 					}
 					isSigValid := blockHeader.ValidateSig()
 					if !isSigValid {
-						log.Printf("Miner signature was not valid, block header: %d", blockPeak)
+						rpcServer.s.Logger.Warn(fmt.Sprintf("miner signature was not valid, block header: %d", blockPeak), "module", "rpc")
 						return
 					}
 					LBN = blockPeak
@@ -233,12 +234,16 @@ func (rpcServer *RPCServer) Start() {
 				}()
 			case res := <-rpcServer.s.tcpIn:
 				go rpcServer.s.CheckTicket()
-				// log.Printf("GOT: isResp=%v %v\n", isResponseType, string(res))
 				if isResponseType(res) || isErrorType(res) {
 					call := rpcServer.s.calls[0]
-					// log.Printf("recv: %v", responseMethod(res))
 					if responseMethod(res) != call.method {
-						log.Printf("Uh, got different response type: %v %v", call.method, string(res))
+						// should not happen
+						rpcServer.s.Logger.Error(fmt.Sprintf("got different response type: %s %s", call.method, string(res)), "module", "rpc")
+						continue
+					}
+
+					if rpcServer.Config.Verbose {
+						rpcServer.s.Logger.Debug(fmt.Sprintf("got response: %s", call.method), "module", "rpc")
 					}
 
 					rpcServer.s.calls = rpcServer.s.calls[1:]
@@ -248,12 +253,14 @@ func (rpcServer *RPCServer) Start() {
 				}
 				request, err := parseRPCRequest(res)
 				if err != nil {
-					log.Printf("This is not an RPC request %v\n", err)
+					rpcServer.s.Logger.Error(fmt.Sprintf("not rpc request: %s", err.Error()), "module", "rpc")
 					continue
 				}
 				rpcServer.requestChan <- request
 			case call := <-rpcServer.s.callChannel:
-				// log.Printf("send: %v", call.method)
+				if rpcServer.Config.Verbose {
+					rpcServer.s.Logger.Debug(fmt.Sprintf("send new rpc: %s", call.method), "module", "rpc")
+				}
 				if call.method == ":reconnect" {
 					// Resetting buffers to not mix old messages with new messages
 					rpcServer.s.tcpIn = make(chan []byte, 100)
@@ -266,7 +273,7 @@ func (rpcServer *RPCServer) Start() {
 					conn, err := openssl.Dial("tcp", rpcServer.s.addr, rpcServer.s.ctx, rpcServer.s.mode)
 					var ret []byte = []byte("[\"response\", \":reconnect\", \"ok\"]")
 					if err != nil {
-						log.Println(err)
+						rpcServer.s.Logger.Error(fmt.Sprintf("cannot reconnect to server: %s", err.Error()), "module", "rpc")
 						ret = []byte(fmt.Sprintf("[\"error\", \":reconnect\", \"%v\"]", err.Error()))
 					} else {
 						rpcServer.s.setOpensslConn(conn)
@@ -277,12 +284,11 @@ func (rpcServer *RPCServer) Start() {
 					call.responseChannel <- ret
 
 				} else {
-					// log.Println("write to tcp")
 					ts := time.Now()
 					conn := rpcServer.s.getOpensslConn()
 					_, err := conn.Write(call.data)
 					if err != nil {
-						log.Println("WriteToSSL error:", err)
+						rpcServer.s.Logger.Error(fmt.Sprintf("failed to write to tcp: %s", err.Error()), "module", "rpc")
 					}
 					tsDiff := time.Since(ts)
 					if rpcServer.s.enableMetrics {

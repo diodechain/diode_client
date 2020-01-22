@@ -5,7 +5,6 @@ package rpc
 
 import (
 	"fmt"
-	"log"
 	"net"
 	"sync"
 	"time"
@@ -22,6 +21,22 @@ type ConnectedDevice struct {
 	DDeviceID []byte
 	Conn      ConnectedConn
 	Server    *SSL
+}
+
+func (device *ConnectedDevice) LocalAddr() net.Addr {
+	if device.Conn.IsWS() {
+		return device.Conn.WSConn.LocalAddr()
+	} else {
+		return device.Conn.Conn.LocalAddr()
+	}
+}
+
+func (device *ConnectedDevice) RemoteAddr() net.Addr {
+	if device.Conn.IsWS() {
+		return device.Conn.WSConn.RemoteAddr()
+	} else {
+		return device.Conn.Conn.RemoteAddr()
+	}
 }
 
 // Close the connection of device
@@ -51,7 +66,9 @@ func (device *ConnectedDevice) copyToSSL() {
 	ref := int(device.Ref)
 	err := device.Conn.copyToSSL(device.Server, ref)
 	if err != nil {
-		// log.Println("copyToSSL failed:", err)
+		if device.Server.Verbose {
+			device.Server.Logger.Debug(fmt.Sprintf("copyToSSL failed: %s", err.Error()), "module", "ssl", "client_id", device.ClientID, "device_id", device.DeviceID)
+		}
 		device.Close()
 	}
 }
@@ -60,7 +77,9 @@ func (device *ConnectedDevice) copyToSSL() {
 func (device *ConnectedDevice) writeToTCP(data []byte) {
 	err := device.Conn.writeToTCP(data)
 	if err != nil {
-		log.Println("writeToTCP failed:", err)
+		if device.Server.Verbose {
+			device.Server.Logger.Debug(fmt.Sprintf("writeToTCP failed: %s", err.Error()), "module", "ssl", "client_id", device.ClientID, "device_id", device.DeviceID)
+		}
 		device.Close()
 	}
 }

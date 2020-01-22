@@ -9,8 +9,10 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
-	"log"
+	"os"
 	"strconv"
+
+	"github.com/diodechain/diode_go_client/config"
 )
 
 func unzip(in []byte) string {
@@ -19,10 +21,12 @@ func unzip(in []byte) string {
 
 	zr, err := gzip.NewReader(gz)
 	if err != nil {
-		log.Fatal(err)
+		config.AppConfig.Logger.Error(fmt.Sprintf("failed to unzip: %s", err.Error()), "module", "httpd")
+		os.Exit(-1)
 	}
 	if _, err := io.Copy(&out, zr); err != nil {
-		log.Fatal(err)
+		config.AppConfig.Logger.Error(fmt.Sprintf("failed to unzip: %s", err.Error()), "module", "httpd")
+		os.Exit(-1)
 	}
 	return string(out.Bytes())
 
