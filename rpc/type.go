@@ -5,12 +5,12 @@ package rpc
 
 import (
 	"bytes"
-	"log"
 
 	// "io"
 
 	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/crypto/secp256k1"
+	"github.com/diodechain/diode_go_client/util"
 
 	// "github.com/diodechain/diode_go_client/crypto/sha3"
 	// "github.com/diodechain/diode_go_client/util"
@@ -139,7 +139,7 @@ func (sr *StateRoots) StateRoot() []byte {
 	}
 	rawStateRoot, err := bert.Encode(bertStateRoot)
 	if err != nil {
-		log.Fatal(err)
+		return util.EmptyBytes(32)
 	}
 	stateRoot := crypto.Sha256(rawStateRoot)
 	sr.rawStateRoot = rawStateRoot
@@ -170,7 +170,7 @@ func (ar *AccountRoots) StorageRoot() []byte {
 	}
 	rawStorageRoot, err := bert.Encode(bertStorageRoot)
 	if err != nil {
-		log.Fatal(err)
+		return util.EmptyBytes(32)
 	}
 	storageRoot := crypto.Sha256(rawStorageRoot)
 	ar.rawStorageRoot = rawStorageRoot
@@ -316,7 +316,6 @@ func (serverObj *ServerObj) RecoverServerPubKey() ([]byte, error) {
 func (serverObj *ServerObj) ValidateSig(serverID [20]byte) bool {
 	pubKey, err := serverObj.RecoverServerPubKey()
 	if err != nil {
-		log.Printf("ServerObj.ValidateSig(): %v\n", err)
 		return false
 	}
 	return serverID == crypto.PubkeyToAddress(pubKey)
