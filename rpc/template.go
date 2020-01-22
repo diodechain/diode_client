@@ -22,11 +22,11 @@ func unzip(in []byte) string {
 	zr, err := gzip.NewReader(gz)
 	if err != nil {
 		config.AppConfig.Logger.Error(fmt.Sprintf("failed to unzip: %s", err.Error()), "module", "httpd")
-		os.Exit(-1)
+		os.Exit(129)
 	}
 	if _, err := io.Copy(&out, zr); err != nil {
 		config.AppConfig.Logger.Error(fmt.Sprintf("failed to unzip: %s", err.Error()), "module", "httpd")
-		os.Exit(-1)
+		os.Exit(129)
 	}
 	return string(out.Bytes())
 

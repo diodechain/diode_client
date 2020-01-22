@@ -86,6 +86,7 @@ func main() {
 
 	if client == nil {
 		config.Logger.Error("Could not connect to any server.", "module", "main")
+		os.Exit(129)
 	}
 	config.Logger.Info(fmt.Sprintf("Network is validated, last valid block number: %d", rpc.LVBN), "module", "main")
 

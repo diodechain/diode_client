@@ -1064,17 +1064,17 @@ func EnsurePrivatePEM() []byte {
 		privKey, err := openssl.GenerateECKey(NID_secp256k1)
 		if err != nil {
 			config.AppConfig.Logger.Error(fmt.Sprintf("failed to generate ec key: %s", err.Error()), "module", "ssl")
-			os.Exit(-1)
+			os.Exit(129)
 		}
 		bytes, err := privKey.MarshalPKCS1PrivateKeyPEM()
 		if err != nil {
 			config.AppConfig.Logger.Error(fmt.Sprintf("failed to marshal ec key: %s", err.Error()), "module", "ssl")
-			os.Exit(-1)
+			os.Exit(129)
 		}
 		err = db.DB.Put("private", bytes)
 		if err != nil {
 			config.AppConfig.Logger.Error(fmt.Sprintf("failed to svae ec key to file: %s", err.Error()), "module", "ssl")
-			os.Exit(-1)
+			os.Exit(129)
 		}
 		return bytes
 	}
@@ -1156,12 +1156,12 @@ func initSSL(config *config.Config) *openssl.Ctx {
 	_, err := fmt.Sscan("18446744073709551617", serial)
 	if err != nil {
 		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
-		os.Exit(-1)
+		os.Exit(129)
 	}
 	name, err := os.Hostname()
 	if err != nil {
 		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
-		os.Exit(-1)
+		os.Exit(129)
 	}
 	info := &openssl.CertificateInfo{
 		Serial:       serial,
@@ -1175,32 +1175,32 @@ func initSSL(config *config.Config) *openssl.Ctx {
 	key, err := openssl.LoadPrivateKeyFromPEM(privPEM)
 	if err != nil {
 		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
-		os.Exit(-1)
+		os.Exit(129)
 	}
 	cert, err := openssl.NewCertificate(info, key)
 	if err != nil {
 		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
-		os.Exit(-1)
+		os.Exit(129)
 	}
 	err = cert.Sign(key, openssl.EVP_SHA256)
 	if err != nil {
 		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
-		os.Exit(-1)
+		os.Exit(129)
 	}
 	ctx, err := openssl.NewCtx()
 	if err != nil {
 		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
-		os.Exit(-1)
+		os.Exit(129)
 	}
 	err = ctx.UseCertificate(cert)
 	if err != nil {
 		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
-		os.Exit(-1)
+		os.Exit(129)
 	}
 	err = ctx.UsePrivateKey(key)
 	if err != nil {
 		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
-		os.Exit(-1)
+		os.Exit(129)
 	}
 
 	// We only use self-signed certificates.
@@ -1217,13 +1217,13 @@ func initSSL(config *config.Config) *openssl.Ctx {
 	err = ctx.SetEllipticCurve(NID_secp256k1)
 	if err != nil {
 		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
-		os.Exit(-1)
+		os.Exit(129)
 	}
 	curves := []openssl.EllipticCurve{NID_secp256k1, NID_secp256r1}
 	err = ctx.SetSupportedEllipticCurves(curves)
 	if err != nil {
 		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
-		os.Exit(-1)
+		os.Exit(129)
 	}
 
 	// TODO: Need to handle timeouts, right now we're using
