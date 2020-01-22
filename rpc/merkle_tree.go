@@ -6,7 +6,6 @@ package rpc
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"math"
 
 	//"math/big"
@@ -191,7 +190,6 @@ func (mt *MerkleTree) rparse(proof []byte) (interface{}, error) {
 	} else if util.IsHex(proof) {
 		return util.DecodeString(string(proof))
 	} else {
-		log.Println("JSON of merkle proof must be hex or array")
 		return nil, errorWrongTree
 	}
 	return parsedProof, nil
