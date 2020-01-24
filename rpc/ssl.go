@@ -78,7 +78,7 @@ type SSL struct {
 	pool              *DataPool
 	rm                sync.RWMutex
 	Verbose           bool
-	Logger            logg.Logger
+	logger            logg.Logger
 }
 
 type DataPool struct {
@@ -102,6 +102,33 @@ func NewPoolWithPublishedPorts(publishedPorts map[int]*config.Port) *DataPool {
 		devices:        make(map[string]*ConnectedDevice),
 		publishedPorts: publishedPorts,
 	}
+}
+
+// Info logs to logger in Info level
+func (s *SSL) Info(msg string, args ...interface{}) {
+	s.logger.Info(fmt.Sprintf(msg, args...), "module", "ssl")
+}
+
+// Debug logs to logger in Debug level
+func (s *SSL) Debug(msg string, args ...interface{}) {
+	if s.Verbose {
+		s.logger.Debug(fmt.Sprintf(msg, args...), "module", "ssl")
+	}
+}
+
+// Error logs to logger in Error level
+func (s *SSL) Error(msg string, args ...interface{}) {
+	s.logger.Error(fmt.Sprintf(msg, args...), "module", "ssl")
+}
+
+// Warn logs to logger in Warn level
+func (s *SSL) Warn(msg string, args ...interface{}) {
+	s.logger.Warn(fmt.Sprintf(msg, args...), "module", "ssl")
+}
+
+// Crit logs to logger in Crit level
+func (s *SSL) Crit(msg string, args ...interface{}) {
+	s.logger.Crit(fmt.Sprintf(msg, args...), "module", "ssl")
 }
 
 func (s *SSL) addCall(c Call) {
@@ -163,22 +190,21 @@ func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags, pool *Da
 func (s *SSL) Reconnect() bool {
 	isOk := false
 	for i := 1; i <= config.AppConfig.RetryTimes; i++ {
-		if s.Verbose {
-			s.Logger.Debug(fmt.Sprintf("retry to connect to %s, wait %s (%d/%d)", s.addr, config.AppConfig.RetryWait.String(), i, config.AppConfig.RetryTimes), "module", "ssl")
-		}
+		s.Debug("Retry to connect to %s, wait %s (%d/%d)", s.addr, config.AppConfig.RetryWait.String(), i, config.AppConfig.RetryTimes)
+
 		time.Sleep(config.AppConfig.RetryWait)
 		if s.Closed() {
 			break
 		}
 		err := s.reconnect()
 		if err != nil {
-			s.Logger.Error(fmt.Sprintf("failed to reconnect: %s", err.Error()), "module", "ssl")
+			s.Error("failed to reconnect: %s", err)
 			continue
 		}
 		// Send initial ticket
 		err = s.SubmitNewTicket()
 		if s.Verbose {
-			s.Logger.Error(fmt.Sprintf("failed to submit ticket: %s", err.Error()), "module", "ssl")
+			s.Error("failed to submit ticket: %v", err)
 		}
 		if err == nil {
 			isOk = true
@@ -195,7 +221,7 @@ func (s *SSL) reconnect() error {
 		return err
 	}
 	if isErrorType(resp.Raw) {
-		s.Logger.Error(fmt.Sprintf("failed to reconnect: %s", err.Error()), "module", "ssl")
+		s.Error("failed to reconnect: %v", err)
 		return err
 	}
 	return nil
@@ -491,7 +517,7 @@ func (s *SSL) readContext() error {
 	s.incrementTotalBytes(read)
 	s.tcpIn <- res
 	if config.AppConfig.Debug {
-		s.Logger.Info("Receive %d bytes data from ssl", read)
+		s.Info("Receive %d bytes data from ssl", read)
 	}
 	return nil
 }
@@ -514,7 +540,7 @@ func (s *SSL) sendPayload(method string, payload []byte, future ResponseFuture) 
 		data: bytPay,
 	}
 	s.callChannel <- call
-	s.Logger.Debug("Sent: %v -> %v\n", string(payload), call.responseChannel)
+	s.Debug("Sent: %v -> %v", string(payload), call.responseChannel)
 	return nil
 }
 
@@ -564,13 +590,11 @@ func (s *SSL) CallContext(method string, args ...interface{}) (res *Response, er
 	}
 	if err != nil {
 		if s.Verbose {
-			s.Logger.Error(fmt.Sprintf("failed to call: %s", method), "module", "ssl", "after", tsDiff)
+			s.Error("failed to call: %s [%v]", method, tsDiff)
 		}
 		return nil, err
 	}
-	if s.Verbose {
-		s.Logger.Debug(fmt.Sprintf("got response: %s", method), "module", "ssl", "after", tsDiff)
-	}
+	s.Debug("got response: %s [%v]", method, tsDiff)
 	return res, nil
 }
 
@@ -633,11 +657,11 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 	// Fetching at least window size blocks -- this should be cached on disk instead.
 	blockHeaders, err := s.GetBlockHeadersUnsafe(lvbn-windowSize+1, lvbn)
 	if err != nil {
-		s.Logger.Error("Cannot fetch blocks %v-%v error: %s", lvbn-windowSize, lvbn, err.Error())
+		s.Error("Cannot fetch blocks %v-%v error: %v", lvbn-windowSize, lvbn, err)
 		return false, err
 	}
 	if len(blockHeaders) != windowSize {
-		s.Logger.Error("ValidateNetwork(): len(blockHeaders) != windowSize (%v, %v)", len(blockHeaders), windowSize)
+		s.Error("ValidateNetwork(): len(blockHeaders) != windowSize (%v, %v)", len(blockHeaders), windowSize)
 		return false, err
 	}
 
@@ -824,7 +848,7 @@ func (s *SSL) newTicket() (*DeviceTicket, error) {
 	serverID, err := s.GetServerID()
 	s.counter = s.totalBytes
 	lvbn, lvbh := LastValid()
-	s.Logger.Info(fmt.Sprintf("new ticket: %d", lvbn), "module", "ssl")
+	s.Info("New ticket: %d", lvbn)
 	ticket := &DeviceTicket{
 		ServerID:         serverID,
 		BlockNumber:      lvbn,
@@ -863,7 +887,7 @@ func (s *SSL) submitTicket(ticket *DeviceTicket) error {
 	encSig := util.EncodeToString(ticket.DeviceSig)
 	resp, err := s.CallContext("ticket", ticket.BlockNumber, encFleetAddr, ticket.TotalConnections, ticket.TotalBytes, encLocalAddr, encSig)
 	if err != nil {
-		s.Logger.Error(fmt.Sprintf("failed to submit ticket: %s", err.Error()), "module", "ssl")
+		s.Error("failed to submit ticket: %v", err)
 		return err
 	}
 	status := string(resp.RawData[0])
@@ -902,12 +926,12 @@ func (s *SSL) submitTicket(ticket *DeviceTicket) error {
 			}
 
 		} else {
-			s.Logger.Warn("received fake ticket..", "module", "ssl", "last_ticket", lastTicket, "response", string(resp.Raw))
+			s.Warn("received fake ticket.. last_ticket=%v response=%v", lastTicket, string(resp.Raw))
 		}
 
 	case "ok", "thanks!":
 	default:
-		s.Logger.Info(fmt.Sprintf("response of submit ticket: %s %s", status, string(resp.Raw)), "module", "ssl")
+		s.Info("response of submit ticket: %s %s", status, string(resp.Raw))
 	}
 	return err
 }
@@ -1030,7 +1054,7 @@ func (s *SSL) GetAccountValueRaw(addr [20]byte, key []byte) ([]byte, error) {
 }
 
 func (s *SSL) ResolveDNS(name string) (addr [20]byte, err error) {
-	s.Logger.Info(fmt.Sprintf("resolving DN: %s", name), "module", "ssl")
+	s.Info("resolving DN: %s", name)
 	key := contract.DNSMetaKey(name)
 	raw, err := s.GetAccountValueRaw(contract.DNSAddr, key)
 	if err != nil {
@@ -1140,7 +1164,7 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*SSL, error)
 	}
 
 	client.Verbose = config.Debug
-	client.Logger = config.Logger
+	client.logger = config.Logger
 
 	if config.EnableMetrics {
 		client.enableMetrics = true

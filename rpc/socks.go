@@ -339,7 +339,7 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, mode str
 	dDeviceID, err := device.DeviceAddress()
 	deviceID := util.EncodeToString(dDeviceID[:])
 	if err != nil {
-		return nil, &HttpError{500, fmt.Errorf("DeviceAdrress() failed: %v", err)}
+		return nil, &HttpError{500, fmt.Errorf("DeviceAddress() failed: %v", err)}
 	}
 
 	server, err := socksServer.GetServer(device.ServerID)
@@ -419,14 +419,12 @@ func writeSocksReturn(conn net.Conn, ver int, tcpAddr *net.TCPAddr, port int) {
 
 func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *DeviceTicket, port int, mode string) {
 	deviceID := device.GetDeviceID()
-	if socksServer.Config.Verbose {
-		socksServer.s.Logger.Debug(fmt.Sprintf("connect remote %s mode %s...", deviceID, mode), "module", "socks")
-	}
+	socksServer.s.Debug("connect remote %s mode %s...", deviceID, mode)
 	clientIP := conn.RemoteAddr().String()
 	connDevice, httpErr := socksServer.connectDevice(deviceID, port, mode)
 
 	if httpErr != nil {
-		socksServer.s.Logger.Error(fmt.Sprintf("failed to connectDevice(): %s", httpErr.err.Error()), "module", "socks")
+		socksServer.s.Error("failed to connectDevice(): %v", httpErr.err)
 		writeSocksError(conn, ver, socksRepNetworkUnreachable)
 		return
 	}
@@ -439,18 +437,14 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *De
 	socksServer.datapool.SetDevice(deviceKey, connDevice)
 
 	// send data or receive data from ref
-	if socksServer.Config.Verbose {
-		socksServer.s.Logger.Debug(fmt.Sprintf("connect remote success @ %s %s %s %s", clientIP, deviceID, port, strconv.Itoa(int(connDevice.Ref))), "module", "socks")
-	}
+	socksServer.s.Debug("connect remote success @ %s %s %v %v", clientIP, deviceID, port, connDevice.Ref)
 	tcpAddr := socksServer.s.LocalAddr().(*net.TCPAddr)
 	writeSocksReturn(conn, ver, tcpAddr, port)
 
 	// write request data to device
 	connDevice.copyToSSL()
 	connDevice.Close()
-	if socksServer.Config.Verbose {
-		socksServer.s.Logger.Debug(fmt.Sprintf("close socks connection @ %s %s %s %s", clientIP, deviceID, port, strconv.Itoa(int(connDevice.Ref))), "module", "socks")
-	}
+	socksServer.s.Debug("close socks connection @ %s %s %v %v", clientIP, deviceID, port, connDevice.Ref)
 }
 
 func netCopy(input, output net.Conn) (err error) {
@@ -471,13 +465,11 @@ func netCopy(input, output net.Conn) (err error) {
 }
 
 func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, device *DeviceTicket, port int, mode string) {
-	if socksServer.Config.Verbose {
-		socksServer.s.Logger.Debug(fmt.Sprintf("connect remote %s mode %s...", socksServer.Config.ProxyServerAddr, mode), "module", "socks")
-	}
+	socksServer.s.Debug("connect remote %s mode %s...", socksServer.Config.ProxyServerAddr, mode)
 
 	remoteConn, err := net.DialTimeout("tcp", socksServer.Config.ProxyServerAddr, time.Duration(time.Second*15))
 	if err != nil {
-		socksServer.s.Logger.Error(fmt.Sprintf("failed to connect remote: %s", err.Error()), "module", "socks")
+		socksServer.s.Error("failed to connect remote: %s", err.Error())
 		writeSocksError(conn, ver, socksRepNetworkUnreachable)
 		return
 	}
@@ -559,17 +551,17 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 	defer socksServer.wg.Done()
 	ver, host, err := handShake(conn)
 	if err != nil {
-		socksServer.s.Logger.Error(fmt.Sprintf("failed to handshake %s", err.Error()), "module", "socks")
+		socksServer.s.Error("failed to handshake %v", err)
 		return
 	}
 	isWS, deviceID, mode, port, err := parseHost(host)
 	if err != nil {
-		socksServer.s.Logger.Error(fmt.Sprintf("failed to parseTarget %s", err.Error()), "module", "socks")
+		socksServer.s.Error("failed to parseTarget %v", err)
 		return
 	}
 	device, httpErr := socksServer.checkAccess(deviceID)
 	if device == nil {
-		socksServer.s.Logger.Error(fmt.Sprintf("failed to checkAccess %s", httpErr.err.Error()), "module", "socks")
+		socksServer.s.Error("failed to checkAccess %v", httpErr.err)
 		return
 	}
 	if !isWS {
@@ -582,7 +574,7 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 
 // Start socks server
 func (socksServer *Server) Start() error {
-	socksServer.s.Logger.Info(fmt.Sprintf("start socks server %s", socksServer.Config.Addr), "module", "socks")
+	socksServer.s.Info("start socks server %s", socksServer.Config.Addr)
 	ln, err := net.Listen("tcp", socksServer.Config.Addr)
 	if err != nil {
 		return err
@@ -596,9 +588,7 @@ func (socksServer *Server) Start() error {
 			if err != nil {
 				return
 			}
-			if socksServer.Config.Verbose {
-				socksServer.s.Logger.Debug(fmt.Sprintf("new socks client: %s", conn.RemoteAddr().String()), "module", "socks")
-			}
+			socksServer.s.Debug("new socks client: %s", conn.RemoteAddr().String())
 			socksServer.wg.Add(1)
 			go socksServer.handleSocksConnection(conn)
 		}
@@ -622,7 +612,7 @@ func (s *SSL) NewSocksServer(config *Config, pool *DataPool) *Server {
 func (socksServer *Server) GetServer(nodeID [20]byte) (server *SSL, err error) {
 	serverID, err := socksServer.s.GetServerID()
 	if err != nil {
-		socksServer.s.Logger.Warn(fmt.Sprintf("failed to get server id: %s", err.Error()), "module", "socks")
+		socksServer.s.Warn("failed to get server id: %v", err)
 		return
 	}
 
@@ -636,7 +626,7 @@ func (socksServer *Server) GetServer(nodeID [20]byte) (server *SSL, err error) {
 	}
 	serverObj, err := socksServer.s.GetNode(nodeID)
 	if err != nil {
-		socksServer.s.Logger.Error(fmt.Sprintf("failed to getnode: %s", err.Error()), "module", "socks")
+		socksServer.s.Error("failed to getnode: %v", err)
 		return
 	}
 	if !serverObj.ValidateSig(nodeID) {

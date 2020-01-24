@@ -35,7 +35,7 @@ func (ct *DeviceTicket) ResolveBlockHash(client *SSL) (err error) {
 	blockHeader := bq.GetBlockHeader(ct.BlockNumber)
 	if blockHeader == nil {
 		lvbn, lvbh := bq.Last()
-		client.Logger.Crit("Can't fetch block %v %v %v", ct.BlockNumber, lvbn, lvbh)
+		client.Crit("Can't fetch block %v %v %v", ct.BlockNumber, lvbn, lvbh)
 		return fmt.Errorf("Can't fetch block %v %v %v", ct.BlockNumber, lvbn, lvbh)
 		// blockHeader, err = client.GetBlockHeader(ct.BlockNumber)
 		// if err != nil {

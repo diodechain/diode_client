@@ -66,9 +66,7 @@ func (device *ConnectedDevice) copyToSSL() {
 	ref := int(device.Ref)
 	err := device.Conn.copyToSSL(device.Server, ref)
 	if err != nil {
-		if device.Server.Verbose {
-			device.Server.Logger.Debug(fmt.Sprintf("copyToSSL failed: %s", err.Error()), "module", "ssl", "client_id", device.ClientID, "device_id", device.DeviceID)
-		}
+		device.Server.Debug("copyToSSL failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
 		device.Close()
 	}
 }
@@ -77,9 +75,7 @@ func (device *ConnectedDevice) copyToSSL() {
 func (device *ConnectedDevice) writeToTCP(data []byte) {
 	err := device.Conn.writeToTCP(data)
 	if err != nil {
-		if device.Server.Verbose {
-			device.Server.Logger.Debug(fmt.Sprintf("writeToTCP failed: %s", err.Error()), "module", "ssl", "client_id", device.ClientID, "device_id", device.DeviceID)
-		}
+		device.Server.Debug("writeToTCP failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
 		device.Close()
 	}
 }
