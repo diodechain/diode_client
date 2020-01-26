@@ -624,25 +624,25 @@ func (s *SSL) CheckTicket() error {
 }
 
 func restoreLastValid() (int, blockquick.Hash) {
-	lvbn, err := db.DB.Get("lvbn")
+	lvbn, err := db.DB.Get("lvbn2")
 	var lvbh []byte
 	if err == nil {
 		lvbnNum := util.DecodeBytesToInt(lvbn)
-		lvbh, err = db.DB.Get("lvbh")
+		lvbh, err = db.DB.Get("lvbh2")
 		if err == nil {
 			var hash [32]byte
 			copy(hash[:], lvbh)
 			return lvbnNum, hash
 		}
 	}
-	return 102, [32]byte{0, 0, 69, 211, 111, 119, 94, 95, 10, 90, 217, 27, 84, 149, 212, 191, 245, 174,
-		113, 57, 16, 77, 135, 6, 128, 186, 44, 201, 75, 111, 173, 13}
+	return 102, [32]byte{0, 1, 54, 236, 244, 89, 99, 79, 221, 74, 15, 75, 131, 17, 114, 254, 233, 77,
+		173, 120, 80, 24, 183, 193, 23, 145, 226, 113, 8, 88, 38, 248}
 }
 
 func storeLastValid() {
 	lvbn, lvbh := LastValid()
-	db.DB.Put("lvbn", util.DecodeIntToBytes(lvbn))
-	db.DB.Put("lvbh", lvbh[:])
+	db.DB.Put("lvbn2", util.DecodeIntToBytes(lvbn))
+	db.DB.Put("lvbh2", lvbh[:])
 }
 
 // ValidateNetwork validate blockchain network is secure and valid
