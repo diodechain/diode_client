@@ -106,29 +106,29 @@ func NewPoolWithPublishedPorts(publishedPorts map[int]*config.Port) *DataPool {
 
 // Info logs to logger in Info level
 func (s *SSL) Info(msg string, args ...interface{}) {
-	s.logger.Info(fmt.Sprintf(msg, args...), "module", "ssl")
+	s.logger.Info(fmt.Sprintf(msg, args...), "module", "ssl", "server", s.addr)
 }
 
 // Debug logs to logger in Debug level
 func (s *SSL) Debug(msg string, args ...interface{}) {
 	if s.Verbose {
-		s.logger.Debug(fmt.Sprintf(msg, args...), "module", "ssl")
+		s.logger.Debug(fmt.Sprintf(msg, args...), "module", "ssl", "server", s.addr)
 	}
 }
 
 // Error logs to logger in Error level
 func (s *SSL) Error(msg string, args ...interface{}) {
-	s.logger.Error(fmt.Sprintf(msg, args...), "module", "ssl")
+	s.logger.Error(fmt.Sprintf(msg, args...), "module", "ssl", "server", s.addr)
 }
 
 // Warn logs to logger in Warn level
 func (s *SSL) Warn(msg string, args ...interface{}) {
-	s.logger.Warn(fmt.Sprintf(msg, args...), "module", "ssl")
+	s.logger.Warn(fmt.Sprintf(msg, args...), "module", "ssl", "server", s.addr)
 }
 
 // Crit logs to logger in Crit level
 func (s *SSL) Crit(msg string, args ...interface{}) {
-	s.logger.Crit(fmt.Sprintf(msg, args...), "module", "ssl")
+	s.logger.Crit(fmt.Sprintf(msg, args...), "module", "ssl", "server", s.addr)
 }
 
 func (s *SSL) addCall(c Call) {
@@ -430,6 +430,18 @@ func (s *SSL) GetClientPubKey() ([]byte, error) {
 	// uncompressed
 	clientPubKey := elliptic.Marshal(secp256k1.S256(), privKey.PublicKey.X, privKey.PublicKey.Y)
 	return clientPubKey, nil
+}
+
+// LoadClientPubKey loads the clients public key from the database
+func LoadClientPubKey() []byte {
+	kd := EnsurePrivatePEM()
+	block, _ := pem.Decode(kd)
+	privKey, err := crypto.DerToECDSA(block.Bytes)
+	if err != nil {
+		return []byte{}
+	}
+	clientPubKey := elliptic.Marshal(secp256k1.S256(), privKey.PublicKey.X, privKey.PublicKey.Y)
+	return clientPubKey
 }
 
 // GetClientAddress returns client address
@@ -1141,13 +1153,11 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*SSL, error)
 	ctx := initSSL(config)
 	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
 	if err != nil {
-		if config.Debug {
-			config.Logger.Debug(fmt.Sprintf("failed to connect to host: %s", err.Error()), "module", "ssl")
-		}
-		// retry to connect
+		config.Logger.Crit(fmt.Sprintf("Failed to connect to host: %s", err.Error()), "module", "ssl", "server", host)
+		// Retry to connect
 		isOk := false
 		for i := 1; i <= config.RetryTimes; i++ {
-			config.Logger.Info(fmt.Sprintf("retry to connect to %s, wait %s", host, config.RetryWait.String()), "module", "ssl")
+			config.Logger.Info(fmt.Sprintf("Retry to connect to %s, wait %s", host, config.RetryWait.String()), "module", "ssl", "server", host)
 			time.Sleep(config.RetryWait)
 			client, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
 			if err == nil {
@@ -1155,7 +1165,7 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*SSL, error)
 				break
 			}
 			if config.Debug {
-				config.Logger.Debug(fmt.Sprintf("failed to connect to host: %s", err.Error()), "module", "ssl")
+				config.Logger.Debug(fmt.Sprintf("failed to connect to host: %s", err.Error()), "module", "ssl", "server", host)
 			}
 		}
 		if !isOk {

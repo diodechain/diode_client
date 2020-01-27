@@ -12,6 +12,7 @@ import (
 	"syscall"
 
 	"github.com/diodechain/diode_go_client/config"
+	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/db"
 	"github.com/diodechain/diode_go_client/rpc"
 	"github.com/diodechain/diode_go_client/util"
@@ -80,6 +81,14 @@ func main() {
 		os.Exit(0)
 	}
 
+	{
+		lvbn, lvbh := rpc.LastValid()
+		config.Logger.Info(fmt.Sprintf("Last valid block %v %v", lvbn, util.EncodeToString(lvbh[:])), "module", "main")
+
+		addr := crypto.PubkeyToAddress(rpc.LoadClientPubKey())
+		config.Logger.Info(fmt.Sprintf("Client address: %s", util.EncodeToString(addr[:])), "module", "main")
+	}
+
 	// Connect to first server to respond
 	wg := &sync.WaitGroup{}
 	rpcAddrLen := len(config.RemoteRPCAddrs)
@@ -127,7 +136,6 @@ func main() {
 		config.Logger.Error(err.Error())
 		return
 	}
-	config.Logger.Info(fmt.Sprintf("Client address: %s", util.EncodeToString(clientAddr[:])), "module", "main")
 
 	// check device whitelist
 	isDeviceWhitelisted, err := client.IsDeviceWhitelisted(clientAddr)
