@@ -687,7 +687,7 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 		return false, err
 	}
 
-	win, err := blockquick.New(blockHeaders, len(blockHeaders))
+	win, err := blockquick.New(blockHeaders, windowSize)
 	if err != nil {
 		return false, err
 	}
@@ -711,6 +711,7 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 	}
 
 	bq = win
+	storeLastValid()
 	return true, nil
 }
 
@@ -742,6 +743,7 @@ func (s *SSL) GetBlockQuick(lastValid int, windowSize int) ([]*blockquick.BlockH
 	if err != nil {
 		return nil, err
 	}
+	// fmt.Printf("GetBlockQuick(%d, %d) => %v\n", lastValid, windowSize, responses)
 
 	return s.GetBlockHeadersUnsafe2(responses)
 }

@@ -40,7 +40,8 @@ func New(bhs []*BlockHeader, windowSize int) (*Window, error) {
 	}
 
 	win := &Window{
-		pending: make(map[Hash]*BlockScore, windowSize),
+		pending:    make(map[Hash]*BlockScore, windowSize),
+		windowSize: windowSize,
 	}
 
 	bss := make([]*BlockScore, 0, windowSize)
@@ -211,9 +212,8 @@ func (win *Window) validate(bs *BlockScore) {
 			visited[p.miner] = true
 			score += win.minerCounts[p.miner]
 		}
-		if score > win.threshold() && depth >= 3 {
+		if score > win.threshold() {
 			// Yay this block is confirmed by >50% of all mining power
-			// In all cases we require at least three blocks (depth)
 			win.finalize(p)
 			return
 		}
@@ -252,7 +252,7 @@ func (win *Window) finalize(bs *BlockScore) {
 	if gap {
 		// Need to rebuild the window
 		if len(finals) < win.windowSize {
-			// Cant rebuild because there is not enough data
+			// Can't rebuild because there is not enough data
 			return
 		}
 		win.initialize(finals)
