@@ -190,7 +190,7 @@ func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags, pool *Da
 func (s *SSL) Reconnect() bool {
 	isOk := false
 	for i := 1; i <= config.AppConfig.RetryTimes; i++ {
-		s.Debug("Retry to connect to %s, wait %s (%d/%d)", s.addr, config.AppConfig.RetryWait.String(), i, config.AppConfig.RetryTimes)
+		s.Info("Retry to connect to %s, wait %s (%d/%d)", s.addr, config.AppConfig.RetryWait.String(), i, config.AppConfig.RetryTimes)
 
 		time.Sleep(config.AppConfig.RetryWait)
 		if s.Closed() {
@@ -202,7 +202,7 @@ func (s *SSL) Reconnect() bool {
 			continue
 		}
 		// Send initial ticket
-		err = s.SubmitNewTicket()
+		err = s.Greet()
 		if s.Verbose {
 			s.Error("failed to submit ticket: %v", err)
 		}
@@ -733,16 +733,17 @@ func (s *SSL) GetBlockPeak() (int, error) {
 
 // GetBlockQuick returns block header
 func (s *SSL) GetBlockQuick(lastValid int, windowSize int) ([]*blockquick.BlockHeader, error) {
-	rawHeader, err := s.CallContext("getblockquick", lastValid, windowSize)
+	sequence, err := s.CallContext("getblockquick2", lastValid, windowSize)
 	if err != nil {
 		return nil, err
 	}
 
-	responses, err := parseBlockHeaders(rawHeader.RawData[0], windowSize)
+	responses, err := parseBlockquick(sequence.RawData[0], windowSize)
 	if err != nil {
 		return nil, err
 	}
-	return responses, nil
+
+	return s.GetBlockHeadersUnsafe2(responses)
 }
 
 // GetBlockHeaderValid returns a validated recent block header
@@ -760,18 +761,27 @@ func (s *SSL) GetBlockHeaderUnsafe(blockNum int) (*blockquick.BlockHeader, error
 	return parseBlockHeader(rawHeader.RawData[0], rawHeader.RawData[1])
 }
 
-// GetBlockHeadersUnsafe returns a range of block headers
+// GetBlockHeadersUnsafe returns a consecutive range of block headers
 func (s *SSL) GetBlockHeadersUnsafe(blockNumMin int, blockNumMax int) ([]*blockquick.BlockHeader, error) {
 	if blockNumMin > blockNumMax {
 		return nil, fmt.Errorf("GetBlockHeadersUnsafe(): blockNumMin needs to be <= max")
 	}
-
 	count := blockNumMax - blockNumMin + 1
+	blockNumbers := make([]int, 0, count)
+	for i := blockNumMin; i <= blockNumMax; i++ {
+		blockNumbers = append(blockNumbers, i)
+	}
+	return s.GetBlockHeadersUnsafe2(blockNumbers)
+}
+
+// GetBlockHeadersUnsafe2 returns a range of block headers
+func (s *SSL) GetBlockHeadersUnsafe2(blockNumbers []int) ([]*blockquick.BlockHeader, error) {
+	count := len(blockNumbers)
 	timeout := time.Second * time.Duration(count*5)
 	responses := make([]*blockquick.BlockHeader, 0, count)
 
 	futures := make([]ResponseFuture, 0, count)
-	for i := blockNumMin; i <= blockNumMax; i++ {
+	for _, i := range blockNumbers {
 		future, err := s.CastContext("getblockheader2", i)
 		if err != nil {
 			return nil, err
@@ -832,6 +842,16 @@ func (s *SSL) GetNode(nodeID [20]byte) (*ServerObj, error) {
 		return nil, fmt.Errorf("GetNode(): parseerror '%v' in '%v'", err, string(rawNode.RawData[0]))
 	}
 	return obj, nil
+}
+
+// Greet Initiates the connection
+func (s *SSL) Greet() error {
+	// _, err := s.CastContext("hello", 1000, "compression")
+	_, err := s.CastContext("hello", 1000)
+	if err != nil {
+		return err
+	}
+	return s.SubmitNewTicket()
 }
 
 // SubmitNewTicket creates and submits a new ticket

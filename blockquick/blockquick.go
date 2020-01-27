@@ -193,7 +193,7 @@ func (win *Window) validate(bs *BlockScore) {
 	for _, pending := range win.pending {
 		if pending.bh.Parent() == bs.hash {
 			pending.parent = bs
-			win.validate(bs)
+			win.validate(pending)
 			skip = true
 		}
 	}
@@ -203,14 +203,17 @@ func (win *Window) validate(bs *BlockScore) {
 
 	visited := make(map[Address]bool)
 	var score int = 0
+	var depth int = 0
 
 	for p := bs; p != nil && !p.isFinal; p = p.parent {
+		depth++
 		if !visited[p.miner] {
 			visited[p.miner] = true
 			score += win.minerCounts[p.miner]
 		}
-		if score > win.threshold() {
+		if score > win.threshold() && depth >= 3 {
 			// Yay this block is confirmed by >50% of all mining power
+			// In all cases we require at least three blocks (depth)
 			win.finalize(bs)
 			return
 		}

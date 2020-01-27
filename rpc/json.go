@@ -127,6 +127,26 @@ func parseError(rawError []byte) (*Error, error) {
 	return err, nil
 }
 
+func parseBlockquick(raw []byte, size int) ([]int, error) {
+	responses := make([]int, 0, size)
+	var err error = nil
+	jsonparser.ArrayEach(raw, func(value []byte, _type jsonparser.ValueType, offset int, err2 error) {
+		if err != nil {
+			return
+		}
+		if err != nil {
+			err = err2
+			return
+		}
+		num, err := util.DecodeStringToInt(string(value))
+		if err != nil {
+			return
+		}
+		responses = append(responses, int(num))
+	})
+	return responses, err
+}
+
 func parseBlockHeaders(raw []byte, size int) ([]*blockquick.BlockHeader, error) {
 	responses := make([]*blockquick.BlockHeader, 0, size)
 	var err error = nil

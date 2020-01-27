@@ -107,7 +107,7 @@ func main() {
 	}
 
 	// send ticket
-	err = client.SubmitNewTicket()
+	err = client.Greet()
 	if err != nil {
 		config.Logger.Error(err.Error(), "module", "main")
 		return
