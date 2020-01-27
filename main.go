@@ -119,7 +119,7 @@ func main() {
 		os.Exit(129)
 	}
 	lvbn, _ := rpc.LastValid()
-	config.Logger.Info("Network is validated, last valid block number: %d", lvbn)
+	config.Logger.Info(fmt.Sprintf("Network is validated, last valid block number: %d", lvbn), "module", "main")
 
 	// check device access to fleet contract and registry
 	clientAddr, err := client.GetClientAddress()

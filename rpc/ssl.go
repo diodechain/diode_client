@@ -668,7 +668,7 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 	// Checking last valid header
 	hash := blockHeaders[windowSize-1].Hash()
 	if hash != lvbh {
-		return false, fmt.Errorf("Sent reference block does not match")
+		return false, fmt.Errorf("Sent reference block does not match %v: %v != %v", lvbn, lvbh, hash)
 	}
 
 	// Checking chain of previous blocks
