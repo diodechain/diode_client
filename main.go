@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -49,6 +50,35 @@ func main() {
 		panic(err)
 	}
 	db.DB = clidb
+
+	if config.Command == "config" {
+		if len(config.ConfigDelete) > 0 {
+			db.DB.Del(config.ConfigDelete)
+		}
+		if config.ConfigList {
+			config.Logger.Info("bla")
+			for _, name := range db.DB.List() {
+				config.Logger.Info(name)
+			}
+		}
+		if len(config.ConfigSet) > 0 {
+			list := strings.Split(config.ConfigSet, "=")
+			if len(list) == 2 {
+				var err error
+				value := []byte(list[1])
+				if util.IsHex(value) {
+					value, err = util.DecodeString(list[1])
+					if err != nil {
+						config.Logger.Info(err.Error())
+						os.Exit(1)
+					}
+				}
+				db.DB.Put(list[0], []byte(list[1]))
+			}
+		}
+
+		os.Exit(0)
+	}
 
 	// Connect to first server to respond
 	wg := &sync.WaitGroup{}

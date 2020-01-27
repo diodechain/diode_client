@@ -25,6 +25,11 @@ var (
 		HelpText:    `  This command publishes ports of the local device to the Diode Network.`,
 		ExampleText: `  diode publish -public 80:80 -protected 22:22`,
 	}
+	configCommandFlag = CommandFlag{
+		Name:        "config",
+		HelpText:    `  This command manages variables in the local config store.`,
+		ExampleText: `  diode config -delete lvbn2`,
+	}
 	socksdCommandFlag = CommandFlag{
 		Name:        "socksd",
 		HelpText:    `  This command enables a socks proxy on the local host for use with Browsers (Firefox), SSH, Java and other applications to communicate via the Diode Network.`,
@@ -74,6 +79,18 @@ func wrapSocksdCommandFlag(cfg *Config) {
 		fmt.Printf(commandText, socksdCommandFlag.Name)
 		flag.PrintDefaults()
 		printCommandDefaults(&socksdCommandFlag, 0)
+	}
+}
+
+func wrapConfigCommandFlag(cfg *Config) {
+	configCommandFlag.Flag.StringVar(&cfg.ConfigDelete, "delete", "", "deletes the given variable from the config")
+	configCommandFlag.Flag.BoolVar(&cfg.ConfigList, "list", false, "list all stored config keys")
+	configCommandFlag.Flag.StringVar(&cfg.ConfigSet, "set", "", "sets the given variable in the config")
+	configCommandFlag.Flag.Usage = func() {
+		fmt.Printf(brandText)
+		fmt.Printf(commandText, configCommandFlag.Name)
+		flag.PrintDefaults()
+		printCommandDefaults(&configCommandFlag, 0)
 	}
 }
 

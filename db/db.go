@@ -67,6 +67,7 @@ func OpenFile(path string) (*Database, error) {
 	return db, nil
 }
 
+// Get reads data from the file database
 func (db *Database) Get(key string) ([]byte, error) {
 	db.rm.Lock()
 	defer db.rm.Unlock()
@@ -78,12 +79,31 @@ func (db *Database) Get(key string) ([]byte, error) {
 }
 
 // Put data to file database
-// Notice: remember not to use = and \n in value or key
 func (db *Database) Put(key string, value []byte) (err error) {
 	db.rm.Lock()
 	defer db.rm.Unlock()
 	db.values[key] = value
 	return db.store()
+}
+
+// Del deletes data from the file database
+func (db *Database) Del(key string) (err error) {
+	db.rm.Lock()
+	defer db.rm.Unlock()
+	delete(db.values, key)
+	return db.store()
+}
+
+// List returns all keys
+func (db *Database) List() []string {
+	db.rm.Lock()
+	defer db.rm.Unlock()
+
+	list := make([]string, len(db.values))
+	for key := range db.values {
+		list = append(list, key)
+	}
+	return list
 }
 
 func (db *Database) store() error {

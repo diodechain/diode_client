@@ -39,6 +39,7 @@ OPTIONS
 
 // Config for poc-client
 type Config struct {
+	Command                 string
 	DBPath                  string
 	Debug                   bool
 	EnableMetrics           bool
@@ -67,6 +68,9 @@ type Config struct {
 	SocksServerAddr         string
 	SocksServerHost         string
 	SocksServerPort         int
+	ConfigSet               string
+	ConfigList              bool
+	ConfigDelete            string
 	RlimitNofile            int
 	Blacklists              map[string]bool
 	Whitelists              map[string]bool
@@ -91,6 +95,7 @@ func init() {
 	commandFlags["publish"] = &publishCommandFlag
 	commandFlags["socksd"] = &socksdCommandFlag
 	commandFlags["httpd"] = &httpdCommandFlag
+	commandFlags["config"] = &configCommandFlag
 	AppConfig = parseFlag()
 }
 
@@ -147,6 +152,7 @@ func parseFlag() *Config {
 	wrapPublishCommandFlag(cfg)
 	wrapSocksdCommandFlag(cfg)
 	wrapHttpdCommandFlag(cfg)
+	wrapConfigCommandFlag(cfg)
 	flag.Usage = func() {
 		fmt.Printf(brandText)
 		fmt.Printf(commandText, "COMMAND")
@@ -205,10 +211,15 @@ func parseFlag() *Config {
 		}
 		cfg.PublishedPorts = publishedPorts
 		break
+	case "config":
+		commandFlag.Parse(args[1:])
+		break
 	default:
 		flag.Usage()
 		os.Exit(0)
 	}
+
+	cfg.Command = commandName
 
 	// TODO: add another log mode
 	cfg.LogMode = LogToConsole
