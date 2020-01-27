@@ -214,7 +214,7 @@ func (win *Window) validate(bs *BlockScore) {
 		if score > win.threshold() && depth >= 3 {
 			// Yay this block is confirmed by >50% of all mining power
 			// In all cases we require at least three blocks (depth)
-			win.finalize(bs)
+			win.finalize(p)
 			return
 		}
 	}
@@ -235,7 +235,7 @@ func (win *Window) finalize(bs *BlockScore) {
 	// unfortunately they are newest -> oldest, so we need to reverse them next
 	slanif := make([]*BlockScore, 0, win.windowSize)
 	for p := bs; p != nil; p = p.parent {
-		if win.lastValid == bs {
+		if win.lastValid == p {
 			gap = false
 			break
 		}
