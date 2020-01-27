@@ -34,16 +34,11 @@ func (ct *DeviceTicket) ResolveBlockHash(client *SSL) (err error) {
 	}
 	blockHeader := bq.GetBlockHeader(ct.BlockNumber)
 	if blockHeader == nil {
-		lvbn, lvbh := bq.Last()
-		if ct.BlockNumber > lvbn {
-			client.Info("Validating ticket based on non-final block %v %v", ct.BlockNumber, lvbn)
-			blockHeader, err = client.GetBlockHeaderUnsafe(ct.BlockNumber)
-			if err != nil {
-				return
-			}
-		} else {
-			client.Crit("Can't fetch block %v %v %v", ct.BlockNumber, lvbn, lvbh)
-			return fmt.Errorf("Can't fetch block %v %v %v", ct.BlockNumber, lvbn, lvbh)
+		lvbn, _ := bq.Last()
+		client.Info("Validating ticket based on non-checked block %v %v", ct.BlockNumber, lvbn)
+		blockHeader, err = client.GetBlockHeaderUnsafe(ct.BlockNumber)
+		if err != nil {
+			return
 		}
 	}
 	hash := blockHeader.Hash()
