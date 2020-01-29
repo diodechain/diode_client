@@ -882,6 +882,14 @@ func (s *SSL) newTicket() (*DeviceTicket, error) {
 	serverID, err := s.GetServerID()
 	s.counter = s.totalBytes
 	lvbn, lvbh := LastValid()
+	// Trying to sign older (10) blocks, so other clients can easier verify
+	if lvbn > 10 && bq != nil {
+		head := bq.GetBlockHeader(lvbn - 10)
+		if head != nil {
+			lvbn = head.Number()
+			lvbh = head.Hash()
+		}
+	}
 	s.Info("New ticket: %d", lvbn)
 	ticket := &DeviceTicket{
 		ServerID:         serverID,
