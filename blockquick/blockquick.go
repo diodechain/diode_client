@@ -257,18 +257,21 @@ func (win *Window) finalize(bs *BlockScore) {
 		}
 		win.initialize(finals)
 	} else {
-		// We can just update the minercounts
 		// This should be the normal case when connected and listening
 		// to block updates
-		dropped, rest := win.finals[:len(finals)], win.finals[len(finals):]
-		win.finals = append(rest, finals...)
-
-		for _, bs := range dropped {
-			win.minerCounts[bs.miner]--
-		}
 		for _, bs := range finals {
-			win.minerCounts[bs.miner]++
+			win.add(bs)
 		}
 	}
 	win.collectGarbage()
+}
+
+func (win *Window) add(new *BlockScore) {
+	win.minerCounts[new.miner]++
+	win.finals = append(win.finals, new)
+	// must be true
+	// if len(win.finals) > win.windowSize {
+	win.minerCounts[win.finals[0].miner]--
+	win.finals = win.finals[1:]
+	// }
 }
