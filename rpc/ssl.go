@@ -870,6 +870,9 @@ func (s *SSL) Greet() error {
 
 // SubmitNewTicket creates and submits a new ticket
 func (s *SSL) SubmitNewTicket() error {
+	if bq == nil {
+		return nil
+	}
 	ticket, err := s.newTicket()
 	if err != nil {
 		return err
