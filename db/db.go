@@ -99,7 +99,7 @@ func (db *Database) List() []string {
 	db.rm.Lock()
 	defer db.rm.Unlock()
 
-	list := make([]string, len(db.values))
+	list := []string{}
 	for key := range db.values {
 		list = append(list, key)
 	}

@@ -57,9 +57,8 @@ func main() {
 			db.DB.Del(config.ConfigDelete)
 		}
 		if config.ConfigList {
-			config.Logger.Info("bla")
 			for _, name := range db.DB.List() {
-				config.Logger.Info(name)
+				config.Logger.Info(name, "module", "main")
 			}
 		}
 		if len(config.ConfigSet) > 0 {
@@ -70,7 +69,7 @@ func main() {
 				if util.IsHex(value) {
 					value, err = util.DecodeString(list[1])
 					if err != nil {
-						config.Logger.Info(err.Error())
+						config.Logger.Info(err.Error(), "module", "main")
 						os.Exit(1)
 					}
 				}
