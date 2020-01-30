@@ -55,6 +55,7 @@ func main() {
 	if config.Command == "config" {
 		if len(config.ConfigDelete) > 0 {
 			db.DB.Del(config.ConfigDelete)
+			config.Logger.Info(fmt.Sprintf("delete: %s", config.ConfigDelete), "module", "main")
 		}
 		if config.ConfigList {
 			for _, name := range db.DB.List() {
@@ -74,6 +75,7 @@ func main() {
 					}
 				}
 				db.DB.Put(list[0], []byte(list[1]))
+				config.Logger.Info(fmt.Sprintf("set: %s", list[0]), "module", "main")
 			}
 		}
 
@@ -86,6 +88,16 @@ func main() {
 
 		addr := crypto.PubkeyToAddress(rpc.LoadClientPubKey())
 		config.Logger.Info(fmt.Sprintf("Client address: %s", util.EncodeToString(addr[:])), "module", "main")
+		fleetAddr, err := db.DB.Get("fleet_id")
+		if err == nil {
+			config.Logger.Info(string(fleetAddr), "module", "main")
+			// call config set fleet_id to update the fleet id
+			config.FleetAddr = string(fleetAddr)
+			decFleetID := util.DecodeForce(fleetAddr)
+			copy(config.DecFleetAddr[:], decFleetID)
+		} else {
+			db.DB.Put("fleet_id", []byte(config.FleetAddr))
+		}
 	}
 
 	// Connect to first server to respond
