@@ -601,9 +601,7 @@ func (s *SSL) CallContext(method string, args ...interface{}) (res *Response, er
 		s.metrics.UpdateRPCTimer(tsDiff)
 	}
 	if err != nil {
-		if s.Verbose {
-			s.Error("failed to call: %s [%v]", method, tsDiff)
-		}
+		s.Error("Failed to call: %s [%v]: %v", method, tsDiff, err)
 		return nil, err
 	}
 	s.Debug("got response: %s [%v]", method, tsDiff)
