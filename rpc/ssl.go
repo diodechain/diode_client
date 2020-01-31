@@ -893,7 +893,7 @@ func (s *SSL) newTicket() (*DeviceTicket, error) {
 			lvbh = head.Hash()
 		}
 	}
-	s.Info("New ticket: %d", lvbn)
+	s.Debug("New ticket: %d", lvbn)
 	ticket := &DeviceTicket{
 		ServerID:         serverID,
 		BlockNumber:      lvbn,

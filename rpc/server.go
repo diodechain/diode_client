@@ -255,8 +255,6 @@ func (rpcServer *RPCServer) Start() {
 						// should not happen
 						rpcServer.s.Error("got different response type: %s %s", call.method, string(res))
 					}
-
-					rpcServer.s.Debug("got response: %s", call.method)
 					call.responseChannel <- res
 					close(call.responseChannel)
 					continue
