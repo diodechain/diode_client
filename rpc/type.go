@@ -6,17 +6,11 @@ package rpc
 import (
 	"bytes"
 
-	// "io"
-
 	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/crypto/secp256k1"
 	"github.com/diodechain/diode_go_client/util"
 
-	// "github.com/diodechain/diode_go_client/crypto/sha3"
-	// "github.com/diodechain/diode_go_client/util"
-
 	bert "github.com/diodechain/gobert"
-	// "strings"
 )
 
 var (
@@ -30,8 +24,6 @@ var (
 	comma              = []byte(",")
 )
 
-// ResponseFuture is a one time use channel
-type ResponseFuture chan []byte
 type Response struct {
 	Raw     []byte
 	RawData [][]byte

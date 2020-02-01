@@ -46,15 +46,15 @@ var (
 )
 
 type Call struct {
-	method          string
-	responseChannel ResponseFuture
-	data            []byte
+	method   string
+	response chan Message
+	data     []byte
 }
 
 type SSL struct {
-	callChannel       chan Call
+	call              chan Call
 	calls             []Call
-	tcpIn             chan []byte
+	message           chan Message
 	conn              *openssl.Conn
 	ctx               *openssl.Ctx
 	tcpConn           *tcpkeepalive.Conn
@@ -149,7 +149,7 @@ func (s *SSL) recall() {
 	s.rm.Lock()
 	defer s.rm.Unlock()
 	for _, call := range s.calls {
-		s.callChannel <- call
+		s.call <- call
 	}
 	s.calls = make([]Call, 0, len(s.calls))
 }
@@ -174,14 +174,14 @@ func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags, pool *Da
 		return nil, err
 	}
 	s := &SSL{
-		conn:        conn,
-		ctx:         ctx,
-		addr:        addr,
-		mode:        mode,
-		pool:        pool,
-		tcpIn:       make(chan []byte, 1000),
-		callChannel: make(chan Call, 1000),
-		calls:       make([]Call, 0),
+		conn:    conn,
+		ctx:     ctx,
+		addr:    addr,
+		mode:    mode,
+		pool:    pool,
+		message: make(chan Message, 1024),
+		call:    make(chan Call, 1024),
+		calls:   make([]Call, 0),
 	}
 	return s, nil
 }
@@ -527,14 +527,18 @@ func (s *SSL) readContext() error {
 	}
 	read += 2
 	s.incrementTotalBytes(read)
-	s.tcpIn <- res
+	s.message <- Message{
+		Len:    read,
+		buffer: res,
+	}
 	if config.AppConfig.Debug {
 		s.Info("Receive %d bytes data from ssl", read)
+		s.Info(string(res))
 	}
 	return nil
 }
 
-func (s *SSL) sendPayload(method string, payload []byte, future ResponseFuture) error {
+func (s *SSL) sendPayload(method string, payload []byte, message chan Message) error {
 	// add length of payload
 	lenPay := len(payload)
 	lenByt := make([]byte, 2)
@@ -546,13 +550,12 @@ func (s *SSL) sendPayload(method string, payload []byte, future ResponseFuture) 
 		bytPay[i+2] = byte(s)
 	}
 	call := Call{
-		method:          method,
-		responseChannel: future,
-
-		data: bytPay,
+		method:   method,
+		response: message,
+		data:     bytPay,
 	}
-	s.callChannel <- call
-	s.Debug("Sent: %v -> %v", string(payload), call.responseChannel)
+	s.call <- call
+	s.Debug("Sent: %v -> %v", string(payload), call.response)
 	return nil
 }
 
@@ -566,32 +569,32 @@ func (s *SSL) RespondContext(method string, args ...interface{}) error {
 }
 
 // CastContext returns a response future after calling the rpc
-func (s *SSL) CastContext(method string, args ...interface{}) (ResponseFuture, error) {
+func (s *SSL) CastContext(method string, args ...interface{}) (chan Message, error) {
 	msg, err := newMessage(method, args...)
 	if err != nil {
 		return nil, err
 	}
-	future := make(ResponseFuture, 1)
-	err = s.sendPayload(method, msg, future)
+	resMsg := make(chan Message)
+	err = s.sendPayload(method, msg, resMsg)
 	if err != nil {
 		return nil, err
 	}
-
-	return future, nil
+	return resMsg, nil
 }
 
 // CallContext returns the response after calling the rpc
 func (s *SSL) CallContext(method string, args ...interface{}) (res *Response, err error) {
-	var future ResponseFuture
+	var resMsg chan Message
 	var ts time.Time
 	var tsDiff time.Duration
-	future, err = s.CastContext(method, args...)
+	resMsg, err = s.CastContext(method, args...)
 	if err != nil {
 		return nil, err
 	}
 	ts = time.Now()
+	// TODO: Move rpcTimeout to command line flag
 	rpcTimeout, _ := time.ParseDuration(fmt.Sprintf("%ds", 5+len(s.calls)))
-	res, err = future.Await(rpcTimeout)
+	res, err = waitMessage(resMsg, rpcTimeout)
 	tsDiff = time.Since(ts)
 	if config.AppConfig.Debug {
 		method = fmt.Sprintf("%s-%d", method, debugRPCID)
@@ -608,13 +611,11 @@ func (s *SSL) CallContext(method string, args ...interface{}) (res *Response, er
 	return res, nil
 }
 
-// Await awaits a response future and returns a response
-func (f *ResponseFuture) Await(rpcTimeout time.Duration) (*Response, error) {
-	// TODO: Move rpcTimeout to command line flag
+func waitMessage(msg chan Message, rpcTimeout time.Duration) (*Response, error) {
 	timeout := time.NewTimer(rpcTimeout)
 	select {
-	case resp := <-*f:
-		res, err := parseResponse(resp)
+	case resp := <-msg:
+		res, err := resp.ReadAsResponse()
 		if err != nil {
 			return nil, err
 		}
@@ -792,7 +793,7 @@ func (s *SSL) GetBlockHeadersUnsafe2(blockNumbers []int) ([]*blockquick.BlockHea
 	timeout := time.Second * time.Duration(count*5)
 	responses := make([]*blockquick.BlockHeader, 0, count)
 
-	futures := make([]ResponseFuture, 0, count)
+	futures := make([]chan Message, 0, count)
 	for _, i := range blockNumbers {
 		future, err := s.CastContext("getblockheader2", i)
 		if err != nil {
@@ -802,7 +803,7 @@ func (s *SSL) GetBlockHeadersUnsafe2(blockNumbers []int) ([]*blockquick.BlockHea
 	}
 
 	for _, future := range futures {
-		response, err := future.Await(timeout)
+		response, err := waitMessage(future, timeout)
 		if err != nil {
 			return nil, err
 		}
@@ -859,7 +860,7 @@ func (s *SSL) GetNode(nodeID [20]byte) (*ServerObj, error) {
 // Greet Initiates the connection
 func (s *SSL) Greet() error {
 	// _, err := s.CastContext("hello", 1000, "compression")
-	_, err := s.CastContext("hello", 1000)
+	_, err := s.CallContext("hello", 1000)
 	if err != nil {
 		return err
 	}
@@ -1008,7 +1009,7 @@ func (s *SSL) PortSend(ref int, data []byte) (*Response, error) {
 
 // CastPortClose cast portclose RPC
 func (s *SSL) CastPortClose(ref int) (err error) {
-	_, err = s.CastContext("portclose", ref)
+	_, err = s.CallContext("portclose", ref)
 	return err
 }
 

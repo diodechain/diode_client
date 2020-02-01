@@ -246,30 +246,29 @@ func (rpcServer *RPCServer) Start() {
 					storeLastValid()
 					return
 				}()
-			case res := <-rpcServer.s.tcpIn:
+			case res := <-rpcServer.s.message:
 				go rpcServer.s.CheckTicket()
-				// rpcServer.s.Logger.Info("GOT: isResp=%v %v\n", isResponseType(res), string(res))
-				if isResponseType(res) || isErrorType(res) {
+				if res.IsResponse() {
 					call := rpcServer.s.popCall()
-					if responseMethod(res) != call.method {
+					if res.ResponseMethod() != call.method {
 						// should not happen
-						rpcServer.s.Error("got different response type: %s %s", call.method, string(res))
+						rpcServer.s.Error("got different response type: %s %s", call.method, string(res.buffer))
 					}
-					call.responseChannel <- res
-					close(call.responseChannel)
+					call.response <- res
+					close(call.response)
 					continue
 				}
-				request, err := parseRPCRequest(res)
+				request, err := res.ReadAsRequest()
 				if err != nil {
 					rpcServer.s.Error("not rpc request: %v", err)
 					continue
 				}
 				rpcServer.requestChan <- request
-			case call := <-rpcServer.s.callChannel:
+			case call := <-rpcServer.s.call:
 				rpcServer.s.Debug("send new rpc: %s", call.method)
 				if call.method == ":reconnect" {
 					// Resetting buffers to not mix old messages with new messages
-					rpcServer.s.tcpIn = make(chan []byte, 1000)
+					rpcServer.s.message = make(chan Message)
 					rpcServer.s.recall()
 
 					// Recreating connection
@@ -284,7 +283,10 @@ func (rpcServer *RPCServer) Start() {
 							rpcServer.s.EnableKeepAlive()
 						}
 					}
-					call.responseChannel <- ret
+					call.response <- Message{
+						Len:    len(ret),
+						buffer: ret,
+					}
 
 				} else {
 					ts := time.Now()
@@ -298,7 +300,7 @@ func (rpcServer *RPCServer) Start() {
 					if rpcServer.s.enableMetrics {
 						rpcServer.s.metrics.UpdateWriteTimer(tsDiff)
 					}
-					if call.responseChannel != nil {
+					if call.response != nil {
 						rpcServer.s.addCall(call)
 					}
 				}
