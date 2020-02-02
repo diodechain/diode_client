@@ -679,6 +679,11 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 	// Checking last valid header
 	hash := blockHeaders[windowSize-1].Hash()
 	if hash != lvbh {
+		if config.AppConfig.Debug {
+			s.Error("DEBUG: Reference block does not match -- resetting lvbn.")
+			db.DB.Del("lvbn2")
+			os.Exit(0)
+		}
 		return false, fmt.Errorf("Sent reference block does not match %v: %v != %v", lvbn, lvbh, hash)
 	}
 
