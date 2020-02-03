@@ -108,6 +108,14 @@ func (rpcServer *RPCServer) Start() {
 					rpcServer.s.Info("port was not published port = %v", portOpen.Port)
 					continue
 				}
+				if !publishedPort.IsWhitelisted(portOpen.DeviceID) {
+					err := fmt.Errorf(
+						"Device %v is not in the white list",
+						portOpen.DeviceID,
+					)
+					_ = rpcServer.s.ResponsePortOpen(portOpen, err)
+					continue
+				}
 				clientID := fmt.Sprintf("%s%d", portOpen.DeviceID, portOpen.Ref)
 				connDevice := &ConnectedDevice{}
 

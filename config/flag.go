@@ -77,7 +77,7 @@ type Config struct {
 	PublishedPorts          map[int]*Port
 	PublicPublishedPorts    string
 	ProtectedPublishedPorts string
-	PrivatePublishedPorts   string
+	PrivatePublishedPorts   stringValues
 	LogMode                 int
 	Logger                  log.Logger
 }
@@ -87,7 +87,30 @@ type Port struct {
 	Src       int
 	To        int
 	Mode      int
-	Whitelist [][]byte
+	whitelist map[string]bool
+}
+
+// IsWhitelisted returns true if device is whitelisted
+func (port *Port) IsWhitelisted(addr string) bool {
+	switch port.Mode {
+	case PublicPublishedMode:
+		return true
+	case PrivatePublishedMode:
+		return port.whitelist[addr]
+	default:
+		return false
+	}
+}
+
+type stringValues []string
+
+func (svs *stringValues) String() string {
+	return strings.Join(([]string)(*svs), ", ")
+}
+
+func (svs *stringValues) Set(value string) error {
+	*svs = append(*svs, value)
+	return nil
 }
 
 func init() {
@@ -125,21 +148,66 @@ func stringsContain(src []string, pivot *string) bool {
 	return false
 }
 
-func parsePublishedPorts(publishedPorts string, mode int) []*Port {
+func parsePublicPublishedPorts(publishedPorts string) []*Port {
 	parsedPublishedPorts := strings.Split(publishedPorts, ",")
 	ports := []*Port{}
 	for _, parsedPort := range parsedPublishedPorts {
 		parsedPort = strings.TrimSpace(parsedPort)
 		portMap := strings.Split(parsedPort, ":")
 		if len(portMap) == 2 {
-			srcPort, _ := strconv.Atoi(portMap[0])
-			toPort, _ := strconv.Atoi(portMap[1])
+			srcPort, err := strconv.Atoi(portMap[0])
+			if err != nil {
+				continue
+			}
+			toPort, err := strconv.Atoi(portMap[1])
+			if err != nil {
+				continue
+			}
 			port := &Port{
-				Src:  srcPort,
-				To:   toPort,
-				Mode: mode,
+				Src:       srcPort,
+				To:        toPort,
+				Mode:      PublicPublishedMode,
+				whitelist: make(map[string]bool),
 			}
 			ports = append(ports, port)
+		}
+	}
+	return ports
+}
+
+func parsePrivatePublishedPorts(publishedPorts []string) []*Port {
+	ports := []*Port{}
+	for _, publishedPort := range publishedPorts {
+		parsedPublishedPort := strings.Split(publishedPort, ",")
+		parsedPublishedPortLen := len(parsedPublishedPort)
+		if parsedPublishedPortLen >= 2 {
+			parsedPort := strings.TrimSpace(parsedPublishedPort[0])
+			portMap := strings.Split(parsedPort, ":")
+			if len(portMap) == 2 {
+				srcPort, err := strconv.Atoi(portMap[0])
+				if err != nil {
+					continue
+				}
+				toPort, err := strconv.Atoi(portMap[1])
+				if err != nil {
+					continue
+				}
+				port := &Port{
+					Src:       srcPort,
+					To:        toPort,
+					Mode:      PrivatePublishedMode,
+					whitelist: make(map[string]bool),
+				}
+				for i := 1; i < parsedPublishedPortLen; i++ {
+					addr := strings.TrimSpace(parsedPublishedPort[i])
+					if util.IsAddress([]byte(addr)) {
+						if !port.whitelist[addr] {
+							port.whitelist[addr] = true
+						}
+					}
+				}
+				ports = append(ports, port)
+			}
 		}
 	}
 	return ports
@@ -203,10 +271,14 @@ func parseFlag() *Config {
 		break
 	case "publish":
 		commandFlag.Parse(args[1:])
-		parsedPublicPublishedPort := parsePublishedPorts(cfg.PublicPublishedPorts, PublicPublishedMode)
 		publishedPorts := make(map[int]*Port)
+		parsedPublicPublishedPort := parsePublicPublishedPorts(cfg.PublicPublishedPorts)
+		parsedPrivatePublishedPort := parsePrivatePublishedPorts(cfg.PrivatePublishedPorts)
 		// copy to config
 		for _, port := range parsedPublicPublishedPort {
+			publishedPorts[port.To] = port
+		}
+		for _, port := range parsedPrivatePublishedPort {
 			publishedPorts[port.To] = port
 		}
 		cfg.PublishedPorts = publishedPorts
