@@ -205,7 +205,9 @@ func (rpcServer *RPCServer) Start() {
 				}
 				return
 			}
-			rpcServer.s.message <- *msg
+			if msg != nil {
+				rpcServer.s.message <- *msg
+			}
 		}
 	})
 
@@ -340,7 +342,6 @@ func (rpcServer *RPCServer) Close() {
 	rpcServer.closed = true
 	if rpcServer.blockTicker != nil {
 		rpcServer.blockTicker.Stop()
-		rpcServer.blockTicker = nil
 	}
 	rpcServer.finishBlockTickerChan <- true
 	close(rpcServer.requestChan)
