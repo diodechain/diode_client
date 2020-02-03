@@ -166,6 +166,7 @@ func (rpcServer *RPCServer) Start() {
 				portClose, err := newPortCloseRequest(request)
 				if err != nil {
 					rpcServer.s.Error("failed to decode portclose request: %v", err)
+					continue
 				}
 				deviceKey := rpcServer.s.GetDeviceKey(portClose.Ref)
 				cachedConnDevice := rpcServer.pool.GetDevice(deviceKey)
@@ -193,7 +194,7 @@ func (rpcServer *RPCServer) Start() {
 	rpcServer.addWorker(func() {
 		// infinite read from stream
 		for {
-			err := rpcServer.s.readContext()
+			msg, err := rpcServer.s.readContext()
 			if err != nil {
 				rpcServer.rm.Lock()
 				if !rpcServer.closed {
@@ -204,6 +205,7 @@ func (rpcServer *RPCServer) Start() {
 				}
 				return
 			}
+			rpcServer.s.message <- *msg
 		}
 	})
 
@@ -262,7 +264,10 @@ func (rpcServer *RPCServer) Start() {
 						// should not happen
 						rpcServer.s.Error("got different response type: %s %s", call.method, string(res.buffer))
 					}
-					call.response <- res
+					err := sendMessage(call.response, res, 100*time.Millisecond)
+					if err != nil {
+						rpcServer.s.Debug("send %s message to response channel timeout", call.method)
+					}
 					close(call.response)
 					continue
 				}
@@ -291,9 +296,13 @@ func (rpcServer *RPCServer) Start() {
 							rpcServer.s.EnableKeepAlive()
 						}
 					}
-					call.response <- Message{
+					res := Message{
 						Len:    len(ret),
 						buffer: ret,
+					}
+					err = sendMessage(call.response, res, 100*time.Millisecond)
+					if err != nil {
+						rpcServer.s.Debug("send %s message to response channel timeout", call.method)
 					}
 
 				} else {

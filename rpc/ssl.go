@@ -479,7 +479,7 @@ func (s *SSL) getOpensslConn() *openssl.Conn {
 	return s.conn
 }
 
-func (s *SSL) readContext() error {
+func (s *SSL) readContext() (*Message, error) {
 	// read length of response
 	lenByt := make([]byte, 2)
 	conn := s.getOpensslConn()
@@ -490,15 +490,15 @@ func (s *SSL) readContext() error {
 			strings.Contains(err.Error(), "connection reset by peer") {
 			isOk := s.Reconnect()
 			if !isOk {
-				return err
+				return nil, err
 			}
-			return nil
+			return nil, nil
 		}
-		return err
+		return nil, err
 	}
 	lenr := binary.BigEndian.Uint16(lenByt)
 	if lenr <= 0 {
-		return nil
+		return nil, nil
 	}
 	// read response
 	res := make([]byte, lenr)
@@ -515,19 +515,19 @@ func (s *SSL) readContext() error {
 		if err == io.EOF ||
 			strings.Contains(err.Error(), "connection reset by peer") {
 			if s.Closed() {
-				return err
+				return nil, err
 			}
 			isOk := s.Reconnect()
 			if !isOk {
-				return fmt.Errorf("connection had gone away")
+				return nil, fmt.Errorf("connection had gone away")
 			}
-			return nil
+			return nil, nil
 		}
-		return err
+		return nil, err
 	}
 	read += 2
 	s.incrementTotalBytes(read)
-	s.message <- Message{
+	msg := &Message{
 		Len:    read,
 		buffer: res,
 	}
@@ -535,7 +535,7 @@ func (s *SSL) readContext() error {
 		s.Info("Receive %d bytes data from ssl", read)
 		s.Info(string(res))
 	}
-	return nil
+	return msg, nil
 }
 
 func (s *SSL) sendPayload(method string, payload []byte, message chan Message) error {
@@ -622,6 +622,16 @@ func waitMessage(msg chan Message, rpcTimeout time.Duration) (*Response, error) 
 		return res, nil
 	case _ = <-timeout.C:
 		return nil, fmt.Errorf("remote procedure call timeout: %s", rpcTimeout.String())
+	}
+}
+
+func sendMessage(resp chan Message, msg Message, sendTimeout time.Duration) error {
+	timeout := time.NewTimer(sendTimeout)
+	select {
+	case resp <- msg:
+		return nil
+	case _ = <-timeout.C:
+		return fmt.Errorf("send message to channel timeout")
 	}
 }
 
@@ -865,7 +875,7 @@ func (s *SSL) GetNode(nodeID [20]byte) (*ServerObj, error) {
 // Greet Initiates the connection
 func (s *SSL) Greet() error {
 	// _, err := s.CastContext("hello", 1000, "compression")
-	_, err := s.CallContext("hello", 1000)
+	_, err := s.CastContext("hello", 1000)
 	if err != nil {
 		return err
 	}
@@ -1014,7 +1024,7 @@ func (s *SSL) PortSend(ref int, data []byte) (*Response, error) {
 
 // CastPortClose cast portclose RPC
 func (s *SSL) CastPortClose(ref int) (err error) {
-	_, err = s.CallContext("portclose", ref)
+	_, err = s.CastContext("portclose", ref)
 	return err
 }
 
