@@ -183,8 +183,8 @@ func main() {
 		Addr:             config.SocksServerAddr,
 		Verbose:          config.Debug,
 		FleetAddr:        config.DecFleetAddr,
-		EnableProxy:      config.RunProxyServer,
-		EnableSProxy:     config.RunSProxyServer,
+		EnableProxy:      config.EnableProxyServer,
+		EnableSProxy:     config.EnableSProxyServer,
 		AllowRedirect:    config.AllowRedirectToSProxy,
 		Blacklists:       config.Blacklists,
 		Whitelists:       config.Whitelists,
@@ -195,14 +195,14 @@ func main() {
 	}
 	socksServer = client.NewSocksServer(socksConfig, pool)
 
-	if config.RunSocksServer {
+	if config.EnableSocksServer {
 		// start socks server
 		if err := socksServer.Start(); err != nil {
 			config.Logger.Error(err.Error(), "module", "main")
 			return
 		}
 	}
-	if config.RunProxyServer {
+	if config.EnableProxyServer {
 		// Start proxy server
 		socksServer.Config.ProxyServerAddr = config.ProxyServerAddr
 		socksServer.Config.SProxyServerAddr = config.SProxyServerAddr

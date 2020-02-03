@@ -61,9 +61,9 @@ type Config struct {
 	RetryTimes              int
 	RetryWait               time.Duration
 	AllowRedirectToSProxy   bool
-	RunProxyServer          bool
-	RunSProxyServer         bool
-	RunSocksServer          bool
+	EnableProxyServer       bool
+	EnableSProxyServer      bool
+	EnableSocksServer       bool
 	SkipHostValidation      bool
 	SocksServerAddr         string
 	SocksServerHost         string
@@ -189,15 +189,15 @@ func parseFlag() *Config {
 	switch commandName {
 	case "socksd":
 		commandFlag.Parse(args[1:])
-		cfg.RunSocksServer = true
+		cfg.EnableSocksServer = true
 		cfg.SocksServerAddr = fmt.Sprintf("%s:%d", cfg.SocksServerHost, cfg.SocksServerPort)
 		break
 	case "httpd":
 		commandFlag.Parse(args[1:])
-		cfg.RunProxyServer = true
+		cfg.EnableProxyServer = true
 		cfg.SocksServerAddr = fmt.Sprintf("%s:%d", cfg.SocksServerHost, cfg.SocksServerPort)
 		cfg.ProxyServerAddr = fmt.Sprintf("%s:%d", cfg.ProxyServerHost, cfg.ProxyServerPort)
-		if cfg.RunSProxyServer {
+		if cfg.EnableSProxyServer {
 			cfg.SProxyServerAddr = fmt.Sprintf("%s:%d", cfg.SProxyServerHost, cfg.SProxyServerPort)
 		}
 		break

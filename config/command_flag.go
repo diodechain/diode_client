@@ -97,14 +97,14 @@ func wrapConfigCommandFlag(cfg *Config) {
 func wrapHttpdCommandFlag(cfg *Config) {
 	httpdCommandFlag.Flag.StringVar(&cfg.SocksServerHost, "proxy_host", "127.0.0.1", "host of socksd proxy server")
 	httpdCommandFlag.Flag.IntVar(&cfg.SocksServerPort, "proxy_port", 1080, "port of socksd proxy server")
-	httpdCommandFlag.Flag.BoolVar(&cfg.RunSocksServer, "socksd", false, "enable socksd proxy server")
+	httpdCommandFlag.Flag.BoolVar(&cfg.EnableSocksServer, "socksd", false, "enable socksd proxy server")
 	httpdCommandFlag.Flag.StringVar(&cfg.ProxyServerHost, "httpd_host", "127.0.0.1", "host of httpd server listening to")
 	httpdCommandFlag.Flag.IntVar(&cfg.ProxyServerPort, "httpd_port", 80, "port of httpd server listening to")
 	httpdCommandFlag.Flag.StringVar(&cfg.SProxyServerHost, "httpsd_host", "127.0.0.1", "host of httpsd server listening to")
 	httpdCommandFlag.Flag.IntVar(&cfg.SProxyServerPort, "httpsd_port", 443, "port of httpsd server listening to")
 	httpdCommandFlag.Flag.StringVar(&cfg.SProxyServerCertPath, "certpath", "./priv/cert.pem", "Pem format of certificate file path of httpsd secure server")
 	httpdCommandFlag.Flag.StringVar(&cfg.SProxyServerPrivPath, "privpath", "./priv/priv.pem", "Pem format of private key file path of httpsd secure server")
-	httpdCommandFlag.Flag.BoolVar(&cfg.RunSProxyServer, "secure", false, "enable httpsd server")
+	httpdCommandFlag.Flag.BoolVar(&cfg.EnableSProxyServer, "secure", false, "enable httpsd server")
 	httpdCommandFlag.Flag.BoolVar(&cfg.AllowRedirectToSProxy, "allow_redirect", false, "allow redirect all http transmission to httpsd")
 	httpdCommandFlag.Flag.Usage = func() {
 		fmt.Printf(brandText)
