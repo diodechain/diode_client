@@ -15,6 +15,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/diodechain/diode_go_client/blockquick"
@@ -26,7 +27,7 @@ import (
 	"github.com/diodechain/diode_go_client/util"
 	"github.com/diodechain/go-cache"
 
-	logg "github.com/diodechain/log15"
+	log "github.com/diodechain/log15"
 	"github.com/diodechain/openssl"
 	"github.com/felixge/tcpkeepalive"
 )
@@ -39,13 +40,13 @@ const (
 )
 
 var (
-	// debug rpc id
-	debugRPCID = 1
-	bq         *blockquick.Window
-	m          sync.RWMutex
+	rpcID int64 = 1
+	bq    *blockquick.Window
+	m     sync.RWMutex
 )
 
 type Call struct {
+	id       int64
 	method   string
 	response chan Message
 	data     []byte
@@ -78,7 +79,7 @@ type SSL struct {
 	pool              *DataPool
 	rm                sync.RWMutex
 	Verbose           bool
-	logger            logg.Logger
+	logger            log.Logger
 }
 
 type DataPool struct {
@@ -152,6 +153,33 @@ func (s *SSL) recall() {
 		s.call <- call
 	}
 	s.calls = make([]Call, 0, len(s.calls))
+}
+
+func (s *SSL) removeCallByID(id int64) {
+	s.rm.Lock()
+	defer s.rm.Unlock()
+	var c Call
+	var i int
+	for i, c = range s.calls {
+		if c.id == id {
+			s.calls = append(s.calls[:i], s.calls[i+1:]...)
+			break
+		}
+	}
+}
+
+func (s *SSL) firstCallByMethod(method string) Call {
+	s.rm.Lock()
+	defer s.rm.Unlock()
+	var c Call
+	var i int
+	for i, c = range s.calls {
+		if c.method == method {
+			s.calls = append(s.calls[:i], s.calls[i+1:]...)
+			break
+		}
+	}
+	return c
 }
 
 // LastValid returns the last valid header
@@ -538,7 +566,7 @@ func (s *SSL) readContext() (*Message, error) {
 	return msg, nil
 }
 
-func (s *SSL) sendPayload(method string, payload []byte, message chan Message) error {
+func (s *SSL) sendPayload(method string, payload []byte, message chan Message) (*Call, error) {
 	// add length of payload
 	lenPay := len(payload)
 	lenByt := make([]byte, 2)
@@ -550,61 +578,65 @@ func (s *SSL) sendPayload(method string, payload []byte, message chan Message) e
 		bytPay[i+2] = byte(s)
 	}
 	call := Call{
+		id:       rpcID,
 		method:   method,
 		response: message,
 		data:     bytPay,
 	}
+	atomic.AddInt64(&rpcID, 1)
 	s.call <- call
 	s.Debug("Sent: %v -> %v", string(payload), call.response)
-	return nil
+	return &call, nil
 }
 
 // RespondContext sends a message without expecting a response
-func (s *SSL) RespondContext(method string, args ...interface{}) error {
+func (s *SSL) RespondContext(method string, args ...interface{}) (*Call, error) {
 	msg, err := newMessage(method, args...)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	return s.sendPayload(method, msg, nil)
 }
 
 // CastContext returns a response future after calling the rpc
-func (s *SSL) CastContext(method string, args ...interface{}) (chan Message, error) {
+func (s *SSL) CastContext(method string, args ...interface{}) (*Call, error) {
 	msg, err := newMessage(method, args...)
 	if err != nil {
 		return nil, err
 	}
 	resMsg := make(chan Message)
-	err = s.sendPayload(method, msg, resMsg)
+	call, err := s.sendPayload(method, msg, resMsg)
 	if err != nil {
 		return nil, err
 	}
-	return resMsg, nil
+	return call, nil
 }
 
 // CallContext returns the response after calling the rpc
 func (s *SSL) CallContext(method string, args ...interface{}) (res *Response, err error) {
-	var resMsg chan Message
+	var resCall *Call
 	var ts time.Time
 	var tsDiff time.Duration
-	resMsg, err = s.CastContext(method, args...)
+	resCall, err = s.CastContext(method, args...)
 	if err != nil {
 		return nil, err
 	}
 	ts = time.Now()
 	// TODO: Move rpcTimeout to command line flag
 	rpcTimeout, _ := time.ParseDuration(fmt.Sprintf("%ds", 5+len(s.calls)))
-	res, err = waitMessage(resMsg, rpcTimeout)
+	res, err = waitMessage(resCall.response, rpcTimeout)
 	tsDiff = time.Since(ts)
 	if config.AppConfig.Debug {
-		method = fmt.Sprintf("%s-%d", method, debugRPCID)
-		debugRPCID++
+		method = fmt.Sprintf("%s", method)
 	}
 	if s.enableMetrics {
 		s.metrics.UpdateRPCTimer(tsDiff)
 	}
 	if err != nil {
 		s.Error("Failed to call: %s [%v]: %v", method, tsDiff, err)
+		if _, ok := err.(RPCTimeoutError); ok {
+			s.removeCallByID(resCall.id)
+		}
 		return nil, err
 	}
 	s.Debug("got response: %s [%v]", method, tsDiff)
@@ -621,7 +653,7 @@ func waitMessage(msg chan Message, rpcTimeout time.Duration) (*Response, error) 
 		}
 		return res, nil
 	case _ = <-timeout.C:
-		return nil, fmt.Errorf("remote procedure call timeout: %s", rpcTimeout.String())
+		return nil, RPCTimeoutError{rpcTimeout}
 	}
 }
 
@@ -814,7 +846,7 @@ func (s *SSL) GetBlockHeadersUnsafe2(blockNumbers []int) ([]*blockquick.BlockHea
 		if err != nil {
 			return nil, err
 		}
-		futures = append(futures, future)
+		futures = append(futures, future.response)
 	}
 
 	for _, future := range futures {
@@ -1007,9 +1039,9 @@ func (s *SSL) PortOpen(deviceID string, port int, mode string) (*PortOpen, error
 // ResponsePortOpen response portopen request
 func (s *SSL) ResponsePortOpen(portOpen *PortOpen, err error) error {
 	if err != nil {
-		err = s.RespondContext("error", "portopen", int(portOpen.Ref), err.Error())
+		_, err = s.RespondContext("error", "portopen", int(portOpen.Ref), err.Error())
 	} else {
-		err = s.RespondContext("response", "portopen", int(portOpen.Ref), "ok")
+		_, err = s.RespondContext("response", "portopen", int(portOpen.Ref), "ok")
 	}
 	if err != nil {
 		return err

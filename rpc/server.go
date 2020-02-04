@@ -261,10 +261,11 @@ func (rpcServer *RPCServer) Start() {
 			case res := <-rpcServer.s.message:
 				go rpcServer.s.CheckTicket()
 				if res.IsResponse() {
-					call := rpcServer.s.popCall()
-					if res.ResponseMethod() != call.method {
+					call := rpcServer.s.firstCallByMethod(res.ResponseMethod())
+					if call.response == nil {
 						// should not happen
-						rpcServer.s.Error("got different response type: %s %s", call.method, string(res.buffer))
+						rpcServer.s.Error("call.response is nil: %s %s", call.method, string(res.buffer))
+						continue
 					}
 					err := sendMessage(call.response, res, 100*time.Millisecond)
 					if err != nil {

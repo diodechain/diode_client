@@ -5,6 +5,8 @@ package rpc
 
 import (
 	"bytes"
+	"fmt"
+	"time"
 
 	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/crypto/secp256k1"
@@ -106,6 +108,15 @@ type RLPAccount struct {
 	Balance     uint
 	StorageRoot []byte
 	Code        []byte
+}
+
+// RPCTimeoutError is struct for rpc timeout error
+type RPCTimeoutError struct {
+	Timeout time.Duration
+}
+
+func (e RPCTimeoutError) Error() string {
+	return fmt.Sprintf("remote procedure call timeout: %s", e.Timeout)
 }
 
 // StateRoot returns state root of given state roots
