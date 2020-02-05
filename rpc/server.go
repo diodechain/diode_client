@@ -231,12 +231,13 @@ func (rpcServer *RPCServer) Start() {
 						rpcServer.s.Error("Cannot getblockheader: %v", err)
 						return
 					}
-					if lastblock == blockPeak {
+					blockNumMax := blockPeak - confirmationSize
+					if lastblock >= blockNumMax {
 						// Nothing to do
 						return
 					}
 
-					for num := lastblock + 1; num <= blockPeak; num++ {
+					for num := lastblock + 1; num <= blockNumMax; num++ {
 						blockHeader, err := rpcServer.s.GetBlockHeaderUnsafe(num)
 						if err != nil {
 							rpcServer.s.Error("Couldn't download block header %v", err)
@@ -253,8 +254,8 @@ func (rpcServer *RPCServer) Start() {
 					}
 
 					lastn, _ := bq.Last()
-					rpcServer.s.Info("Added block(s) %v-%v, last valid %v", lastblock, blockPeak, lastn)
-					lastblock = blockPeak
+					rpcServer.s.Info("Added block(s) %v-%v, last valid %v", lastblock, blockNumMax, lastn)
+					lastblock = blockNumMax
 					storeLastValid()
 					return
 				}()

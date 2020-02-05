@@ -36,7 +36,9 @@ const (
 	// https://docs.huihoo.com/doxygen/openssl/1.0.1c/crypto_2objects_2obj__mac_8h.html
 	NID_secp256k1 openssl.EllipticCurve = 714
 	// https://github.com/openssl/openssl/blob/master/apps/ecparam.c#L221
-	NID_secp256r1 openssl.EllipticCurve = 415
+	NID_secp256r1    openssl.EllipticCurve = 415
+	confirmationSize                       = 6
+	windowSize                             = 100
 )
 
 var (
@@ -704,13 +706,13 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 	m.Lock()
 	defer m.Unlock()
 
-	const windowSize = 100
 	lvbn, lvbh := restoreLastValid()
+	blockNumMin := lvbn - windowSize + 1
 
 	// Fetching at least window size blocks -- this should be cached on disk instead.
-	blockHeaders, err := s.GetBlockHeadersUnsafe(lvbn-windowSize+1, lvbn)
+	blockHeaders, err := s.GetBlockHeadersUnsafe(blockNumMin, lvbn)
 	if err != nil {
-		s.Error("Cannot fetch blocks %v-%v error: %v", lvbn-windowSize, lvbn, err)
+		s.Error("Cannot fetch blocks %v-%v error: %v", blockNumMin, lvbn, err)
 		return false, err
 	}
 	if len(blockHeaders) != windowSize {
@@ -740,6 +742,12 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 	}
 
 	// Starting to fetch new blocks
+	peak, err := s.GetBlockPeak()
+	if err != nil {
+		return false, err
+	}
+
+	blockNumMax := peak - confirmationSize
 	blocks, err := s.GetBlockQuick(lvbn, windowSize)
 	if err != nil {
 		return false, err
@@ -751,6 +759,10 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 	}
 
 	for _, block := range blocks {
+		// due to blocks order by block number, break loop here
+		if block.Number() > blockNumMax {
+			break
+		}
 		err := win.AddBlock(block, true)
 		if err != nil {
 			return false, err
@@ -759,10 +771,6 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 
 	newlvbn, _ := win.Last()
 	if newlvbn == lvbn {
-		peak, err := s.GetBlockPeak()
-		if err != nil {
-			return false, err
-		}
 		if peak-windowSize > lvbn {
 			return false, fmt.Errorf("couldn't validate any new blocks %v < %v", lvbn, peak)
 		}
@@ -931,14 +939,6 @@ func (s *SSL) newTicket() (*DeviceTicket, error) {
 	serverID, err := s.GetServerID()
 	s.counter = s.totalBytes
 	lvbn, lvbh := LastValid()
-	// Trying to sign older (10) blocks, so other clients can easier verify
-	if lvbn > 10 && bq != nil {
-		head := bq.GetBlockHeader(lvbn - 10)
-		if head != nil {
-			lvbn = head.Number()
-			lvbh = head.Hash()
-		}
-	}
 	s.Debug("New ticket: %d", lvbn)
 	ticket := &DeviceTicket{
 		ServerID:         serverID,
