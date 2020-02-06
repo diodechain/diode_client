@@ -10,6 +10,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"io"
+	"log"
 	"math/big"
 	"net"
 	"os"
@@ -26,8 +27,8 @@ import (
 	"github.com/diodechain/diode_go_client/db"
 	"github.com/diodechain/diode_go_client/util"
 	"github.com/diodechain/go-cache"
+	"github.com/diodechain/log15"
 
-	log "github.com/diodechain/log15"
 	"github.com/diodechain/openssl"
 	"github.com/felixge/tcpkeepalive"
 )
@@ -81,7 +82,7 @@ type SSL struct {
 	pool              *DataPool
 	rm                sync.RWMutex
 	Verbose           bool
-	logger            log.Logger
+	logger            log15.Logger
 }
 
 type DataPool struct {
@@ -635,7 +636,7 @@ func (s *SSL) CallContext(method string, args ...interface{}) (res *Response, er
 		s.metrics.UpdateRPCTimer(tsDiff)
 	}
 	if err != nil {
-		s.Error("Failed to call: %s [%v]: %v", method, tsDiff, err)
+		log.Panicf("Failed to call: %s [%v]: %v", method, tsDiff, err)
 		if _, ok := err.(RPCTimeoutError); ok {
 			s.removeCallByID(resCall.id)
 		}
