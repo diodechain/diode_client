@@ -655,6 +655,7 @@ func waitMessage(msg chan Message, rpcTimeout time.Duration) (*Response, error) 
 		}
 		return res, nil
 	case _ = <-timeout.C:
+		// log.Panicf("RPC timeout")
 		return nil, RPCTimeoutError{rpcTimeout}
 	}
 }

@@ -618,9 +618,18 @@ func (socksServer *Server) GetServer(nodeID [20]byte) (server *SSL, err error) {
 
 	if nodeID == serverID {
 		server = socksServer.s
-		return
+		if server.Closed() {
+			socksServer.s.Error("GetServer(): own connection is closed %v", server)
+		} else {
+			return
+		}
 	}
 	server = socksServer.pool[nodeID]
+	if server != nil && server.Closed() {
+		socksServer.s.Error("GetServer(): found closed server connection in pool %v", server)
+		delete(socksServer.pool, nodeID)
+		server = nil
+	}
 	if server != nil {
 		return
 	}
