@@ -54,8 +54,11 @@ func main() {
 
 	if config.Command == "config" {
 		if len(config.ConfigDelete) > 0 {
-			db.DB.Del(config.ConfigDelete)
-			config.Logger.Info(fmt.Sprintf("delete: %s", config.ConfigDelete), "module", "main")
+			deleteKeys := strings.Split(config.ConfigDelete, ",")
+			for _, deleteKey := range deleteKeys {
+				db.DB.Del(deleteKey)
+				config.Logger.Info(fmt.Sprintf("delete: %s", deleteKey), "module", "main")
+			}
 		}
 		if config.ConfigList {
 			for _, name := range db.DB.List() {
@@ -63,19 +66,22 @@ func main() {
 			}
 		}
 		if len(config.ConfigSet) > 0 {
-			list := strings.Split(config.ConfigSet, "=")
-			if len(list) == 2 {
-				var err error
-				value := []byte(list[1])
-				if util.IsHex(value) {
-					value, err = util.DecodeString(list[1])
-					if err != nil {
-						config.Logger.Info(err.Error(), "module", "main")
-						os.Exit(1)
+			configSets := strings.Split(config.ConfigSet, ",")
+			for _, configSet := range configSets {
+				list := strings.Split(configSet, "=")
+				if len(list) == 2 {
+					var err error
+					value := []byte(list[1])
+					if util.IsHex(value) {
+						value, err = util.DecodeString(list[1])
+						if err != nil {
+							config.Logger.Info(err.Error(), "module", "main")
+							os.Exit(1)
+						}
 					}
+					db.DB.Put(list[0], []byte(list[1]))
+					config.Logger.Info(fmt.Sprintf("set: %s", list[0]), "module", "main")
 				}
-				db.DB.Put(list[0], []byte(list[1]))
-				config.Logger.Info(fmt.Sprintf("set: %s", list[0]), "module", "main")
 			}
 		}
 

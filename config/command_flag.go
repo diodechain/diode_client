@@ -28,7 +28,7 @@ var (
 	configCommandFlag = CommandFlag{
 		Name:        "config",
 		HelpText:    `  This command manages variables in the local config store.`,
-		ExampleText: `  diode config -delete lvbn2`,
+		ExampleText: `  diode config -delete lvbn2,lvbn`,
 	}
 	socksdCommandFlag = CommandFlag{
 		Name:        "socksd",

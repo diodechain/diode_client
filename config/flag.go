@@ -152,7 +152,6 @@ func parsePublicPublishedPorts(publishedPorts string) []*Port {
 	parsedPublishedPorts := strings.Split(publishedPorts, ",")
 	ports := []*Port{}
 	for _, parsedPort := range parsedPublishedPorts {
-		parsedPort = strings.TrimSpace(parsedPort)
 		portMap := strings.Split(parsedPort, ":")
 		if len(portMap) == 2 {
 			srcPort, err := strconv.Atoi(portMap[0])
@@ -181,7 +180,7 @@ func parsePrivatePublishedPorts(publishedPorts []string) []*Port {
 		parsedPublishedPort := strings.Split(publishedPort, ",")
 		parsedPublishedPortLen := len(parsedPublishedPort)
 		if parsedPublishedPortLen >= 2 {
-			parsedPort := strings.TrimSpace(parsedPublishedPort[0])
+			parsedPort := parsedPublishedPort[0]
 			portMap := strings.Split(parsedPort, ":")
 			if len(portMap) == 2 {
 				srcPort, err := strconv.Atoi(portMap[0])
@@ -199,7 +198,7 @@ func parsePrivatePublishedPorts(publishedPorts []string) []*Port {
 					whitelist: make(map[string]bool),
 				}
 				for i := 1; i < parsedPublishedPortLen; i++ {
-					addr := strings.TrimSpace(parsedPublishedPort[i])
+					addr := parsedPublishedPort[i]
 					if util.IsAddress([]byte(addr)) {
 						if !port.whitelist[addr] {
 							port.whitelist[addr] = true
@@ -301,7 +300,6 @@ func parseFlag() *Config {
 	remoteRPCAddrs := []string{}
 	// TODO: check domain is valid
 	for _, RPCAddr := range parsedRPCAddr {
-		RPCAddr = strings.TrimSpace(RPCAddr)
 		if len(RPCAddr) > 0 && !stringsContain(remoteRPCAddrs, &RPCAddr) {
 			remoteRPCAddrs = append(remoteRPCAddrs, RPCAddr)
 		}
