@@ -690,8 +690,7 @@ func restoreLastValid() (int, blockquick.Hash) {
 			return lvbnNum, hash
 		}
 	}
-	return 102, [32]byte{0, 1, 54, 236, 244, 89, 99, 79, 221, 74, 15, 75, 131, 17, 114, 254, 233, 77,
-		173, 120, 80, 24, 183, 193, 23, 145, 226, 113, 8, 88, 38, 248}
+	return 108, [32]byte{0, 0, 98, 184, 252, 38, 6, 88, 88, 30, 209, 143, 24, 89, 71, 244, 92, 85, 98, 72, 89, 223, 184, 74, 232, 251, 127, 33, 26, 134, 11, 117}
 }
 
 func storeLastValid() {
@@ -748,7 +747,8 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 	}
 
 	blockNumMax := peak - confirmationSize
-	blocks, err := s.GetBlockQuick(lvbn, windowSize)
+	// fetch more blocks than windowSize
+	blocks, err := s.GetBlockQuick(lvbn, windowSize+confirmationSize)
 	if err != nil {
 		return false, err
 	}
