@@ -749,7 +749,7 @@ func (s *SSL) ValidateNetwork() (bool, error) {
 
 	blockNumMax := peak - confirmationSize
 	// fetch more blocks than windowSize
-	blocks, err := s.GetBlockQuick(lvbn, windowSize+confirmationSize)
+	blocks, err := s.GetBlockQuick(lvbn, windowSize+confirmationSize+1)
 	if err != nil {
 		return false, err
 	}
