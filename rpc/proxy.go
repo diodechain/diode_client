@@ -97,6 +97,7 @@ func (socksServer *Server) pipeProxy(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			msg := fmt.Sprintf("Websocket upgrade error: %v", err)
 			internalError(w, msg)
+			conn.Close()
 			return
 		}
 		connDevice.Conn = ConnectedConn{
@@ -121,6 +122,7 @@ func (socksServer *Server) pipeProxy(w http.ResponseWriter, r *http.Request) {
 
 		if err != nil {
 			internalError(w, err.Error())
+			conn.Close()
 			return
 		}
 		connDevice.Conn = ConnectedConn{
@@ -169,21 +171,17 @@ func (socksServer *Server) StartProxy() error {
 	// start httpsd proxy server
 	if socksServer.Config.EnableSProxy {
 		socksServer.s.Info("start httpsd server %s", socksServer.Config.SProxyServerAddr)
-		http.HandleFunc("/", socksServer.pipeProxy)
+		httpsdHandler := http.HandlerFunc(socksServer.pipeProxy)
 
 		go func() {
 			httpsdAddr := socksServer.Config.SProxyServerAddr
 			protos := make(map[string]func(*http.Server, *tls.Conn, http.Handler))
-			socksServer.httpsServer = &http.Server{Addr: httpsdAddr, Handler: nil, TLSNextProto: protos}
+			socksServer.httpsServer = &http.Server{Addr: httpsdAddr, Handler: httpsdHandler, TLSNextProto: protos}
 			if err := socksServer.httpsServer.ListenAndServeTLS(socksServer.Config.CertPath, socksServer.Config.PrivPath); err != nil {
 				socksServer.httpsServer = nil
 				socksServer.s.Error("cannot start https proxy: %v", err)
 			}
 		}()
 	}
-	// proxyTransport.Proxy = http.ProxyURL(&url.URL{
-	// 	Scheme: "socks5:",
-	// 	Host:   socksServer.Config.Addr,
-	// })
 	return nil
 }
