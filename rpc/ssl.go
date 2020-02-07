@@ -636,8 +636,8 @@ func (s *SSL) CallContext(method string, args ...interface{}) (res *Response, er
 		s.metrics.UpdateRPCTimer(tsDiff)
 	}
 	if err != nil {
-		log.Panicf("Failed to call: %s [%v]: %v", method, tsDiff, err)
 		if _, ok := err.(RPCTimeoutError); ok {
+			log.Panicf("Failed to call: %s [%v]: %v", method, tsDiff, err)
 			s.removeCallByID(resCall.id)
 		}
 		return nil, err

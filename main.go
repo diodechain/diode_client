@@ -33,6 +33,7 @@ var (
 
 func main() {
 	var socksServer *rpc.Server
+	var proxyServer *rpc.ProxyServer
 	var err error
 	var pool *rpc.DataPool
 
@@ -181,23 +182,21 @@ func main() {
 			if socksServer.Started() {
 				socksServer.Close()
 			}
+			if proxyServer != nil && proxyServer.Started() {
+				proxyServer.Close()
+			}
 			os.Exit(0)
 		}
 	}()
 
 	socksConfig := &rpc.Config{
-		Addr:             config.SocksServerAddr,
-		Verbose:          config.Debug,
-		FleetAddr:        config.DecFleetAddr,
-		EnableProxy:      config.EnableProxyServer,
-		EnableSProxy:     config.EnableSProxyServer,
-		AllowRedirect:    config.AllowRedirectToSProxy,
-		Blacklists:       config.Blacklists,
-		Whitelists:       config.Whitelists,
-		ProxyServerAddr:  "",
-		SProxyServerAddr: "",
-		CertPath:         "",
-		PrivPath:         "",
+		Addr:            config.SocksServerAddr,
+		Verbose:         config.Debug,
+		FleetAddr:       config.DecFleetAddr,
+		Blacklists:      config.Blacklists,
+		Whitelists:      config.Whitelists,
+		EnableProxy:     config.EnableProxyServer,
+		ProxyServerAddr: config.ProxyServerAddr,
 	}
 	socksServer = client.NewSocksServer(socksConfig, pool)
 
@@ -209,12 +208,21 @@ func main() {
 		}
 	}
 	if config.EnableProxyServer {
+		proxyConfig := rpc.ProxyConfig{
+			EnableProxy:      config.EnableProxyServer,
+			EnableSProxy:     config.EnableSProxyServer,
+			ProxyServerAddr:  config.ProxyServerAddr,
+			SProxyServerAddr: config.SProxyServerAddr,
+			CertPath:         config.SProxyServerCertPath,
+			PrivPath:         config.SProxyServerPrivPath,
+			Verbose:          config.Debug,
+		}
 		// Start proxy server
-		socksServer.Config.ProxyServerAddr = config.ProxyServerAddr
-		socksServer.Config.SProxyServerAddr = config.SProxyServerAddr
-		socksServer.Config.CertPath = config.SProxyServerCertPath
-		socksServer.Config.PrivPath = config.SProxyServerPrivPath
-		if err := socksServer.StartProxy(); err != nil {
+		if proxyServer, err = rpc.NewProxyServer(socksServer, proxyConfig); err != nil {
+			config.Logger.Error(err.Error(), "module", "main")
+			return
+		}
+		if err := proxyServer.Start(); err != nil {
 			config.Logger.Error(err.Error(), "module", "main")
 			return
 		}

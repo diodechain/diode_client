@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/http"
 	"sync"
 	"time"
 
@@ -64,33 +63,25 @@ const (
 )
 
 // Config is Socks Server configuration
-// TODO: refactor socks server and proxy server
 type Config struct {
-	Addr             string
-	ProxyServerAddr  string
-	SProxyServerAddr string
-	CertPath         string
-	PrivPath         string
-	Verbose          bool
-	EnableProxy      bool
-	EnableSProxy     bool
-	AllowRedirect    bool
-	FleetAddr        [20]byte
-	Blacklists       map[string]bool
-	Whitelists       map[string]bool
+	Addr            string
+	ProxyServerAddr string
+	Verbose         bool
+	EnableProxy     bool
+	FleetAddr       [20]byte
+	Blacklists      map[string]bool
+	Whitelists      map[string]bool
 }
 
 // Server is the only instances of the Socks Server
 type Server struct {
-	s           *SSL
-	pool        map[[20]byte]*SSL
-	datapool    *DataPool
-	Config      *Config
-	httpServer  *http.Server
-	httpsServer *http.Server
-	listener    net.Listener
-	wg          *sync.WaitGroup
-	started     bool
+	s        *SSL
+	pool     map[[20]byte]*SSL
+	datapool *DataPool
+	Config   *Config
+	listener net.Listener
+	wg       *sync.WaitGroup
+	started  bool
 }
 
 func handShake(conn net.Conn) (version int, url string, err error) {
@@ -660,14 +651,6 @@ func (socksServer *Server) Started() bool {
 // Close the socks server
 func (socksServer *Server) Close() {
 	socksServer.listener.Close()
-	if socksServer.Config.EnableProxy {
-		if socksServer.httpServer != nil {
-			socksServer.httpServer.Close()
-		}
-		if socksServer.httpsServer != nil {
-			socksServer.httpsServer.Close()
-		}
-	}
 	socksServer.started = false
 	// Should we close gracefully?
 	socksServer.wg.Wait()
