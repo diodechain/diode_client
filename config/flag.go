@@ -95,6 +95,8 @@ func (port *Port) IsWhitelisted(addr string) bool {
 	switch port.Mode {
 	case PublicPublishedMode:
 		return true
+	// case ProtectedPublishedMode:
+	// 	return true
 	case PrivatePublishedMode:
 		return port.whitelist[addr]
 	default:
@@ -166,6 +168,32 @@ func parsePublicPublishedPorts(publishedPorts string) []*Port {
 				Src:       srcPort,
 				To:        toPort,
 				Mode:      PublicPublishedMode,
+				whitelist: make(map[string]bool),
+			}
+			ports = append(ports, port)
+		}
+	}
+	return ports
+}
+
+func parseProtectedPublishedPorts(publishedPorts string) []*Port {
+	parsedPublishedPorts := strings.Split(publishedPorts, ",")
+	ports := []*Port{}
+	for _, parsedPort := range parsedPublishedPorts {
+		portMap := strings.Split(parsedPort, ":")
+		if len(portMap) == 2 {
+			srcPort, err := strconv.Atoi(portMap[0])
+			if err != nil {
+				continue
+			}
+			toPort, err := strconv.Atoi(portMap[1])
+			if err != nil {
+				continue
+			}
+			port := &Port{
+				Src:       srcPort,
+				To:        toPort,
+				Mode:      ProtectedPublishedMode,
 				whitelist: make(map[string]bool),
 			}
 			ports = append(ports, port)
@@ -272,9 +300,13 @@ func parseFlag() *Config {
 		commandFlag.Parse(args[1:])
 		publishedPorts := make(map[int]*Port)
 		parsedPublicPublishedPort := parsePublicPublishedPorts(cfg.PublicPublishedPorts)
+		parsedProtectedPublishedPort := parseProtectedPublishedPorts(cfg.ProtectedPublishedPorts)
 		parsedPrivatePublishedPort := parsePrivatePublishedPorts(cfg.PrivatePublishedPorts)
 		// copy to config
 		for _, port := range parsedPublicPublishedPort {
+			publishedPorts[port.To] = port
+		}
+		for _, port := range parsedProtectedPublishedPort {
 			publishedPorts[port.To] = port
 		}
 		for _, port := range parsedPrivatePublishedPort {

@@ -656,7 +656,6 @@ func waitMessage(msg chan Message, rpcTimeout time.Duration) (*Response, error) 
 		}
 		return res, nil
 	case _ = <-timeout.C:
-		// log.Panicf("RPC timeout")
 		return nil, RPCTimeoutError{rpcTimeout}
 	}
 }
@@ -1176,7 +1175,11 @@ func (s *SSL) IsDeviceWhitelisted(addr [20]byte) (bool, error) {
 }
 
 // IsAccessWhitelisted returns is given address whitelisted
-func (s *SSL) IsAccessWhitelisted(fleetAddr [20]byte, deviceAddr [20]byte, clientAddr [20]byte) (bool, error) {
+func (s *SSL) IsAccessWhitelisted(fleetAddr [20]byte, clientAddr [20]byte) (bool, error) {
+	deviceAddr, err := s.GetClientAddress()
+	if err != nil {
+		return false, err
+	}
 	key := contract.AccessWhitelistKey(deviceAddr, clientAddr)
 	raw, err := s.GetAccountValueRaw(fleetAddr, key)
 	if err != nil {

@@ -61,7 +61,7 @@ func (commandFlag *CommandFlag) Parse(args []string) {
 
 func wrapPublishCommandFlag(cfg *Config) {
 	publishCommandFlag.Flag.StringVar(&cfg.PublicPublishedPorts, "public", "80:80", "expose ports to public users, so that user could connect to")
-	publishCommandFlag.Flag.StringVar(&cfg.ProtectedPublishedPorts, "protected", "22:22", "expose ports to protected users, so that user could connect to [TODO]")
+	publishCommandFlag.Flag.StringVar(&cfg.ProtectedPublishedPorts, "protected", "22:22", "expose ports to protected users (in fleet contract), so that user could connect to")
 	publishCommandFlag.Flag.Var(&cfg.PrivatePublishedPorts, "private", "expose ports to private users, so that user could connect to")
 	publishCommandFlag.Flag.Usage = func() {
 		fmt.Printf(brandText)

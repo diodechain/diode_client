@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/util"
 	"github.com/diodechain/openssl"
 )
@@ -109,12 +110,27 @@ func (rpcServer *RPCServer) Start() {
 					continue
 				}
 				if !publishedPort.IsWhitelisted(portOpen.DeviceID) {
-					err := fmt.Errorf(
-						"Device %v is not in the white list",
-						portOpen.DeviceID,
-					)
-					_ = rpcServer.s.ResponsePortOpen(portOpen, err)
-					continue
+					if publishedPort.Mode == config.ProtectedPublishedMode {
+						decDeviceID, _ := util.DecodeString(portOpen.DeviceID)
+						deviceID := [20]byte{}
+						copy(deviceID[:], decDeviceID)
+						isAccessWhilisted, err := rpcServer.s.IsAccessWhitelisted(rpcServer.Config.FleetAddr, deviceID)
+						if err != nil || !isAccessWhilisted {
+							err := fmt.Errorf(
+								"Device %v is not in the whitelist",
+								portOpen.DeviceID,
+							)
+							_ = rpcServer.s.ResponsePortOpen(portOpen, err)
+							continue
+						}
+					} else {
+						err := fmt.Errorf(
+							"Device %v is not in the whitelist",
+							portOpen.DeviceID,
+						)
+						_ = rpcServer.s.ResponsePortOpen(portOpen, err)
+						continue
+					}
 				}
 				clientID := fmt.Sprintf("%s%d", portOpen.DeviceID, portOpen.Ref)
 				connDevice := &ConnectedDevice{}
