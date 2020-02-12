@@ -273,5 +273,6 @@ func (win *Window) add(new *BlockScore) {
 	// if len(win.finals) > win.windowSize {
 	win.minerCounts[win.finals[0].miner]--
 	win.finals = win.finals[1:]
+	win.lastValid = new
 	// }
 }
