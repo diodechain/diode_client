@@ -305,6 +305,32 @@ func (s *SSL) Close() error {
 	return err
 }
 
+func (p *DataPool) GetCacheDNS(key string) []byte {
+	p.rm.RLock()
+	defer p.rm.RUnlock()
+	cachedDNS, hit := p.memoryCache.Get(key)
+	if !hit {
+		return nil
+	}
+	dns, ok := cachedDNS.([]byte)
+	if !ok {
+		// remove dns key
+		p.SetCacheDNS(key, nil)
+		return nil
+	}
+	return dns
+}
+
+func (p *DataPool) SetCacheDNS(key string, dns []byte) {
+	p.rm.Lock()
+	defer p.rm.Unlock()
+	if dns == nil {
+		p.memoryCache.Delete(key)
+	} else {
+		p.memoryCache.Set(key, dns, cache.DefaultExpiration)
+	}
+}
+
 func (p *DataPool) GetCache(key string) *DeviceTicket {
 	p.rm.RLock()
 	defer p.rm.RUnlock()

@@ -478,11 +478,18 @@ func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, device *
 func (socksServer *Server) checkAccess(deviceID string) (*DeviceTicket, *HttpError) {
 	// Resolving DNS if needed
 	if !util.IsHex([]byte(deviceID)) {
-		id, err := socksServer.s.ResolveDNS(deviceID)
-		if err != nil {
-			return nil, &HttpError{500, err}
+		dnsKey := fmt.Sprintf("dns:%s", deviceID)
+		cachedDNS := socksServer.datapool.GetCacheDNS(dnsKey)
+		if cachedDNS != nil {
+			deviceID = util.EncodeToString(cachedDNS[:])
+		} else {
+			id, err := socksServer.s.ResolveDNS(deviceID)
+			if err != nil {
+				return nil, &HttpError{500, err}
+			}
+			socksServer.s.pool.SetCacheDNS(dnsKey, id[:])
+			deviceID = util.EncodeToString(id[:])
 		}
-		deviceID = util.EncodeToString(id[:])
 	}
 
 	// Checking blacklist and whitelist
