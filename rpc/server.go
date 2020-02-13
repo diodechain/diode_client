@@ -6,9 +6,12 @@ package rpc
 import (
 	"encoding/hex"
 	"fmt"
+	"io"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/diodechain/diode_go_client/config"
@@ -29,6 +32,7 @@ type RPCConfig struct {
 }
 
 type RPCServer struct {
+	calls                 []Call
 	blockTicker           *time.Ticker
 	blockTickerDuration   time.Duration
 	closed                bool
@@ -36,13 +40,32 @@ type RPCServer struct {
 	finishBlockTickerChan chan bool
 	requestChan           chan *Request
 	rm                    sync.Mutex
-	s                     *SSL
+	Client                *RPCClient
 	started               bool
 	ticketTicker          *time.Ticker
 	ticketTickerDuration  time.Duration
 	timeout               time.Duration
 	wg                    *sync.WaitGroup
 	pool                  *DataPool
+}
+
+// NewRPCServer returns rpc server
+// TODO: check blocking channel, error channel
+func (client *RPCClient) NewRPCServer(config *RPCConfig, pool *DataPool) *RPCServer {
+	rpcServer := &RPCServer{
+		wg:                    &sync.WaitGroup{},
+		Config:                config,
+		started:               false,
+		closed:                false,
+		ticketTickerDuration:  1 * time.Millisecond,
+		finishBlockTickerChan: make(chan bool, 1),
+		requestChan:           make(chan *Request, 1024),
+		blockTickerDuration:   1 * time.Minute,
+		timeout:               5 * time.Second,
+		pool:                  pool,
+		Client:                client,
+	}
+	return rpcServer
 }
 
 func (rpcServer *RPCServer) addWorker(worker func()) {
@@ -75,8 +98,8 @@ func (rpcServer *RPCServer) Start() {
 			case "portopen":
 				portOpen, err := newPortOpenRequest(request)
 				if err != nil {
-					_ = rpcServer.s.ResponsePortOpen(portOpen, err)
-					rpcServer.s.Error("Failed to decode portopen request: %v", err)
+					_ = rpcServer.Client.ResponsePortOpen(portOpen, err)
+					rpcServer.Client.Error("Failed to decode portopen request: %v", err)
 					continue
 				}
 				// Checking blacklist and whitelist
@@ -86,7 +109,7 @@ func (rpcServer *RPCServer) Start() {
 							"Device %v is on the black list",
 							portOpen.DeviceID,
 						)
-						_ = rpcServer.s.ResponsePortOpen(portOpen, err)
+						_ = rpcServer.Client.ResponsePortOpen(portOpen, err)
 						continue
 					}
 				} else {
@@ -96,7 +119,7 @@ func (rpcServer *RPCServer) Start() {
 								"Device %v is not in the white list",
 								portOpen.DeviceID,
 							)
-							_ = rpcServer.s.ResponsePortOpen(portOpen, err)
+							_ = rpcServer.Client.ResponsePortOpen(portOpen, err)
 							continue
 						}
 					}
@@ -105,8 +128,8 @@ func (rpcServer *RPCServer) Start() {
 				// find published port
 				publishedPort := rpcServer.pool.GetPublishedPort(int(portOpen.Port))
 				if publishedPort == nil {
-					_ = rpcServer.s.ResponsePortOpen(portOpen, errPortNotPublished)
-					rpcServer.s.Info("port was not published port = %v", portOpen.Port)
+					_ = rpcServer.Client.ResponsePortOpen(portOpen, errPortNotPublished)
+					rpcServer.Client.Info("port was not published port = %v", portOpen.Port)
 					continue
 				}
 				if !publishedPort.IsWhitelisted(portOpen.DeviceID) {
@@ -114,13 +137,13 @@ func (rpcServer *RPCServer) Start() {
 						decDeviceID, _ := util.DecodeString(portOpen.DeviceID)
 						deviceID := [20]byte{}
 						copy(deviceID[:], decDeviceID)
-						isAccessWhilisted, err := rpcServer.s.IsAccessWhitelisted(rpcServer.Config.FleetAddr, deviceID)
+						isAccessWhilisted, err := rpcServer.Client.IsAccessWhitelisted(rpcServer.Config.FleetAddr, deviceID)
 						if err != nil || !isAccessWhilisted {
 							err := fmt.Errorf(
 								"Device %v is not in the whitelist",
 								portOpen.DeviceID,
 							)
-							_ = rpcServer.s.ResponsePortOpen(portOpen, err)
+							_ = rpcServer.Client.ResponsePortOpen(portOpen, err)
 							continue
 						}
 					} else {
@@ -128,7 +151,7 @@ func (rpcServer *RPCServer) Start() {
 							"Device %v is not in the whitelist",
 							portOpen.DeviceID,
 						)
-						_ = rpcServer.s.ResponsePortOpen(portOpen, err)
+						_ = rpcServer.Client.ResponsePortOpen(portOpen, err)
 						continue
 					}
 				}
@@ -139,18 +162,18 @@ func (rpcServer *RPCServer) Start() {
 				host := net.JoinHostPort("localhost", strconv.Itoa(int(publishedPort.Src)))
 				remoteConn, err := net.DialTimeout("tcp", host, rpcServer.timeout)
 				if err != nil {
-					_ = rpcServer.s.ResponsePortOpen(portOpen, err)
-					rpcServer.s.Error("failed to connect local: %v", err)
+					_ = rpcServer.Client.ResponsePortOpen(portOpen, err)
+					rpcServer.Client.Error("failed to connect local: %v", err)
 					continue
 				}
-				_ = rpcServer.s.ResponsePortOpen(portOpen, nil)
-				deviceKey := rpcServer.s.GetDeviceKey(portOpen.Ref)
+				_ = rpcServer.Client.ResponsePortOpen(portOpen, nil)
+				deviceKey := rpcServer.Client.s.GetDeviceKey(portOpen.Ref)
 
 				connDevice.Ref = portOpen.Ref
 				connDevice.ClientID = clientID
 				connDevice.DeviceID = portOpen.DeviceID
 				connDevice.Conn.Conn = remoteConn
-				connDevice.Server = rpcServer.s
+				connDevice.Client = rpcServer.Client
 				rpcServer.pool.SetDevice(deviceKey, connDevice)
 
 				go func() {
@@ -160,40 +183,40 @@ func (rpcServer *RPCServer) Start() {
 			case "portsend":
 				portSend, err := newPortSendRequest(request)
 				if err != nil {
-					rpcServer.s.Error("failed to decode portsend request: %v", err.Error())
+					rpcServer.Client.Error("failed to decode portsend request: %v", err.Error())
 					continue
 				}
 				decData := make([]byte, hex.DecodedLen(len(portSend.Data)))
 				_, err = util.Decode(decData, portSend.Data)
 				if err != nil {
-					rpcServer.s.Error("failed to decode portsend data: %v", err.Error())
+					rpcServer.Client.Error("failed to decode portsend data: %v", err.Error())
 					continue
 				}
 				// start to write data
-				deviceKey := rpcServer.s.GetDeviceKey(portSend.Ref)
+				deviceKey := rpcServer.Client.s.GetDeviceKey(portSend.Ref)
 				cachedConnDevice := rpcServer.pool.GetDevice(deviceKey)
 				if cachedConnDevice != nil {
 					cachedConnDevice.writeToTCP(decData)
 				} else {
-					rpcServer.s.Error("cannot find the portsend connected device %d", portSend.Ref)
-					rpcServer.s.CastPortClose(int(portSend.Ref))
+					rpcServer.Client.Error("cannot find the portsend connected device %d", portSend.Ref)
+					rpcServer.Client.CastPortClose(int(portSend.Ref))
 				}
 			case "portclose":
 				portClose, err := newPortCloseRequest(request)
 				if err != nil {
-					rpcServer.s.Error("failed to decode portclose request: %v", err)
+					rpcServer.Client.Error("failed to decode portclose request: %v", err)
 					continue
 				}
-				deviceKey := rpcServer.s.GetDeviceKey(portClose.Ref)
+				deviceKey := rpcServer.Client.s.GetDeviceKey(portClose.Ref)
 				cachedConnDevice := rpcServer.pool.GetDevice(deviceKey)
 				if cachedConnDevice != nil {
 					cachedConnDevice.Close()
 					rpcServer.pool.SetDevice(deviceKey, nil)
 				} else {
-					rpcServer.s.Error("cannot find the portclose connected device %d", portClose.Ref)
+					rpcServer.Client.Error("cannot find the portclose connected device %d", portClose.Ref)
 				}
 			case "goodbye":
-				rpcServer.s.Warn("server disconnected, reason: %v, %v", string(request.RawData[0]), string(request.RawData[1]))
+				rpcServer.Client.Warn("server disconnected, reason: %v, %v", string(request.RawData[0]), string(request.RawData[1]))
 				rpcServer.rm.Lock()
 				if !rpcServer.closed {
 					rpcServer.rm.Unlock()
@@ -202,7 +225,7 @@ func (rpcServer *RPCServer) Start() {
 					rpcServer.rm.Unlock()
 				}
 			default:
-				rpcServer.s.Warn("doesn't support rpc request: %v ", string(request.Method))
+				rpcServer.Client.Warn("doesn't support rpc request: %v ", string(request.Method))
 			}
 		}
 	})
@@ -210,8 +233,18 @@ func (rpcServer *RPCServer) Start() {
 	rpcServer.addWorker(func() {
 		// infinite read from stream
 		for {
-			msg, err := rpcServer.s.readContext()
+			msg, err := rpcServer.Client.s.readMessage()
 			if err != nil {
+				// check error
+				if err == io.EOF ||
+					strings.Contains(err.Error(), "connection reset by peer") {
+					if !rpcServer.Client.s.Closed() {
+						isOk := rpcServer.Client.Reconnect()
+						if isOk {
+							continue
+						}
+					}
+				}
 				rpcServer.rm.Lock()
 				if !rpcServer.closed {
 					rpcServer.rm.Unlock()
@@ -221,8 +254,9 @@ func (rpcServer *RPCServer) Start() {
 				}
 				return
 			}
-			if msg != nil {
-				rpcServer.s.message <- *msg
+			if msg.Len > 0 {
+				rpcServer.Client.Debug("Receive %d bytes data from ssl", msg.Len)
+				rpcServer.Client.s.message <- msg
 			}
 		}
 	})
@@ -242,9 +276,9 @@ func (rpcServer *RPCServer) Start() {
 					if lastblock == 0 {
 						lastblock, _ = bq.Last()
 					}
-					blockPeak, err := rpcServer.s.GetBlockPeak()
+					blockPeak, err := rpcServer.Client.GetBlockPeak()
 					if err != nil {
-						rpcServer.s.Error("Cannot getblockheader: %v", err)
+						rpcServer.Client.Error("Cannot getblockheader: %v", err)
 						return
 					}
 					blockNumMax := blockPeak - confirmationSize
@@ -254,14 +288,14 @@ func (rpcServer *RPCServer) Start() {
 					}
 
 					for num := lastblock + 1; num <= blockNumMax; num++ {
-						blockHeader, err := rpcServer.s.GetBlockHeaderUnsafe(num)
+						blockHeader, err := rpcServer.Client.GetBlockHeaderUnsafe(num)
 						if err != nil {
-							rpcServer.s.Error("Couldn't download block header %v", err)
+							rpcServer.Client.Error("Couldn't download block header %v", err)
 							return
 						}
 						err = bq.AddBlock(blockHeader, false)
 						if err != nil {
-							rpcServer.s.Error("Couldn't add block %v %v: %v", num, blockHeader.Hash(), err)
+							rpcServer.Client.Error("Couldn't add block %v %v: %v", num, blockHeader.Hash(), err)
 							// This could happen on an uncle block, in that case we reset
 							// the counter the last finalized block
 							lastblock, _ = bq.Last()
@@ -270,50 +304,52 @@ func (rpcServer *RPCServer) Start() {
 					}
 
 					lastn, _ := bq.Last()
-					rpcServer.s.Info("Added block(s) %v-%v, last valid %v", lastblock, blockNumMax, lastn)
+					rpcServer.Client.Info("Added block(s) %v-%v, last valid %v", lastblock, blockNumMax, lastn)
 					lastblock = blockNumMax
 					storeLastValid()
 					return
 				}()
-			case res := <-rpcServer.s.message:
-				go rpcServer.s.CheckTicket()
+			case res := <-rpcServer.Client.s.message:
+				go rpcServer.Client.CheckTicket()
 				if res.IsResponse() {
-					call := rpcServer.s.firstCallByMethod(res.ResponseMethod())
+					atomic.AddInt64(&rpcServer.Client.totalCalls, -1)
+					call := rpcServer.firstCallByMethod(res.ResponseMethod())
 					if call.response == nil {
 						// should not happen
-						rpcServer.s.Error("call.response is nil: %s %s", call.method, string(res.buffer))
+						rpcServer.Client.Error("call.response is nil: %s %s", call.method, string(res.buffer))
 						continue
 					}
 					err := sendMessage(call.response, res, 100*time.Millisecond)
 					if err != nil {
-						rpcServer.s.Debug("send %s message to response channel timeout", call.method)
+						rpcServer.Client.Debug("send %s message to response channel timeout", call.method)
 					}
 					close(call.response)
 					continue
 				}
 				request, err := res.ReadAsRequest()
 				if err != nil {
-					rpcServer.s.Error("not rpc request: %v", err)
+					rpcServer.Client.Error("not rpc request: %v", err)
 					continue
 				}
 				rpcServer.requestChan <- request
-			case call := <-rpcServer.s.call:
-				rpcServer.s.Debug("send new rpc: %s", call.method)
+			case call := <-rpcServer.Client.call:
+				atomic.AddInt64(&rpcServer.Client.totalCalls, 1)
+				rpcServer.Client.Debug("send new rpc: %s", call.method)
 				if call.method == ":reconnect" {
 					// Resetting buffers to not mix old messages with new messages
-					rpcServer.s.message = make(chan Message)
-					rpcServer.s.recall()
+					rpcServer.Client.s.message = make(chan Message, 1024)
+					rpcServer.recall()
 
 					// Recreating connection
-					conn, err := openssl.Dial("tcp", rpcServer.s.addr, rpcServer.s.ctx, rpcServer.s.mode)
+					conn, err := openssl.Dial("tcp", rpcServer.Client.s.addr, rpcServer.Client.s.ctx, rpcServer.Client.s.mode)
 					var ret []byte = []byte("[\"response\", \":reconnect\", \"ok\"]")
 					if err != nil {
-						rpcServer.s.Error("cannot reconnect to server: %v", err)
+						rpcServer.Client.Error("cannot reconnect to server: %v", err)
 						ret = []byte(fmt.Sprintf("[\"error\", \":reconnect\", \"%v\"]", err.Error()))
 					} else {
-						rpcServer.s.setOpensslConn(conn)
-						if rpcServer.s.enableKeepAlive {
-							rpcServer.s.EnableKeepAlive()
+						rpcServer.Client.s.setOpensslConn(conn)
+						if rpcServer.Client.s.enableKeepAlive {
+							rpcServer.Client.s.EnableKeepAlive()
 						}
 					}
 					res := Message{
@@ -322,23 +358,24 @@ func (rpcServer *RPCServer) Start() {
 					}
 					err = sendMessage(call.response, res, 100*time.Millisecond)
 					if err != nil {
-						rpcServer.s.Debug("send %s message to response channel timeout", call.method)
+						rpcServer.Client.Debug("send %s message to response channel timeout", call.method)
 					}
 
 				} else {
-					ts := time.Now()
-					conn := rpcServer.s.getOpensslConn()
+					// ts := time.Now()
+					conn := rpcServer.Client.s.getOpensslConn()
 					n, err := conn.Write(call.data)
 					if err != nil {
-						rpcServer.s.Error("failed to write to tcp: %v", err)
+						rpcServer.Client.Error("failed to write to tcp: %v", err)
+						continue
 					}
-					rpcServer.s.incrementTotalBytes(n)
-					tsDiff := time.Since(ts)
-					if rpcServer.s.enableMetrics {
-						rpcServer.s.metrics.UpdateWriteTimer(tsDiff)
-					}
+					rpcServer.Client.s.incrementTotalBytes(n)
+					// tsDiff := time.Since(ts)
+					// if rpcServer.Client.s.enableMetrics {
+					// 	rpcServer.Client.s.metrics.UpdateWriteTimer(tsDiff)
+					// }
 					if call.response != nil {
-						rpcServer.s.addCall(call)
+						rpcServer.addCall(call)
 					}
 				}
 			}
@@ -366,21 +403,52 @@ func (rpcServer *RPCServer) Close() {
 	return
 }
 
-// NewRPCServer start rpc server
-// TODO: check blocking channel, error channel
-func (s *SSL) NewRPCServer(config *RPCConfig, pool *DataPool) *RPCServer {
-	rpcServer := &RPCServer{
-		s:                     s,
-		wg:                    &sync.WaitGroup{},
-		Config:                config,
-		started:               false,
-		closed:                false,
-		ticketTickerDuration:  1 * time.Millisecond,
-		finishBlockTickerChan: make(chan bool, 1),
-		requestChan:           make(chan *Request, 1024),
-		blockTickerDuration:   1 * time.Minute,
-		timeout:               5 * time.Second,
-		pool:                  pool,
+func (rpcServer *RPCServer) addCall(c Call) {
+	rpcServer.rm.Lock()
+	defer rpcServer.rm.Unlock()
+	rpcServer.calls = append(rpcServer.calls, c)
+}
+
+func (rpcServer *RPCServer) popCall() Call {
+	rpcServer.rm.Lock()
+	defer rpcServer.rm.Unlock()
+	c := rpcServer.calls[0]
+	rpcServer.calls = rpcServer.calls[1:]
+	return c
+}
+
+func (rpcServer *RPCServer) recall() {
+	rpcServer.rm.Lock()
+	defer rpcServer.rm.Unlock()
+	for _, call := range rpcServer.calls {
+		rpcServer.Client.call <- call
 	}
-	return rpcServer
+	rpcServer.calls = make([]Call, 0, len(rpcServer.calls))
+}
+
+func (rpcServer *RPCServer) removeCallByID(id int64) {
+	rpcServer.rm.Lock()
+	defer rpcServer.rm.Unlock()
+	var c Call
+	var i int
+	for i, c = range rpcServer.calls {
+		if c.id == id {
+			rpcServer.calls = append(rpcServer.calls[:i], rpcServer.calls[i+1:]...)
+			break
+		}
+	}
+}
+
+func (rpcServer *RPCServer) firstCallByMethod(method string) Call {
+	rpcServer.rm.Lock()
+	defer rpcServer.rm.Unlock()
+	var c Call
+	var i int
+	for i, c = range rpcServer.calls {
+		if c.method == method {
+			rpcServer.calls = append(rpcServer.calls[:i], rpcServer.calls[i+1:]...)
+			break
+		}
+	}
+	return c
 }

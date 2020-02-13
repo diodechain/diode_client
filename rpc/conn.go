@@ -20,7 +20,7 @@ type ConnectedDevice struct {
 	DeviceID  string
 	DDeviceID []byte
 	Conn      ConnectedConn
-	Server    *SSL
+	Client    *RPCClient
 }
 
 func (device *ConnectedDevice) LocalAddr() net.Addr {
@@ -41,11 +41,11 @@ func (device *ConnectedDevice) RemoteAddr() net.Addr {
 
 // Close the connection of device
 func (device *ConnectedDevice) Close() {
-	deviceKey := device.Server.GetDeviceKey(device.Ref)
+	deviceKey := device.Client.s.GetDeviceKey(device.Ref)
 	// check if disconnect
-	if device.Server.pool.GetDevice(deviceKey) != nil {
-		device.Server.pool.SetDevice(deviceKey, nil)
-		device.Server.CastPortClose(int(device.Ref))
+	if device.Client.s.pool.GetDevice(deviceKey) != nil {
+		device.Client.s.pool.SetDevice(deviceKey, nil)
+		device.Client.CastPortClose(int(device.Ref))
 
 		// send portclose request and channel
 		if device.Conn.IsWS() {
@@ -64,9 +64,9 @@ func (device *ConnectedDevice) Close() {
 // Any error means connection is dead, and we should send portclose.
 func (device *ConnectedDevice) copyToSSL() {
 	ref := int(device.Ref)
-	err := device.Conn.copyToSSL(device.Server, ref)
+	err := device.Conn.copyToSSL(device.Client, ref)
 	if err != nil {
-		device.Server.Debug("copyToSSL failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
+		device.Client.Debug("copyToSSL failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
 		device.Close()
 	}
 }
@@ -75,7 +75,7 @@ func (device *ConnectedDevice) copyToSSL() {
 func (device *ConnectedDevice) writeToTCP(data []byte) {
 	err := device.Conn.writeToTCP(data)
 	if err != nil {
-		device.Server.Debug("writeToTCP failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
+		device.Client.Debug("writeToTCP failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
 		device.Close()
 	}
 }
@@ -132,7 +132,7 @@ func (conn *ConnectedConn) read() (buf []byte, err error) {
 	return
 }
 
-func (conn *ConnectedConn) copyToSSL(s *SSL, ref int) error {
+func (conn *ConnectedConn) copyToSSL(client *RPCClient, ref int) error {
 	for {
 		buf, err := conn.read()
 		if err != nil {
@@ -141,7 +141,7 @@ func (conn *ConnectedConn) copyToSSL(s *SSL, ref int) error {
 		if len(buf) > 0 {
 			encStr := util.EncodeToString(buf)
 			encBuf := []byte(fmt.Sprintf(`"%s"`, encStr[2:]))
-			_, err := s.PortSend(ref, encBuf)
+			_, err := client.PortSend(ref, encBuf)
 			if err != nil {
 				return err
 			}

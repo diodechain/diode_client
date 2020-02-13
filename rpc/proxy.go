@@ -75,7 +75,7 @@ func internalError(w http.ResponseWriter, str string) {
 }
 
 func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request) {
-	proxyServer.socksServer.s.Debug("got proxy request from: %s", r.RemoteAddr)
+	proxyServer.socksServer.Client.Debug("got proxy request from: %s", r.RemoteAddr)
 	host := r.Host
 	if len(host) == 0 {
 		badRequest(w, "Host was wrong")
@@ -103,7 +103,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 	connDevice.ClientID = clientIP
 
 	if connDevice == nil {
-		proxyServer.socksServer.s.Debug("connDevice still nil")
+		proxyServer.socksServer.Client.Debug("connDevice still nil")
 	}
 
 	if isWS {
@@ -150,9 +150,9 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 			unread: header.Bytes(),
 		}
 	}
-	deviceKey := connDevice.Server.GetDeviceKey(connDevice.Ref)
+	deviceKey := connDevice.Client.s.GetDeviceKey(connDevice.Ref)
 	proxyServer.socksServer.datapool.SetDevice(deviceKey, connDevice)
-	proxyServer.socksServer.s.Debug("connDevice.copyToSSL")
+	proxyServer.socksServer.Client.Debug("connDevice.copyToSSL")
 	connDevice.copyToSSL()
 	connDevice.Close()
 }
@@ -177,7 +177,7 @@ func NewProxyServer(socksServer *Server, config ProxyConfig) (*ProxyServer, erro
 func (proxyServer *ProxyServer) Start() error {
 	// start httpd proxy server
 	if proxyServer.Config.EnableProxy {
-		proxyServer.socksServer.s.Info("start httpd server %s", proxyServer.Config.ProxyServerAddr)
+		proxyServer.socksServer.Client.Info("start httpd server %s", proxyServer.Config.ProxyServerAddr)
 		prox, _ := url.Parse(fmt.Sprintf("socks5://%s", proxyServer.socksServer.Config.Addr))
 		proxyTransport.Proxy = http.ProxyURL(prox)
 		httpdHandler := http.HandlerFunc(proxyServer.pipeProxy)
@@ -197,7 +197,7 @@ func (proxyServer *ProxyServer) Start() error {
 			proxyServer.httpServer = &http.Server{Addr: httpdAddr, Handler: httpdHandler}
 			if err := proxyServer.httpServer.ListenAndServe(); err != nil {
 				proxyServer.httpServer = nil
-				proxyServer.socksServer.s.Error("cannot start http proxy: %v", err)
+				proxyServer.socksServer.Client.Error("cannot start http proxy: %v", err)
 			}
 			proxyServer.started = true
 		}()
@@ -205,7 +205,7 @@ func (proxyServer *ProxyServer) Start() error {
 
 	// start httpsd proxy server
 	if proxyServer.Config.EnableSProxy {
-		proxyServer.socksServer.s.Info("start httpsd server %s", proxyServer.Config.SProxyServerAddr)
+		proxyServer.socksServer.Client.Info("start httpsd server %s", proxyServer.Config.SProxyServerAddr)
 		httpsdHandler := http.HandlerFunc(proxyServer.pipeProxy)
 
 		go func() {
@@ -214,7 +214,7 @@ func (proxyServer *ProxyServer) Start() error {
 			proxyServer.httpsServer = &http.Server{Addr: httpsdAddr, Handler: httpsdHandler, TLSNextProto: protos}
 			if err := proxyServer.httpsServer.ListenAndServeTLS(proxyServer.Config.CertPath, proxyServer.Config.PrivPath); err != nil {
 				proxyServer.httpsServer = nil
-				proxyServer.socksServer.s.Error("cannot start https proxy: %v", err)
+				proxyServer.socksServer.Client.Error("cannot start https proxy: %v", err)
 			}
 			proxyServer.started = true
 		}()

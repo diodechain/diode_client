@@ -171,8 +171,6 @@ func parseBlockHeaders(raw []byte, size int) ([]*blockquick.BlockHeader, error) 
 
 // TODO: check error from jsonparser
 func parseBlockHeader(rawHeader []byte, minerPubkey []byte) (*blockquick.BlockHeader, error) {
-	// log.Printf("parseBlockHeader(%v,%v)", string(rawHeader), string(minerPubkey))
-
 	txHash, _, _, _ := jsonparser.Get(rawHeader, "transaction_hash")
 	stateHash, _, _, _ := jsonparser.Get(rawHeader, "state_hash")
 	blockHash, _, _, _ := jsonparser.Get(rawHeader, "block_hash")

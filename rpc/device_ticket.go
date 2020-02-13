@@ -28,7 +28,7 @@ type DeviceTicket struct {
 }
 
 // ResolveBlockHash resolves a missing blockhash by blocknumber
-func (ct *DeviceTicket) ResolveBlockHash(client *SSL) (err error) {
+func (ct *DeviceTicket) ResolveBlockHash(client *RPCClient) (err error) {
 	if ct.BlockHash != nil {
 		return
 	}

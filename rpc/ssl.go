@@ -9,25 +9,19 @@ import (
 	"encoding/binary"
 	"encoding/pem"
 	"fmt"
-	"io"
-	"log"
 	"math/big"
 	"net"
 	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/diodechain/diode_go_client/blockquick"
 	"github.com/diodechain/diode_go_client/config"
-	"github.com/diodechain/diode_go_client/contract"
 	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/crypto/secp256k1"
 	"github.com/diodechain/diode_go_client/db"
 	"github.com/diodechain/diode_go_client/util"
-	"github.com/diodechain/go-cache"
-	"github.com/diodechain/log15"
 
 	"github.com/diodechain/openssl"
 	"github.com/felixge/tcpkeepalive"
@@ -56,8 +50,6 @@ type Call struct {
 }
 
 type SSL struct {
-	call              chan Call
-	calls             []Call
 	message           chan Message
 	conn              *openssl.Conn
 	ctx               *openssl.Ctx
@@ -76,121 +68,9 @@ type SSL struct {
 	clientPrivKey     *ecdsa.PrivateKey
 	RegistryAddr      [20]byte
 	FleetAddr         [20]byte
-	RPCServer         *RPCServer
-	enableMetrics     bool
-	metrics           *Metrics
 	pool              *DataPool
 	rm                sync.RWMutex
 	Verbose           bool
-	logger            log15.Logger
-}
-
-type DataPool struct {
-	rm             sync.RWMutex
-	devices        map[string]*ConnectedDevice
-	publishedPorts map[int]*config.Port
-	memoryCache    *cache.Cache
-}
-
-func NewPool() *DataPool {
-	return &DataPool{
-		memoryCache:    cache.New(5*time.Minute, 10*time.Minute),
-		devices:        make(map[string]*ConnectedDevice),
-		publishedPorts: make(map[int]*config.Port),
-	}
-}
-
-func NewPoolWithPublishedPorts(publishedPorts map[int]*config.Port) *DataPool {
-	return &DataPool{
-		memoryCache:    cache.New(5*time.Minute, 10*time.Minute),
-		devices:        make(map[string]*ConnectedDevice),
-		publishedPorts: publishedPorts,
-	}
-}
-
-// Info logs to logger in Info level
-func (s *SSL) Info(msg string, args ...interface{}) {
-	s.logger.Info(fmt.Sprintf(msg, args...), "module", "ssl", "server", s.addr)
-}
-
-// Debug logs to logger in Debug level
-func (s *SSL) Debug(msg string, args ...interface{}) {
-	if s.Verbose {
-		s.logger.Debug(fmt.Sprintf(msg, args...), "module", "ssl", "server", s.addr)
-	}
-}
-
-// Error logs to logger in Error level
-func (s *SSL) Error(msg string, args ...interface{}) {
-	s.logger.Error(fmt.Sprintf(msg, args...), "module", "ssl", "server", s.addr)
-}
-
-// Warn logs to logger in Warn level
-func (s *SSL) Warn(msg string, args ...interface{}) {
-	s.logger.Warn(fmt.Sprintf(msg, args...), "module", "ssl", "server", s.addr)
-}
-
-// Crit logs to logger in Crit level
-func (s *SSL) Crit(msg string, args ...interface{}) {
-	s.logger.Crit(fmt.Sprintf(msg, args...), "module", "ssl", "server", s.addr)
-}
-
-func (s *SSL) addCall(c Call) {
-	s.rm.Lock()
-	defer s.rm.Unlock()
-	s.calls = append(s.calls, c)
-}
-
-func (s *SSL) popCall() Call {
-	s.rm.Lock()
-	defer s.rm.Unlock()
-	c := s.calls[0]
-	s.calls = s.calls[1:]
-	return c
-}
-
-func (s *SSL) recall() {
-	s.rm.Lock()
-	defer s.rm.Unlock()
-	for _, call := range s.calls {
-		s.call <- call
-	}
-	s.calls = make([]Call, 0, len(s.calls))
-}
-
-func (s *SSL) removeCallByID(id int64) {
-	s.rm.Lock()
-	defer s.rm.Unlock()
-	var c Call
-	var i int
-	for i, c = range s.calls {
-		if c.id == id {
-			s.calls = append(s.calls[:i], s.calls[i+1:]...)
-			break
-		}
-	}
-}
-
-func (s *SSL) firstCallByMethod(method string) Call {
-	s.rm.Lock()
-	defer s.rm.Unlock()
-	var c Call
-	var i int
-	for i, c = range s.calls {
-		if c.method == method {
-			s.calls = append(s.calls[:i], s.calls[i+1:]...)
-			break
-		}
-	}
-	return c
-}
-
-// LastValid returns the last valid header
-func LastValid() (int, blockquick.Hash) {
-	if bq == nil {
-		return restoreLastValid()
-	}
-	return bq.Last()
 }
 
 // Host returns the non-resolved addr name of the host
@@ -211,51 +91,8 @@ func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags, pool *Da
 		mode:    mode,
 		pool:    pool,
 		message: make(chan Message, 1024),
-		call:    make(chan Call, 1024),
-		calls:   make([]Call, 0),
 	}
 	return s, nil
-}
-
-// Reconnect to diode node
-func (s *SSL) Reconnect() bool {
-	isOk := false
-	for i := 1; i <= config.AppConfig.RetryTimes; i++ {
-		s.Info("Retry to connect to %s, wait %s (%d/%d)", s.addr, config.AppConfig.RetryWait.String(), i, config.AppConfig.RetryTimes)
-
-		time.Sleep(config.AppConfig.RetryWait)
-		if s.Closed() {
-			break
-		}
-		err := s.reconnect()
-		if err != nil {
-			s.Error("failed to reconnect: %s", err)
-			continue
-		}
-		// Send initial ticket
-		err = s.Greet()
-		if s.Verbose {
-			s.Error("failed to submit ticket: %v", err)
-		}
-		if err == nil {
-			isOk = true
-			break
-		}
-	}
-	return isOk
-}
-
-func (s *SSL) reconnect() error {
-	// This is a special call intercepted by the worker
-	resp, err := s.CallContext(":reconnect")
-	if err != nil {
-		return err
-	}
-	if isErrorType(resp.Raw) {
-		s.Error("failed to reconnect: %v", err)
-		return err
-	}
-	return nil
 }
 
 // LocalAddr returns address of ssl connection
@@ -297,90 +134,9 @@ func (s *SSL) Closed() bool {
 func (s *SSL) Close() error {
 	s.rm.Lock()
 	defer s.rm.Unlock()
-	if s.RPCServer != nil {
-		s.RPCServer.Close()
-	}
 	s.closed = true
 	err := s.conn.Close()
 	return err
-}
-
-func (p *DataPool) GetCacheDNS(key string) []byte {
-	p.rm.RLock()
-	defer p.rm.RUnlock()
-	cachedDNS, hit := p.memoryCache.Get(key)
-	if !hit {
-		return nil
-	}
-	dns, ok := cachedDNS.([]byte)
-	if !ok {
-		// remove dns key
-		p.SetCacheDNS(key, nil)
-		return nil
-	}
-	return dns
-}
-
-func (p *DataPool) SetCacheDNS(key string, dns []byte) {
-	p.rm.Lock()
-	defer p.rm.Unlock()
-	if dns == nil {
-		p.memoryCache.Delete(key)
-	} else {
-		p.memoryCache.Set(key, dns, cache.DefaultExpiration)
-	}
-}
-
-func (p *DataPool) GetCache(key string) *DeviceTicket {
-	p.rm.RLock()
-	defer p.rm.RUnlock()
-	cacheObj, hit := p.memoryCache.Get(key)
-	if !hit {
-		return nil
-	}
-	return cacheObj.(*DeviceTicket)
-}
-
-func (p *DataPool) SetCache(key string, tck *DeviceTicket) {
-	p.rm.Lock()
-	defer p.rm.Unlock()
-	if tck == nil {
-		p.memoryCache.Delete(key)
-	} else {
-		p.memoryCache.Set(key, tck, cache.DefaultExpiration)
-	}
-}
-
-func (p *DataPool) GetDevice(key string) *ConnectedDevice {
-	p.rm.RLock()
-	defer p.rm.RUnlock()
-	return p.devices[key]
-}
-
-func (p *DataPool) SetDevice(key string, dev *ConnectedDevice) {
-	p.rm.Lock()
-	defer p.rm.Unlock()
-	if dev == nil {
-		delete(p.devices, key)
-	} else {
-		p.devices[key] = dev
-	}
-}
-
-func (p *DataPool) GetPublishedPort(port int) *config.Port {
-	p.rm.RLock()
-	defer p.rm.RUnlock()
-	return p.publishedPorts[port]
-}
-
-func (p *DataPool) SetPublishedPort(port int, publishedPort *config.Port) {
-	p.rm.Lock()
-	defer p.rm.Unlock()
-	if publishedPort == nil {
-		delete(p.publishedPorts, port)
-	} else {
-		p.publishedPorts[port] = publishedPort
-	}
 }
 
 func (s *SSL) GetDeviceKey(ref int64) string {
@@ -536,26 +292,18 @@ func (s *SSL) getOpensslConn() *openssl.Conn {
 	return s.conn
 }
 
-func (s *SSL) readContext() (*Message, error) {
+func (s *SSL) readMessage() (msg Message, err error) {
 	// read length of response
+	var n int
 	lenByt := make([]byte, 2)
 	conn := s.getOpensslConn()
-	ts := time.Now()
-	n, err := conn.Read(lenByt)
+	n, err = conn.Read(lenByt)
 	if err != nil {
-		if err == io.EOF ||
-			strings.Contains(err.Error(), "connection reset by peer") {
-			isOk := s.Reconnect()
-			if !isOk {
-				return nil, err
-			}
-			return nil, nil
-		}
-		return nil, err
+		return
 	}
 	lenr := binary.BigEndian.Uint16(lenByt)
 	if lenr <= 0 {
-		return nil, nil
+		return msg, fmt.Errorf("read 0 byte from connection")
 	}
 	// read response
 	res := make([]byte, lenr)
@@ -564,38 +312,19 @@ func (s *SSL) readContext() (*Message, error) {
 		n, err = conn.Read(res[read:])
 		read += n
 	}
-	tsDiff := time.Since(ts)
-	if s.enableMetrics {
-		s.metrics.UpdateReadTimer(tsDiff)
-	}
 	if err != nil {
-		if err == io.EOF ||
-			strings.Contains(err.Error(), "connection reset by peer") {
-			if s.Closed() {
-				return nil, err
-			}
-			isOk := s.Reconnect()
-			if !isOk {
-				return nil, fmt.Errorf("connection had gone away")
-			}
-			return nil, nil
-		}
-		return nil, err
+		return
 	}
 	read += 2
 	s.incrementTotalBytes(read)
-	msg := &Message{
+	msg = Message{
 		Len:    read,
 		buffer: res,
-	}
-	if config.AppConfig.Debug {
-		s.Info("Receive %d bytes data from ssl", read)
-		s.Info(string(res))
 	}
 	return msg, nil
 }
 
-func (s *SSL) sendPayload(method string, payload []byte, message chan Message) (*Call, error) {
+func (s *SSL) sendPayload(method string, payload []byte, message chan Message) (Call, error) {
 	// add length of payload
 	lenPay := len(payload)
 	lenByt := make([]byte, 2)
@@ -613,63 +342,7 @@ func (s *SSL) sendPayload(method string, payload []byte, message chan Message) (
 		data:     bytPay,
 	}
 	atomic.AddInt64(&rpcID, 1)
-	s.call <- call
-	s.Debug("Sent: %v -> %v", string(payload), call.response)
-	return &call, nil
-}
-
-// RespondContext sends a message without expecting a response
-func (s *SSL) RespondContext(method string, args ...interface{}) (*Call, error) {
-	msg, err := newMessage(method, args...)
-	if err != nil {
-		return nil, err
-	}
-	return s.sendPayload(method, msg, nil)
-}
-
-// CastContext returns a response future after calling the rpc
-func (s *SSL) CastContext(method string, args ...interface{}) (*Call, error) {
-	msg, err := newMessage(method, args...)
-	if err != nil {
-		return nil, err
-	}
-	resMsg := make(chan Message)
-	call, err := s.sendPayload(method, msg, resMsg)
-	if err != nil {
-		return nil, err
-	}
 	return call, nil
-}
-
-// CallContext returns the response after calling the rpc
-func (s *SSL) CallContext(method string, args ...interface{}) (res *Response, err error) {
-	var resCall *Call
-	var ts time.Time
-	var tsDiff time.Duration
-	resCall, err = s.CastContext(method, args...)
-	if err != nil {
-		return nil, err
-	}
-	ts = time.Now()
-	// TODO: Move rpcTimeout to command line flag
-	rpcTimeout, _ := time.ParseDuration(fmt.Sprintf("%ds", 5+len(s.calls)))
-	res, err = waitMessage(resCall.response, rpcTimeout)
-	tsDiff = time.Since(ts)
-	if config.AppConfig.Debug {
-		method = fmt.Sprintf("%s", method)
-	}
-	if s.enableMetrics {
-		s.metrics.UpdateRPCTimer(tsDiff)
-	}
-	if err != nil {
-		if _, ok := err.(RPCTimeoutError); ok {
-			log.Panicf("Failed to call: %s [%v]: %v", method, tsDiff, err)
-			s.removeCallByID(resCall.id)
-		}
-		return nil, err
-	}
-	s.Debug("got response: %s [%v]", method, tsDiff)
-	return res, nil
 }
 
 func waitMessage(msg chan Message, rpcTimeout time.Duration) (*Response, error) {
@@ -696,13 +369,12 @@ func sendMessage(resp chan Message, msg Message, sendTimeout time.Duration) erro
 	}
 }
 
-// CheckTicket should client send traffic ticket to server
-func (s *SSL) CheckTicket() error {
-	counter := s.Counter()
-	if s.TotalBytes() > counter+40000 {
-		return s.SubmitNewTicket()
+// LastValid returns the last valid header
+func LastValid() (int, blockquick.Hash) {
+	if bq == nil {
+		return restoreLastValid()
 	}
-	return nil
+	return bq.Last()
 }
 
 func restoreLastValid() (int, blockquick.Hash) {
@@ -724,494 +396,6 @@ func storeLastValid() {
 	lvbn, lvbh := LastValid()
 	db.DB.Put("lvbn2", util.DecodeIntToBytes(lvbn))
 	db.DB.Put("lvbh2", lvbh[:])
-}
-
-// ValidateNetwork validate blockchain network is secure and valid
-// Run blockquick algorithm, mor information see: https://eprint.iacr.org/2019/579.pdf
-func (s *SSL) ValidateNetwork() (bool, error) {
-	m.Lock()
-	defer m.Unlock()
-
-	lvbn, lvbh := restoreLastValid()
-	blockNumMin := lvbn - windowSize + 1
-
-	// Fetching at least window size blocks -- this should be cached on disk instead.
-	blockHeaders, err := s.GetBlockHeadersUnsafe(blockNumMin, lvbn)
-	if err != nil {
-		s.Error("Cannot fetch blocks %v-%v error: %v", blockNumMin, lvbn, err)
-		return false, err
-	}
-	if len(blockHeaders) != windowSize {
-		s.Error("ValidateNetwork(): len(blockHeaders) != windowSize (%v, %v)", len(blockHeaders), windowSize)
-		return false, err
-	}
-
-	// Checking last valid header
-	hash := blockHeaders[windowSize-1].Hash()
-	if hash != lvbh {
-		if config.AppConfig.Debug {
-			s.Error("DEBUG: Reference block does not match -- resetting lvbn.")
-			db.DB.Del("lvbn2")
-			os.Exit(0)
-		}
-		return false, fmt.Errorf("Sent reference block does not match %v: %v != %v", lvbn, lvbh, hash)
-	}
-
-	// Checking chain of previous blocks
-	for i := windowSize - 2; i >= 0; i-- {
-		if blockHeaders[i].Hash() != blockHeaders[i+1].Parent() {
-			return false, fmt.Errorf("Recevied blocks parent is not his parent: %v %v", blockHeaders[i+1], blockHeaders[i])
-		}
-		if !blockHeaders[i].ValidateSig() {
-			return false, fmt.Errorf("Recevied blocks signature is not valid: %v", blockHeaders[i])
-		}
-	}
-
-	// Starting to fetch new blocks
-	peak, err := s.GetBlockPeak()
-	if err != nil {
-		return false, err
-	}
-
-	blockNumMax := peak - confirmationSize
-	// fetch more blocks than windowSize
-	blocks, err := s.GetBlockQuick(lvbn, windowSize+confirmationSize+1)
-	if err != nil {
-		return false, err
-	}
-
-	win, err := blockquick.New(blockHeaders, windowSize)
-	if err != nil {
-		return false, err
-	}
-
-	for _, block := range blocks {
-		// due to blocks order by block number, break loop here
-		if block.Number() > blockNumMax {
-			break
-		}
-		err := win.AddBlock(block, true)
-		if err != nil {
-			return false, err
-		}
-	}
-
-	newlvbn, _ := win.Last()
-	if newlvbn == lvbn {
-		if peak-windowSize > lvbn {
-			return false, fmt.Errorf("couldn't validate any new blocks %v < %v", lvbn, peak)
-		}
-	}
-
-	bq = win
-	storeLastValid()
-	return true, nil
-}
-
-/**
- * Server RPC
- */
-
-// GetBlockPeak returns block peak
-func (s *SSL) GetBlockPeak() (int, error) {
-	rawPeak, err := s.CallContext("getblockpeak")
-	if err != nil {
-		return -1, err
-	}
-	peak, err := util.DecodeStringToInt(string(rawPeak.RawData[0][2:]))
-	if err != nil {
-		return -1, err
-	}
-	return int(peak), nil
-}
-
-// GetBlockQuick returns block header
-func (s *SSL) GetBlockQuick(lastValid int, windowSize int) ([]*blockquick.BlockHeader, error) {
-	sequence, err := s.CallContext("getblockquick2", lastValid, windowSize)
-	if err != nil {
-		return nil, err
-	}
-
-	responses, err := parseBlockquick(sequence.RawData[0], windowSize)
-	if err != nil {
-		return nil, err
-	}
-	// fmt.Printf("GetBlockQuick(%d, %d) => %v\n", lastValid, windowSize, responses)
-
-	return s.GetBlockHeadersUnsafe2(responses)
-}
-
-// GetBlockHeaderValid returns a validated recent block header
-// (only available for the last windowsSize blocks)
-func (s *SSL) GetBlockHeaderValid(blockNum int) *blockquick.BlockHeader {
-	return bq.GetBlockHeader(blockNum)
-}
-
-// GetBlockHeaderUnsafe returns an unchecked block header from the server
-func (s *SSL) GetBlockHeaderUnsafe(blockNum int) (*blockquick.BlockHeader, error) {
-	rawHeader, err := s.CallContext("getblockheader2", blockNum)
-	if err != nil {
-		return nil, err
-	}
-	return parseBlockHeader(rawHeader.RawData[0], rawHeader.RawData[1])
-}
-
-// GetBlockHeadersUnsafe returns a consecutive range of block headers
-func (s *SSL) GetBlockHeadersUnsafe(blockNumMin int, blockNumMax int) ([]*blockquick.BlockHeader, error) {
-	if blockNumMin > blockNumMax {
-		return nil, fmt.Errorf("GetBlockHeadersUnsafe(): blockNumMin needs to be <= max")
-	}
-	count := blockNumMax - blockNumMin + 1
-	blockNumbers := make([]int, 0, count)
-	for i := blockNumMin; i <= blockNumMax; i++ {
-		blockNumbers = append(blockNumbers, i)
-	}
-	return s.GetBlockHeadersUnsafe2(blockNumbers)
-}
-
-// GetBlockHeadersUnsafe2 returns a range of block headers
-func (s *SSL) GetBlockHeadersUnsafe2(blockNumbers []int) ([]*blockquick.BlockHeader, error) {
-	count := len(blockNumbers)
-	timeout := time.Second * time.Duration(count*5)
-	responses := make([]*blockquick.BlockHeader, 0, count)
-
-	futures := make([]chan Message, 0, count)
-	for _, i := range blockNumbers {
-		future, err := s.CastContext("getblockheader2", i)
-		if err != nil {
-			return nil, err
-		}
-		futures = append(futures, future.response)
-	}
-
-	for _, future := range futures {
-		response, err := waitMessage(future, timeout)
-		if err != nil {
-			return nil, err
-		}
-		header, err := parseBlockHeader(response.RawData[0], response.RawData[1])
-		if err != nil {
-			return nil, err
-		}
-		responses = append(responses, header)
-	}
-	return responses, nil
-}
-
-// GetBlock returns block
-func (s *SSL) GetBlock(blockNum int) (*Response, error) {
-	rawBlock, err := s.CallContext("getblock", blockNum)
-	if err != nil {
-		return nil, err
-	}
-	return rawBlock, nil
-}
-
-// GetObject returns network object for device
-func (s *SSL) GetObject(deviceID [20]byte) (*DeviceTicket, error) {
-	if len(deviceID) != 20 {
-		return nil, fmt.Errorf("Device ID must be 20 bytes")
-	}
-	encDeviceID := util.EncodeToString(deviceID[:])
-	rawObject, err := s.CallContext("getobject", encDeviceID)
-	if err != nil {
-		return nil, err
-	}
-	device, err := parseDeviceTicket(rawObject.RawData[0])
-	if err != nil {
-		return nil, err
-	}
-	err = device.ResolveBlockHash(s)
-	return device, err
-}
-
-// GetNode returns network address for node
-func (s *SSL) GetNode(nodeID [20]byte) (*ServerObj, error) {
-	encNodeID := util.EncodeToString(nodeID[:])
-	rawNode, err := s.CallContext("getnode", encNodeID)
-	if err != nil {
-		return nil, err
-	}
-	obj, err := parseServerObj(rawNode.RawData[0])
-	if err != nil {
-		return nil, fmt.Errorf("GetNode(): parseerror '%v' in '%v'", err, string(rawNode.RawData[0]))
-	}
-	return obj, nil
-}
-
-// Greet Initiates the connection
-func (s *SSL) Greet() error {
-	// _, err := s.CastContext("hello", 1000, "compression")
-	_, err := s.CastContext("hello", 1000)
-	if err != nil {
-		return err
-	}
-	return s.SubmitNewTicket()
-}
-
-// SubmitNewTicket creates and submits a new ticket
-func (s *SSL) SubmitNewTicket() error {
-	if bq == nil {
-		return nil
-	}
-	ticket, err := s.newTicket()
-	if err != nil {
-		return err
-	}
-	return s.submitTicket(ticket)
-}
-
-// NewTicket returns ticket
-func (s *SSL) newTicket() (*DeviceTicket, error) {
-	serverID, err := s.GetServerID()
-	s.counter = s.totalBytes
-	lvbn, lvbh := LastValid()
-	s.Debug("New ticket: %d", lvbn)
-	ticket := &DeviceTicket{
-		ServerID:         serverID,
-		BlockNumber:      lvbn,
-		BlockHash:        lvbh[:],
-		FleetAddr:        s.FleetAddr,
-		TotalConnections: s.totalConnections,
-		TotalBytes:       s.totalBytes,
-		LocalAddr:        []byte(s.LocalAddr().String()),
-	}
-	if err := ticket.ValidateValues(); err != nil {
-		return nil, err
-	}
-	privKey, err := s.GetClientPrivateKey()
-	if err != nil {
-		return nil, err
-	}
-	err = ticket.Sign(privKey)
-	if err != nil {
-		return nil, err
-	}
-	deviceID, err := s.GetClientAddress()
-	if err != nil {
-		return nil, err
-	}
-	if !ticket.ValidateDeviceSig(deviceID) {
-		return nil, fmt.Errorf("Ticket not verifyable")
-	}
-
-	return ticket, nil
-}
-
-// SubmitTicket submit ticket to server
-func (s *SSL) submitTicket(ticket *DeviceTicket) error {
-	encFleetAddr := util.EncodeToString(ticket.FleetAddr[:])
-	encLocalAddr := util.EncodeToString(ticket.LocalAddr)
-	encSig := util.EncodeToString(ticket.DeviceSig)
-	resp, err := s.CallContext("ticket", ticket.BlockNumber, encFleetAddr, ticket.TotalConnections, ticket.TotalBytes, encLocalAddr, encSig)
-	if err != nil {
-		s.Error("failed to submit ticket: %v", err)
-		return err
-	}
-	status := string(resp.RawData[0])
-	switch status {
-	case "too_low":
-
-		tc := util.DecodeStringToIntForce(string(resp.RawData[2]))
-		tb := util.DecodeStringToIntForce(string(resp.RawData[3]))
-		sid, _ := s.GetServerID()
-		lastTicket := DeviceTicket{
-			ServerID:         sid,
-			BlockHash:        util.DecodeForce(resp.RawData[1]),
-			FleetAddr:        s.FleetAddr,
-			TotalConnections: tc,
-			TotalBytes:       tb,
-			LocalAddr:        util.DecodeForce(resp.RawData[4]),
-			DeviceSig:        util.DecodeForce(resp.RawData[5]),
-		}
-
-		addr, err := s.GetClientAddress()
-		if err != nil {
-			// s.Logger.Error(fmt.Sprintf("SubmitTicket can't identify self: %s", err.Error()), "module", "ssl")
-			return err
-		}
-
-		if !lastTicket.ValidateDeviceSig(addr) {
-			lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)
-		}
-		if lastTicket.ValidateDeviceSig(addr) {
-			s.totalBytes = tb + 1024
-			s.totalConnections = tc + 1
-			err = s.SubmitNewTicket()
-			if err != nil {
-				// s.Logger.Error(fmt.Sprintf("failed to submit ticket: %s", err.Error()), "module", "ssl")
-				return nil
-			}
-
-		} else {
-			s.Warn("received fake ticket.. last_ticket=%v response=%v", lastTicket, string(resp.Raw))
-		}
-
-	case "ok", "thanks!":
-	default:
-		s.Info("response of submit ticket: %s %s", status, string(resp.Raw))
-	}
-	return err
-}
-
-// PortOpen call portopen RPC
-func (s *SSL) PortOpen(deviceID string, port int, mode string) (*PortOpen, error) {
-	rawPortOpen, err := s.CallContext("portopen", deviceID, port, mode)
-	if err != nil {
-		return nil, err
-	}
-	return parsePortOpen(rawPortOpen.RawData)
-}
-
-// ResponsePortOpen response portopen request
-func (s *SSL) ResponsePortOpen(portOpen *PortOpen, err error) error {
-	if err != nil {
-		_, err = s.RespondContext("error", "portopen", int(portOpen.Ref), err.Error())
-	} else {
-		_, err = s.RespondContext("response", "portopen", int(portOpen.Ref), "ok")
-	}
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-// PortSend call portsend RPC
-func (s *SSL) PortSend(ref int, data []byte) (*Response, error) {
-	return s.CallContext("portsend", ref, data)
-}
-
-// CastPortClose cast portclose RPC
-func (s *SSL) CastPortClose(ref int) (err error) {
-	_, err = s.CastContext("portclose", ref)
-	return err
-}
-
-// PortClose portclose RPC
-func (s *SSL) PortClose(ref int) (*Response, error) {
-	return s.CallContext("portclose", ref)
-}
-
-// Ping call ping RPC
-func (s *SSL) Ping() (*Response, error) {
-	return s.CallContext("ping")
-}
-
-// GetAccountValue returns account storage value
-func (s *SSL) GetAccountValue(account [20]byte, rawKey []byte) (*AccountValue, error) {
-	blockNumber, _ := LastValid()
-	encAccount := util.EncodeToString(account[:])
-	// pad key to 32 bytes
-	key := util.PaddingBytesPrefix(rawKey, 0, 32)
-	encKey := util.EncodeToString(key)
-	rawAccountValue, err := s.CallContext("getaccountvalue", blockNumber, encAccount, encKey)
-	if err != nil {
-		return nil, err
-	}
-	return parseAccountValue(rawAccountValue.RawData[0])
-}
-
-// GetStateRoots returns state roots
-func (s *SSL) GetStateRoots(blockNumber int) (*StateRoots, error) {
-	rawStateRoots, err := s.CallContext("getstateroots", blockNumber)
-	if err != nil {
-		return nil, err
-	}
-	return parseStateRoots(rawStateRoots.RawData[0])
-}
-
-// GetAccount returns account information: nonce, balance, storage root, code
-// TODO: Add chan
-func (s *SSL) GetAccount(blockNumber int, account []byte) (*Account, error) {
-	if len(account) != 20 {
-		return nil, fmt.Errorf("Account must be 20 bytes")
-	}
-	encAccount := util.EncodeToString(account)
-	rawAccount, err := s.CallContext("getaccount", blockNumber, encAccount)
-	if err != nil {
-		return nil, err
-	}
-	if rawAccount == nil {
-		return nil, nil
-	}
-	return parseAccount(rawAccount.RawData)
-}
-
-// GetAccountRoots returns account state roots
-func (s *SSL) GetAccountRoots(account [20]byte) (*AccountRoots, error) {
-	blockNumber, _ := LastValid()
-	encAccount := util.EncodeToString(account[:])
-	rawAccountRoots, err := s.CallContext("getaccountroots", blockNumber, encAccount)
-	if err != nil {
-		return nil, err
-	}
-	return parseAccountRoots(rawAccountRoots.RawData[0])
-}
-
-func (s *SSL) GetAccountValueRaw(addr [20]byte, key []byte) ([]byte, error) {
-	acv, err := s.GetAccountValue(addr, key)
-	if err != nil {
-		return NullData, err
-	}
-	// get account roots
-	acr, err := s.GetAccountRoots(addr)
-	if err != nil {
-		return NullData, err
-	}
-	acvTree := acv.AccountTree()
-	acvInd := acr.Find(acv.AccountRoot())
-	// check account root existed, empty key
-	if acvInd == -1 {
-		return NullData, nil
-	}
-	raw, err := acvTree.Get(key)
-	if err != nil {
-		return NullData, err
-	}
-	return raw, nil
-}
-
-func (s *SSL) ResolveDNS(name string) (addr [20]byte, err error) {
-	s.Info("resolving DN: %s", name)
-	key := contract.DNSMetaKey(name)
-	raw, err := s.GetAccountValueRaw(contract.DNSAddr, key)
-	if err != nil {
-		return [20]byte{}, err
-	}
-	copy(addr[:], raw[12:])
-	if addr == [20]byte{} {
-		return [20]byte{}, fmt.Errorf("Couldn't resolve name")
-	}
-	return addr, nil
-}
-
-/**
- * Contract api
- *
- * TODO: should refactor this
- */
-// IsDeviceWhitelisted returns is given address whitelisted
-func (s *SSL) IsDeviceWhitelisted(addr [20]byte) (bool, error) {
-	key := contract.DeviceWhitelistKey(addr)
-	raw, err := s.GetAccountValueRaw(s.FleetAddr, key)
-	if err != nil {
-		return false, err
-	}
-	return (util.BytesToInt(raw) == 1), nil
-}
-
-// IsAccessWhitelisted returns is given address whitelisted
-func (s *SSL) IsAccessWhitelisted(fleetAddr [20]byte, clientAddr [20]byte) (bool, error) {
-	deviceAddr, err := s.GetClientAddress()
-	if err != nil {
-		return false, err
-	}
-	key := contract.AccessWhitelistKey(deviceAddr, clientAddr)
-	raw, err := s.GetAccountValueRaw(fleetAddr, key)
-	if err != nil {
-		return false, err
-	}
-	return (util.BytesToInt(raw) == 1), nil
 }
 
 func EnsurePrivatePEM() []byte {
@@ -1237,7 +421,7 @@ func EnsurePrivatePEM() []byte {
 	return key
 }
 
-func DoConnect(host string, config *config.Config, pool *DataPool) (*SSL, error) {
+func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCServer, error) {
 	ctx := initSSL(config)
 	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
 	if err != nil {
@@ -1283,15 +467,6 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*SSL, error)
 		}
 	}
 
-	client.Verbose = config.Debug
-	client.logger = config.Logger
-
-	if config.EnableMetrics {
-		client.enableMetrics = true
-		client.metrics = NewMetrics()
-	}
-
-	// initialize rpc server
 	rpcConfig := &RPCConfig{
 		Verbose:      config.Debug,
 		RegistryAddr: config.DecRegistryAddr,
@@ -1299,9 +474,20 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*SSL, error)
 		Blacklists:   config.Blacklists,
 		Whitelists:   config.Whitelists,
 	}
-	client.RPCServer = client.NewRPCServer(rpcConfig, pool)
-	client.RPCServer.Start()
-	return client, nil
+	rpcClient := NewRPCClient(client)
+
+	client.Verbose = config.Debug
+	rpcClient.Verbose = config.Debug
+	rpcClient.logger = config.Logger
+
+	if config.EnableMetrics {
+		rpcClient.enableMetrics = true
+		rpcClient.metrics = NewMetrics()
+	}
+
+	rpcServer := rpcClient.NewRPCServer(rpcConfig, pool)
+	rpcServer.Start()
+	return rpcServer, nil
 }
 
 func initSSL(config *config.Config) *openssl.Ctx {
