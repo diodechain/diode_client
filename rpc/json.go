@@ -55,14 +55,16 @@ func newMessage(method string, args ...interface{}) ([]byte, error) {
 }
 
 // TODO: check error from jsonparser
-func parseResponse(rawResponse []byte) (*Response, error) {
+func parseResponse(rawResponse []byte) (response Response, err error) {
 	responseType := jsonString(rawResponse, "[0]")
 	if responseType == "error" {
 		errMsg, _ := jsonparser.GetString(rawResponse, "[2]")
-		return nil, fmt.Errorf("Error from server: %s", errMsg)
+		err = fmt.Errorf("error from server: %s", errMsg)
+		return
 	}
 	if responseType != "response" {
-		return nil, fmt.Errorf("Unknown response type: %s", responseType)
+		err = fmt.Errorf("unknown response type: %s", responseType)
+		return
 	}
 	// correct response
 	method, _, _, _ := jsonparser.Get(rawResponse, "[1]")
@@ -80,21 +82,22 @@ func parseResponse(rawResponse []byte) (*Response, error) {
 	}
 	// should not catch error here
 	jsonparser.ArrayEach(tmpRawData, handler)
-	response := &Response{
+	response = Response{
 		Raw:     rawResponse,
 		RawData: rawData,
 		Method:  string(method),
 	}
-	return response, nil
+	return
 }
 
-func parseRPCRequest(rawRequest []byte) (*Request, error) {
+func parseRPCRequest(rawRequest []byte) (request Request, err error) {
 	// correct response
-	method, _, _, err := jsonparser.Get(rawRequest, "[0]")
+	var method []byte
+	var rawData [][]byte
+	method, _, _, err = jsonparser.Get(rawRequest, "[0]")
 	if err != nil {
-		return nil, err
+		return
 	}
-	rawData := [][]byte{}
 	// see: https://github.com/buger/jsonparser/issues/145
 	copyRawRequest := make([]byte, len(rawRequest))
 	copy(copyRawRequest, rawRequest)
@@ -106,12 +109,12 @@ func parseRPCRequest(rawRequest []byte) (*Request, error) {
 	}
 	// should not catch error here
 	jsonparser.ArrayEach(tmpRawData, handler)
-	request := &Request{
+	request = Request{
 		Raw:     rawRequest,
 		Method:  string(method),
 		RawData: rawData,
 	}
-	return request, nil
+	return
 }
 
 // TODO: check error from jsonparser
@@ -520,7 +523,7 @@ func responseMethod(rawData []byte) string {
 	return jsonString(rawData, "[1]")
 }
 
-func newPortOpenRequest(request *Request) (*PortOpen, error) {
+func newPortOpenRequest(request Request) (*PortOpen, error) {
 	hexPort, err := jsonparser.GetString(request.Raw, "[1]")
 	if err != nil {
 		return nil, err
@@ -556,7 +559,7 @@ func newPortOpenRequest(request *Request) (*PortOpen, error) {
 	return portOpen, nil
 }
 
-func newPortSendRequest(request *Request) (*PortSend, error) {
+func newPortSendRequest(request Request) (*PortSend, error) {
 	hexRef, err := jsonparser.GetString(request.Raw, "[1]")
 	if err != nil {
 		return nil, err
@@ -580,7 +583,7 @@ func newPortSendRequest(request *Request) (*PortSend, error) {
 	return portSend, nil
 }
 
-func newPortCloseRequest(request *Request) (*PortClose, error) {
+func newPortCloseRequest(request Request) (*PortClose, error) {
 	hexRef, err := jsonparser.GetString(request.Raw, "[1]")
 	if err != nil {
 		return nil, err

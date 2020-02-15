@@ -18,7 +18,7 @@ import (
 )
 
 type RPCClient struct {
-	call          chan Call
+	callQueue     chan Call
 	s             *SSL
 	logger        log15.Logger
 	totalCalls    int64
@@ -31,7 +31,7 @@ type RPCClient struct {
 func NewRPCClient(s *SSL) RPCClient {
 	return RPCClient{
 		s:          s,
-		call:       make(chan Call, 1024),
+		callQueue:  make(chan Call, 1024),
 		totalCalls: 0,
 	}
 }
@@ -73,7 +73,17 @@ func (rpcClient *RPCClient) GetClientAddress() ([20]byte, error) {
 	return rpcClient.s.GetClientAddress()
 }
 
-func sendCall(resq chan Call, call Call, sendTimeout time.Duration) error {
+// GetDeviceKey returns device key of given ref
+func (rpcClient *RPCClient) GetDeviceKey(ref int64) string {
+	prefixByt, err := rpcClient.s.GetServerID()
+	if err != nil {
+		return ""
+	}
+	prefix := util.EncodeToString(prefixByt[:])
+	return fmt.Sprintf("%s:%d", prefix, ref)
+}
+
+func enqueueCall(resq chan Call, call Call, sendTimeout time.Duration) error {
 	timeout := time.NewTimer(sendTimeout)
 	select {
 	case resq <- call:
@@ -94,7 +104,7 @@ func (rpcClient *RPCClient) RespondContext(method string, args ...interface{}) (
 	if err != nil {
 		return
 	}
-	err = sendCall(rpcClient.call, call, 100*time.Millisecond)
+	err = enqueueCall(rpcClient.callQueue, call, enqueueTimeout)
 	if err != nil {
 		rpcClient.Debug("send request to channel timeout")
 	}
@@ -113,7 +123,7 @@ func (rpcClient *RPCClient) CastContext(method string, args ...interface{}) (cal
 	if err != nil {
 		return
 	}
-	err = sendCall(rpcClient.call, call, 100*time.Millisecond)
+	err = enqueueCall(rpcClient.callQueue, call, enqueueTimeout)
 	if err != nil {
 		rpcClient.Debug("send request to channel timeout")
 	}
@@ -121,13 +131,13 @@ func (rpcClient *RPCClient) CastContext(method string, args ...interface{}) (cal
 }
 
 // CallContext returns the response after calling the rpc
-func (rpcClient *RPCClient) CallContext(method string, args ...interface{}) (res *Response, err error) {
+func (rpcClient *RPCClient) CallContext(method string, args ...interface{}) (res Response, err error) {
 	var resCall Call
 	var ts time.Time
 	var tsDiff time.Duration
 	resCall, err = rpcClient.CastContext(method, args...)
 	if err != nil {
-		return nil, err
+		return
 	}
 	ts = time.Now()
 	// TODO: Move rpcTimeout to command line flag
@@ -137,18 +147,18 @@ func (rpcClient *RPCClient) CallContext(method string, args ...interface{}) (res
 	if config.AppConfig.Debug {
 		method = fmt.Sprintf("%s", method)
 	}
-	// if rpcClient.s.enableMetrics {
-	// 	s.metrics.UpdateRPCTimer(tsDiff)
-	// }
+	if rpcClient.enableMetrics {
+		rpcClient.metrics.UpdateRPCTimer(tsDiff)
+	}
 	if err != nil {
 		rpcClient.Error("Failed to call: %s [%v]: %v", method, tsDiff, err)
 		if _, ok := err.(RPCTimeoutError); ok {
 			log.Panicf("RPC ERROR")
 		}
-		return nil, err
+		return
 	}
 	rpcClient.Debug("got response: %s [%v]", method, tsDiff)
-	return res, nil
+	return
 }
 
 // CheckTicket should client send traffic ticket to server
@@ -163,8 +173,6 @@ func (rpcClient *RPCClient) CheckTicket() error {
 // ValidateNetwork validate blockchain network is secure and valid
 // Run blockquick algorithm, mor information see: https://eprint.iacr.org/2019/579.pdf
 func (rpcClient *RPCClient) ValidateNetwork() (bool, error) {
-	m.Lock()
-	defer m.Unlock()
 
 	lvbn, lvbh := restoreLastValid()
 	blockNumMin := lvbn - windowSize + 1
@@ -331,12 +339,8 @@ func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []int) ([]*block
 }
 
 // GetBlock returns block
-func (rpcClient *RPCClient) GetBlock(blockNum int) (*Response, error) {
-	rawBlock, err := rpcClient.CallContext("getblock", blockNum)
-	if err != nil {
-		return nil, err
-	}
-	return rawBlock, nil
+func (rpcClient *RPCClient) GetBlock(blockNum int) (Response, error) {
+	return rpcClient.CallContext("getblock", blockNum)
 }
 
 // GetObject returns network object for device
@@ -509,7 +513,7 @@ func (rpcClient *RPCClient) ResponsePortOpen(portOpen *PortOpen, err error) erro
 }
 
 // PortSend call portsend RPC
-func (rpcClient *RPCClient) PortSend(ref int, data []byte) (*Response, error) {
+func (rpcClient *RPCClient) PortSend(ref int, data []byte) (Response, error) {
 	return rpcClient.CallContext("portsend", ref, data)
 }
 
@@ -520,12 +524,12 @@ func (rpcClient *RPCClient) CastPortClose(ref int) (err error) {
 }
 
 // PortClose portclose RPC
-func (rpcClient *RPCClient) PortClose(ref int) (*Response, error) {
+func (rpcClient *RPCClient) PortClose(ref int) (Response, error) {
 	return rpcClient.CallContext("portclose", ref)
 }
 
 // Ping call ping RPC
-func (rpcClient *RPCClient) Ping() (*Response, error) {
+func (rpcClient *RPCClient) Ping() (Response, error) {
 	return rpcClient.CallContext("ping")
 }
 
@@ -553,7 +557,6 @@ func (rpcClient *RPCClient) GetStateRoots(blockNumber int) (*StateRoots, error) 
 }
 
 // GetAccount returns account information: nonce, balance, storage root, code
-// TODO: Add chan
 func (rpcClient *RPCClient) GetAccount(blockNumber int, account []byte) (*Account, error) {
 	if len(account) != 20 {
 		return nil, fmt.Errorf("Account must be 20 bytes")
@@ -562,9 +565,6 @@ func (rpcClient *RPCClient) GetAccount(blockNumber int, account []byte) (*Accoun
 	rawAccount, err := rpcClient.CallContext("getaccount", blockNumber, encAccount)
 	if err != nil {
 		return nil, err
-	}
-	if rawAccount == nil {
-		return nil, nil
 	}
 	return parseAccount(rawAccount.RawData)
 }

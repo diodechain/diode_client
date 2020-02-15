@@ -23,6 +23,7 @@ type ConnectedDevice struct {
 	Client    *RPCClient
 }
 
+// LocalAddr returns local network address of device
 func (device *ConnectedDevice) LocalAddr() net.Addr {
 	if device.Conn.IsWS() {
 		return device.Conn.WSConn.LocalAddr()
@@ -31,6 +32,7 @@ func (device *ConnectedDevice) LocalAddr() net.Addr {
 	}
 }
 
+// RemoteAddr returns remote network address of device
 func (device *ConnectedDevice) RemoteAddr() net.Addr {
 	if device.Conn.IsWS() {
 		return device.Conn.WSConn.RemoteAddr()
@@ -41,7 +43,7 @@ func (device *ConnectedDevice) RemoteAddr() net.Addr {
 
 // Close the connection of device
 func (device *ConnectedDevice) Close() {
-	deviceKey := device.Client.s.GetDeviceKey(device.Ref)
+	deviceKey := device.Client.GetDeviceKey(device.Ref)
 	// check if disconnect
 	if device.Client.s.pool.GetDevice(deviceKey) != nil {
 		device.Client.s.pool.SetDevice(deviceKey, nil)
@@ -61,7 +63,7 @@ func (device *ConnectedDevice) Close() {
 }
 
 // The non-nil error almost be io.EOF or "use of closed network"
-// Any error means connection is dead, and we should send portclose.
+// Any error means connection is dead, and we should send portclose and close the connection.
 func (device *ConnectedDevice) copyToSSL() {
 	ref := int(device.Ref)
 	err := device.Conn.copyToSSL(device.Client, ref)
@@ -71,7 +73,7 @@ func (device *ConnectedDevice) copyToSSL() {
 	}
 }
 
-// Maybe we should return error and call device Close
+// Maybe we should return error
 func (device *ConnectedDevice) writeToTCP(data []byte) {
 	err := device.Conn.writeToTCP(data)
 	if err != nil {
@@ -128,7 +130,7 @@ func (conn *ConnectedConn) read() (buf []byte, err error) {
 		buf = conn.readBuffer[:count]
 		return
 	}
-	err = fmt.Errorf("read(): No connection open")
+	err = fmt.Errorf("read(): no connection open")
 	return
 }
 

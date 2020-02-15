@@ -37,9 +37,9 @@ const (
 )
 
 var (
-	rpcID int64 = 1
-	bq    *blockquick.Window
-	m     sync.RWMutex
+	rpcID          int64 = 1
+	bq             *blockquick.Window
+	enqueueTimeout = 100 * time.Millisecond
 )
 
 type Call struct {
@@ -50,7 +50,7 @@ type Call struct {
 }
 
 type SSL struct {
-	message           chan Message
+	messageQueue      chan Message
 	conn              *openssl.Conn
 	ctx               *openssl.Ctx
 	tcpConn           *tcpkeepalive.Conn
@@ -85,12 +85,12 @@ func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags, pool *Da
 		return nil, err
 	}
 	s := &SSL{
-		conn:    conn,
-		ctx:     ctx,
-		addr:    addr,
-		mode:    mode,
-		pool:    pool,
-		message: make(chan Message, 1024),
+		conn:         conn,
+		ctx:          ctx,
+		addr:         addr,
+		mode:         mode,
+		pool:         pool,
+		messageQueue: make(chan Message, 1024),
 	}
 	return s, nil
 }
@@ -321,6 +321,7 @@ func (s *SSL) readMessage() (msg Message, err error) {
 		Len:    read,
 		buffer: res,
 	}
+	enqueueMessage(s.messageQueue, msg, enqueueTimeout)
 	return msg, nil
 }
 
@@ -345,21 +346,22 @@ func (s *SSL) sendPayload(method string, payload []byte, message chan Message) (
 	return call, nil
 }
 
-func waitMessage(msg chan Message, rpcTimeout time.Duration) (*Response, error) {
+func waitMessage(msg chan Message, rpcTimeout time.Duration) (res Response, err error) {
 	timeout := time.NewTimer(rpcTimeout)
 	select {
 	case resp := <-msg:
-		res, err := resp.ReadAsResponse()
+		res, err = resp.ReadAsResponse()
 		if err != nil {
-			return nil, err
+			return
 		}
 		return res, nil
 	case _ = <-timeout.C:
-		return nil, RPCTimeoutError{rpcTimeout}
+		err = RPCTimeoutError{rpcTimeout}
+		return
 	}
 }
 
-func sendMessage(resp chan Message, msg Message, sendTimeout time.Duration) error {
+func enqueueMessage(resp chan Message, msg Message, sendTimeout time.Duration) error {
 	timeout := time.NewTimer(sendTimeout)
 	select {
 	case resp <- msg:
@@ -545,7 +547,6 @@ func initSSL(config *config.Config) *openssl.Ctx {
 
 	// We only use self-signed certificates.
 	verifyOption := openssl.VerifyNone
-	// TODO: Verify certificate (check that it is self-signed)
 	cb := func(ok bool, store *openssl.CertificateStoreCtx) bool {
 		if !ok {
 			err := store.Err()

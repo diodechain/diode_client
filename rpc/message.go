@@ -29,11 +29,11 @@ func (msg *Message) IsRequest() bool {
 }
 
 // ReadAsResponse returns *Response of the message
-func (msg *Message) ReadAsResponse() (*Response, error) {
+func (msg *Message) ReadAsResponse() (Response, error) {
 	return parseResponse(msg.buffer)
 }
 
 // ReadAsRequest returns *Request of the message
-func (msg *Message) ReadAsRequest() (*Request, error) {
+func (msg *Message) ReadAsRequest() (Request, error) {
 	return parseRPCRequest(msg.buffer)
 }
