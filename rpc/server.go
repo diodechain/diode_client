@@ -329,7 +329,6 @@ func (rpcServer *RPCServer) Start() {
 					ts := time.Now()
 					// Resetting buffers to not mix old messages with new messages
 					rpcServer.Client.s.messageQueue = make(chan Message, 1024)
-					rpcServer.recall()
 
 					// Recreating connection
 					conn, err := openssl.Dial("tcp", rpcServer.Client.s.addr, rpcServer.Client.s.ctx, rpcServer.Client.s.mode)
@@ -342,6 +341,8 @@ func (rpcServer *RPCServer) Start() {
 						if rpcServer.Client.s.enableKeepAlive {
 							rpcServer.Client.s.EnableKeepAlive()
 						}
+						// recall rpc
+						rpcServer.recall()
 					}
 					tsDiff := time.Since(ts)
 					if rpcServer.Client.enableMetrics {
@@ -419,7 +420,7 @@ func (rpcServer *RPCServer) recall() {
 			rpcServer.Client.Error("Cannot recall the rpc (timeout 100 Milliseconds): %s", call.method)
 		}
 	}
-	rpcServer.calls = make([]Call, 0, len(rpcServer.calls))
+	rpcServer.calls = make([]Call, 0)
 }
 
 func (rpcServer *RPCServer) removeCallByID(id int64) {

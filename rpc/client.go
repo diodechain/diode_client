@@ -700,7 +700,7 @@ func (rpcClient *RPCClient) Wait() {
 
 // Close rpc client
 func (rpcClient *RPCClient) Close() (err error) {
-	if rpcClient.channel != nil {
+	if rpcClient.channel.Started() {
 		rpcClient.channel.Close()
 	}
 	if !rpcClient.s.Closed() {
