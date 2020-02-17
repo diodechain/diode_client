@@ -24,6 +24,7 @@ type RPCClient struct {
 	totalCalls    int64
 	enableMetrics bool
 	metrics       *Metrics
+	channel       *RPCServer
 	Verbose       bool
 }
 
@@ -144,7 +145,7 @@ func (rpcClient *RPCClient) CallContext(method string, args ...interface{}) (res
 	rpcTimeout, _ := time.ParseDuration(fmt.Sprintf("%ds", 10+rpcClient.totalCalls))
 	res, err = waitMessage(resCall.response, rpcTimeout)
 	tsDiff = time.Since(ts)
-	if config.AppConfig.Debug {
+	if rpcClient.Verbose {
 		method = fmt.Sprintf("%s", method)
 	}
 	if rpcClient.enableMetrics {
@@ -191,7 +192,7 @@ func (rpcClient *RPCClient) ValidateNetwork() (bool, error) {
 	// Checking last valid header
 	hash := blockHeaders[windowSize-1].Hash()
 	if hash != lvbh {
-		if config.AppConfig.Debug {
+		if rpcClient.Verbose {
 			rpcClient.Error("DEBUG: Reference block does not match -- resetting lvbn.")
 			db.DB.Del("lvbn2")
 			os.Exit(0)
@@ -687,7 +688,21 @@ func (rpcClient *RPCClient) reconnect() error {
 	return nil
 }
 
+// Started returns whether client had started
+func (rpcClient *RPCClient) Started() bool {
+	return rpcClient.channel.Started() && !rpcClient.s.Closed()
+}
+
+// Wait until goroutines finish
+func (rpcClient *RPCClient) Wait() {
+	rpcClient.channel.Wait()
+}
+
+// Close rpc client
 func (rpcClient *RPCClient) Close() (err error) {
+	if rpcClient.channel != nil {
+		rpcClient.channel.Close()
+	}
 	if !rpcClient.s.Closed() {
 		err = rpcClient.s.Close()
 	}

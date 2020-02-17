@@ -48,9 +48,9 @@ func main() {
 	prox, _ := url.Parse(fmt.Sprintf("socks5://%s", config.SocksServerAddr))
 	proxyTransport.Proxy = http.ProxyURL(prox)
 	log.Printf("Start to connect %d times", config.Conn)
+	wg.Add(config.Conn)
 	for i := 0; i < config.Conn; i++ {
-		wg.Add(1)
-		go func() {
+		go func(j int) {
 			client := &http.Client{}
 			if config.EnableTransport {
 				client.Transport = proxyTransport
@@ -59,22 +59,22 @@ func main() {
 			}
 			resp, err := client.Get(config.Target)
 			if err != nil {
-				log.Printf("Failed to get target: %s\n", err.Error())
+				log.Printf("Failed to get target #%d: %s\n", j, err.Error())
 				wg.Done()
 				return
 			}
 			body, err := ioutil.ReadAll(resp.Body)
 			if err != nil {
-				log.Printf("Failed to read from body: %s\n", err.Error())
+				log.Printf("Failed to read from body #%d: %s\n", j, err.Error())
 				resp.Body.Close()
 				wg.Done()
 				return
 			}
-			log.Printf("Content: %s\n", string(body))
+			log.Printf("Content #%d:  %s\n", j, string(body))
 			resp.Body.Close()
 			wg.Done()
 			return
-		}()
+		}(i + 1)
 	}
 	wg.Wait()
 }

@@ -66,7 +66,6 @@ const (
 type Config struct {
 	Addr            string
 	ProxyServerAddr string
-	Verbose         bool
 	EnableProxy     bool
 	FleetAddr       [20]byte
 	Blacklists      map[string]bool
@@ -76,7 +75,7 @@ type Config struct {
 // Server is the only instances of the Socks Server
 type Server struct {
 	Client   *RPCClient
-	pool     map[[20]byte]*RPCServer
+	pool     map[[20]byte]*RPCClient
 	datapool *DataPool
 	Config   *Config
 	listener net.Listener
@@ -487,7 +486,7 @@ func (socksServer *Server) checkAccess(deviceID string) (*DeviceTicket, *HttpErr
 			if err != nil {
 				return nil, &HttpError{500, err}
 			}
-			socksServer.Client.s.pool.SetCacheDNS(dnsKey, id[:])
+			socksServer.datapool.SetCacheDNS(dnsKey, id[:])
 			deviceID = util.EncodeToString(id[:])
 		}
 	}
@@ -599,7 +598,7 @@ func (client *RPCClient) NewSocksServer(config *Config, pool *DataPool) *Server 
 	return &Server{
 		Config:   config,
 		wg:       &sync.WaitGroup{},
-		pool:     make(map[[20]byte]*RPCServer),
+		pool:     make(map[[20]byte]*RPCClient),
 		datapool: pool,
 		started:  false,
 		Client:   client,
@@ -622,10 +621,9 @@ func (socksServer *Server) GetServer(nodeID [20]byte) (client *RPCClient, err er
 			return
 		}
 	}
-	server, ok := socksServer.pool[nodeID]
+	client, ok := socksServer.pool[nodeID]
 	if ok {
-		client = server.Client
-		if client != nil && client.s.Closed() {
+		if client != nil && !client.Started() {
 			socksServer.Client.Error("GetServer(): found closed server connection in pool %v", client.s)
 			delete(socksServer.pool, nodeID)
 			client = nil
@@ -644,13 +642,12 @@ func (socksServer *Server) GetServer(nodeID [20]byte) (client *RPCClient, err er
 		return
 	}
 	host := fmt.Sprintf("%s:%d", string(serverObj.Host), serverObj.EdgePort)
-	server, err = DoConnect(host, config.AppConfig, socksServer.datapool)
+	client, err = DoConnect(host, config.AppConfig, socksServer.datapool)
 	if err != nil {
 		err = fmt.Errorf("Couldn't connect to server '%+v' with error '%v'", serverObj, err)
 		return
 	}
-	client = server.Client
-	socksServer.pool[nodeID] = server
+	socksServer.pool[nodeID] = client
 	return
 }
 

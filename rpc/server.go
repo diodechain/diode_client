@@ -24,7 +24,6 @@ var (
 )
 
 type RPCConfig struct {
-	Verbose      bool
 	RegistryAddr [20]byte
 	FleetAddr    [20]byte
 	Blacklists   map[string]bool
@@ -307,7 +306,7 @@ func (rpcServer *RPCServer) Start() {
 					call := rpcServer.firstCallByMethod(res.ResponseMethod())
 					if call.response == nil {
 						// should not happen
-						rpcServer.Client.Error("call.response is nil: %s %s", call.method, string(res.buffer))
+						rpcServer.Client.Error("Call.response is nil: %s %s", call.method, string(res.buffer))
 						continue
 					}
 					err := enqueueMessage(call.response, res, enqueueTimeout)
@@ -361,8 +360,8 @@ func (rpcServer *RPCServer) Start() {
 					ts := time.Now()
 					conn := rpcServer.Client.s.getOpensslConn()
 					n, err := conn.Write(call.data)
-					if err != nil {
-						rpcServer.Client.Error("failed to write to tcp: %v", err)
+					if err != nil || n != len(call.data) {
+						rpcServer.Client.Error("Failed to write to node: %v", err)
 						continue
 					}
 					rpcServer.Client.s.incrementTotalBytes(n)
@@ -370,9 +369,7 @@ func (rpcServer *RPCServer) Start() {
 					if rpcServer.Client.enableMetrics {
 						rpcServer.Client.metrics.UpdateWriteTimer(tsDiff)
 					}
-					if call.response != nil {
-						rpcServer.addCall(call)
-					}
+					rpcServer.addCall(call)
 				}
 			}
 		}

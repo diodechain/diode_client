@@ -90,7 +90,7 @@ func parseResponse(rawResponse []byte) (response Response, err error) {
 	return
 }
 
-func parseRPCRequest(rawRequest []byte) (request Request, err error) {
+func parseRequest(rawRequest []byte) (request Request, err error) {
 	// correct response
 	var method []byte
 	var rawData [][]byte

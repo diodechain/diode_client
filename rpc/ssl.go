@@ -56,7 +56,6 @@ type SSL struct {
 	tcpConn           *tcpkeepalive.Conn
 	addr              string
 	mode              openssl.DialFlags
-	isValid           bool
 	enableKeepAlive   bool
 	keepAliveCount    int
 	keepAliveIdle     time.Duration
@@ -70,7 +69,6 @@ type SSL struct {
 	FleetAddr         [20]byte
 	pool              *DataPool
 	rm                sync.RWMutex
-	Verbose           bool
 }
 
 // Host returns the non-resolved addr name of the host
@@ -103,16 +101,22 @@ func (s *SSL) LocalAddr() net.Addr {
 
 // TotalConnections returns total connections of device
 func (s *SSL) TotalConnections() int64 {
+	s.rm.RLock()
+	defer s.rm.RUnlock()
 	return s.totalConnections
 }
 
 // TotalBytes returns total bytes that sent from device
 func (s *SSL) TotalBytes() int64 {
+	s.rm.RLock()
+	defer s.rm.RUnlock()
 	return s.totalBytes
 }
 
 // Counter returns counter in ssl
 func (s *SSL) Counter() int64 {
+	s.rm.RLock()
+	defer s.rm.RUnlock()
 	return s.counter
 }
 
@@ -137,15 +141,6 @@ func (s *SSL) Close() error {
 	s.closed = true
 	err := s.conn.Close()
 	return err
-}
-
-func (s *SSL) GetDeviceKey(ref int64) string {
-	prefixByt, err := s.GetServerID()
-	if err != nil {
-		return ""
-	}
-	prefix := util.EncodeToString(prefixByt[:])
-	return fmt.Sprintf("%s:%d", prefix, ref)
 }
 
 // EnableKeepAlive enable the tcp keepalive package in os level, could use ping instead
@@ -266,11 +261,11 @@ func (s *SSL) GetClientAddress() ([20]byte, error) {
 	return crypto.PubkeyToAddress(clientPubKey), nil
 }
 
-// IsValid returns is network valid
-func (s *SSL) IsValid() bool {
-	s.rm.RLock()
-	defer s.rm.RUnlock()
-	return s.isValid
+func (s *SSL) incrementTotalConnections(n int) {
+	s.rm.Lock()
+	defer s.rm.Unlock()
+	s.totalConnections += int64(n)
+	return
 }
 
 func (s *SSL) incrementTotalBytes(n int) {
@@ -423,7 +418,7 @@ func EnsurePrivatePEM() []byte {
 	return key
 }
 
-func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCServer, error) {
+func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, error) {
 	ctx := initSSL(config)
 	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
 	if err != nil {
@@ -470,7 +465,6 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCServer, 
 	}
 
 	rpcConfig := &RPCConfig{
-		Verbose:      config.Debug,
 		RegistryAddr: config.DecRegistryAddr,
 		FleetAddr:    config.DecFleetAddr,
 		Blacklists:   config.Blacklists,
@@ -478,7 +472,6 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCServer, 
 	}
 	rpcClient := NewRPCClient(client)
 
-	client.Verbose = config.Debug
 	rpcClient.Verbose = config.Debug
 	rpcClient.logger = config.Logger
 
@@ -489,7 +482,8 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCServer, 
 
 	rpcServer := rpcClient.NewRPCServer(rpcConfig, pool)
 	rpcServer.Start()
-	return rpcServer, nil
+	rpcClient.channel = rpcServer
+	return &rpcClient, nil
 }
 
 func initSSL(config *config.Config) *openssl.Ctx {
@@ -567,8 +561,7 @@ func initSSL(config *config.Config) *openssl.Ctx {
 		os.Exit(129)
 	}
 
-	// TODO: Need to handle timeouts, right now we're using
-	// set_timeout() but this just sets the OpenSSL session lifetime
+	// sets the OpenSSL session lifetime
 	ctx.SetTimeout(config.RemoteRPCTimeout)
 	return ctx
 }

@@ -35,5 +35,5 @@ func (msg *Message) ReadAsResponse() (Response, error) {
 
 // ReadAsRequest returns *Request of the message
 func (msg *Message) ReadAsRequest() (Request, error) {
-	return parseRPCRequest(msg.buffer)
+	return parseRequest(msg.buffer)
 }

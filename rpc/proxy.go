@@ -22,7 +22,6 @@ type ProxyConfig struct {
 	SProxyServerAddr string
 	CertPath         string
 	PrivPath         string
-	Verbose          bool
 	EnableProxy      bool
 	EnableSProxy     bool
 	AllowRedirect    bool

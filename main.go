@@ -110,33 +110,31 @@ func main() {
 	// Connect to first server to respond
 	wg := &sync.WaitGroup{}
 	rpcAddrLen := len(config.RemoteRPCAddrs)
-	c := make(chan *rpc.RPCServer, rpcAddrLen)
+	c := make(chan *rpc.RPCClient, rpcAddrLen)
 	wg.Add(rpcAddrLen)
 	for _, RemoteRPCAddr := range config.RemoteRPCAddrs {
 		go connect(c, RemoteRPCAddr, config, wg, pool)
 	}
 
 	// var client *rpc.RPCClient
-	var client *rpc.RPCServer
+	var client *rpc.RPCClient
 	go func() {
-		for bridge := range c {
-			if client == nil && bridge != nil {
-				config.Logger.Info(fmt.Sprintf("Connected to %s, validating...", bridge.Client.Host()), "module", "main")
-				isValid, err := bridge.Client.ValidateNetwork()
+		for rpcClient := range c {
+			if client == nil && rpcClient != nil {
+				config.Logger.Info(fmt.Sprintf("Connected to %s, validating...", rpcClient.Host()), "module", "main")
+				isValid, err := rpcClient.ValidateNetwork()
 				if isValid {
-					client = bridge
+					client = rpcClient
 				} else {
 					if err != nil {
 						config.Logger.Error(fmt.Sprintf("Network is not valid (err: %s), trying next...", err.Error()), "module", "main")
 					} else {
 						config.Logger.Error("Network is not valid for unknown reasons", "module", "main")
 					}
-					bridge.Close()
-					bridge.Client.Close()
+					rpcClient.Close()
 				}
-			} else if bridge != nil {
-				bridge.Close()
-				bridge.Client.Close()
+			} else if rpcClient != nil {
+				rpcClient.Close()
 			}
 			wg.Done()
 		}
@@ -152,21 +150,21 @@ func main() {
 	config.Logger.Info(fmt.Sprintf("Network is validated, last valid block number: %d", lvbn), "module", "main")
 
 	// check device access to fleet contract and registry
-	clientAddr, err := client.Client.GetClientAddress()
+	clientAddr, err := client.GetClientAddress()
 	if err != nil {
 		config.Logger.Error(err.Error())
 		return
 	}
 
 	// check device whitelist
-	isDeviceWhitelisted, err := client.Client.IsDeviceWhitelisted(clientAddr)
+	isDeviceWhitelisted, err := client.IsDeviceWhitelisted(clientAddr)
 	if !isDeviceWhitelisted {
 		config.Logger.Error(fmt.Sprintf("Device was not whitelisted: <%v>", err), "module", "main")
 		return
 	}
 
 	// send ticket
-	err = client.Client.Greet()
+	err = client.Greet()
 	if err != nil {
 		config.Logger.Error(err.Error(), "module", "main")
 		return
@@ -181,7 +179,6 @@ func main() {
 		case syscall.SIGINT:
 			if client.Started() {
 				client.Close()
-				client.Client.Close()
 			}
 			if socksServer.Started() {
 				socksServer.Close()
@@ -195,14 +192,13 @@ func main() {
 
 	socksConfig := &rpc.Config{
 		Addr:            config.SocksServerAddr,
-		Verbose:         config.Debug,
 		FleetAddr:       config.DecFleetAddr,
 		Blacklists:      config.Blacklists,
 		Whitelists:      config.Whitelists,
 		EnableProxy:     config.EnableProxyServer,
 		ProxyServerAddr: config.ProxyServerAddr,
 	}
-	socksServer = client.Client.NewSocksServer(socksConfig, pool)
+	socksServer = client.NewSocksServer(socksConfig, pool)
 
 	if config.EnableSocksServer {
 		// start socks server
@@ -219,7 +215,6 @@ func main() {
 			SProxyServerAddr: config.SProxyServerAddr,
 			CertPath:         config.SProxyServerCertPath,
 			PrivPath:         config.SProxyServerPrivPath,
-			Verbose:          config.Debug,
 		}
 		// Start proxy server
 		if proxyServer, err = rpc.NewProxyServer(socksServer, proxyConfig); err != nil {
@@ -236,7 +231,7 @@ func main() {
 	client.Wait()
 }
 
-func connect(c chan *rpc.RPCServer, host string, config *config.Config, wg *sync.WaitGroup, pool *rpc.DataPool) {
+func connect(c chan *rpc.RPCClient, host string, config *config.Config, wg *sync.WaitGroup, pool *rpc.DataPool) {
 	client, err := rpc.DoConnect(host, config, pool)
 	if err != nil {
 		config.Logger.Error(fmt.Sprintf("Connection to host %s failed", host), "module", "main")
