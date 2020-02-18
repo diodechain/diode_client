@@ -75,8 +75,8 @@ type Config struct {
 	Blacklists              map[string]bool
 	Whitelists              map[string]bool
 	PublishedPorts          map[int]*Port
-	PublicPublishedPorts    string
-	ProtectedPublishedPorts string
+	PublicPublishedPorts    stringValues
+	ProtectedPublishedPorts stringValues
 	PrivatePublishedPorts   stringValues
 	LogMode                 int
 	Logger                  log.Logger
@@ -150,53 +150,31 @@ func stringsContain(src []string, pivot *string) bool {
 	return false
 }
 
-func parsePublicPublishedPorts(publishedPorts string) []*Port {
-	parsedPublishedPorts := strings.Split(publishedPorts, ",")
+func parsePublishedPorts(publishedPortsArr []string, mode int) []*Port {
 	ports := []*Port{}
-	for _, parsedPort := range parsedPublishedPorts {
-		portMap := strings.Split(parsedPort, ":")
-		if len(portMap) == 2 {
-			srcPort, err := strconv.Atoi(portMap[0])
-			if err != nil {
-				continue
+	for _, publishedPorts := range publishedPortsArr {
+		parsedPublishedPorts := strings.Split(publishedPorts, ",")
+		for _, parsedPort := range parsedPublishedPorts {
+			portMap := strings.Split(parsedPort, ":")
+			if len(portMap) == 2 {
+				srcPort, err := strconv.Atoi(portMap[0])
+				if err != nil {
+					continue
+				}
+				toPort, err := strconv.Atoi(portMap[1])
+				if err != nil {
+					continue
+				}
+				port := &Port{
+					Src:       srcPort,
+					To:        toPort,
+					Mode:      mode,
+					whitelist: make(map[string]bool),
+				}
+				ports = append(ports, port)
+			} else {
+				panic(fmt.Errorf("Port format expected <from>:<to> but got: %v", parsedPort))
 			}
-			toPort, err := strconv.Atoi(portMap[1])
-			if err != nil {
-				continue
-			}
-			port := &Port{
-				Src:       srcPort,
-				To:        toPort,
-				Mode:      PublicPublishedMode,
-				whitelist: make(map[string]bool),
-			}
-			ports = append(ports, port)
-		}
-	}
-	return ports
-}
-
-func parseProtectedPublishedPorts(publishedPorts string) []*Port {
-	parsedPublishedPorts := strings.Split(publishedPorts, ",")
-	ports := []*Port{}
-	for _, parsedPort := range parsedPublishedPorts {
-		portMap := strings.Split(parsedPort, ":")
-		if len(portMap) == 2 {
-			srcPort, err := strconv.Atoi(portMap[0])
-			if err != nil {
-				continue
-			}
-			toPort, err := strconv.Atoi(portMap[1])
-			if err != nil {
-				continue
-			}
-			port := &Port{
-				Src:       srcPort,
-				To:        toPort,
-				Mode:      ProtectedPublishedMode,
-				whitelist: make(map[string]bool),
-			}
-			ports = append(ports, port)
 		}
 	}
 	return ports
@@ -234,7 +212,11 @@ func parsePrivatePublishedPorts(publishedPorts []string) []*Port {
 					}
 				}
 				ports = append(ports, port)
+			} else {
+				panic(fmt.Errorf("Protected port mapping expected <from>:<to> but got: %v", parsedPort))
 			}
+		} else {
+			panic(fmt.Errorf("Protected port format expected <from>:<to>,[<who>] but got: %v", publishedPort))
 		}
 	}
 	return ports
@@ -299,17 +281,23 @@ func parseFlag() *Config {
 	case "publish":
 		commandFlag.Parse(args[1:])
 		publishedPorts := make(map[int]*Port)
-		parsedPublicPublishedPort := parsePublicPublishedPorts(cfg.PublicPublishedPorts)
-		parsedProtectedPublishedPort := parseProtectedPublishedPorts(cfg.ProtectedPublishedPorts)
-		parsedPrivatePublishedPort := parsePrivatePublishedPorts(cfg.PrivatePublishedPorts)
 		// copy to config
-		for _, port := range parsedPublicPublishedPort {
+		for _, port := range parsePublishedPorts(cfg.PublicPublishedPorts, PublicPublishedMode) {
+			if publishedPorts[port.To] != nil {
+				panic(fmt.Errorf("Public port specified twice: %v", port.To))
+			}
 			publishedPorts[port.To] = port
 		}
-		for _, port := range parsedProtectedPublishedPort {
+		for _, port := range parsePublishedPorts(cfg.ProtectedPublishedPorts, ProtectedPublishedMode) {
+			if publishedPorts[port.To] != nil {
+				panic(fmt.Errorf("Port conflict between public and protected port: %v", port.To))
+			}
 			publishedPorts[port.To] = port
 		}
-		for _, port := range parsedPrivatePublishedPort {
+		for _, port := range parsePrivatePublishedPorts(cfg.PrivatePublishedPorts) {
+			if publishedPorts[port.To] != nil {
+				panic(fmt.Errorf("Port conflict with private port: %v", port.To))
+			}
 			publishedPorts[port.To] = port
 		}
 		cfg.PublishedPorts = publishedPorts

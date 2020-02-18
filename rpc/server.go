@@ -130,7 +130,7 @@ func (rpcServer *RPCServer) processRequest(request Request) {
 				isAccessWhilisted, err := rpcServer.Client.IsAccessWhitelisted(rpcServer.Config.FleetAddr, deviceID)
 				if err != nil || !isAccessWhilisted {
 					err := fmt.Errorf(
-						"Device %v is not in the whitelist",
+						"Device %v is not in the whitelist (1)",
 						portOpen.DeviceID,
 					)
 					_ = rpcServer.Client.ResponsePortOpen(portOpen, err)
@@ -138,7 +138,7 @@ func (rpcServer *RPCServer) processRequest(request Request) {
 				}
 			} else {
 				err := fmt.Errorf(
-					"Device %v is not in the whitelist",
+					"Device %v is not in the whitelist (2)",
 					portOpen.DeviceID,
 				)
 				_ = rpcServer.Client.ResponsePortOpen(portOpen, err)
