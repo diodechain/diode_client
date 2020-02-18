@@ -89,6 +89,7 @@ type ConnectedConn struct {
 	Conn       net.Conn
 	WSConn     *websocket.Conn
 	rm         sync.Mutex
+	closed     bool
 }
 
 // Close the connection
@@ -97,12 +98,11 @@ func (conn *ConnectedConn) Close() {
 	defer conn.rm.Unlock()
 	if conn.Conn != nil {
 		conn.Conn.Close()
-		conn.Conn = nil
 	}
 	if conn.WSConn != nil {
 		conn.WSConn.Close()
-		conn.WSConn = nil
 	}
+	conn.closed = true
 	return
 }
 
@@ -140,6 +140,9 @@ func (conn *ConnectedConn) copyToSSL(client *RPCClient, ref int) error {
 		if err != nil {
 			return err
 		}
+		if conn.closed {
+			return nil
+		}
 		if len(buf) > 0 {
 			encStr := util.EncodeToString(buf)
 			encBuf := []byte(fmt.Sprintf(`"%s"`, encStr[2:]))
@@ -155,6 +158,11 @@ func (conn *ConnectedConn) copyToSSL(client *RPCClient, ref int) error {
 }
 
 func (conn *ConnectedConn) writeToTCP(data []byte) error {
+	conn.rm.Lock()
+	defer conn.rm.Unlock()
+	if conn.closed {
+		return nil
+	}
 	if conn.IsWS() {
 		return conn.WSConn.WriteMessage(websocket.BinaryMessage, data)
 	}
