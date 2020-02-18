@@ -80,6 +80,7 @@ type Server struct {
 	Config   *Config
 	listener net.Listener
 	wg       *sync.WaitGroup
+	rm       sync.Mutex
 	started  bool
 }
 
@@ -607,6 +608,8 @@ func (client *RPCClient) NewSocksServer(config *Config, pool *DataPool) *Server 
 
 // GetServer gets or creates a new SSL connectio to the given server
 func (socksServer *Server) GetServer(nodeID [20]byte) (client *RPCClient, err error) {
+	socksServer.rm.Lock()
+	defer socksServer.rm.Unlock()
 	serverID, err := socksServer.Client.s.GetServerID()
 	if err != nil {
 		socksServer.Client.Warn("failed to get server id: %v", err)
