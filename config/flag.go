@@ -115,6 +115,11 @@ func (svs *stringValues) Set(value string) error {
 	return nil
 }
 
+func wrongCommandLineFlag(err error) {
+	fmt.Println(err.Error())
+	os.Exit(2)
+}
+
 func init() {
 	// commandFlags["help"] = &helpCommandFlag
 	commandFlags["publish"] = &publishCommandFlag
@@ -173,7 +178,7 @@ func parsePublishedPorts(publishedPortsArr []string, mode int) []*Port {
 				}
 				ports = append(ports, port)
 			} else {
-				panic(fmt.Errorf("Port format expected <from>:<to> but got: %v", parsedPort))
+				wrongCommandLineFlag(fmt.Errorf("Port format expected <from>:<to> but got: %v", parsedPort))
 			}
 		}
 	}
@@ -213,10 +218,10 @@ func parsePrivatePublishedPorts(publishedPorts []string) []*Port {
 				}
 				ports = append(ports, port)
 			} else {
-				panic(fmt.Errorf("Protected port mapping expected <from>:<to> but got: %v", parsedPort))
+				wrongCommandLineFlag(fmt.Errorf("Protected port mapping expected <from>:<to> but got: %v", parsedPort))
 			}
 		} else {
-			panic(fmt.Errorf("Protected port format expected <from>:<to>,[<who>] but got: %v", publishedPort))
+			wrongCommandLineFlag(fmt.Errorf("Protected port format expected <from>:<to>,[<who>] but got: %v", publishedPort))
 		}
 	}
 	return ports
@@ -284,19 +289,19 @@ func parseFlag() *Config {
 		// copy to config
 		for _, port := range parsePublishedPorts(cfg.PublicPublishedPorts, PublicPublishedMode) {
 			if publishedPorts[port.To] != nil {
-				panic(fmt.Errorf("Public port specified twice: %v", port.To))
+				wrongCommandLineFlag(fmt.Errorf("Public port specified twice: %v", port.To))
 			}
 			publishedPorts[port.To] = port
 		}
 		for _, port := range parsePublishedPorts(cfg.ProtectedPublishedPorts, ProtectedPublishedMode) {
 			if publishedPorts[port.To] != nil {
-				panic(fmt.Errorf("Port conflict between public and protected port: %v", port.To))
+				wrongCommandLineFlag(fmt.Errorf("Port conflict between public and protected port: %v", port.To))
 			}
 			publishedPorts[port.To] = port
 		}
 		for _, port := range parsePrivatePublishedPorts(cfg.PrivatePublishedPorts) {
 			if publishedPorts[port.To] != nil {
-				panic(fmt.Errorf("Port conflict with private port: %v", port.To))
+				wrongCommandLineFlag(fmt.Errorf("Port conflict with private port: %v", port.To))
 			}
 			publishedPorts[port.To] = port
 		}
@@ -328,22 +333,22 @@ func parseFlag() *Config {
 	retryWaitTime, err := time.ParseDuration(strconv.Itoa(*retryWait) + "s")
 	cfg.RetryWait = retryWaitTime
 	if err != nil {
-		panic(err)
+		wrongCommandLineFlag(err)
 	}
 	remoteRPCTimeoutTime, err := time.ParseDuration(strconv.Itoa(*remoteRPCTimeout) + "s")
 	cfg.RemoteRPCTimeout = remoteRPCTimeoutTime
 	if err != nil {
-		panic(err)
+		wrongCommandLineFlag(err)
 	}
 	decRegistryAddr, err := util.DecodeString(cfg.RegistryAddr)
 	copy(cfg.DecRegistryAddr[:], decRegistryAddr)
 	if err != nil {
-		panic(err)
+		wrongCommandLineFlag(err)
 	}
 	decFleetAddr, err := util.DecodeString(cfg.FleetAddr)
 	copy(cfg.DecFleetAddr[:], decFleetAddr)
 	if err != nil {
-		panic(err)
+		wrongCommandLineFlag(err)
 	}
 	parsedBlacklists := strings.Split(*blacklists, ",")
 	blacklistsIDs := make(map[string]bool)
