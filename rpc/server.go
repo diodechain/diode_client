@@ -16,7 +16,6 @@ import (
 
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/util"
-	"github.com/diodechain/openssl"
 )
 
 var (
@@ -220,7 +219,6 @@ func (rpcServer *RPCServer) processRequest(request Request) {
 
 // Start rpc server
 func (rpcServer *RPCServer) Start() {
-
 	rpcServer.addWorker(func() {
 		// infinite read from stream
 		for {
@@ -230,8 +228,16 @@ func (rpcServer *RPCServer) Start() {
 				if err == io.EOF ||
 					strings.Contains(err.Error(), "connection reset by peer") {
 					if !rpcServer.Client.s.Closed() {
+						// remove all calls
+						go func() {
+							reconnectError := ReconnectError{rpcServer.Client.Host()}
+							rpcServer.notifyCalls(reconnectError)
+						}()
 						isOk := rpcServer.Client.Reconnect()
 						if isOk {
+							// Resetting buffers to not mix old messages with new messages
+							rpcServer.Client.s.messageQueue = make(chan Message, 1024)
+							rpcServer.recall()
 							continue
 						}
 					}
@@ -300,6 +306,10 @@ func (rpcServer *RPCServer) Start() {
 					return
 				}()
 			case res := <-rpcServer.Client.s.messageQueue:
+				if rpcServer.Client.Reconnecting() {
+					// drop message
+					continue
+				}
 				go rpcServer.Client.CheckTicket()
 				if res.IsResponse() {
 					atomic.AddInt64(&rpcServer.Client.totalCalls, -1)
@@ -309,10 +319,7 @@ func (rpcServer *RPCServer) Start() {
 						rpcServer.Client.Error("Call.response is nil: %s %s", call.method, string(res.buffer))
 						continue
 					}
-					err := enqueueMessage(call.response, res, enqueueTimeout)
-					if err != nil {
-						rpcServer.Client.Debug("send %s message to response channel timeout", call.method)
-					}
+					enqueueMessage(call.response, res, enqueueTimeout)
 					close(call.response)
 					continue
 				}
@@ -323,55 +330,32 @@ func (rpcServer *RPCServer) Start() {
 				}
 				go rpcServer.processRequest(request)
 			case call := <-rpcServer.Client.callQueue:
+				if rpcServer.Client.Reconnecting() {
+					rpcServer.Client.Debug("Resend rpc due to reconnect: %s", call.method)
+					enqueueCall(rpcServer.Client.callQueue, call, enqueueTimeout)
+					continue
+				}
 				atomic.AddInt64(&rpcServer.Client.totalCalls, 1)
 				rpcServer.Client.Debug("Send new rpc: %s", call.method)
-				if call.method == ":reconnect" {
-					ts := time.Now()
-					// Resetting buffers to not mix old messages with new messages
-					rpcServer.Client.s.messageQueue = make(chan Message, 1024)
-
-					// Recreating connection
-					conn, err := openssl.Dial("tcp", rpcServer.Client.s.addr, rpcServer.Client.s.ctx, rpcServer.Client.s.mode)
-					var ret []byte = []byte("[\"response\", \":reconnect\", \"ok\"]")
-					if err != nil {
-						rpcServer.Client.Error("cannot reconnect to server: %v", err)
-						ret = []byte(fmt.Sprintf("[\"error\", \":reconnect\", \"%v\"]", err.Error()))
-					} else {
-						rpcServer.Client.s.setOpensslConn(conn)
-						if rpcServer.Client.s.enableKeepAlive {
-							rpcServer.Client.s.EnableKeepAlive()
-						}
-						// recall rpc
-						rpcServer.recall()
-					}
-					tsDiff := time.Since(ts)
-					if rpcServer.Client.enableMetrics {
-						rpcServer.Client.metrics.UpdateReconnectTimer(tsDiff)
-					}
-					res := Message{
-						Len:    len(ret),
-						buffer: ret,
-					}
-					err = enqueueMessage(call.response, res, enqueueTimeout)
-					if err != nil {
-						rpcServer.Client.Debug("send %s message to response channel timeout", call.method)
-					}
-
-				} else {
-					ts := time.Now()
-					conn := rpcServer.Client.s.getOpensslConn()
-					n, err := conn.Write(call.data)
-					if err != nil || n != len(call.data) {
-						rpcServer.Client.Error("Failed to write to node: %v", err)
-						continue
-					}
-					rpcServer.Client.s.incrementTotalBytes(n)
-					tsDiff := time.Since(ts)
-					if rpcServer.Client.enableMetrics {
-						rpcServer.Client.metrics.UpdateWriteTimer(tsDiff)
-					}
-					rpcServer.addCall(call)
+				ts := time.Now()
+				conn := rpcServer.Client.s.getOpensslConn()
+				n, err := conn.Write(call.data)
+				if err != nil {
+					rpcServer.Client.Error("Failed to write to node: %v", err)
+					res := newRPCErrorResponse(call.method, err)
+					enqueueMessage(call.response, res, enqueueTimeout)
+					continue
 				}
+				if n != len(call.data) {
+					// exceeds the packet size, drop it
+					continue
+				}
+				rpcServer.Client.s.incrementTotalBytes(n)
+				tsDiff := time.Since(ts)
+				if rpcServer.Client.enableMetrics {
+					rpcServer.Client.metrics.UpdateWriteTimer(tsDiff)
+				}
+				rpcServer.addCall(call)
 			}
 		}
 	})
@@ -410,17 +394,23 @@ func (rpcServer *RPCServer) popCall() (c Call) {
 	return
 }
 
-func (rpcServer *RPCServer) recall() {
-	var err error
+func (rpcServer *RPCServer) notifyCalls(err error) {
 	rpcServer.rm.Lock()
 	defer rpcServer.rm.Unlock()
 	for _, call := range rpcServer.calls {
-		err = enqueueCall(rpcServer.Client.callQueue, call, enqueueTimeout)
-		if err != nil {
-			rpcServer.Client.Error("Cannot recall the rpc (timeout 100 Milliseconds): %s", call.method)
-		}
+		sendReconnect(call, err, enqueueTimeout)
+	}
+	return
+}
+
+func (rpcServer *RPCServer) recall() {
+	rpcServer.rm.Lock()
+	defer rpcServer.rm.Unlock()
+	for _, call := range rpcServer.calls {
+		enqueueCall(rpcServer.Client.callQueue, call, enqueueTimeout)
 	}
 	rpcServer.calls = make([]Call, 0)
+	return
 }
 
 func (rpcServer *RPCServer) removeCallByID(id int64) {

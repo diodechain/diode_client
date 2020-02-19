@@ -43,10 +43,11 @@ var (
 )
 
 type Call struct {
-	id       int64
-	method   string
-	response chan Message
-	data     []byte
+	id        int64
+	method    string
+	response  chan Message
+	reconnect chan error
+	data      []byte
 }
 
 type SSL struct {
@@ -61,6 +62,7 @@ type SSL struct {
 	keepAliveIdle     time.Duration
 	keepAliveInterval time.Duration
 	closed            bool
+	reconnecting      bool
 	totalConnections  int64
 	totalBytes        int64
 	counter           int64
@@ -125,6 +127,13 @@ func (s *SSL) UnderlyingConn() net.Conn {
 	s.rm.RLock()
 	defer s.rm.RUnlock()
 	return s.conn.UnderlyingConn()
+}
+
+// Reconnecting returns whether connection is reconnecting
+func (s *SSL) Reconnecting() bool {
+	s.rm.RLock()
+	defer s.rm.RUnlock()
+	return s.reconnecting
 }
 
 // Closed returns connection is closed
@@ -332,27 +341,58 @@ func (s *SSL) sendPayload(method string, payload []byte, message chan Message) (
 		bytPay[i+2] = byte(s)
 	}
 	call := Call{
-		id:       rpcID,
-		method:   method,
-		response: message,
-		data:     bytPay,
+		id:        rpcID,
+		method:    method,
+		response:  message,
+		reconnect: make(chan error),
+		data:      bytPay,
 	}
 	atomic.AddInt64(&rpcID, 1)
 	return call, nil
 }
 
-func waitMessage(msg chan Message, rpcTimeout time.Duration) (res Response, err error) {
+func (s *SSL) reconnect() error {
+	s.rm.Lock()
+	s.reconnecting = true
+	conn, err := openssl.Dial("tcp", s.addr, s.ctx, s.mode)
+	s.reconnecting = false
+	if err != nil {
+		s.rm.Unlock()
+		return err
+	}
+	s.conn = conn
+	s.rm.Unlock()
+	if s.enableKeepAlive {
+		s.EnableKeepAlive()
+	}
+	return nil
+}
+
+func waitMessage(call Call, rpcTimeout time.Duration) (res Response, err error) {
 	timeout := time.NewTimer(rpcTimeout)
 	select {
-	case resp := <-msg:
+	case resp := <-call.response:
 		res, err = resp.ReadAsResponse()
 		if err != nil {
 			return
 		}
 		return res, nil
+	case reconnect := <-call.reconnect:
+		err = reconnect
+		return
 	case _ = <-timeout.C:
 		err = RPCTimeoutError{rpcTimeout}
 		return
+	}
+}
+
+func sendReconnect(call Call, reconnect error, sendTimeout time.Duration) error {
+	timeout := time.NewTimer(sendTimeout)
+	select {
+	case call.reconnect <- reconnect:
+		return nil
+	case _ = <-timeout.C:
+		return fmt.Errorf("send reconnect to channel timeout")
 	}
 }
 
