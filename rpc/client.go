@@ -19,6 +19,7 @@ import (
 
 type RPCClient struct {
 	callQueue     chan Call
+	messageQueue  chan Message
 	s             *SSL
 	logger        log15.Logger
 	totalCalls    int64
@@ -31,9 +32,10 @@ type RPCClient struct {
 // NewRPCClient returns rpc client
 func NewRPCClient(s *SSL) RPCClient {
 	return RPCClient{
-		s:          s,
-		callQueue:  make(chan Call, 1024),
-		totalCalls: 0,
+		s:            s,
+		callQueue:    make(chan Call, 1024),
+		messageQueue: make(chan Message, 1024),
+		totalCalls:   0,
 	}
 }
 

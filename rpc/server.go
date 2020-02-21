@@ -82,7 +82,8 @@ func (rpcServer *RPCServer) Wait() {
 	rpcServer.wg.Wait()
 }
 
-func (rpcServer *RPCServer) processRequest(request Request) {
+// handle inbound request
+func (rpcServer *RPCServer) handleInboundRequest(request Request) {
 	switch request.Method {
 	case "portopen":
 		portOpen, err := newPortOpenRequest(request)
@@ -217,148 +218,170 @@ func (rpcServer *RPCServer) processRequest(request Request) {
 	return
 }
 
-// Start rpc server
-func (rpcServer *RPCServer) Start() {
-	rpcServer.addWorker(func() {
-		// infinite read from stream
-		for {
-			msg, err := rpcServer.Client.s.readMessage()
-			if err != nil {
-				// check error
-				if err == io.EOF ||
-					strings.Contains(err.Error(), "connection reset by peer") {
-					if !rpcServer.Client.s.Closed() {
-						// remove all calls
-						go func() {
-							reconnectError := ReconnectError{rpcServer.Client.Host()}
-							rpcServer.notifyCalls(reconnectError)
-						}()
-						isOk := rpcServer.Client.Reconnect()
-						if isOk {
-							// Resetting buffers to not mix old messages with new messages
-							rpcServer.Client.s.messageQueue = make(chan Message, 1024)
-							rpcServer.recall()
-							continue
-						}
-					}
-				}
-				rpcServer.rm.Lock()
-				if !rpcServer.closed {
-					rpcServer.rm.Unlock()
-					rpcServer.Close()
-				} else {
-					rpcServer.rm.Unlock()
-				}
-				return
-			}
-			if msg.Len > 0 {
-				rpcServer.Client.Debug("Receive %d bytes data from ssl", msg.Len)
-			}
-		}
-	})
-
-	rpcServer.addWorker(func() {
-		rpcServer.blockTicker = time.NewTicker(rpcServer.blockTickerDuration)
-		lastblock := 0
-		for {
-			select {
-			case <-rpcServer.finishBlockTickerChan:
-				return
-			case <-rpcServer.blockTicker.C:
-				go func() {
-					if bq == nil {
-						return
-					}
-					if lastblock == 0 {
-						lastblock, _ = bq.Last()
-					}
-					blockPeak, err := rpcServer.Client.GetBlockPeak()
-					if err != nil {
-						rpcServer.Client.Error("Cannot getblockheader: %v", err)
-						return
-					}
-					blockNumMax := blockPeak - confirmationSize
-					if lastblock >= blockNumMax {
-						// Nothing to do
-						return
-					}
-
-					for num := lastblock + 1; num <= blockNumMax; num++ {
-						blockHeader, err := rpcServer.Client.GetBlockHeaderUnsafe(num)
-						if err != nil {
-							rpcServer.Client.Error("Couldn't download block header %v", err)
-							return
-						}
-						err = bq.AddBlock(blockHeader, false)
-						if err != nil {
-							rpcServer.Client.Error("Couldn't add block %v %v: %v", num, blockHeader.Hash(), err)
-							// This could happen on an uncle block, in that case we reset
-							// the counter the last finalized block
-							lastblock, _ = bq.Last()
-							return
-						}
-					}
-
-					lastn, _ := bq.Last()
-					rpcServer.Client.Info("Added block(s) %v-%v, last valid %v", lastblock, blockNumMax, lastn)
-					lastblock = blockNumMax
-					storeLastValid()
-					return
-				}()
-			case res := <-rpcServer.Client.s.messageQueue:
-				if rpcServer.Client.Reconnecting() {
-					// drop message
+// handle inbound message
+func (rpcServer *RPCServer) handleInboundMessage() {
+	for {
+		select {
+		case msg := <-rpcServer.Client.messageQueue:
+			go rpcServer.Client.CheckTicket()
+			if msg.IsResponse() {
+				atomic.AddInt64(&rpcServer.Client.totalCalls, -1)
+				call := rpcServer.firstCallByMethod(msg.ResponseMethod())
+				if call.response == nil {
+					// should not happen
+					rpcServer.Client.Error("Call.response is nil: %s %s", call.method, string(msg.buffer))
 					continue
 				}
-				go rpcServer.Client.CheckTicket()
-				if res.IsResponse() {
-					atomic.AddInt64(&rpcServer.Client.totalCalls, -1)
-					call := rpcServer.firstCallByMethod(res.ResponseMethod())
-					if call.response == nil {
-						// should not happen
-						rpcServer.Client.Error("Call.response is nil: %s %s", call.method, string(res.buffer))
+				enqueueMessage(call.response, msg, enqueueTimeout)
+				close(call.response)
+				continue
+			}
+			request, err := msg.ReadAsRequest()
+			if err != nil {
+				rpcServer.Client.Error("Not rpc request: %v", err)
+				continue
+			}
+			go rpcServer.handleInboundRequest(request)
+		}
+	}
+}
+
+// infinite loop to read message from server
+func (rpcServer *RPCServer) recvMessage() {
+	for {
+		msg, err := rpcServer.Client.s.readMessage()
+		if err != nil {
+			// check error
+			if err == io.EOF ||
+				strings.Contains(err.Error(), "connection reset by peer") {
+				if !rpcServer.Client.s.Closed() {
+					// remove all calls
+					go func() {
+						reconnectError := ReconnectError{rpcServer.Client.Host()}
+						rpcServer.notifyCalls(reconnectError)
+					}()
+					isOk := rpcServer.Client.Reconnect()
+					if isOk {
+						// Resetting buffers to not mix old messages with new messages
+						rpcServer.Client.messageQueue = make(chan Message, 1024)
+						rpcServer.recall()
 						continue
 					}
-					enqueueMessage(call.response, res, enqueueTimeout)
-					close(call.response)
-					continue
 				}
-				request, err := res.ReadAsRequest()
-				if err != nil {
-					rpcServer.Client.Error("Not rpc request: %v", err)
-					continue
-				}
-				go rpcServer.processRequest(request)
-			case call := <-rpcServer.Client.callQueue:
-				if rpcServer.Client.Reconnecting() {
-					rpcServer.Client.Debug("Resend rpc due to reconnect: %s", call.method)
-					enqueueCall(rpcServer.Client.callQueue, call, enqueueTimeout)
-					continue
-				}
-				atomic.AddInt64(&rpcServer.Client.totalCalls, 1)
-				rpcServer.Client.Debug("Send new rpc: %s", call.method)
-				ts := time.Now()
-				conn := rpcServer.Client.s.getOpensslConn()
-				n, err := conn.Write(call.data)
-				if err != nil {
-					rpcServer.Client.Error("Failed to write to node: %v", err)
-					res := newRPCErrorResponse(call.method, err)
-					enqueueMessage(call.response, res, enqueueTimeout)
-					continue
-				}
-				if n != len(call.data) {
-					// exceeds the packet size, drop it
-					continue
-				}
-				rpcServer.Client.s.incrementTotalBytes(n)
-				tsDiff := time.Since(ts)
-				if rpcServer.Client.enableMetrics {
-					rpcServer.Client.metrics.UpdateWriteTimer(tsDiff)
-				}
-				rpcServer.addCall(call)
 			}
+			rpcServer.rm.Lock()
+			if !rpcServer.closed {
+				rpcServer.rm.Unlock()
+				rpcServer.Close()
+			} else {
+				rpcServer.rm.Unlock()
+			}
+			return
 		}
-	})
+		if msg.Len > 0 {
+			rpcServer.Client.Debug("Receive %d bytes data from ssl", msg.Len)
+			// we couldn't gurantee the order of message if use goroutine: go handleInboundMessage
+			enqueueMessage(rpcServer.Client.messageQueue, msg, enqueueTimeout)
+		}
+	}
+}
+
+// infinite loop to send message to server
+func (rpcServer *RPCServer) sendMessage() {
+	for {
+		select {
+		case call, ok := <-rpcServer.Client.callQueue:
+			if !ok {
+				return
+			}
+			if rpcServer.Client.Reconnecting() {
+				rpcServer.Client.Debug("Resend rpc due to reconnect: %s", call.method)
+				enqueueCall(rpcServer.Client.callQueue, call, enqueueTimeout)
+				continue
+			}
+			atomic.AddInt64(&rpcServer.Client.totalCalls, 1)
+			rpcServer.Client.Debug("Send new rpc: %s", call.method)
+			ts := time.Now()
+			conn := rpcServer.Client.s.getOpensslConn()
+			n, err := conn.Write(call.data)
+			if err != nil {
+				rpcServer.Client.Error("Failed to write to node: %v", err)
+				res := newRPCErrorResponse(call.method, err)
+				enqueueMessage(call.response, res, enqueueTimeout)
+				continue
+			}
+			if n != len(call.data) {
+				// exceeds the packet size, drop it
+				continue
+			}
+			rpcServer.Client.s.incrementTotalBytes(n)
+			tsDiff := time.Since(ts)
+			if rpcServer.Client.enableMetrics {
+				rpcServer.Client.metrics.UpdateWriteTimer(tsDiff)
+			}
+			rpcServer.addCall(call)
+		}
+	}
+}
+
+func (rpcServer *RPCServer) watchLatestBlock() {
+	rpcServer.blockTicker = time.NewTicker(rpcServer.blockTickerDuration)
+	lastblock := 0
+	for {
+		select {
+		case <-rpcServer.finishBlockTickerChan:
+			return
+		case <-rpcServer.blockTicker.C:
+			go func() {
+				if bq == nil {
+					return
+				}
+				if lastblock == 0 {
+					lastblock, _ = bq.Last()
+				}
+				blockPeak, err := rpcServer.Client.GetBlockPeak()
+				if err != nil {
+					rpcServer.Client.Error("Cannot getblockheader: %v", err)
+					return
+				}
+				blockNumMax := blockPeak - confirmationSize
+				if lastblock >= blockNumMax {
+					// Nothing to do
+					return
+				}
+
+				for num := lastblock + 1; num <= blockNumMax; num++ {
+					blockHeader, err := rpcServer.Client.GetBlockHeaderUnsafe(num)
+					if err != nil {
+						rpcServer.Client.Error("Couldn't download block header %v", err)
+						return
+					}
+					err = bq.AddBlock(blockHeader, false)
+					if err != nil {
+						rpcServer.Client.Error("Couldn't add block %v %v: %v", num, blockHeader.Hash(), err)
+						// This could happen on an uncle block, in that case we reset
+						// the counter the last finalized block
+						lastblock, _ = bq.Last()
+						return
+					}
+				}
+
+				lastn, _ := bq.Last()
+				rpcServer.Client.Info("Added block(s) %v-%v, last valid %v", lastblock, blockNumMax, lastn)
+				lastblock = blockNumMax
+				storeLastValid()
+				return
+			}()
+		}
+	}
+}
+
+// Start rpc server
+func (rpcServer *RPCServer) Start() {
+	rpcServer.addWorker(rpcServer.recvMessage)
+	rpcServer.addWorker(rpcServer.sendMessage)
+	rpcServer.addWorker(rpcServer.handleInboundMessage)
+	rpcServer.addWorker(rpcServer.watchLatestBlock)
 	rpcServer.started = true
 }
 

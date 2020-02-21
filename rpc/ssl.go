@@ -51,7 +51,6 @@ type Call struct {
 }
 
 type SSL struct {
-	messageQueue      chan Message
 	conn              *openssl.Conn
 	ctx               *openssl.Ctx
 	tcpConn           *tcpkeepalive.Conn
@@ -85,12 +84,11 @@ func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags, pool *Da
 		return nil, err
 	}
 	s := &SSL{
-		conn:         conn,
-		ctx:          ctx,
-		addr:         addr,
-		mode:         mode,
-		pool:         pool,
-		messageQueue: make(chan Message, 1024),
+		conn: conn,
+		ctx:  ctx,
+		addr: addr,
+		mode: mode,
+		pool: pool,
 	}
 	return s, nil
 }
@@ -325,7 +323,6 @@ func (s *SSL) readMessage() (msg Message, err error) {
 		Len:    read,
 		buffer: res,
 	}
-	enqueueMessage(s.messageQueue, msg, enqueueTimeout)
 	return msg, nil
 }
 
