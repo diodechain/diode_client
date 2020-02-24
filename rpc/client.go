@@ -87,11 +87,10 @@ func (rpcClient *RPCClient) GetDeviceKey(ref int64) string {
 }
 
 func enqueueCall(resq chan Call, call Call, sendTimeout time.Duration) error {
-	timeout := time.NewTimer(sendTimeout)
 	select {
 	case resq <- call:
 		return nil
-	case _ = <-timeout.C:
+	case _ = <-time.After(sendTimeout):
 		return fmt.Errorf("send call to channel timeout")
 	}
 }
@@ -141,14 +140,19 @@ func (rpcClient *RPCClient) CallContext(method string, args ...interface{}) (res
 		rpcTimeout, _ := time.ParseDuration(fmt.Sprintf("%ds", 10+rpcClient.totalCalls))
 		res, err = waitMessage(resCall, rpcTimeout)
 		if err != nil {
+			tsDiff = time.Since(ts)
 			rpcClient.Error("Failed to call: %s [%v]: %v", method, tsDiff, err)
 			if _, ok := err.(RPCTimeoutError); ok {
-				log.Panicf("RPC TIMEOUT ERROR")
+				log.Panicf("RPC TIMEOUT ERROR %s", rpcClient.Host())
 			}
 			if _, ok := err.(ReconnectError); ok {
 				rpcClient.Error("rpc call will resend after reconnect, keep waiting")
 				continue
 			}
+			// if _, ok := err.(CloseError); ok {
+			// 	rpcClient.Error("rpc call will resend after reconnect, keep waiting")
+			// 	continue
+			// }
 			break
 		}
 		tsDiff = time.Since(ts)
@@ -662,7 +666,6 @@ func (rpcClient *RPCClient) Reconnect() bool {
 			rpcClient.Error("Failed to reconnect: %s", err)
 			continue
 		}
-		// Send initial ticket
 		err = rpcClient.Greet()
 		if err != nil {
 			rpcClient.Debug("Failed to submit initial ticket: %v", err)

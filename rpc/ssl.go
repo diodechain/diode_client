@@ -46,7 +46,7 @@ type Call struct {
 	id       int64
 	method   string
 	response chan Message
-	signal   chan interface{}
+	signal   chan Signal
 	data     []byte
 }
 
@@ -289,8 +289,8 @@ func (s *SSL) setOpensslConn(conn *openssl.Conn) {
 }
 
 func (s *SSL) getOpensslConn() *openssl.Conn {
-	s.rm.RLock()
-	defer s.rm.RUnlock()
+	s.rm.Lock()
+	defer s.rm.Unlock()
 	return s.conn
 }
 
@@ -341,7 +341,7 @@ func (s *SSL) sendPayload(method string, payload []byte, message chan Message) (
 		id:       rpcID,
 		method:   method,
 		response: message,
-		signal:   make(chan interface{}),
+		signal:   make(chan Signal),
 		data:     bytPay,
 	}
 	atomic.AddInt64(&rpcID, 1)
@@ -366,7 +366,6 @@ func (s *SSL) reconnect() error {
 }
 
 func waitMessage(call Call, rpcTimeout time.Duration) (res Response, err error) {
-	timeout := time.NewTimer(rpcTimeout)
 	select {
 	case resp := <-call.response:
 		res, err = resp.ReadAsResponse()
@@ -375,32 +374,26 @@ func waitMessage(call Call, rpcTimeout time.Duration) (res Response, err error) 
 		}
 		return res, nil
 	case signal := <-call.signal:
-		if reconnect, ok := signal.(ReconnectError); ok {
-			err = reconnect
+		switch signal {
+		case RECONNECTING:
+			err = ReconnectError{}
+			break
+		case CLOSED:
+			err = fmt.Errorf("host had been closed")
+			break
 		}
 		return
-	case _ = <-timeout.C:
+	case _ = <-time.After(rpcTimeout):
 		err = RPCTimeoutError{rpcTimeout}
 		return
 	}
 }
 
-func notifyCall(call Call, signal interface{}, sendTimeout time.Duration) error {
-	timeout := time.NewTimer(sendTimeout)
-	select {
-	case call.signal <- signal:
-		return nil
-	case _ = <-timeout.C:
-		return fmt.Errorf("notify signal to channel timeout")
-	}
-}
-
 func enqueueMessage(resp chan Message, msg Message, sendTimeout time.Duration) error {
-	timeout := time.NewTimer(sendTimeout)
 	select {
 	case resp <- msg:
 		return nil
-	case _ = <-timeout.C:
+	case _ = <-time.After(sendTimeout):
 		return fmt.Errorf("send message to channel timeout")
 	}
 }
@@ -465,7 +458,7 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 		// Retry to connect
 		isOk := false
 		for i := 1; i <= config.RetryTimes; i++ {
-			config.Logger.Info(fmt.Sprintf("Retry to connect to %s, wait %s", host, config.RetryWait.String()), "module", "ssl", "server", host)
+			config.Logger.Info(fmt.Sprintf("Retry to connect to host: %s, wait %s", host, config.RetryWait.String()), "module", "ssl", "server", host)
 			time.Sleep(config.RetryWait)
 			client, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
 			if err == nil {
@@ -473,11 +466,11 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 				break
 			}
 			if config.Debug {
-				config.Logger.Debug(fmt.Sprintf("failed to connect to host: %s", err.Error()), "module", "ssl", "server", host)
+				config.Logger.Debug(fmt.Sprintf("Failed to connect to host: %s", err.Error()), "module", "ssl", "server", host)
 			}
 		}
 		if !isOk {
-			return nil, fmt.Errorf("Failed to connect to server %v", host)
+			return nil, fmt.Errorf("Failed to connect to host: %s", host)
 		}
 	}
 	client.RegistryAddr = config.DecRegistryAddr

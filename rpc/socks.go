@@ -650,7 +650,31 @@ func (socksServer *Server) GetServer(nodeID [20]byte) (client *RPCClient, err er
 		err = fmt.Errorf("Couldn't connect to server '%+v' with error '%v'", serverObj, err)
 		return
 	}
+	err = client.Greet()
+	if err != nil {
+		err = fmt.Errorf("Couldn't submitTicket to server with error '%v'", err)
+		return
+	}
 	socksServer.pool[nodeID] = client
+	// listen to signal
+	go func(nodeID [20]byte) {
+		for {
+			select {
+			case signal, ok := <-client.channel.signal:
+				if !ok {
+					return
+				}
+				switch signal {
+				case CLOSED:
+					delete(socksServer.pool, nodeID)
+					break
+				case RECONNECTED:
+					break
+				}
+				break
+			}
+		}
+	}(nodeID)
 	return
 }
 
@@ -663,6 +687,18 @@ func (socksServer *Server) Started() bool {
 func (socksServer *Server) Close() {
 	socksServer.listener.Close()
 	socksServer.started = false
+	// close all connections in the pool
+	for serverID, rpcClient := range socksServer.pool {
+		if rpcClient.Started() {
+			rpcClient.Close()
+		}
+		delete(socksServer.pool, serverID)
+	}
+	// close all device connections in the pool
+	// for deviceKey, device := range socksServer.datapool.devices {
+	// 	device.Close()
+	//  delete(socksServer.datapool.devices, deviceKey)
+	// }
 	// Should we close gracefully?
 	socksServer.wg.Wait()
 }

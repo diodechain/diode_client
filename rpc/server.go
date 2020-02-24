@@ -20,7 +20,13 @@ import (
 
 var (
 	errPortNotPublished = fmt.Errorf("port was not published")
+	STARTED             = Signal(1)
+	CLOSED              = Signal(2)
+	RECONNECTED         = Signal(3)
+	RECONNECTING        = Signal(4)
 )
+
+type Signal int
 
 type RPCConfig struct {
 	RegistryAddr [20]byte
@@ -44,6 +50,7 @@ type RPCServer struct {
 	timeout               time.Duration
 	wg                    *sync.WaitGroup
 	pool                  *DataPool
+	signal                chan Signal
 }
 
 // NewRPCServer returns rpc server
@@ -60,6 +67,7 @@ func (client *RPCClient) NewRPCServer(config *RPCConfig, pool *DataPool) *RPCSer
 		timeout:               5 * time.Second,
 		pool:                  pool,
 		Client:                client,
+		signal:                make(chan Signal),
 	}
 	return rpcServer
 }
@@ -75,6 +83,11 @@ func (rpcServer *RPCServer) addWorker(worker func()) {
 // Started returns whether rpc server had started
 func (rpcServer *RPCServer) Started() bool {
 	return rpcServer.started
+}
+
+// Closed returns whether rpc server had closed
+func (rpcServer *RPCServer) Closed() bool {
+	return rpcServer.closed
 }
 
 // Wait until goroutines finish
@@ -223,9 +236,7 @@ func (rpcServer *RPCServer) handleInboundMessage() {
 	for {
 		select {
 		case msg, ok := <-rpcServer.Client.messageQueue:
-			// ok := true
 			if !ok {
-				// log.Println(ok, msg)
 				return
 			}
 			go rpcServer.Client.CheckTicket()
@@ -262,14 +273,14 @@ func (rpcServer *RPCServer) recvMessage() {
 				if !rpcServer.Client.s.Closed() {
 					// remove all calls
 					go func() {
-						reconnectError := ReconnectError{rpcServer.Client.Host()}
-						rpcServer.notifyCalls(reconnectError)
+						rpcServer.notifyCalls(RECONNECTING)
 					}()
 					isOk := rpcServer.Client.Reconnect()
 					if isOk {
 						// Resetting buffers to not mix old messages with new messages
-						rpcServer.Client.messageQueue = make(chan Message, 1024)
+						// rpcServer.Client.messageQueue = make(chan Message, 1024)
 						rpcServer.recall()
+						notifyServer(rpcServer.signal, RECONNECTED, enqueueTimeout)
 						continue
 					}
 				}
@@ -301,7 +312,7 @@ func (rpcServer *RPCServer) sendMessage() {
 			}
 			if rpcServer.Client.Reconnecting() {
 				rpcServer.Client.Debug("Resend rpc due to reconnect: %s", call.method)
-				enqueueCall(rpcServer.Client.callQueue, call, enqueueTimeout)
+				rpcServer.addCall(call)
 				continue
 			}
 			atomic.AddInt64(&rpcServer.Client.totalCalls, 1)
@@ -393,11 +404,12 @@ func (rpcServer *RPCServer) Start() {
 // Close the rpc server
 func (rpcServer *RPCServer) Close() {
 	rpcServer.rm.Lock()
-	defer rpcServer.rm.Unlock()
 	if !rpcServer.started {
+		rpcServer.rm.Unlock()
 		return
 	}
 	if rpcServer.closed {
+		rpcServer.rm.Unlock()
 		return
 	}
 	rpcServer.closed = true
@@ -405,6 +417,9 @@ func (rpcServer *RPCServer) Close() {
 		rpcServer.blockTicker.Stop()
 	}
 	rpcServer.finishBlockTickerChan <- true
+	rpcServer.rm.Unlock()
+	notifyServer(rpcServer.signal, CLOSED, enqueueTimeout)
+	rpcServer.notifyCalls(CLOSED)
 	return
 }
 
@@ -422,11 +437,11 @@ func (rpcServer *RPCServer) popCall() (c Call) {
 	return
 }
 
-func (rpcServer *RPCServer) notifyCalls(err error) {
+func (rpcServer *RPCServer) notifyCalls(signal Signal) {
 	rpcServer.rm.Lock()
 	defer rpcServer.rm.Unlock()
 	for _, call := range rpcServer.calls {
-		notifyCall(call, err, enqueueTimeout)
+		notifyServer(call.signal, signal, enqueueTimeout)
 	}
 	return
 }
@@ -465,4 +480,13 @@ func (rpcServer *RPCServer) firstCallByMethod(method string) (c Call) {
 		}
 	}
 	return
+}
+
+func notifyServer(signalChan chan Signal, signal Signal, sendTimeout time.Duration) error {
+	select {
+	case signalChan <- signal:
+		return nil
+	case _ = <-time.After(sendTimeout):
+		return fmt.Errorf("notify signal to rpc server timeout")
+	}
 }
