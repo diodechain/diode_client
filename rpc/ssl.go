@@ -43,11 +43,11 @@ var (
 )
 
 type Call struct {
-	id        int64
-	method    string
-	response  chan Message
-	reconnect chan error
-	data      []byte
+	id       int64
+	method   string
+	response chan Message
+	signal   chan interface{}
+	data     []byte
 }
 
 type SSL struct {
@@ -338,11 +338,11 @@ func (s *SSL) sendPayload(method string, payload []byte, message chan Message) (
 		bytPay[i+2] = byte(s)
 	}
 	call := Call{
-		id:        rpcID,
-		method:    method,
-		response:  message,
-		reconnect: make(chan error),
-		data:      bytPay,
+		id:       rpcID,
+		method:   method,
+		response: message,
+		signal:   make(chan interface{}),
+		data:     bytPay,
 	}
 	atomic.AddInt64(&rpcID, 1)
 	return call, nil
@@ -374,8 +374,10 @@ func waitMessage(call Call, rpcTimeout time.Duration) (res Response, err error) 
 			return
 		}
 		return res, nil
-	case reconnect := <-call.reconnect:
-		err = reconnect
+	case signal := <-call.signal:
+		if reconnect, ok := signal.(ReconnectError); ok {
+			err = reconnect
+		}
 		return
 	case _ = <-timeout.C:
 		err = RPCTimeoutError{rpcTimeout}
@@ -383,13 +385,13 @@ func waitMessage(call Call, rpcTimeout time.Duration) (res Response, err error) 
 	}
 }
 
-func sendReconnect(call Call, reconnect error, sendTimeout time.Duration) error {
+func notifyCall(call Call, signal interface{}, sendTimeout time.Duration) error {
 	timeout := time.NewTimer(sendTimeout)
 	select {
-	case call.reconnect <- reconnect:
+	case call.signal <- signal:
 		return nil
 	case _ = <-timeout.C:
-		return fmt.Errorf("send reconnect to channel timeout")
+		return fmt.Errorf("notify signal to channel timeout")
 	}
 }
 

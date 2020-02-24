@@ -222,7 +222,12 @@ func (rpcServer *RPCServer) handleInboundRequest(request Request) {
 func (rpcServer *RPCServer) handleInboundMessage() {
 	for {
 		select {
-		case msg := <-rpcServer.Client.messageQueue:
+		case msg, ok := <-rpcServer.Client.messageQueue:
+			// ok := true
+			if !ok {
+				// log.Println(ok, msg)
+				return
+			}
 			go rpcServer.Client.CheckTicket()
 			if msg.IsResponse() {
 				atomic.AddInt64(&rpcServer.Client.totalCalls, -1)
@@ -269,13 +274,13 @@ func (rpcServer *RPCServer) recvMessage() {
 					}
 				}
 			}
+			// close and exit
 			rpcServer.rm.Lock()
 			if !rpcServer.closed {
 				rpcServer.rm.Unlock()
-				rpcServer.Close()
-			} else {
-				rpcServer.rm.Unlock()
+				rpcServer.Client.Close()
 			}
+			rpcServer.rm.Unlock()
 			return
 		}
 		if msg.Len > 0 {
@@ -421,7 +426,7 @@ func (rpcServer *RPCServer) notifyCalls(err error) {
 	rpcServer.rm.Lock()
 	defer rpcServer.rm.Unlock()
 	for _, call := range rpcServer.calls {
-		sendReconnect(call, err, enqueueTimeout)
+		notifyCall(call, err, enqueueTimeout)
 	}
 	return
 }

@@ -659,13 +659,13 @@ func (rpcClient *RPCClient) Reconnect() bool {
 		}
 		err := rpcClient.s.reconnect()
 		if err != nil {
-			rpcClient.Error("failed to reconnect: %s", err)
+			rpcClient.Error("Failed to reconnect: %s", err)
 			continue
 		}
 		// Send initial ticket
 		err = rpcClient.Greet()
 		if err != nil {
-			rpcClient.Debug("failed to submit initial ticket: %v", err)
+			rpcClient.Debug("Failed to submit initial ticket: %v", err)
 		}
 		if err == nil {
 			isOk = true
@@ -698,5 +698,7 @@ func (rpcClient *RPCClient) Close() (err error) {
 	if !rpcClient.s.Closed() {
 		err = rpcClient.s.Close()
 	}
+	close(rpcClient.callQueue)
+	close(rpcClient.messageQueue)
 	return
 }
