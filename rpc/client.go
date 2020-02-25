@@ -146,7 +146,7 @@ func (rpcClient *RPCClient) CallContext(method string, args ...interface{}) (res
 				log.Panicf("RPC TIMEOUT ERROR %s", rpcClient.Host())
 			}
 			if _, ok := err.(ReconnectError); ok {
-				rpcClient.Error("rpc call will resend after reconnect, keep waiting")
+				rpcClient.Error("Call will resend after reconnect, keep waiting")
 				continue
 			}
 			// if _, ok := err.(CloseError); ok {
@@ -156,9 +156,6 @@ func (rpcClient *RPCClient) CallContext(method string, args ...interface{}) (res
 			break
 		}
 		tsDiff = time.Since(ts)
-		if rpcClient.Verbose {
-			method = fmt.Sprintf("%s", method)
-		}
 		if rpcClient.enableMetrics {
 			rpcClient.metrics.UpdateRPCTimer(tsDiff)
 		}
@@ -666,10 +663,10 @@ func (rpcClient *RPCClient) Reconnect() bool {
 			rpcClient.Error("Failed to reconnect: %s", err)
 			continue
 		}
-		err = rpcClient.Greet()
-		if err != nil {
-			rpcClient.Debug("Failed to submit initial ticket: %v", err)
-		}
+		// err = rpcClient.Greet()
+		// if err != nil {
+		// 	rpcClient.Debug("Failed to submit initial ticket: %v", err)
+		// }
 		if err == nil {
 			isOk = true
 			break
@@ -700,8 +697,8 @@ func (rpcClient *RPCClient) Close() (err error) {
 	}
 	if !rpcClient.s.Closed() {
 		err = rpcClient.s.Close()
+		close(rpcClient.callQueue)
+		close(rpcClient.messageQueue)
 	}
-	close(rpcClient.callQueue)
-	close(rpcClient.messageQueue)
 	return
 }

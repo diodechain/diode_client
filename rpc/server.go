@@ -20,13 +20,7 @@ import (
 
 var (
 	errPortNotPublished = fmt.Errorf("port was not published")
-	STARTED             = Signal(1)
-	CLOSED              = Signal(2)
-	RECONNECTED         = Signal(3)
-	RECONNECTING        = Signal(4)
 )
-
-type Signal int
 
 type RPCConfig struct {
 	RegistryAddr [20]byte
@@ -54,7 +48,6 @@ type RPCServer struct {
 }
 
 // NewRPCServer returns rpc server
-// TODO: check blocking channel, error channel
 func (client *RPCClient) NewRPCServer(config *RPCConfig, pool *DataPool) *RPCServer {
 	rpcServer := &RPCServer{
 		wg:                    &sync.WaitGroup{},
@@ -280,18 +273,17 @@ func (rpcServer *RPCServer) recvMessage() {
 						// Resetting buffers to not mix old messages with new messages
 						// rpcServer.Client.messageQueue = make(chan Message, 1024)
 						rpcServer.recall()
-						notifyServer(rpcServer.signal, RECONNECTED, enqueueTimeout)
+						notifySignal(rpcServer.signal, RECONNECTED, enqueueTimeout)
 						continue
 					}
 				}
 			}
 			// close and exit
 			rpcServer.rm.Lock()
+			defer rpcServer.rm.Unlock()
 			if !rpcServer.closed {
-				rpcServer.rm.Unlock()
 				rpcServer.Client.Close()
 			}
-			rpcServer.rm.Unlock()
 			return
 		}
 		if msg.Len > 0 {
@@ -321,6 +313,10 @@ func (rpcServer *RPCServer) sendMessage() {
 			conn := rpcServer.Client.s.getOpensslConn()
 			n, err := conn.Write(call.data)
 			if err != nil {
+				// should not reconnect here
+				// because there might be some pending buffers (response) in tcp connection
+				// if reconnect here the recall() will get wrong response (maybe solve this
+				// issue by adding id in each rpc call)
 				rpcServer.Client.Error("Failed to write to node: %v", err)
 				res := newRPCErrorResponse(call.method, err)
 				enqueueMessage(call.response, res, enqueueTimeout)
@@ -418,7 +414,7 @@ func (rpcServer *RPCServer) Close() {
 	}
 	rpcServer.finishBlockTickerChan <- true
 	rpcServer.rm.Unlock()
-	notifyServer(rpcServer.signal, CLOSED, enqueueTimeout)
+	notifySignal(rpcServer.signal, CLOSED, enqueueTimeout)
 	rpcServer.notifyCalls(CLOSED)
 	return
 }
@@ -441,7 +437,7 @@ func (rpcServer *RPCServer) notifyCalls(signal Signal) {
 	rpcServer.rm.Lock()
 	defer rpcServer.rm.Unlock()
 	for _, call := range rpcServer.calls {
-		notifyServer(call.signal, signal, enqueueTimeout)
+		notifySignal(call.signal, signal, enqueueTimeout)
 	}
 	return
 }
@@ -449,10 +445,12 @@ func (rpcServer *RPCServer) notifyCalls(signal Signal) {
 func (rpcServer *RPCServer) recall() {
 	rpcServer.rm.Lock()
 	defer rpcServer.rm.Unlock()
-	for _, call := range rpcServer.calls {
+	// copy calls
+	calls := rpcServer.calls
+	rpcServer.calls = make([]Call, 0)
+	for _, call := range calls {
 		enqueueCall(rpcServer.Client.callQueue, call, enqueueTimeout)
 	}
-	rpcServer.calls = make([]Call, 0)
 	return
 }
 
@@ -480,13 +478,4 @@ func (rpcServer *RPCServer) firstCallByMethod(method string) (c Call) {
 		}
 	}
 	return
-}
-
-func notifyServer(signalChan chan Signal, signal Signal, sendTimeout time.Duration) error {
-	select {
-	case signalChan <- signal:
-		return nil
-	case _ = <-time.After(sendTimeout):
-		return fmt.Errorf("notify signal to rpc server timeout")
-	}
 }
