@@ -5,12 +5,12 @@ package rpc
 
 import (
 	"crypto/ecdsa"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/crypto/secp256k1"
 	"github.com/diodechain/diode_go_client/util"
-	bert "github.com/diodechain/gobert"
 )
 
 // DeviceTicket struct for connection and transmission
@@ -19,8 +19,8 @@ type DeviceTicket struct {
 	BlockNumber      int
 	BlockHash        []byte
 	FleetAddr        [20]byte
-	TotalConnections int64
-	TotalBytes       int64
+	TotalConnections uint64
+	TotalBytes       uint64
 	LocalAddr        []byte
 	DeviceSig        []byte
 	ServerSig        []byte
@@ -59,11 +59,7 @@ func (ct *DeviceTicket) HashWithoutSig() ([]byte, error) {
 	if err := ct.ValidateValues(); err != nil {
 		return nil, err
 	}
-	msg, err := bert.Encode([6]bert.Term{ct.ServerID[:], ct.BlockHash, ct.FleetAddr[:], ct.TotalConnections, ct.TotalBytes, ct.LocalAddr})
-	if err != nil {
-		return nil, err
-	}
-	return crypto.Sha256(msg), nil
+	return crypto.Sha3(ct.arrayBlob()[:192]), nil
 }
 
 // Hash returns hash of device object
@@ -71,11 +67,28 @@ func (ct *DeviceTicket) Hash() ([]byte, error) {
 	if err := ct.ValidateValues(); err != nil {
 		return nil, err
 	}
-	msg, err := bert.Encode([7]bert.Term{ct.ServerID[:], ct.BlockHash, ct.FleetAddr[:], ct.TotalConnections, ct.TotalBytes, ct.LocalAddr, ct.DeviceSig})
-	if err != nil {
-		return nil, err
-	}
-	return crypto.Sha256(msg), nil
+	return crypto.Sha3(ct.arrayBlob()), nil
+}
+
+func (ct *DeviceTicket) arrayBlob() []byte {
+	//  From DiodeRegistry.sol:
+	//    bytes32[] memory message = new bytes32[](6);
+	//    message[0] = blockhash(blockHeight);
+	//    message[1] = bytes32(fleetContract);
+	//    message[2] = bytes32(nodeAddress);
+	//    message[3] = bytes32(totalConnections);
+	//    message[4] = bytes32(totalBytes);
+	//    message[5] = localAddress;
+
+	msg := [32 * 7]byte{}
+	copy(msg[0:32], ct.BlockHash)
+	copy(msg[44:64], ct.FleetAddr[:])
+	copy(msg[76:96], ct.ServerID[:])
+	binary.BigEndian.PutUint64(msg[120:128], ct.TotalConnections)
+	binary.BigEndian.PutUint64(msg[152:160], ct.TotalBytes)
+	copy(msg[160:192], crypto.Sha256(ct.LocalAddr))
+	copy(msg[192:224], ct.DeviceSig)
+	return msg[:]
 }
 
 // Sign ticket with given ecdsa private key
