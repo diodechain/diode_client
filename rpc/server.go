@@ -264,12 +264,15 @@ func (rpcServer *RPCServer) recvMessage() {
 			if err == io.EOF ||
 				strings.Contains(err.Error(), "connection reset by peer") {
 				if !rpcServer.Client.s.Closed() {
-					// remove all calls
+					// notify and remove calls
 					go func() {
 						rpcServer.notifyCalls(RECONNECTING)
 					}()
 					isOk := rpcServer.Client.Reconnect()
 					if isOk {
+						// go func() {
+						// 	rpcServer.notifyCalls(RECONNECTED)
+						// }()
 						// Resetting buffers to not mix old messages with new messages
 						// rpcServer.Client.messageQueue = make(chan Message, 1024)
 						rpcServer.recall()
@@ -324,6 +327,7 @@ func (rpcServer *RPCServer) sendMessage() {
 			}
 			if n != len(call.data) {
 				// exceeds the packet size, drop it
+				rpcServer.Client.Error("Wrong length of data")
 				continue
 			}
 			rpcServer.Client.s.incrementTotalBytes(n)
@@ -449,7 +453,23 @@ func (rpcServer *RPCServer) recall() {
 	calls := rpcServer.calls
 	rpcServer.calls = make([]Call, 0)
 	for _, call := range calls {
-		enqueueCall(rpcServer.Client.callQueue, call, enqueueTimeout)
+		call.retryTimes--
+		if call.retryTimes >= 0 {
+			err := enqueueCall(rpcServer.Client.callQueue, call, enqueueTimeout)
+			if err != nil {
+				rpcServer.Client.Error("Failed to recall rpc: %s, might lead to rpc timeout", call.method)
+			} else {
+				rpcServer.Client.Info("Recall rpc: %s", call.method)
+			}
+		} else {
+			// cancel the call
+			err := notifySignal(call.signal, CANCELLED, enqueueTimeout)
+			if err != nil {
+				rpcServer.Client.Error("Cannot cancel rpc: %s, might lead to rpc timeout", call.method)
+			} else {
+				rpcServer.Client.Debug("Cancel rpc: %s", call.method)
+			}
+		}
 	}
 	return
 }

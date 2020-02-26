@@ -10,6 +10,7 @@ var (
 	CLOSED       = Signal(2)
 	RECONNECTED  = Signal(3)
 	RECONNECTING = Signal(4)
+	CANCELLED    = Signal(5)
 )
 
 type Signal int

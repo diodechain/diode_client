@@ -146,7 +146,7 @@ func (rpcClient *RPCClient) CallContext(method string, args ...interface{}) (res
 				log.Panicf("RPC TIMEOUT ERROR %s", rpcClient.Host())
 			}
 			if _, ok := err.(ReconnectError); ok {
-				rpcClient.Error("Call will resend after reconnect, keep waiting")
+				rpcClient.Warn("Call will resend after reconnect, keep waiting")
 				continue
 			}
 			// if _, ok := err.(CloseError); ok {
@@ -663,10 +663,13 @@ func (rpcClient *RPCClient) Reconnect() bool {
 			rpcClient.Error("Failed to reconnect: %s", err)
 			continue
 		}
-		// err = rpcClient.Greet()
-		// if err != nil {
-		// 	rpcClient.Debug("Failed to submit initial ticket: %v", err)
-		// }
+		// Should greet in goroutine or this will block the recvMessage
+		go func() {
+			err := rpcClient.Greet()
+			if err != nil {
+				rpcClient.Debug("Failed to submit initial ticket: %v", err)
+			}
+		}()
 		if err == nil {
 			isOk = true
 			break

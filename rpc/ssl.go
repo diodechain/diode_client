@@ -31,9 +31,10 @@ const (
 	// https://docs.huihoo.com/doxygen/openssl/1.0.1c/crypto_2objects_2obj__mac_8h.html
 	NID_secp256k1 openssl.EllipticCurve = 714
 	// https://github.com/openssl/openssl/blob/master/apps/ecparam.c#L221
-	NID_secp256r1    openssl.EllipticCurve = 415
-	confirmationSize                       = 6
-	windowSize                             = 100
+	NID_secp256r1     openssl.EllipticCurve = 415
+	confirmationSize                        = 6
+	windowSize                              = 100
+	rpcCallRetryTimes                       = 2
 )
 
 var (
@@ -43,11 +44,12 @@ var (
 )
 
 type Call struct {
-	id       int64
-	method   string
-	response chan Message
-	signal   chan Signal
-	data     []byte
+	id         int64
+	method     string
+	retryTimes int
+	response   chan Message
+	signal     chan Signal
+	data       []byte
 }
 
 type SSL struct {
@@ -338,11 +340,12 @@ func (s *SSL) sendPayload(method string, payload []byte, message chan Message) (
 		bytPay[i+2] = byte(s)
 	}
 	call := Call{
-		id:       rpcID,
-		method:   method,
-		response: message,
-		signal:   make(chan Signal),
-		data:     bytPay,
+		id:         rpcID,
+		method:     method,
+		retryTimes: rpcCallRetryTimes,
+		response:   message,
+		signal:     make(chan Signal),
+		data:       bytPay,
 	}
 	atomic.AddInt64(&rpcID, 1)
 	return call, nil
@@ -380,6 +383,9 @@ func waitMessage(call Call, rpcTimeout time.Duration) (res Response, err error) 
 			break
 		case CLOSED:
 			err = fmt.Errorf("host had been closed")
+			break
+		case CANCELLED:
+			err = fmt.Errorf("rpc call had been closed")
 			break
 		}
 		return
