@@ -121,7 +121,7 @@ func main() {
 	go func() {
 		for rpcClient := range c {
 			if client == nil && rpcClient != nil {
-				config.Logger.Info(fmt.Sprintf("Connected to %s, validating...", rpcClient.Host()), "module", "main")
+				config.Logger.Info(fmt.Sprintf("Connected to host: %s, validating...", rpcClient.Host()), "module", "main")
 				isValid, err := rpcClient.ValidateNetwork()
 				if isValid {
 					client = rpcClient
@@ -239,7 +239,7 @@ func printLabel(label string, value string) {
 func connect(c chan *rpc.RPCClient, host string, config *config.Config, wg *sync.WaitGroup, pool *rpc.DataPool) {
 	client, err := rpc.DoConnect(host, config, pool)
 	if err != nil {
-		config.Logger.Error(fmt.Sprintf("Connection to host %s failed", host), "module", "main")
+		config.Logger.Error(fmt.Sprintf("Connection to host: %s failed", host), "module", "main")
 		wg.Done()
 	} else {
 		c <- client

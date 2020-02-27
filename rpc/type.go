@@ -119,6 +119,15 @@ func (e RPCTimeoutError) Error() string {
 	return fmt.Sprintf("remote procedure call timeout: %s", e.Timeout)
 }
 
+// ReconnectError is struct for reconnect error
+type ReconnectError struct {
+	Host string
+}
+
+func (e ReconnectError) Error() string {
+	return fmt.Sprintf("reconnect to server: %s", e.Host)
+}
+
 // StateRoot returns state root of given state roots
 func (sr *StateRoots) StateRoot() []byte {
 	if len(sr.stateRoot) > 0 {

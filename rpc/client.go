@@ -19,6 +19,7 @@ import (
 
 type RPCClient struct {
 	callQueue     chan Call
+	messageQueue  chan Message
 	s             *SSL
 	logger        log15.Logger
 	totalCalls    int64
@@ -31,9 +32,10 @@ type RPCClient struct {
 // NewRPCClient returns rpc client
 func NewRPCClient(s *SSL) RPCClient {
 	return RPCClient{
-		s:          s,
-		callQueue:  make(chan Call, 1024),
-		totalCalls: 0,
+		s:            s,
+		callQueue:    make(chan Call, 1024),
+		messageQueue: make(chan Message, 1024),
+		totalCalls:   0,
 	}
 }
 
@@ -85,11 +87,10 @@ func (rpcClient *RPCClient) GetDeviceKey(ref int64) string {
 }
 
 func enqueueCall(resq chan Call, call Call, sendTimeout time.Duration) error {
-	timeout := time.NewTimer(sendTimeout)
 	select {
 	case resq <- call:
 		return nil
-	case _ = <-timeout.C:
+	case _ = <-time.After(sendTimeout):
 		return fmt.Errorf("send call to channel timeout")
 	}
 }
@@ -106,9 +107,6 @@ func (rpcClient *RPCClient) RespondContext(method string, args ...interface{}) (
 		return
 	}
 	err = enqueueCall(rpcClient.callQueue, call, enqueueTimeout)
-	if err != nil {
-		rpcClient.Debug("send request to channel timeout")
-	}
 	return
 }
 
@@ -125,9 +123,6 @@ func (rpcClient *RPCClient) CastContext(method string, args ...interface{}) (cal
 		return
 	}
 	err = enqueueCall(rpcClient.callQueue, call, enqueueTimeout)
-	if err != nil {
-		rpcClient.Debug("send request to channel timeout")
-	}
 	return
 }
 
@@ -140,23 +135,31 @@ func (rpcClient *RPCClient) CallContext(method string, args ...interface{}) (res
 	if err != nil {
 		return
 	}
-	ts = time.Now()
-	// TODO: Move rpcTimeout to command line flag
-	rpcTimeout, _ := time.ParseDuration(fmt.Sprintf("%ds", 10+rpcClient.totalCalls))
-	res, err = waitMessage(resCall.response, rpcTimeout)
-	tsDiff = time.Since(ts)
-	if rpcClient.Verbose {
-		method = fmt.Sprintf("%s", method)
-	}
-	if rpcClient.enableMetrics {
-		rpcClient.metrics.UpdateRPCTimer(tsDiff)
-	}
-	if err != nil {
-		rpcClient.Error("Failed to call: %s [%v]: %v", method, tsDiff, err)
-		if _, ok := err.(RPCTimeoutError); ok {
-			log.Panicf("RPC ERROR")
+	for {
+		ts = time.Now()
+		rpcTimeout, _ := time.ParseDuration(fmt.Sprintf("%ds", 10+rpcClient.totalCalls))
+		res, err = waitMessage(resCall, rpcTimeout)
+		if err != nil {
+			tsDiff = time.Since(ts)
+			rpcClient.Error("Failed to call: %s [%v]: %v", method, tsDiff, err)
+			if _, ok := err.(RPCTimeoutError); ok {
+				log.Panicf("RPC TIMEOUT ERROR %s", rpcClient.Host())
+			}
+			if _, ok := err.(ReconnectError); ok {
+				rpcClient.Warn("Call will resend after reconnect, keep waiting")
+				continue
+			}
+			// if _, ok := err.(CloseError); ok {
+			// 	rpcClient.Error("rpc call will resend after reconnect, keep waiting")
+			// 	continue
+			// }
+			break
 		}
-		return
+		tsDiff = time.Since(ts)
+		if rpcClient.enableMetrics {
+			rpcClient.metrics.UpdateRPCTimer(tsDiff)
+		}
+		break
 	}
 	rpcClient.Debug("got response: %s [%v]", method, tsDiff)
 	return
@@ -316,13 +319,13 @@ func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []int) ([]*block
 	timeout := time.Second * time.Duration(count*5)
 	responses := make([]*blockquick.BlockHeader, 0, count)
 
-	futures := make([]chan Message, 0, count)
+	futures := make([]Call, 0, count)
 	for _, i := range blockNumbers {
 		future, err := rpcClient.CastContext("getblockheader2", i)
 		if err != nil {
 			return nil, err
 		}
-		futures = append(futures, future.response)
+		futures = append(futures, future)
 	}
 
 	for _, future := range futures {
@@ -652,21 +655,21 @@ func (rpcClient *RPCClient) Reconnect() bool {
 	isOk := false
 	for i := 1; i <= config.AppConfig.RetryTimes; i++ {
 		rpcClient.Info("Retry to connect to %s, wait %s (%d/%d)", rpcClient.s.addr, config.AppConfig.RetryWait.String(), i, config.AppConfig.RetryTimes)
-
-		time.Sleep(config.AppConfig.RetryWait)
 		if rpcClient.s.Closed() {
 			break
 		}
-		err := rpcClient.reconnect()
+		err := rpcClient.s.reconnect()
 		if err != nil {
-			rpcClient.Error("failed to reconnect: %s", err)
+			rpcClient.Error("Failed to reconnect: %s", err)
 			continue
 		}
-		// Send initial ticket
-		err = rpcClient.Greet()
-		if rpcClient.Verbose {
-			rpcClient.Error("failed to submit ticket: %v", err)
-		}
+		// Should greet in goroutine or this will block the recvMessage
+		go func() {
+			err := rpcClient.Greet()
+			if err != nil {
+				rpcClient.Debug("Failed to submit initial ticket: %v", err)
+			}
+		}()
 		if err == nil {
 			isOk = true
 			break
@@ -675,17 +678,9 @@ func (rpcClient *RPCClient) Reconnect() bool {
 	return isOk
 }
 
-func (rpcClient *RPCClient) reconnect() error {
-	// This is a special call intercepted by the worker
-	resp, err := rpcClient.CallContext(":reconnect")
-	if err != nil {
-		return err
-	}
-	if isErrorType(resp.Raw) {
-		rpcClient.Error("failed to reconnect: %v", err)
-		return err
-	}
-	return nil
+// Reconnecting returns whether connection is reconnecting
+func (rpcClient *RPCClient) Reconnecting() bool {
+	return rpcClient.s.Reconnecting()
 }
 
 // Started returns whether client had started
@@ -705,6 +700,8 @@ func (rpcClient *RPCClient) Close() (err error) {
 	}
 	if !rpcClient.s.Closed() {
 		err = rpcClient.s.Close()
+		close(rpcClient.callQueue)
+		close(rpcClient.messageQueue)
 	}
 	return
 }

@@ -16,6 +16,14 @@ import (
 	"github.com/diodechain/diode_go_client/util"
 )
 
+func newRPCErrorResponse(method string, err error) Message {
+	ret := []byte(fmt.Sprintf("[\"error\", \"%s\", \"%+v\"]", method, err.Error()))
+	return Message{
+		Len:    len(ret),
+		buffer: ret,
+	}
+}
+
 // TODO: change to encoding/binary
 func newMessage(method string, args ...interface{}) ([]byte, error) {
 	key := 0

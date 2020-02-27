@@ -31,9 +31,10 @@ const (
 	// https://docs.huihoo.com/doxygen/openssl/1.0.1c/crypto_2objects_2obj__mac_8h.html
 	NID_secp256k1 openssl.EllipticCurve = 714
 	// https://github.com/openssl/openssl/blob/master/apps/ecparam.c#L221
-	NID_secp256r1    openssl.EllipticCurve = 415
-	confirmationSize                       = 6
-	windowSize                             = 100
+	NID_secp256r1     openssl.EllipticCurve = 415
+	confirmationSize                        = 6
+	windowSize                              = 100
+	rpcCallRetryTimes                       = 2
 )
 
 var (
@@ -43,14 +44,15 @@ var (
 )
 
 type Call struct {
-	id       int64
-	method   string
-	response chan Message
-	data     []byte
+	id         int64
+	method     string
+	retryTimes int
+	response   chan Message
+	signal     chan Signal
+	data       []byte
 }
 
 type SSL struct {
-	messageQueue      chan Message
 	conn              *openssl.Conn
 	ctx               *openssl.Ctx
 	tcpConn           *tcpkeepalive.Conn
@@ -61,6 +63,7 @@ type SSL struct {
 	keepAliveIdle     time.Duration
 	keepAliveInterval time.Duration
 	closed            bool
+	reconnecting      bool
 	totalConnections  uint64
 	totalBytes        uint64
 	counter           uint64
@@ -83,12 +86,11 @@ func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags, pool *Da
 		return nil, err
 	}
 	s := &SSL{
-		conn:         conn,
-		ctx:          ctx,
-		addr:         addr,
-		mode:         mode,
-		pool:         pool,
-		messageQueue: make(chan Message, 1024),
+		conn: conn,
+		ctx:  ctx,
+		addr: addr,
+		mode: mode,
+		pool: pool,
 	}
 	return s, nil
 }
@@ -125,6 +127,13 @@ func (s *SSL) UnderlyingConn() net.Conn {
 	s.rm.RLock()
 	defer s.rm.RUnlock()
 	return s.conn.UnderlyingConn()
+}
+
+// Reconnecting returns whether connection is reconnecting
+func (s *SSL) Reconnecting() bool {
+	s.rm.RLock()
+	defer s.rm.RUnlock()
+	return s.reconnecting
 }
 
 // Closed returns connection is closed
@@ -282,8 +291,8 @@ func (s *SSL) setOpensslConn(conn *openssl.Conn) {
 }
 
 func (s *SSL) getOpensslConn() *openssl.Conn {
-	s.rm.RLock()
-	defer s.rm.RUnlock()
+	s.rm.Lock()
+	defer s.rm.Unlock()
 	return s.conn
 }
 
@@ -316,7 +325,6 @@ func (s *SSL) readMessage() (msg Message, err error) {
 		Len:    read,
 		buffer: res,
 	}
-	enqueueMessage(s.messageQueue, msg, enqueueTimeout)
 	return msg, nil
 }
 
@@ -332,36 +340,66 @@ func (s *SSL) sendPayload(method string, payload []byte, message chan Message) (
 		bytPay[i+2] = byte(s)
 	}
 	call := Call{
-		id:       rpcID,
-		method:   method,
-		response: message,
-		data:     bytPay,
+		id:         rpcID,
+		method:     method,
+		retryTimes: rpcCallRetryTimes,
+		response:   message,
+		signal:     make(chan Signal),
+		data:       bytPay,
 	}
 	atomic.AddInt64(&rpcID, 1)
 	return call, nil
 }
 
-func waitMessage(msg chan Message, rpcTimeout time.Duration) (res Response, err error) {
-	timeout := time.NewTimer(rpcTimeout)
+func (s *SSL) reconnect() error {
+	s.rm.Lock()
+	s.reconnecting = true
+	conn, err := openssl.Dial("tcp", s.addr, s.ctx, s.mode)
+	s.reconnecting = false
+	if err != nil {
+		s.rm.Unlock()
+		return err
+	}
+	s.conn = conn
+	s.rm.Unlock()
+	if s.enableKeepAlive {
+		s.EnableKeepAlive()
+	}
+	return nil
+}
+
+func waitMessage(call Call, rpcTimeout time.Duration) (res Response, err error) {
 	select {
-	case resp := <-msg:
+	case resp := <-call.response:
 		res, err = resp.ReadAsResponse()
 		if err != nil {
 			return
 		}
 		return res, nil
-	case _ = <-timeout.C:
+	case signal := <-call.signal:
+		switch signal {
+		case RECONNECTING:
+			err = ReconnectError{}
+			break
+		case CLOSED:
+			err = fmt.Errorf("host had been closed")
+			break
+		case CANCELLED:
+			err = fmt.Errorf("rpc call had been closed")
+			break
+		}
+		return
+	case _ = <-time.After(rpcTimeout):
 		err = RPCTimeoutError{rpcTimeout}
 		return
 	}
 }
 
 func enqueueMessage(resp chan Message, msg Message, sendTimeout time.Duration) error {
-	timeout := time.NewTimer(sendTimeout)
 	select {
 	case resp <- msg:
 		return nil
-	case _ = <-timeout.C:
+	case _ = <-time.After(sendTimeout):
 		return fmt.Errorf("send message to channel timeout")
 	}
 }
@@ -426,7 +464,7 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 		// Retry to connect
 		isOk := false
 		for i := 1; i <= config.RetryTimes; i++ {
-			config.Logger.Info(fmt.Sprintf("Retry to connect to %s, wait %s", host, config.RetryWait.String()), "module", "ssl", "server", host)
+			config.Logger.Info(fmt.Sprintf("Retry to connect to host: %s, wait %s", host, config.RetryWait.String()), "module", "ssl", "server", host)
 			time.Sleep(config.RetryWait)
 			client, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
 			if err == nil {
@@ -434,11 +472,11 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 				break
 			}
 			if config.Debug {
-				config.Logger.Debug(fmt.Sprintf("failed to connect to host: %s", err.Error()), "module", "ssl", "server", host)
+				config.Logger.Debug(fmt.Sprintf("Failed to connect to host: %s", err.Error()), "module", "ssl", "server", host)
 			}
 		}
 		if !isOk {
-			return nil, fmt.Errorf("Failed to connect to server %v", host)
+			return nil, fmt.Errorf("Failed to connect to host: %s", host)
 		}
 	}
 	client.RegistryAddr = config.DecRegistryAddr
