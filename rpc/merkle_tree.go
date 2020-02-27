@@ -38,7 +38,7 @@ type MerkleTree struct {
 	Leaves   []MerkleTreeLeave
 	RawTree  []byte
 	RootHash []byte
-	Module   int64
+	Module   uint64
 }
 
 // NewMerkleTree returns merkle tree of given byte of json

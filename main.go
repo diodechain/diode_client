@@ -44,7 +44,7 @@ func main() {
 		pool = rpc.NewPool()
 	}
 
-	config.Logger.Info(fmt.Sprintf("Diode client - version %s", version), "module", "main")
+	printLabel("Diode Client version", version)
 
 	// Initialize db
 	clidb, err := db.OpenFile(config.DBPath)
@@ -91,13 +91,13 @@ func main() {
 
 	{
 		lvbn, lvbh := rpc.LastValid()
-		config.Logger.Info(fmt.Sprintf("Last valid block %v %v", lvbn, util.EncodeToString(lvbh[:])), "module", "main")
+		printLabel("Last valid block", fmt.Sprintf("%v %v", lvbn, util.EncodeToString(lvbh[:])))
 
 		addr := crypto.PubkeyToAddress(rpc.LoadClientPubKey())
-		config.Logger.Info(fmt.Sprintf("Client address: %s", util.EncodeToString(addr[:])), "module", "main")
+		printLabel("Client address", util.EncodeToString(addr[:]))
 		fleetAddr, err := db.DB.Get("fleet_id")
 		if err == nil {
-			config.Logger.Info(string(fleetAddr), "module", "main")
+			printLabel("Fleet address", string(fleetAddr))
 			// call config set fleet_id to update the fleet id
 			config.FleetAddr = string(fleetAddr)
 			decFleetID := util.DecodeForce(fleetAddr)
@@ -229,6 +229,11 @@ func main() {
 
 	// start
 	client.Wait()
+}
+
+func printLabel(label string, value string) {
+	msg := fmt.Sprintf("%-20s : %-80s", label, value)
+	config.AppConfig.Logger.Info(msg, "module", "main")
 }
 
 func connect(c chan *rpc.RPCClient, host string, config *config.Config, wg *sync.WaitGroup, pool *rpc.DataPool) {

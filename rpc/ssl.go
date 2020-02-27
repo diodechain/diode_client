@@ -64,9 +64,9 @@ type SSL struct {
 	keepAliveInterval time.Duration
 	closed            bool
 	reconnecting      bool
-	totalConnections  int64
-	totalBytes        int64
-	counter           int64
+	totalConnections  uint64
+	totalBytes        uint64
+	counter           uint64
 	clientPrivKey     *ecdsa.PrivateKey
 	RegistryAddr      [20]byte
 	FleetAddr         [20]byte
@@ -102,21 +102,21 @@ func (s *SSL) LocalAddr() net.Addr {
 }
 
 // TotalConnections returns total connections of device
-func (s *SSL) TotalConnections() int64 {
+func (s *SSL) TotalConnections() uint64 {
 	s.rm.RLock()
 	defer s.rm.RUnlock()
 	return s.totalConnections
 }
 
 // TotalBytes returns total bytes that sent from device
-func (s *SSL) TotalBytes() int64 {
+func (s *SSL) TotalBytes() uint64 {
 	s.rm.RLock()
 	defer s.rm.RUnlock()
 	return s.totalBytes
 }
 
 // Counter returns counter in ssl
-func (s *SSL) Counter() int64 {
+func (s *SSL) Counter() uint64 {
 	s.rm.RLock()
 	defer s.rm.RUnlock()
 	return s.counter
@@ -273,14 +273,14 @@ func (s *SSL) GetClientAddress() ([20]byte, error) {
 func (s *SSL) incrementTotalConnections(n int) {
 	s.rm.Lock()
 	defer s.rm.Unlock()
-	s.totalConnections += int64(n)
+	s.totalConnections += uint64(n)
 	return
 }
 
 func (s *SSL) incrementTotalBytes(n int) {
 	s.rm.Lock()
 	defer s.rm.Unlock()
-	s.totalBytes += int64(n)
+	s.totalBytes += uint64(n)
 	return
 }
 
