@@ -164,11 +164,11 @@ func main() {
 	}
 
 	// send ticket
-	// err = client.Greet()
-	// if err != nil {
-	// 	config.Logger.Error(err.Error(), "module", "main")
-	// 	return
-	// }
+	err = client.Greet()
+	if err != nil {
+		config.Logger.Error(err.Error(), "module", "main")
+		return
+	}
 
 	// listen to signal
 	sigChan := make(chan os.Signal, 1)
