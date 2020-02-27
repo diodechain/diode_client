@@ -536,8 +536,12 @@ func (socksServer *Server) checkAccess(deviceID string) (*DeviceTicket, *HttpErr
 		err = fmt.Errorf("This device is offline - Or you entered the wrong id? %v", device.Err)
 		return nil, &HttpError{404, err}
 	}
-	if !device.ValidateSigs(dDeviceID) {
-		err = fmt.Errorf("Wrong signature in device object")
+	if !device.ValidateDeviceSig(dDeviceID) {
+		err = fmt.Errorf("Wrong device signature in device object")
+		return nil, &HttpError{500, err}
+	}
+	if !device.ValidateServerSig() {
+		err = fmt.Errorf("Wrong server signature in device object")
 		return nil, &HttpError{500, err}
 	}
 	socksServer.Client.s.pool.SetCache(deviceID, device)

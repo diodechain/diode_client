@@ -80,15 +80,15 @@ func (ct *DeviceTicket) arrayBlob() []byte {
 	//    message[4] = bytes32(totalBytes);
 	//    message[5] = localAddress;
 
-	msg := [32 * 7]byte{}
+	msg := [32*6 + 65]byte{}
 	copy(msg[0:32], ct.BlockHash)
 	copy(msg[44:64], ct.FleetAddr[:])
 	copy(msg[76:96], ct.ServerID[:])
 	binary.BigEndian.PutUint64(msg[120:128], ct.TotalConnections)
 	binary.BigEndian.PutUint64(msg[152:160], ct.TotalBytes)
 	copy(msg[160:192], crypto.Sha256(ct.LocalAddr))
-	copy(msg[192:224], ct.DeviceSig)
-	return msg[:]
+	copy(msg[192:], ct.DeviceSig)
+	return msg[:192+len(ct.DeviceSig)]
 }
 
 // Sign ticket with given ecdsa private key
