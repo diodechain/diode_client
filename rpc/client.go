@@ -22,7 +22,6 @@ type RPCClient struct {
 	messageQueue  chan Message
 	s             *SSL
 	logger        log15.Logger
-	totalCalls    int64
 	enableMetrics bool
 	metrics       *Metrics
 	channel       *RPCServer
@@ -35,7 +34,6 @@ func NewRPCClient(s *SSL) RPCClient {
 		s:            s,
 		callQueue:    make(chan Call, 1024),
 		messageQueue: make(chan Message, 1024),
-		totalCalls:   0,
 	}
 }
 
@@ -137,7 +135,7 @@ func (rpcClient *RPCClient) CallContext(method string, args ...interface{}) (res
 	}
 	for {
 		ts = time.Now()
-		rpcTimeout, _ := time.ParseDuration(fmt.Sprintf("%ds", 10+rpcClient.totalCalls))
+		rpcTimeout, _ := time.ParseDuration(fmt.Sprintf("%ds", 10))
 		res, err = waitMessage(resCall, rpcTimeout)
 		if err != nil {
 			tsDiff = time.Since(ts)

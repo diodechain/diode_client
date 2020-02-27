@@ -11,7 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/diodechain/diode_go_client/config"
@@ -234,7 +233,6 @@ func (rpcServer *RPCServer) handleInboundMessage() {
 			}
 			go rpcServer.Client.CheckTicket()
 			if msg.IsResponse() {
-				atomic.AddInt64(&rpcServer.Client.totalCalls, -1)
 				call := rpcServer.firstCallByMethod(msg.ResponseMethod())
 				if call.response == nil {
 					// should not happen
@@ -310,7 +308,6 @@ func (rpcServer *RPCServer) sendMessage() {
 				rpcServer.addCall(call)
 				continue
 			}
-			atomic.AddInt64(&rpcServer.Client.totalCalls, 1)
 			rpcServer.Client.Debug("Send new rpc: %s", call.method)
 			ts := time.Now()
 			conn := rpcServer.Client.s.getOpensslConn()
