@@ -35,9 +35,11 @@ func newMessage(method string, args ...interface{}) ([]byte, error) {
 		strKey = "[" + strconv.Itoa(key) + "]"
 		switch t := v.(type) {
 		default:
-			return nil, fmt.Errorf("Unexpected value type: %T", t)
+			return nil, fmt.Errorf("newMessage(): Unexpected value type: %T", t)
 		case int:
 			bytVal = []byte(strconv.Itoa(v.(int)))
+		case uint64:
+			bytVal = []byte(strconv.FormatUint(v.(uint64), 10))
 		case int64:
 			bytVal = []byte(strconv.FormatInt(v.(int64), 10))
 		case string:
@@ -489,7 +491,7 @@ func jsonInteger(rawData []byte, location string) int64 {
 		return -1
 	}
 	if util.IsHexNumber(value) {
-		return util.DecodeStringToIntForce(string(value))
+		return int64(util.DecodeStringToIntForce(string(value)))
 	}
 	num, err := strconv.Atoi(string(value))
 	if err != nil {

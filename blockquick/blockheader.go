@@ -5,10 +5,11 @@ package blockquick
 
 import (
 	"fmt"
+	"log"
+
 	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/crypto/secp256k1"
 	bert "github.com/diodechain/gobert"
-	"log"
 )
 
 // BlockHeader is the modified Ethereum Block header
@@ -19,9 +20,9 @@ type BlockHeader struct {
 	prevBlock   []byte
 	minerSig    []byte
 	minerPubkey []byte
-	timestamp   int64
-	number      int64
-	nonce       int64
+	timestamp   uint64
+	number      uint64
+	nonce       uint64
 }
 
 // Serialize returns a serialized version
@@ -42,7 +43,7 @@ func (bh *BlockHeader) Serialize() ([]byte, error) {
 }
 
 // NewHeader creates a new block header from existing data
-func NewHeader(txHash []byte, stateHash []byte, prevBlock []byte, minerSig []byte, minerPubkey []byte, timestamp int64, number int64, nonce int64) (*BlockHeader, error) {
+func NewHeader(txHash []byte, stateHash []byte, prevBlock []byte, minerSig []byte, minerPubkey []byte, timestamp uint64, number uint64, nonce uint64) (*BlockHeader, error) {
 	header := &BlockHeader{
 		txHash:      txHash,
 		stateHash:   stateHash,

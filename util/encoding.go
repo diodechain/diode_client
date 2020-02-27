@@ -115,19 +115,19 @@ func DecodeString(src string) (dst []byte, err error) {
 }
 
 // DecodeStringToIntForce decode string to int
-func DecodeStringToIntForce(src string) int64 {
+func DecodeStringToIntForce(src string) uint64 {
 	ret, _ := DecodeStringToInt(src)
 	return ret
 }
 
-func DecodeStringToInt(src string) (int64, error) {
+func DecodeStringToInt(src string) (uint64, error) {
 	out := &big.Int{}
 	outByt, err := DecodeString(src)
 	if err != nil {
-		return out.Int64(), err
+		return out.Uint64(), err
 	}
 	out.SetBytes(outByt)
-	return out.Int64(), nil
+	return out.Uint64(), nil
 }
 
 // EncodeForce encode bytes
