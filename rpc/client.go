@@ -19,6 +19,7 @@ import (
 )
 
 type RPCClient struct {
+	backoff       Backoff
 	callQueue     chan Call
 	messageQueue  chan Message
 	s             *SSL
@@ -27,7 +28,6 @@ type RPCClient struct {
 	metrics       *Metrics
 	channel       *RPCServer
 	Verbose       bool
-	backoff       Backoff
 }
 
 // NewRPCClient returns rpc client
@@ -346,7 +346,9 @@ func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []int) ([]*block
 	wg.Wait()
 	// copy responses to headers
 	for _, i := range blockNumbers {
-		headers = append(headers, responses[i])
+		if responses[i] != nil {
+			headers = append(headers, responses[i])
+		}
 	}
 	return headers, nil
 }
