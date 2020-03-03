@@ -141,9 +141,9 @@ func (rpcClient *RPCClient) CallContext(method string, args ...interface{}) (res
 	if err != nil {
 		return
 	}
+	rpcTimeout := rpcClient.channel.backoff.Duration()
 	for {
 		ts = time.Now()
-		rpcTimeout, _ := time.ParseDuration(fmt.Sprintf("%ds", 10))
 		res, err = waitMessage(resCall, rpcTimeout)
 		if err != nil {
 			tsDiff = time.Since(ts)

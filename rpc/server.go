@@ -29,6 +29,7 @@ type RPCConfig struct {
 }
 
 type RPCServer struct {
+	backoff               Backoff
 	calls                 []Call
 	blockTicker           *time.Ticker
 	blockTickerDuration   time.Duration
@@ -60,6 +61,12 @@ func (client *RPCClient) NewRPCServer(config *RPCConfig, pool *DataPool) *RPCSer
 		pool:                  pool,
 		Client:                client,
 		signal:                make(chan Signal),
+		backoff: Backoff{
+			Min:    5 * time.Second,
+			Max:    30 * time.Second,
+			Factor: 1.1,
+			Jitter: true,
+		},
 	}
 	return rpcServer
 }
@@ -233,6 +240,7 @@ func (rpcServer *RPCServer) handleInboundMessage() {
 			}
 			go rpcServer.Client.CheckTicket()
 			if msg.IsResponse() {
+				rpcServer.backoff.StepBack()
 				call := rpcServer.firstCallByMethod(msg.ResponseMethod())
 				if call.response == nil {
 					// should not happen

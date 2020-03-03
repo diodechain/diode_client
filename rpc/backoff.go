@@ -86,6 +86,13 @@ func (b *Backoff) Reset() {
 	atomic.StoreUint64(&b.attempt, 0)
 }
 
+// StepBack decrement attempt by one
+func (b *Backoff) StepBack() {
+	if b.attempt > 0 {
+		atomic.AddUint64(&b.attempt, ^uint64(0))
+	}
+}
+
 // Attempt returns the current attempt counter value.
 func (b *Backoff) Attempt() float64 {
 	return float64(atomic.LoadUint64(&b.attempt))
