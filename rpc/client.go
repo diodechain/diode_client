@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/diodechain/diode_go_client/blockquick"
@@ -26,6 +27,7 @@ type RPCClient struct {
 	metrics       *Metrics
 	channel       *RPCServer
 	Verbose       bool
+	backoff       Backoff
 }
 
 // NewRPCClient returns rpc client
@@ -34,6 +36,12 @@ func NewRPCClient(s *SSL) RPCClient {
 		s:            s,
 		callQueue:    make(chan Call, 1024),
 		messageQueue: make(chan Message, 1024),
+		backoff: Backoff{
+			Min:    config.AppConfig.RetryWait,
+			Max:    10 * time.Second,
+			Factor: 2,
+			Jitter: true,
+		},
 	}
 }
 
@@ -147,10 +155,9 @@ func (rpcClient *RPCClient) CallContext(method string, args ...interface{}) (res
 				rpcClient.Warn("Call will resend after reconnect, keep waiting")
 				continue
 			}
-			// if _, ok := err.(CloseError); ok {
-			// 	rpcClient.Error("rpc call will resend after reconnect, keep waiting")
-			// 	continue
-			// }
+			if _, ok := err.(CancelledError); ok {
+				break
+			}
 			break
 		}
 		tsDiff = time.Since(ts)
@@ -312,32 +319,36 @@ func (rpcClient *RPCClient) GetBlockHeadersUnsafe(blockNumMin int, blockNumMax i
 }
 
 // GetBlockHeadersUnsafe2 returns a range of block headers
+// TODO: use copy instead reference of BlockHeader
 func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []int) ([]*blockquick.BlockHeader, error) {
 	count := len(blockNumbers)
-	timeout := time.Second * time.Duration(count*5)
-	responses := make([]*blockquick.BlockHeader, 0, count)
-
-	futures := make([]Call, 0, count)
+	responses := make(map[int]*blockquick.BlockHeader)
+	headers := make([]*blockquick.BlockHeader, 0)
+	mx := sync.Mutex{}
+	wg := &sync.WaitGroup{}
+	wg.Add(count)
 	for _, i := range blockNumbers {
-		future, err := rpcClient.CastContext("getblockheader2", i)
-		if err != nil {
-			return nil, err
-		}
-		futures = append(futures, future)
+		go func(bn int) {
+			defer wg.Done()
+			response, err := rpcClient.CallContext("getblockheader2", bn)
+			if err != nil {
+				return
+			}
+			header, err := parseBlockHeader(response.RawData[0], response.RawData[1])
+			if err != nil {
+				return
+			}
+			mx.Lock()
+			responses[bn] = header
+			mx.Unlock()
+		}(i)
 	}
-
-	for _, future := range futures {
-		response, err := waitMessage(future, timeout)
-		if err != nil {
-			return nil, err
-		}
-		header, err := parseBlockHeader(response.RawData[0], response.RawData[1])
-		if err != nil {
-			return nil, err
-		}
-		responses = append(responses, header)
+	wg.Wait()
+	// copy responses to headers
+	for _, i := range blockNumbers {
+		headers = append(headers, responses[i])
 	}
-	return responses, nil
+	return headers, nil
 }
 
 // GetBlock returns block
@@ -652,16 +663,20 @@ func (rpcClient *RPCClient) IsAccessWhitelisted(fleetAddr [20]byte, clientAddr [
 func (rpcClient *RPCClient) Reconnect() bool {
 	isOk := false
 	for i := 1; i <= config.AppConfig.RetryTimes; i++ {
-		rpcClient.Info("Retry to connect to %s, wait %s (%d/%d)", rpcClient.s.addr, config.AppConfig.RetryWait.String(), i, config.AppConfig.RetryTimes)
+		rpcClient.Info("Retry to connect to %s (%d/%d)", rpcClient.s.addr, i, config.AppConfig.RetryTimes)
 		if rpcClient.s.Closed() {
 			break
 		}
 		err := rpcClient.s.reconnect()
 		if err != nil {
-			rpcClient.Error("Failed to reconnect: %s", err)
+			duration := rpcClient.backoff.Duration()
+			rpcClient.Error("Failed to reconnect: %s, reconnecting in %s", err, duration)
+			time.Sleep(duration)
 			continue
 		}
+		rpcClient.backoff.Reset()
 		// Should greet in goroutine or this will block the recvMessage
+		// what if reconnect server frequently?
 		go func() {
 			err := rpcClient.Greet()
 			if err != nil {

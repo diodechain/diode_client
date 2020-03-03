@@ -381,11 +381,8 @@ func waitMessage(call Call, rpcTimeout time.Duration) (res Response, err error) 
 		case RECONNECTING:
 			err = ReconnectError{}
 			break
-		case CLOSED:
-			err = fmt.Errorf("host had been closed")
-			break
 		case CANCELLED:
-			err = fmt.Errorf("rpc call had been closed")
+			err = CancelledError{}
 			break
 		}
 		return

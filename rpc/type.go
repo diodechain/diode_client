@@ -125,7 +125,19 @@ type ReconnectError struct {
 }
 
 func (e ReconnectError) Error() string {
-	return fmt.Sprintf("reconnect to server: %s", e.Host)
+	if len(e.Host) > 0 {
+		return fmt.Sprintf("reconnect to server: %s", e.Host)
+	}
+	return fmt.Sprintf("reconnect to server")
+}
+
+// CancelledError is struct for cancelled error
+type CancelledError struct {
+	Host string
+}
+
+func (e CancelledError) Error() string {
+	return fmt.Sprintf("rpc call had been cancelled")
 }
 
 // StateRoot returns state root of given state roots

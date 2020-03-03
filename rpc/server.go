@@ -275,10 +275,12 @@ func (rpcServer *RPCServer) recvMessage() {
 						// rpcServer.Client.messageQueue = make(chan Message, 1024)
 						rpcServer.recall()
 						notifySignal(rpcServer.signal, RECONNECTED, enqueueTimeout)
-						continue
 					}
+					// should not close connection
+					continue
 				}
 			}
+			// TODO: should restart the rpc server
 			// close and exit
 			rpcServer.rm.Lock()
 			defer rpcServer.rm.Unlock()
@@ -416,7 +418,6 @@ func (rpcServer *RPCServer) Close() {
 	rpcServer.finishBlockTickerChan <- true
 	rpcServer.rm.Unlock()
 	notifySignal(rpcServer.signal, CLOSED, enqueueTimeout)
-	rpcServer.notifyCalls(CLOSED)
 	return
 }
 
