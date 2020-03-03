@@ -18,10 +18,10 @@ import (
 // be used concurrently.
 type Backoff struct {
 	attempt uint64
+	Jitter  bool
 	// Factor is the multiplying factor for each increment step
 	Factor float64
 	// Jitter eases contention by randomizing backoff steps
-	Jitter bool
 	// Min and Max are the minimum and maximum values of the counter
 	Min, Max time.Duration
 }
