@@ -1,11 +1,25 @@
 language: go
 
 go:
-- 1.13
+  - 1.13
+
+service:
+ - docker
+
+before_install:
+    - git clone https://github.com/diodechain/cross-compile.git
+    - cd cross-compile/pi-zero
+    - docker image build -t crosscompile:0.1 .
+    - cd ../..
 
 install: make install
 
 before_script: go vet
+
+script:
+  - make test
+  # test build on pi
+  - docker container run -v  "${PWD}:/build" crosscompile:0.1 go build -tags openssl_static_pi
 
 env:
   - GO111MODULE=on
