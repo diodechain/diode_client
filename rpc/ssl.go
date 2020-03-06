@@ -410,18 +410,19 @@ func LastValid() (int, blockquick.Hash) {
 }
 
 func restoreLastValid() (int, blockquick.Hash) {
-	lvbn, err := db.DB.Get("lvbn2")
+	lvbn, err := db.DB.Get("lvbn3")
 	var lvbh []byte
 	if err == nil {
 		lvbnNum := util.DecodeBytesToInt(lvbn)
-		lvbh, err = db.DB.Get("lvbh2")
+		lvbh, err = db.DB.Get("lvbh3")
 		if err == nil {
 			var hash [32]byte
 			copy(hash[:], lvbh)
 			return lvbnNum, hash
 		}
 	}
-	return 108, [32]byte{0, 0, 98, 184, 252, 38, 6, 88, 88, 30, 209, 143, 24, 89, 71, 244, 92, 85, 98, 72, 89, 223, 184, 74, 232, 251, 127, 33, 26, 134, 11, 117}
+	return 108, [32]byte{0, 0, 63, 196, 0, 185, 91, 159, 138, 136, 107, 219, 22, 191, 4, 215, 22, 128,
+		169, 115, 49, 154, 160, 40, 102, 252, 26, 123, 14, 244, 206, 8}
 }
 
 func storeLastValid() {
