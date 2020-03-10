@@ -55,8 +55,7 @@ func main() {
 
 	if config.Command == "config" {
 		if len(config.ConfigDelete) > 0 {
-			deleteKeys := strings.Split(config.ConfigDelete, ",")
-			for _, deleteKey := range deleteKeys {
+			for _, deleteKey := range config.ConfigDelete {
 				db.DB.Del(deleteKey)
 				config.Logger.Info(fmt.Sprintf("delete: %s", deleteKey), "module", "main")
 			}
@@ -67,8 +66,7 @@ func main() {
 			}
 		}
 		if len(config.ConfigSet) > 0 {
-			configSets := strings.Split(config.ConfigSet, ",")
-			for _, configSet := range configSets {
+			for _, configSet := range config.ConfigSet {
 				list := strings.Split(configSet, "=")
 				if len(list) == 2 {
 					var err error

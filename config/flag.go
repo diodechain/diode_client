@@ -68,9 +68,9 @@ type Config struct {
 	SocksServerAddr         string
 	SocksServerHost         string
 	SocksServerPort         int
-	ConfigSet               string
 	ConfigList              bool
-	ConfigDelete            string
+	ConfigDelete            stringValues
+	ConfigSet               stringValues
 	RlimitNofile            int
 	Blacklists              map[string]bool
 	Whitelists              map[string]bool

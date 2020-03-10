@@ -28,7 +28,7 @@ var (
 	configCommandFlag = CommandFlag{
 		Name:        "config",
 		HelpText:    `  This command manages variables in the local config store.`,
-		ExampleText: `  diode config -delete lvbn2,lvbn`,
+		ExampleText: `  diode config -delete lvbn2 -delete lvbn`,
 	}
 	socksdCommandFlag = CommandFlag{
 		Name:        "socksd",
@@ -83,9 +83,9 @@ func wrapSocksdCommandFlag(cfg *Config) {
 }
 
 func wrapConfigCommandFlag(cfg *Config) {
-	configCommandFlag.Flag.StringVar(&cfg.ConfigDelete, "delete", "", "deletes the given variable from the config")
+	configCommandFlag.Flag.Var(&cfg.ConfigDelete, "delete", "deletes the given variable from the config")
 	configCommandFlag.Flag.BoolVar(&cfg.ConfigList, "list", false, "list all stored config keys")
-	configCommandFlag.Flag.StringVar(&cfg.ConfigSet, "set", "", "sets the given variable in the config")
+	configCommandFlag.Flag.Var(&cfg.ConfigSet, "set", "sets the given variable in the config")
 	configCommandFlag.Flag.Usage = func() {
 		fmt.Printf(brandText)
 		fmt.Printf(commandText, configCommandFlag.Name)
