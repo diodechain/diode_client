@@ -6,13 +6,16 @@ go:
 service:
  - docker
 
+sudo: required
+
 before_install:
     - git clone https://github.com/diodechain/cross-compile.git
     - cd cross-compile/pi-zero
     - docker image build -t crosscompile:0.1 .
     - cd ../..
 
-install: make install
+install:
+  - make diode
 
 before_script: go vet
 
