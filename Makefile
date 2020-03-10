@@ -1,7 +1,7 @@
 TESTS= $(shell go list ./... | grep -v gowasm_test)
 
 .PHONY: all
-all: diode_go_client
+all: diode
 
 .PHONY: test
 test:
@@ -9,7 +9,12 @@ test:
 
 .PHONY: install
 install:
-	go install
+	go build -ldflags "-X main.version=`git describe --tags --dirty`" -o diode
+	mv diode /usr/local/bin/diode
+
+.PHONY: uninstall
+uninstall:
+	rm -rf /usr/local/bin/diode
 
 gateway: diode_go_client
 	strip -s diode_go_client
@@ -18,11 +23,10 @@ gateway: diode_go_client
 	touch gateway
 
 .PHONY: diode_go_client
-diode_go_client:
-	go build
-	go build -ldflags "-X main.version=`git describe --tags --dirty`"
+diode:
+	go build -ldflags "-X main.version=`git describe --tags --dirty`" -o diode
 
 .PHONY: static
 static:
 	go get -a -tags openssl_static github.com/diodechain/openssl
-	go build -tags netgo,openssl_static -ldflags '-extldflags "-static"'
+	go build -tags netgo,openssl_static -ldflags '-extldflags "-static"' -o diode
