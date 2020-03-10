@@ -202,7 +202,7 @@ func (rpcClient *RPCClient) ValidateNetwork() (bool, error) {
 	if hash != lvbh {
 		if rpcClient.Verbose {
 			rpcClient.Error("DEBUG: Reference block does not match -- resetting lvbn.")
-			db.DB.Del("lvbn2")
+			db.DB.Del(lvbnKey)
 			os.Exit(0)
 		}
 		return false, fmt.Errorf("Sent reference block does not match %v: %v != %v", lvbn, lvbh, hash)
@@ -211,7 +211,7 @@ func (rpcClient *RPCClient) ValidateNetwork() (bool, error) {
 	// Checking chain of previous blocks
 	for i := windowSize - 2; i >= 0; i-- {
 		if blockHeaders[i].Hash() != blockHeaders[i+1].Parent() {
-			return false, fmt.Errorf("Recevied blocks parent is not his parent: %v %v", blockHeaders[i+1], blockHeaders[i])
+			return false, fmt.Errorf("Recevied blocks parent is not his parent: %+v %+v", blockHeaders[i+1], blockHeaders[i])
 		}
 		if !blockHeaders[i].ValidateSig() {
 			return false, fmt.Errorf("Recevied blocks signature is not valid: %v", blockHeaders[i])
@@ -347,6 +347,9 @@ func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []int) ([]*block
 	// copy responses to headers
 	for _, i := range blockNumbers {
 		if responses[i] != nil {
+			if i != responses[i].Number() {
+				return nil, fmt.Errorf("Received blocks out of order!")
+			}
 			headers = append(headers, responses[i])
 		}
 	}

@@ -35,6 +35,9 @@ const (
 	confirmationSize                        = 6
 	windowSize                              = 100
 	rpcCallRetryTimes                       = 2
+
+	lvbnKey = "lvbn3"
+	lvbhKey = "lvbh3"
 )
 
 var (
@@ -410,11 +413,11 @@ func LastValid() (int, blockquick.Hash) {
 }
 
 func restoreLastValid() (int, blockquick.Hash) {
-	lvbn, err := db.DB.Get("lvbn3")
+	lvbn, err := db.DB.Get(lvbnKey)
 	var lvbh []byte
 	if err == nil {
 		lvbnNum := util.DecodeBytesToInt(lvbn)
-		lvbh, err = db.DB.Get("lvbh3")
+		lvbh, err = db.DB.Get(lvbhKey)
 		if err == nil {
 			var hash [32]byte
 			copy(hash[:], lvbh)
@@ -427,8 +430,8 @@ func restoreLastValid() (int, blockquick.Hash) {
 
 func storeLastValid() {
 	lvbn, lvbh := LastValid()
-	db.DB.Put("lvbn2", util.DecodeIntToBytes(lvbn))
-	db.DB.Put("lvbh2", lvbh[:])
+	db.DB.Put(lvbnKey, util.DecodeIntToBytes(lvbn))
+	db.DB.Put(lvbhKey, lvbh[:])
 }
 
 func EnsurePrivatePEM() []byte {
