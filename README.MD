@@ -94,7 +94,13 @@ OPTIONS
   -fleet string
     	fleet contract address (default "0x6000000000000000000000000000000000000000")
   -keepalive
-    	enable tcp keepalive (default true)
+    	enable tcp keepalive (only Linux >= 2.4, DragonFly, FreeBSD, NetBSD and OS X >= 10.8 are supported) (default true)
+  -keepalivecount int
+    	the maximum number of keepalive probes TCP should send before dropping the connection (default 4)
+  -keepaliveidle int
+    	the time (in seconds) the connection needs to remain idle before TCP starts sending keepalive probes (default 30)
+  -keepaliveinterval int
+    	the time (in seconds) between individual keepalive probes (default 5)
   -metrics
     	enable metrics stats
   -registry string
@@ -112,6 +118,28 @@ OPTIONS
   -whitelists string
     	addresses are allowed to connect to published resource (worked when whitelists is empty)
 COMMANDS
+  config
+    This command manages variables in the local config store.
+    ARG
+      -delete value
+    	deletes the given variable from the config
+      -list
+    	list all stored config keys
+      -set value
+    	sets the given variable in the config
+    EXAMPLE
+      diode config -delete lvbn2 -delete lvbn
+  publish
+    This command publishes ports of the local device to the Diode Network.
+    ARG
+      -private value
+    	expose ports to private users, so that user could connect to
+      -protected value
+    	expose ports to protected users (in fleet contract), so that user could connect to
+      -public value
+    	expose ports to public users, so that user could connect to
+    EXAMPLE
+      diode publish -public 80:80 -public 8080:8080 -protected 3000:3000 -protected 3001:3001 -private 22:22,0x......,0x...... -private 33:33,0x......,0x......
   socksd
     This command enables a socks proxy on the local host for use with Browsers (Firefox), SSH, Java and other applications to communicate via the Diode Network.
     ARG
@@ -148,11 +176,6 @@ COMMANDS
     	enable socksd proxy server
     EXAMPLE
       diode httpd -httpd_port 8080 -httpsd_port 443 -secure -certpath ./cert.pem -privpath ./priv.pem
-  publish
-    This command publishes ports of the local device to the Diode Network.
-    ARG
-    EXAMPLE
-      diode publish
 ```
 
 ## Tunnel to ssh using your diode socks proxy

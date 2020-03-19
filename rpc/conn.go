@@ -27,18 +27,16 @@ type ConnectedDevice struct {
 func (device *ConnectedDevice) LocalAddr() net.Addr {
 	if device.Conn.IsWS() {
 		return device.Conn.WSConn.LocalAddr()
-	} else {
-		return device.Conn.Conn.LocalAddr()
 	}
+	return device.Conn.Conn.LocalAddr()
 }
 
 // RemoteAddr returns remote network address of device
 func (device *ConnectedDevice) RemoteAddr() net.Addr {
 	if device.Conn.IsWS() {
 		return device.Conn.WSConn.RemoteAddr()
-	} else {
-		return device.Conn.Conn.RemoteAddr()
 	}
+	return device.Conn.Conn.RemoteAddr()
 }
 
 // Close the connection of device

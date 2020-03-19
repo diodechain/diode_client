@@ -46,6 +46,9 @@ type Config struct {
 	DecFleetAddr            [20]byte
 	DecRegistryAddr         [20]byte
 	EnableKeepAlive         bool
+	KeepAliveCount          int
+	KeepAliveIdle           time.Duration
+	KeepAliveInterval       time.Duration
 	FleetAddr               string
 	ProxyServerAddr         string
 	ProxyServerHost         string
@@ -251,10 +254,25 @@ func parseFlag() *Config {
 	flag.StringVar(&cfg.RegistryAddr, "registry", "0x5000000000000000000000000000000000000000", "registry contract address")
 	flag.StringVar(&cfg.FleetAddr, "fleet", "0x6000000000000000000000000000000000000000", "fleet contract address")
 	flag.IntVar(&cfg.RetryTimes, "retrytimes", 3, "retry times to connect the remote rpc server")
-	flag.BoolVar(&cfg.EnableKeepAlive, "keepalive", true, "enable tcp keepalive")
 	flag.BoolVar(&cfg.EnableMetrics, "metrics", false, "enable metrics stats")
 	flag.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
 	flag.IntVar(&cfg.RlimitNofile, "rlimit_nofile", 0, "specify the file descriptor numbers that can be opened by this process")
+
+	// tcp keepalive for node connection
+	flag.BoolVar(&cfg.EnableKeepAlive, "keepalive", true, "enable tcp keepalive (only Linux >= 2.4, DragonFly, FreeBSD, NetBSD and OS X >= 10.8 are supported)")
+	flag.IntVar(&cfg.KeepAliveCount, "keepalivecount", 4, "the maximum number of keepalive probes TCP should send before dropping the connection")
+	keepaliveIdle := flag.Int("keepaliveidle", 30, "the time (in seconds) the connection needs to remain idle before TCP starts sending keepalive probes")
+	keepaliveIdleTime, err := time.ParseDuration(strconv.Itoa(*keepaliveIdle) + "s")
+	cfg.KeepAliveIdle = keepaliveIdleTime
+	if err != nil {
+		wrongCommandLineFlag(err)
+	}
+	keepaliveInterval := flag.Int("keepaliveinterval", 5, "the time (in seconds) between individual keepalive probes")
+	keepaliveIntervalTime, err := time.ParseDuration(strconv.Itoa(*keepaliveInterval) + "s")
+	cfg.KeepAliveInterval = keepaliveIntervalTime
+	if err != nil {
+		wrongCommandLineFlag(err)
+	}
 
 	remoteRPCAddr := flag.String("diodeaddrs", "asia.testnet.diode.io:41045,europe.testnet.diode.io:41045,usa.testnet.diode.io:41045", "addresses of Diode node server")
 	remoteRPCTimeout := flag.Int("timeout", 5, "timeout seconds to connect to the remote rpc server")

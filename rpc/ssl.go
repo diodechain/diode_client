@@ -167,28 +167,31 @@ func (s *SSL) EnableKeepAlive() error {
 	return nil
 }
 
-// SetKeepAliveIdle set idle time for tcp keepalive
+// SetKeepAliveIdle sets the time (in seconds) the connection needs to remain
+// idle before TCP starts sending keepalive probes.
 func (s *SSL) SetKeepAliveIdle(d time.Duration) error {
-	if s.tcpConn == nil {
-		return fmt.Errorf("Please enable keepalive first")
+	if !s.enableKeepAlive {
+		return fmt.Errorf("should enable keepalive first")
 	}
 	s.keepAliveIdle = d
 	return s.tcpConn.SetKeepAliveIdle(d)
 }
 
-// SetKeepAliveCount set count for tcp keepalive
+// SetKeepAliveCount sets the maximum number of keepalive probes TCP should
+// send before dropping the connection.
 func (s *SSL) SetKeepAliveCount(n int) error {
-	if s.tcpConn == nil {
-		return fmt.Errorf("Please enable keepalive first")
+	if !s.enableKeepAlive {
+		return fmt.Errorf("should enable keepalive first")
 	}
 	s.keepAliveCount = n
 	return s.tcpConn.SetKeepAliveCount(n)
 }
 
-// SetKeepAliveInterval set interval time for tcp keepalive
+// SetKeepAliveInterval sets the time (in seconds) between individual keepalive
+// probes.
 func (s *SSL) SetKeepAliveInterval(d time.Duration) error {
-	if s.tcpConn == nil {
-		return fmt.Errorf("Please enable keepalive first")
+	if !s.enableKeepAlive {
+		return fmt.Errorf("should enable keepalive first")
 	}
 	s.keepAliveInterval = d
 	return s.tcpConn.SetKeepAliveInterval(d)
@@ -367,6 +370,18 @@ func (s *SSL) reconnect() error {
 	s.rm.Unlock()
 	if s.enableKeepAlive {
 		s.EnableKeepAlive()
+		err = s.SetKeepAliveCount(s.keepAliveCount)
+		if err != nil {
+			return err
+		}
+		err = s.SetKeepAliveIdle(s.keepAliveIdle)
+		if err != nil {
+			return err
+		}
+		err = s.SetKeepAliveInterval(s.keepAliveInterval)
+		if err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -489,15 +504,15 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 			client.Close()
 			return nil, err
 		}
-		err = client.SetKeepAliveCount(4)
+		err = client.SetKeepAliveCount(config.KeepAliveCount)
 		if err != nil {
 			return nil, err
 		}
-		err = client.SetKeepAliveIdle(30 * time.Second)
+		err = client.SetKeepAliveIdle(config.KeepAliveIdle)
 		if err != nil {
 			return nil, err
 		}
-		err = client.SetKeepAliveInterval(5 * time.Second)
+		err = client.SetKeepAliveInterval(config.KeepAliveInterval)
 		if err != nil {
 			return nil, err
 		}
