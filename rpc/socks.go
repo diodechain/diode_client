@@ -576,7 +576,7 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 
 // Start socks server
 func (socksServer *Server) Start() error {
-	socksServer.Client.Info("start socks server %s", socksServer.Config.Addr)
+	socksServer.Client.Info("Start socks server %s", socksServer.Config.Addr)
 	ln, err := net.Listen("tcp", socksServer.Config.Addr)
 	if err != nil {
 		return err
@@ -664,7 +664,7 @@ func (socksServer *Server) GetServer(nodeID [20]byte) (client *RPCClient, err er
 	go func(nodeID [20]byte) {
 		for {
 			select {
-			case signal, ok := <-client.channel.signal:
+			case signal, ok := <-client.signal:
 				if !ok {
 					return
 				}

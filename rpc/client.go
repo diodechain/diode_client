@@ -18,26 +18,56 @@ import (
 	"github.com/diodechain/log15"
 )
 
+// RPCConfig struct for rpc client
+type RPCConfig struct {
+	RegistryAddr [20]byte
+	FleetAddr    [20]byte
+	Blacklists   map[string]bool
+	Whitelists   map[string]bool
+}
+
+// RPCClient struct for rpc client
 type RPCClient struct {
-	backoff       Backoff
-	callQueue     chan Call
-	messageQueue  chan Message
-	s             *SSL
-	logger        log15.Logger
-	enableMetrics bool
-	metrics       *Metrics
-	channel       *RPCServer
-	Verbose       bool
+	backoff               Backoff
+	callQueue             chan Call
+	messageQueue          chan Message
+	s                     *SSL
+	logger                log15.Logger
+	enableMetrics         bool
+	metrics               *Metrics
+	Verbose               bool
+	calls                 []Call
+	blockTicker           *time.Ticker
+	blockTickerDuration   time.Duration
+	Config                *RPCConfig
+	finishBlockTickerChan chan bool
+	started               bool
+	ticketTicker          *time.Ticker
+	ticketTickerDuration  time.Duration
+	timeout               time.Duration
+	wg                    *sync.WaitGroup
+	rm                    sync.Mutex
+	pool                  *DataPool
+	signal                chan Signal
 }
 
 // NewRPCClient returns rpc client
-func NewRPCClient(s *SSL) RPCClient {
+func NewRPCClient(s *SSL, config *RPCConfig, pool *DataPool) RPCClient {
 	return RPCClient{
-		s:            s,
-		callQueue:    make(chan Call, 1024),
-		messageQueue: make(chan Message, 1024),
+		s:                     s,
+		callQueue:             make(chan Call, 1024),
+		messageQueue:          make(chan Message, 1024),
+		wg:                    &sync.WaitGroup{},
+		Config:                config,
+		started:               false,
+		ticketTickerDuration:  1 * time.Millisecond,
+		finishBlockTickerChan: make(chan bool, 1),
+		blockTickerDuration:   1 * time.Minute,
+		timeout:               5 * time.Second,
+		pool:                  pool,
+		signal:                make(chan Signal),
 		backoff: Backoff{
-			Min:    config.AppConfig.RetryWait,
+			Min:    5 * time.Second,
 			Max:    10 * time.Second,
 			Factor: 2,
 			Jitter: true,
@@ -141,7 +171,7 @@ func (rpcClient *RPCClient) CallContext(method string, args ...interface{}) (res
 	if err != nil {
 		return
 	}
-	rpcTimeout := rpcClient.channel.backoff.Duration()
+	rpcTimeout, _ := time.ParseDuration(fmt.Sprintf("%ds", (10 + len(rpcClient.calls))))
 	for {
 		ts = time.Now()
 		res, err = waitMessage(resCall, rpcTimeout)
@@ -149,6 +179,7 @@ func (rpcClient *RPCClient) CallContext(method string, args ...interface{}) (res
 			tsDiff = time.Since(ts)
 			rpcClient.Error("Failed to call: %s [%v]: %v", method, tsDiff, err)
 			if _, ok := err.(RPCTimeoutError); ok {
+				// TODO: handle rpc timeout
 				log.Panicf("RPC TIMEOUT ERROR %s", rpcClient.Host())
 			}
 			if _, ok := err.(ReconnectError); ok {
@@ -425,7 +456,7 @@ func (rpcClient *RPCClient) newTicket() (*DeviceTicket, error) {
 		ServerID:         serverID,
 		BlockNumber:      lvbn,
 		BlockHash:        lvbh[:],
-		FleetAddr:        rpcClient.s.FleetAddr,
+		FleetAddr:        rpcClient.Config.FleetAddr,
 		TotalConnections: rpcClient.s.totalConnections,
 		TotalBytes:       rpcClient.s.totalBytes,
 		LocalAddr:        []byte(rpcClient.s.LocalAddr().String()),
@@ -472,7 +503,7 @@ func (rpcClient *RPCClient) submitTicket(ticket *DeviceTicket) error {
 		lastTicket := DeviceTicket{
 			ServerID:         sid,
 			BlockHash:        util.DecodeForce(resp.RawData[1]),
-			FleetAddr:        rpcClient.s.FleetAddr,
+			FleetAddr:        rpcClient.Config.FleetAddr,
 			TotalConnections: tc,
 			TotalBytes:       tb,
 			LocalAddr:        util.DecodeForce(resp.RawData[4]),
@@ -643,7 +674,7 @@ func (rpcClient *RPCClient) ResolveDNS(name string) (addr [20]byte, err error) {
 // IsDeviceWhitelisted returns is given address whitelisted
 func (rpcClient *RPCClient) IsDeviceWhitelisted(addr [20]byte) (bool, error) {
 	key := contract.DeviceWhitelistKey(addr)
-	raw, err := rpcClient.GetAccountValueRaw(rpcClient.s.FleetAddr, key)
+	raw, err := rpcClient.GetAccountValueRaw(rpcClient.Config.FleetAddr, key)
 	if err != nil {
 		return false, err
 	}
@@ -703,19 +734,28 @@ func (rpcClient *RPCClient) Reconnecting() bool {
 
 // Started returns whether client had started
 func (rpcClient *RPCClient) Started() bool {
-	return rpcClient.channel.Started() && !rpcClient.s.Closed()
+	return rpcClient.started && !rpcClient.s.Closed()
 }
 
-// Wait until goroutines finish
-func (rpcClient *RPCClient) Wait() {
-	rpcClient.channel.Wait()
+// Closed returns whether client had closed
+func (rpcClient *RPCClient) Closed() bool {
+	return !rpcClient.started && rpcClient.s.Closed()
 }
 
 // Close rpc client
 func (rpcClient *RPCClient) Close() (err error) {
-	if rpcClient.channel.Started() {
-		rpcClient.channel.Close()
+	rpcClient.rm.Lock()
+	defer rpcClient.rm.Unlock()
+	if !rpcClient.started {
+		return
 	}
+	rpcClient.started = false
+	if rpcClient.blockTicker != nil {
+		rpcClient.blockTicker.Stop()
+	}
+	rpcClient.finishBlockTickerChan <- true
+	notifySignal(rpcClient.signal, CLOSED, enqueueTimeout)
+
 	if !rpcClient.s.Closed() {
 		err = rpcClient.s.Close()
 		close(rpcClient.callQueue)

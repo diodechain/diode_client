@@ -71,8 +71,6 @@ type SSL struct {
 	totalBytes        uint64
 	counter           uint64
 	clientPrivKey     *ecdsa.PrivateKey
-	RegistryAddr      [20]byte
-	FleetAddr         [20]byte
 	pool              *DataPool
 	rm                sync.RWMutex
 }
@@ -419,7 +417,7 @@ func enqueueMessage(resp chan Message, msg Message, sendTimeout time.Duration) e
 	}
 }
 
-// LastValid returns the last valid header
+// LastValid returns the last valid block number and block header
 func LastValid() (int, blockquick.Hash) {
 	if bq == nil {
 		return restoreLastValid()
@@ -495,8 +493,6 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 			return nil, fmt.Errorf("Failed to connect to host: %s", host)
 		}
 	}
-	client.RegistryAddr = config.DecRegistryAddr
-	client.FleetAddr = config.DecFleetAddr
 	// enable keepalive
 	if config.EnableKeepAlive {
 		err = client.EnableKeepAlive()
@@ -524,7 +520,7 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 		Blacklists:   config.Blacklists,
 		Whitelists:   config.Whitelists,
 	}
-	rpcClient := NewRPCClient(client)
+	rpcClient := NewRPCClient(client, rpcConfig, pool)
 
 	rpcClient.Verbose = config.Debug
 	rpcClient.logger = config.Logger
@@ -533,10 +529,13 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 		rpcClient.enableMetrics = true
 		rpcClient.metrics = NewMetrics()
 	}
+	rpcClient.Start()
 
-	rpcServer := rpcClient.NewRPCServer(rpcConfig, pool)
-	rpcServer.Start()
-	rpcClient.channel = rpcServer
+	// rpcClient.RegistryAddr = config.DecRegistryAddr
+	// rpcClient.FleetAddr = config.DecFleetAddr
+	// rpcServer := rpcClient.NewRPCServer(rpcConfig, pool)
+	// rpcServer.Start()
+	// rpcClient.channel = rpcServer
 	return &rpcClient, nil
 }
 

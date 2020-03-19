@@ -173,7 +173,7 @@ func NewProxyServer(socksServer *Server, config ProxyConfig) (*ProxyServer, erro
 func (proxyServer *ProxyServer) Start() error {
 	// start httpd proxy server
 	if proxyServer.Config.EnableProxy {
-		proxyServer.socksServer.Client.Info("start httpd server %s", proxyServer.Config.ProxyServerAddr)
+		proxyServer.socksServer.Client.Info("Start httpd server %s", proxyServer.Config.ProxyServerAddr)
 		prox, _ := url.Parse(fmt.Sprintf("socks5://%s", proxyServer.socksServer.Config.Addr))
 		proxyTransport.Proxy = http.ProxyURL(prox)
 		httpdHandler := http.HandlerFunc(proxyServer.pipeProxy)
@@ -201,7 +201,7 @@ func (proxyServer *ProxyServer) Start() error {
 
 	// start httpsd proxy server
 	if proxyServer.Config.EnableSProxy {
-		proxyServer.socksServer.Client.Info("start httpsd server %s", proxyServer.Config.SProxyServerAddr)
+		proxyServer.socksServer.Client.Info("Start httpsd server %s", proxyServer.Config.SProxyServerAddr)
 		httpsdHandler := http.HandlerFunc(proxyServer.pipeProxy)
 
 		go func() {
