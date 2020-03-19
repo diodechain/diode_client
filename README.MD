@@ -181,7 +181,7 @@ COMMANDS
 ## Tunnel to ssh using your diode socks proxy
 
 ```BASH
-$ diode_go_client -runsocks=true
+$ diode_go_client socksd
 $ ssh pi@<ADDRESS>.diode -o 'ProxyCommand=nc -X 5 -x localhost:1080 %h %p'
 ```
 
@@ -205,7 +205,7 @@ Then you can see streaming video through web/mplayer.
 * Through mplayer
 
   ```BASH
-  $ curl --socks5-hostname localhost:8080 <DIODE ADDRESS>.diode:9090 -o- | mplayer - -cache 1000
+  $ curl --socks5-hostname localhost:1080 <DIODE ADDRESS>.diode:3030 -o- | mplayer - -cache 1000
   ```
 
 * Through examples/web
@@ -222,7 +222,7 @@ Then you can see streaming video through web/mplayer.
   3. Setup `Automatic proxy configuration URL` to the porxy.pac, eg: `file:///Users/Guest/diode_go_client/proxy.pac`
   4. Click `reload` then you can proxy request from `*.diode` `*diode.ws` to the go client.
 
-* Type the website URL and see `<MODE>.<DIODE ADDRESS>.diode:8082`.
+* Type the website URL and see, url could be `<MODE>-<DIODE ADDRESS>.diode<:PORT>` or `<MODE>-<DIODE ADDRESS>-<:PORT>.diode`.
 
   MODE:
   1. r: read
