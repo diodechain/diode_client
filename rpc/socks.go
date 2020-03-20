@@ -17,6 +17,7 @@ import (
 	"strconv"
 
 	"github.com/diodechain/diode_go_client/config"
+	"github.com/diodechain/diode_go_client/edge"
 	"github.com/diodechain/diode_go_client/util"
 )
 
@@ -408,7 +409,7 @@ func writeSocksReturn(conn net.Conn, ver int, tcpAddr *net.TCPAddr, port int) {
 
 }
 
-func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *DeviceTicket, port int, mode string) {
+func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *edge.DeviceTicket, port int, mode string) {
 	deviceID := device.GetDeviceID()
 	socksServer.Client.Debug("connect remote %s mode %s...", deviceID, mode)
 	clientIP := conn.RemoteAddr().String()
@@ -455,7 +456,7 @@ func netCopy(input, output net.Conn) (err error) {
 	return
 }
 
-func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, device *DeviceTicket, port int, mode string) {
+func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, device *edge.DeviceTicket, port int, mode string) {
 	socksServer.Client.Debug("connect remote %s mode %s...", socksServer.Config.ProxyServerAddr, mode)
 
 	remoteConn, err := net.DialTimeout("tcp", socksServer.Config.ProxyServerAddr, time.Duration(time.Second*15))
@@ -475,7 +476,7 @@ func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, device *
 	netCopy(remoteConn, conn)
 }
 
-func (socksServer *Server) checkAccess(deviceID string) (*DeviceTicket, *HttpError) {
+func (socksServer *Server) checkAccess(deviceID string) (*edge.DeviceTicket, *HttpError) {
 	// Resolving DNS if needed
 	if !util.IsHex([]byte(deviceID)) {
 		dnsKey := fmt.Sprintf("dns:%s", deviceID)
@@ -528,7 +529,7 @@ func (socksServer *Server) checkAccess(deviceID string) (*DeviceTicket, *HttpErr
 	if err != nil {
 		return nil, &HttpError{500, err}
 	}
-	if err = device.ResolveBlockHash(socksServer.Client); err != nil {
+	if device.BlockHash, err = socksServer.Client.ResolveBlockHash(device.BlockNumber); err != nil {
 		err = fmt.Errorf("Failed to resolve() %v", err)
 		return nil, &HttpError{500, err}
 	}

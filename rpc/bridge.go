@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/diodechain/diode_go_client/config"
+	"github.com/diodechain/diode_go_client/edge"
 	"github.com/diodechain/diode_go_client/util"
 )
 
@@ -34,10 +35,10 @@ func (rpcClient *RPCClient) Wait() {
 }
 
 // handle inbound request
-func (rpcClient *RPCClient) handleInboundRequest(request Request) {
+func (rpcClient *RPCClient) handleInboundRequest(request edge.Request) {
 	switch request.Method {
 	case "portopen":
-		portOpen, err := newPortOpenRequest(request)
+		portOpen, err := rpcClient.edgeProtocol.NewPortOpenRequest(request)
 		if err != nil {
 			go rpcClient.ResponsePortOpen(portOpen, err)
 			rpcClient.Error("Failed to decode portopen request: %v", err)
@@ -122,7 +123,7 @@ func (rpcClient *RPCClient) handleInboundRequest(request Request) {
 			connDevice.Close()
 		}()
 	case "portsend":
-		portSend, err := newPortSendRequest(request)
+		portSend, err := rpcClient.edgeProtocol.NewPortSendRequest(request)
 		if err != nil {
 			rpcClient.Error("failed to decode portsend request: %v", err.Error())
 			return
@@ -143,7 +144,7 @@ func (rpcClient *RPCClient) handleInboundRequest(request Request) {
 			rpcClient.CastPortClose(int(portSend.Ref))
 		}
 	case "portclose":
-		portClose, err := newPortCloseRequest(request)
+		portClose, err := rpcClient.edgeProtocol.NewPortCloseRequest(request)
 		if err != nil {
 			rpcClient.Error("failed to decode portclose request: %v", err)
 			return
@@ -176,19 +177,19 @@ func (rpcClient *RPCClient) handleInboundMessage() {
 				return
 			}
 			go rpcClient.CheckTicket()
-			if msg.IsResponse() {
+			if msg.IsResponse(rpcClient.edgeProtocol) {
 				rpcClient.backoff.StepBack()
-				call := rpcClient.firstCallByMethod(msg.ResponseMethod())
+				call := rpcClient.firstCallByMethod(msg.ResponseMethod(rpcClient.edgeProtocol))
 				if call.response == nil {
 					// should not happen
-					rpcClient.Error("Call.response is nil: %s %s", call.method, string(msg.buffer))
+					rpcClient.Error("Call.response is nil: %s %s", call.method, string(msg.Buffer))
 					continue
 				}
 				enqueueMessage(call.response, msg, enqueueTimeout)
 				close(call.response)
 				continue
 			}
-			request, err := msg.ReadAsRequest()
+			request, err := msg.ReadAsRequest(rpcClient.edgeProtocol)
 			if err != nil {
 				rpcClient.Error("Not rpc request: %v", err)
 				continue
@@ -263,7 +264,7 @@ func (rpcClient *RPCClient) sendMessage() {
 				// if reconnect here the recall() will get wrong response (maybe solve this
 				// issue by adding id in each rpc call)
 				rpcClient.Error("Failed to write to node: %v", err)
-				res := newRPCErrorResponse(call.method, err)
+				res := rpcClient.edgeProtocol.NewErrorResponse(call.method, err)
 				enqueueMessage(call.response, res, enqueueTimeout)
 				continue
 			}

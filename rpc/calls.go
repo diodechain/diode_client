@@ -35,7 +35,7 @@ func (rpcClient *RPCClient) recall() {
 	for _, call := range calls {
 		call.retryTimes--
 		if call.retryTimes >= 0 {
-			err := enqueueCall(rpcClient.callQueue, call, enqueueTimeout)
+			err := rpcClient.enqueueCall(rpcClient.callQueue, call, enqueueTimeout)
 			if err != nil {
 				rpcClient.Error("Failed to recall rpc: %s, might lead to rpc timeout", call.method)
 			} else {

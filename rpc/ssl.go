@@ -21,6 +21,7 @@ import (
 	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/crypto/secp256k1"
 	"github.com/diodechain/diode_go_client/db"
+	"github.com/diodechain/diode_go_client/edge"
 	"github.com/diodechain/diode_go_client/util"
 
 	"github.com/diodechain/openssl"
@@ -50,7 +51,7 @@ type Call struct {
 	id         int64
 	method     string
 	retryTimes int
-	response   chan Message
+	response   chan edge.Message
 	signal     chan Signal
 	data       []byte
 }
@@ -300,7 +301,7 @@ func (s *SSL) getOpensslConn() *openssl.Conn {
 	return s.conn
 }
 
-func (s *SSL) readMessage() (msg Message, err error) {
+func (s *SSL) readMessage() (msg edge.Message, err error) {
 	// read length of response
 	var n int
 	lenByt := make([]byte, 2)
@@ -325,14 +326,14 @@ func (s *SSL) readMessage() (msg Message, err error) {
 	}
 	read += 2
 	s.incrementTotalBytes(read)
-	msg = Message{
+	msg = edge.Message{
 		Len:    read,
-		buffer: res,
+		Buffer: res,
 	}
 	return msg, nil
 }
 
-func (s *SSL) sendPayload(method string, payload []byte, message chan Message) (Call, error) {
+func (s *SSL) sendPayload(method string, payload []byte, message chan edge.Message) (Call, error) {
 	// add length of payload
 	lenPay := len(payload)
 	lenByt := make([]byte, 2)
@@ -384,31 +385,7 @@ func (s *SSL) reconnect() error {
 	return nil
 }
 
-func waitMessage(call Call, rpcTimeout time.Duration) (res Response, err error) {
-	select {
-	case resp := <-call.response:
-		res, err = resp.ReadAsResponse()
-		if err != nil {
-			return
-		}
-		return res, nil
-	case signal := <-call.signal:
-		switch signal {
-		case RECONNECTING:
-			err = ReconnectError{}
-			break
-		case CANCELLED:
-			err = CancelledError{}
-			break
-		}
-		return
-	case _ = <-time.After(rpcTimeout):
-		err = RPCTimeoutError{rpcTimeout}
-		return
-	}
-}
-
-func enqueueMessage(resp chan Message, msg Message, sendTimeout time.Duration) error {
+func enqueueMessage(resp chan edge.Message, msg edge.Message, sendTimeout time.Duration) error {
 	select {
 	case resp <- msg:
 		return nil
@@ -531,11 +508,6 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 	}
 	rpcClient.Start()
 
-	// rpcClient.RegistryAddr = config.DecRegistryAddr
-	// rpcClient.FleetAddr = config.DecFleetAddr
-	// rpcServer := rpcClient.NewRPCServer(rpcConfig, pool)
-	// rpcServer.Start()
-	// rpcClient.channel = rpcServer
 	return &rpcClient, nil
 }
 

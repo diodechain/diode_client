@@ -1,7 +1,7 @@
 // Diode Network Client
 // Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 // Licensed under the Diode License, Version 1.0
-package rpc
+package edge
 
 import (
 	"crypto/ecdsa"
@@ -25,25 +25,6 @@ type DeviceTicket struct {
 	DeviceSig        []byte
 	ServerSig        []byte
 	Err              error
-}
-
-// ResolveBlockHash resolves a missing blockhash by blocknumber
-func (ct *DeviceTicket) ResolveBlockHash(client *RPCClient) (err error) {
-	if ct.BlockHash != nil {
-		return
-	}
-	blockHeader := bq.GetBlockHeader(ct.BlockNumber)
-	if blockHeader == nil {
-		lvbn, _ := bq.Last()
-		client.Info("Validating ticket based on non-checked block %v %v", ct.BlockNumber, lvbn)
-		blockHeader, err = client.GetBlockHeaderUnsafe(ct.BlockNumber)
-		if err != nil {
-			return
-		}
-	}
-	hash := blockHeader.Hash()
-	ct.BlockHash = hash[:]
-	return
 }
 
 // ValidateValues checks length of byte[] arrays and returns an error message

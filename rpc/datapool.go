@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/diodechain/diode_go_client/config"
+	"github.com/diodechain/diode_go_client/edge"
 	"github.com/diodechain/go-cache"
 )
 
@@ -60,17 +61,17 @@ func (p *DataPool) SetCacheDNS(key string, dns []byte) {
 	}
 }
 
-func (p *DataPool) GetCache(key string) *DeviceTicket {
+func (p *DataPool) GetCache(key string) *edge.DeviceTicket {
 	p.rm.RLock()
 	defer p.rm.RUnlock()
 	cacheObj, hit := p.memoryCache.Get(key)
 	if !hit {
 		return nil
 	}
-	return cacheObj.(*DeviceTicket)
+	return cacheObj.(*edge.DeviceTicket)
 }
 
-func (p *DataPool) SetCache(key string, tck *DeviceTicket) {
+func (p *DataPool) SetCache(key string, tck *edge.DeviceTicket) {
 	p.rm.Lock()
 	defer p.rm.Unlock()
 	if tck == nil {
