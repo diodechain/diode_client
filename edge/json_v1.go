@@ -140,6 +140,27 @@ func (jsonV1 JSON_V1) ResponseMethod(rawData []byte) string {
 	return jsonString(rawData, "[1]")
 }
 
+// NewMerkleTree returns merkle tree of given byte of json
+// eg: ["0x", "0x1", ["0x2bbfda354b607b8cdd7d52c29344c76c17d76bb7d9187874a994144b55eaf931","0x0000000000000000000000000000000000000000000000000000000000000001"]]
+func (jsonV1 JSON_V1) NewMerkleTree(rawTree []byte) (mt MerkleTree, err error) {
+	if !isJSONArr(rawTree) {
+		err = errorWrongTree
+		return
+	}
+	mt = MerkleTree{
+		mtp:     JSONMerkleTreeParser{},
+		RawTree: rawTree,
+	}
+	rootHash, module, leaves, err := mt.parse()
+	if err != nil {
+		return
+	}
+	mt.RootHash = rootHash
+	mt.Module = module
+	mt.Leaves = leaves
+	return
+}
+
 func (jsonV1 JSON_V1) NewErrorResponse(method string, err error) Message {
 	ret := []byte(fmt.Sprintf("[\"error\", \"%s\", \"%+v\"]", method, err.Error()))
 	return Message{
@@ -396,7 +417,7 @@ func (jsonV1 JSON_V1) ParseAccount(rawAccount [][]byte) (*Account, error) {
 	}
 	balance := &big.Int{}
 	balance.SetBytes(balanceByt)
-	stateTree, err := NewMerkleTree(rawAccount[1])
+	stateTree, err := jsonV1.NewMerkleTree(rawAccount[1])
 	if err != nil {
 		return nil, err
 	}
@@ -413,7 +434,7 @@ func (jsonV1 JSON_V1) ParseAccount(rawAccount [][]byte) (*Account, error) {
 
 // TODO: check error from jsonparser
 func (jsonV1 JSON_V1) ParseAccountValue(rawAccountValue []byte) (*AccountValue, error) {
-	accountTree, err := NewMerkleTree(rawAccountValue)
+	accountTree, err := jsonV1.NewMerkleTree(rawAccountValue)
 	if err != nil {
 		return nil, err
 	}

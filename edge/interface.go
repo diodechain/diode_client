@@ -15,6 +15,7 @@ type EdgeProtocol interface {
 	IsResponseType(rawData []byte) bool
 	IsErrorType(rawData []byte) bool
 	ResponseMethod(rawData []byte) string
+	NewMerkleTree(rawTree []byte) (MerkleTree, error)
 	NewErrorResponse(method string, err error) Message
 	NewMessage(method string, args ...interface{}) ([]byte, error)
 	NewPortOpenRequest(request Request) (*PortOpen, error)
@@ -33,4 +34,10 @@ type EdgeProtocol interface {
 	ParseBlockHeaders(raw []byte, size int) ([]*blockquick.BlockHeader, error)
 	ParseBlockHeader(rawHeader []byte, minerPubkey []byte) (*blockquick.BlockHeader, error)
 	ParseDeviceTicket(rawObject []byte) (*DeviceTicket, error)
+}
+
+// MerkleTreeParser interface defines functions that are required to diode merkle tree
+type MerkleTreeParser interface {
+	parseProof(proof []byte) (rootHash []byte, module uint64, leaves []MerkleTreeLeave, err error)
+	rparse(proof []byte) (interface{}, uint64, []MerkleTreeLeave, error)
 }

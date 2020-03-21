@@ -80,12 +80,12 @@ type Account struct {
 	Balance     int64
 	AccountHash []byte
 	proof       []byte
-	stateTree   *MerkleTree
+	stateTree   MerkleTree
 }
 
 type AccountValue struct {
 	proof       []byte
-	accountTree *MerkleTree
+	accountTree MerkleTree
 }
 
 // StateRoot returns state root of given state roots
@@ -162,7 +162,7 @@ func (ac *Account) StateRoot() []byte {
 }
 
 // StateTree returns merkle tree of account
-func (ac *Account) StateTree() *MerkleTree {
+func (ac *Account) StateTree() MerkleTree {
 	return ac.stateTree
 }
 
@@ -172,7 +172,7 @@ func (acv *AccountValue) AccountRoot() []byte {
 }
 
 // AccountTree returns merkle tree of account value
-func (acv *AccountValue) AccountTree() *MerkleTree {
+func (acv *AccountValue) AccountTree() MerkleTree {
 	return acv.accountTree
 }
 
