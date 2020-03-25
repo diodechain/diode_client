@@ -17,7 +17,7 @@ type EdgeProtocol interface {
 	ResponseMethod(rawData []byte) string
 	NewMerkleTree(rawTree []byte) (MerkleTree, error)
 	NewErrorResponse(method string, err error) Message
-	NewMessage(method string, args ...interface{}) ([]byte, error)
+	NewMessage(requestID uint64, method string, args ...interface{}) ([]byte, error)
 	NewPortOpenRequest(request Request) (*PortOpen, error)
 	NewPortSendRequest(request Request) (*PortSend, error)
 	NewPortCloseRequest(request Request) (*PortClose, error)

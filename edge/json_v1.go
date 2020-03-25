@@ -170,7 +170,7 @@ func (jsonV1 JSON_V1) NewErrorResponse(method string, err error) Message {
 }
 
 // TODO: change to encoding/binary
-func (jsonV1 JSON_V1) NewMessage(method string, args ...interface{}) ([]byte, error) {
+func (jsonV1 JSON_V1) NewMessage(requestID uint64, method string, args ...interface{}) ([]byte, error) {
 	key := 0
 	strKey := ""
 	bytVal := []byte{}

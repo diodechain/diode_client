@@ -6,6 +6,7 @@ package rpc
 import (
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"sync"
 	"time"
@@ -32,6 +33,7 @@ type RPCClient struct {
 	backoff               Backoff
 	callQueue             chan Call
 	messageQueue          chan edge.Message
+	requestIDGenerator    *rand.Rand
 	s                     *SSL
 	logger                log15.Logger
 	enableMetrics         bool
@@ -55,7 +57,9 @@ type RPCClient struct {
 
 // NewRPCClient returns rpc client
 func NewRPCClient(s *SSL, config *RPCConfig, pool *DataPool) RPCClient {
+	now := time.Now()
 	return RPCClient{
+		requestIDGenerator:    rand.New(rand.NewSource(now.UnixNano())),
 		s:                     s,
 		callQueue:             make(chan Call, 1024),
 		messageQueue:          make(chan edge.Message, 1024),
@@ -159,9 +163,9 @@ func (rpcClient *RPCClient) waitMessage(call Call, rpcTimeout time.Duration) (re
 }
 
 // RespondContext sends a message without expecting a response
-func (rpcClient *RPCClient) RespondContext(method string, args ...interface{}) (call Call, err error) {
+func (rpcClient *RPCClient) RespondContext(requestID uint64, method string, args ...interface{}) (call Call, err error) {
 	var msg []byte
-	msg, err = rpcClient.edgeProtocol.NewMessage(method, args...)
+	msg, err = rpcClient.edgeProtocol.NewMessage(requestID, method, args...)
 	if err != nil {
 		return
 	}
@@ -174,9 +178,9 @@ func (rpcClient *RPCClient) RespondContext(method string, args ...interface{}) (
 }
 
 // CastContext returns a response future after calling the rpc
-func (rpcClient *RPCClient) CastContext(method string, args ...interface{}) (call Call, err error) {
+func (rpcClient *RPCClient) CastContext(requestID uint64, method string, args ...interface{}) (call Call, err error) {
 	var msg []byte
-	msg, err = rpcClient.edgeProtocol.NewMessage(method, args...)
+	msg, err = rpcClient.edgeProtocol.NewMessage(requestID, method, args...)
 	if err != nil {
 		return
 	}
@@ -194,7 +198,9 @@ func (rpcClient *RPCClient) CallContext(method string, args ...interface{}) (res
 	var resCall Call
 	var ts time.Time
 	var tsDiff time.Duration
-	resCall, err = rpcClient.CastContext(method, args...)
+	var requestID uint64
+	requestID = rpcClient.requestIDGenerator.Uint64()
+	resCall, err = rpcClient.CastContext(requestID, method, args...)
 	if err != nil {
 		return
 	}
@@ -453,8 +459,9 @@ func (rpcClient *RPCClient) GetNode(nodeID [20]byte) (*edge.ServerObj, error) {
 
 // Greet Initiates the connection
 func (rpcClient *RPCClient) Greet() error {
-	// _, err := rpcClient.s.CastContext("hello", 1000, "compression")
-	_, err := rpcClient.CastContext("hello", 1000)
+	var requestID uint64
+	requestID = rpcClient.requestIDGenerator.Uint64()
+	_, err := rpcClient.CastContext(requestID, "hello", 1000)
 	if err != nil {
 		return err
 	}
@@ -578,9 +585,9 @@ func (rpcClient *RPCClient) PortOpen(deviceID string, port int, mode string) (*e
 // ResponsePortOpen response portopen request
 func (rpcClient *RPCClient) ResponsePortOpen(portOpen *edge.PortOpen, err error) error {
 	if err != nil {
-		_, err = rpcClient.RespondContext("error", "portopen", int(portOpen.Ref), err.Error())
+		_, err = rpcClient.RespondContext(0, "error", "portopen", int(portOpen.Ref), err.Error())
 	} else {
-		_, err = rpcClient.RespondContext("response", "portopen", int(portOpen.Ref), "ok")
+		_, err = rpcClient.RespondContext(0, "response", "portopen", int(portOpen.Ref), "ok")
 	}
 	if err != nil {
 		return err
@@ -595,7 +602,9 @@ func (rpcClient *RPCClient) PortSend(ref int, data []byte) (edge.Response, error
 
 // CastPortClose cast portclose RPC
 func (rpcClient *RPCClient) CastPortClose(ref int) (err error) {
-	_, err = rpcClient.CastContext("portclose", ref)
+	var requestID uint64
+	requestID = rpcClient.requestIDGenerator.Uint64()
+	_, err = rpcClient.CastContext(requestID, "portclose", ref)
 	return err
 }
 
