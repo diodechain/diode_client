@@ -798,6 +798,22 @@ func BenchmarkDecodeIntSliceReuse(b *testing.B) {
 	}
 }
 
+func BenchmarkDecodeStream(b *testing.B) {
+	enc := encodeTestSlice(90000)
+	b.SetBytes(int64(len(enc)))
+	b.ReportAllocs()
+	b.ResetTimer()
+	st := NewStream(nil, 0)
+
+	for i := 0; i < b.N; i++ {
+		var s []uint
+		st.Reset(bytes.NewReader(enc), 0)
+		if err := st.Decode(&s); err != nil {
+			b.Fatalf("Decode error: %v", err)
+		}
+	}
+}
+
 func encodeTestSlice(n uint) []byte {
 	s := make([]uint, n)
 	for i := uint(0); i < n; i++ {
