@@ -221,14 +221,15 @@ func (rpcClient *RPCClient) recvMessage() {
 						// rpcClient.messageQueue = make(chan Message, 1024)
 						rpcClient.recall()
 						notifySignal(rpcClient.signal, RECONNECTED, enqueueTimeout)
+						continue
 					}
-					// should not close connection
-					continue
 				}
 			}
-			// TODO: should restart the rpc server
-			// close and exit
+			// TODO: should connect to another rpc bridge
 			if !rpcClient.Closed() {
+				go func() {
+					rpcClient.notifyCalls(CANCELLED)
+				}()
 				rpcClient.Close()
 			}
 			return
