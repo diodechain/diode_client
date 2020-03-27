@@ -13,7 +13,6 @@ import (
 	"net"
 	"os"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/diodechain/diode_go_client/blockquick"
@@ -48,12 +47,13 @@ var (
 )
 
 type Call struct {
-	id         int64
+	id         uint64
 	method     string
 	retryTimes int
-	response   chan edge.Message
+	response   chan interface{}
 	signal     chan Signal
 	data       []byte
+	Parse      func(buffer []byte) (interface{}, error)
 }
 
 type SSL struct {
@@ -333,7 +333,7 @@ func (s *SSL) readMessage() (msg edge.Message, err error) {
 	return msg, nil
 }
 
-func (s *SSL) sendPayload(method string, payload []byte, message chan edge.Message) (Call, error) {
+func (s *SSL) sendPayload(requestID uint64, method string, payload []byte, parse func(buffer []byte) (interface{}, error), message chan interface{}) (Call, error) {
 	// add length of payload
 	lenPay := len(payload)
 	lenByt := make([]byte, 2)
@@ -345,14 +345,15 @@ func (s *SSL) sendPayload(method string, payload []byte, message chan edge.Messa
 		bytPay[i+2] = byte(s)
 	}
 	call := Call{
-		id:         rpcID,
+		id:         requestID,
 		method:     method,
 		retryTimes: rpcCallRetryTimes,
 		response:   message,
 		signal:     make(chan Signal),
 		data:       bytPay,
+		Parse:      parse,
 	}
-	atomic.AddInt64(&rpcID, 1)
+	// atomic.AddInt64(&rpcID, 1)
 	return call, nil
 }
 
@@ -383,6 +384,15 @@ func (s *SSL) reconnect() error {
 		}
 	}
 	return nil
+}
+
+func enqueueResponse(resp chan interface{}, msg interface{}, sendTimeout time.Duration) error {
+	select {
+	case resp <- msg:
+		return nil
+	case _ = <-time.After(sendTimeout):
+		return fmt.Errorf("send response to channel timeout")
+	}
 }
 
 func enqueueMessage(resp chan edge.Message, msg edge.Message, sendTimeout time.Duration) error {

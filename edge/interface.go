@@ -17,11 +17,14 @@ type EdgeProtocol interface {
 	ResponseMethod(rawData []byte) string
 	NewMerkleTree(rawTree []byte) (MerkleTree, error)
 	NewErrorResponse(method string, err error) Message
-	NewMessage(requestID uint64, method string, args ...interface{}) ([]byte, error)
+	NewMessage(requestID uint64, method string, args ...interface{}) ([]byte, func(buffer []byte) (interface{}, error), error)
 	NewPortOpenRequest(request Request) (*PortOpen, error)
 	NewPortSendRequest(request Request) (*PortSend, error)
 	NewPortCloseRequest(request Request) (*PortClose, error)
 	// parse response of rpc call
+	parseBlockPeak(buffer []byte) (interface{}, error)
+	parseBlock(buffer []byte) (interface{}, error)
+	parseBlockHeader(buffer []byte) (interface{}, error)
 	ParsePortOpen(rawResponse [][]byte) (*PortOpen, error)
 	// ParsePortSend(rawResponse [][]byte) (*PortSend, error)
 	// ParsePortClose(rawResponse [][]byte) (*PortClose, error)
@@ -32,7 +35,6 @@ type EdgeProtocol interface {
 	ParseAccountValue(rawAccountValue []byte) (*AccountValue, error)
 	ParseBlockquick(raw []byte, size int) ([]int, error)
 	ParseBlockHeaders(raw []byte, size int) ([]*blockquick.BlockHeader, error)
-	ParseBlockHeader(rawHeader []byte, minerPubkey []byte) (*blockquick.BlockHeader, error)
 	ParseDeviceTicket(rawObject []byte) (*DeviceTicket, error)
 }
 

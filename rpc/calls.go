@@ -54,7 +54,7 @@ func (rpcClient *RPCClient) recall() {
 	return
 }
 
-func (rpcClient *RPCClient) removeCallByID(id int64) {
+func (rpcClient *RPCClient) removeCallByID(id uint64) {
 	rpcClient.rm.Lock()
 	defer rpcClient.rm.Unlock()
 	var c Call

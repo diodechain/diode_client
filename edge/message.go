@@ -28,6 +28,11 @@ func (msg *Message) IsRequest(edgeProtocol EdgeProtocol) bool {
 	return !msg.IsResponse(edgeProtocol)
 }
 
+// IsError returns true if the message is error
+func (msg *Message) IsError(edgeProtocol EdgeProtocol) bool {
+	return edgeProtocol.IsErrorType(msg.Buffer)
+}
+
 // ReadAsResponse returns Response of the message
 func (msg *Message) ReadAsResponse(edgeProtocol EdgeProtocol) (Response, error) {
 	return edgeProtocol.parseResponse(msg.Buffer)

@@ -6,6 +6,8 @@ package rpc
 import (
 	"fmt"
 	"time"
+
+	"github.com/diodechain/diode_go_client/edge"
 )
 
 var (
@@ -47,4 +49,13 @@ type CancelledError struct {
 
 func (e CancelledError) Error() string {
 	return fmt.Sprintf("rpc call had been cancelled")
+}
+
+// RPCError is struct for rpc error
+type RPCError struct {
+	Err edge.Error
+}
+
+func (e RPCError) Error() string {
+	return fmt.Sprintf("remote procedure call error: %s %s", e.Err.Method, e.Err.Message)
 }

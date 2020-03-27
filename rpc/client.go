@@ -77,7 +77,7 @@ func NewRPCClient(s *SSL, config *RPCConfig, pool *DataPool) RPCClient {
 			Factor: 2,
 			Jitter: true,
 		},
-		edgeProtocol: edge.JSON_V1{},
+		edgeProtocol: edge.RLP_V2{},
 		Config:       config,
 	}
 }
@@ -138,13 +138,15 @@ func (rpcClient *RPCClient) enqueueCall(resq chan Call, call Call, sendTimeout t
 	}
 }
 
-func (rpcClient *RPCClient) waitMessage(call Call, rpcTimeout time.Duration) (res edge.Response, err error) {
+func (rpcClient *RPCClient) waitMessage(call Call, rpcTimeout time.Duration) (res interface{}, err error) {
 	select {
 	case resp := <-call.response:
-		res, err = resp.ReadAsResponse(rpcClient.edgeProtocol)
-		if err != nil {
+		if rpcError, ok := resp.(edge.Error); ok {
+			rpcClient.Error("got error from server: %s", rpcError.Message)
+			err = RPCError{rpcError}
 			return
 		}
+		res = resp
 		return res, nil
 	case signal := <-call.signal:
 		switch signal {
@@ -165,11 +167,11 @@ func (rpcClient *RPCClient) waitMessage(call Call, rpcTimeout time.Duration) (re
 // RespondContext sends a message without expecting a response
 func (rpcClient *RPCClient) RespondContext(requestID uint64, method string, args ...interface{}) (call Call, err error) {
 	var msg []byte
-	msg, err = rpcClient.edgeProtocol.NewMessage(requestID, method, args...)
+	msg, _, err = rpcClient.edgeProtocol.NewMessage(requestID, method, args...)
 	if err != nil {
 		return
 	}
-	call, err = rpcClient.s.sendPayload(method, msg, nil)
+	call, err = rpcClient.s.sendPayload(requestID, method, msg, nil, nil)
 	if err != nil {
 		return
 	}
@@ -178,14 +180,15 @@ func (rpcClient *RPCClient) RespondContext(requestID uint64, method string, args
 }
 
 // CastContext returns a response future after calling the rpc
-func (rpcClient *RPCClient) CastContext(requestID uint64, method string, args ...interface{}) (call Call, err error) {
+func (rpcClient *RPCClient) CastContext(requestID uint64, method string, parse func(buffer []byte) (interface{}, error), args ...interface{}) (call Call, err error) {
 	var msg []byte
-	msg, err = rpcClient.edgeProtocol.NewMessage(requestID, method, args...)
+	msg, parse, err = rpcClient.edgeProtocol.NewMessage(requestID, method, args...)
 	if err != nil {
 		return
 	}
-	resMsg := make(chan edge.Message)
-	call, err = rpcClient.s.sendPayload(method, msg, resMsg)
+	// resMsg := make(chan edge.Message)
+	resMsg := make(chan interface{})
+	call, err = rpcClient.s.sendPayload(requestID, method, msg, parse, resMsg)
 	if err != nil {
 		return
 	}
@@ -194,13 +197,13 @@ func (rpcClient *RPCClient) CastContext(requestID uint64, method string, args ..
 }
 
 // CallContext returns the response after calling the rpc
-func (rpcClient *RPCClient) CallContext(method string, args ...interface{}) (res edge.Response, err error) {
+func (rpcClient *RPCClient) CallContext(method string, parse func(buffer []byte) (interface{}, error), args ...interface{}) (res interface{}, err error) {
 	var resCall Call
 	var ts time.Time
 	var tsDiff time.Duration
 	var requestID uint64
 	requestID = rpcClient.requestIDGenerator.Uint64()
-	resCall, err = rpcClient.CastContext(requestID, method, args...)
+	resCall, err = rpcClient.CastContext(requestID, method, parse, args...)
 	if err != nil {
 		return
 	}
@@ -220,6 +223,9 @@ func (rpcClient *RPCClient) CallContext(method string, args ...interface{}) (res
 				continue
 			}
 			if _, ok := err.(CancelledError); ok {
+				break
+			}
+			if _, ok := err.(RPCError); ok {
 				break
 			}
 			break
@@ -329,25 +335,24 @@ func (rpcClient *RPCClient) ValidateNetwork() (bool, error) {
 
 // GetBlockPeak returns block peak
 func (rpcClient *RPCClient) GetBlockPeak() (int, error) {
-	rawPeak, err := rpcClient.CallContext("getblockpeak")
+	rawBlockPeak, err := rpcClient.CallContext("getblockpeak", nil)
 	if err != nil {
 		return -1, err
 	}
-	peak, err := util.DecodeStringToInt(string(rawPeak.RawData[0][2:]))
-	if err != nil {
-		return -1, err
+	if blockPeak, ok := rawBlockPeak.(uint64); !ok {
+		return -1, nil
+	} else {
+		return int(blockPeak), nil
 	}
-	return int(peak), nil
 }
 
 // GetBlockQuick returns block header
 func (rpcClient *RPCClient) GetBlockQuick(lastValid int, windowSize int) ([]*blockquick.BlockHeader, error) {
-	sequence, err := rpcClient.CallContext("getblockquick2", lastValid, windowSize)
+	sequence, err := rpcClient.CallContext("getblockquick2", nil, lastValid, windowSize)
 	if err != nil {
 		return nil, err
 	}
-
-	responses, err := rpcClient.edgeProtocol.ParseBlockquick(sequence.RawData[0], windowSize)
+	responses, err := rpcClient.edgeProtocol.ParseBlockquick(sequence.(edge.Response).RawData[0], windowSize)
 	if err != nil {
 		return nil, err
 	}
@@ -361,12 +366,15 @@ func (rpcClient *RPCClient) GetBlockHeaderValid(blockNum int) *blockquick.BlockH
 }
 
 // GetBlockHeaderUnsafe returns an unchecked block header from the server
-func (rpcClient *RPCClient) GetBlockHeaderUnsafe(blockNum int) (*blockquick.BlockHeader, error) {
-	rawHeader, err := rpcClient.CallContext("getblockheader2", blockNum)
+func (rpcClient *RPCClient) GetBlockHeaderUnsafe(blockNum uint64) (*blockquick.BlockHeader, error) {
+	rawHeader, err := rpcClient.CallContext("getblockheader2", nil, blockNum)
 	if err != nil {
 		return nil, err
 	}
-	return rpcClient.edgeProtocol.ParseBlockHeader(rawHeader.RawData[0], rawHeader.RawData[1])
+	if blockHeader, ok := rawHeader.(*blockquick.BlockHeader); ok {
+		return blockHeader, nil
+	}
+	return nil, nil
 }
 
 // GetBlockHeadersUnsafe returns a consecutive range of block headers
@@ -394,14 +402,15 @@ func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []int) ([]*block
 	for _, i := range blockNumbers {
 		go func(bn int) {
 			defer wg.Done()
-			response, err := rpcClient.CallContext("getblockheader2", bn)
+			_, err := rpcClient.CallContext("getblockheader2", nil, bn)
 			if err != nil {
 				return
 			}
-			header, err := rpcClient.edgeProtocol.ParseBlockHeader(response.RawData[0], response.RawData[1])
-			if err != nil {
-				return
-			}
+			// header, err := rpcClient.edgeProtocol.ParseBlockHeader(response.(edge.Response).RawData[0], response.(edge.Response).RawData[1])
+			// if err != nil {
+			// 	return
+			// }
+			header := &blockquick.BlockHeader{}
 			mx.Lock()
 			responses[bn] = header
 			mx.Unlock()
@@ -421,8 +430,8 @@ func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []int) ([]*block
 }
 
 // GetBlock returns block
-func (rpcClient *RPCClient) GetBlock(blockNum int) (edge.Response, error) {
-	return rpcClient.CallContext("getblock", blockNum)
+func (rpcClient *RPCClient) GetBlock(blockNum uint64) (interface{}, error) {
+	return rpcClient.CallContext("getblock", nil, blockNum)
 }
 
 // GetObject returns network object for device
@@ -431,11 +440,11 @@ func (rpcClient *RPCClient) GetObject(deviceID [20]byte) (*edge.DeviceTicket, er
 		return nil, fmt.Errorf("Device ID must be 20 bytes")
 	}
 	encDeviceID := util.EncodeToString(deviceID[:])
-	rawObject, err := rpcClient.CallContext("getobject", encDeviceID)
+	rawObject, err := rpcClient.CallContext("getobject", nil, encDeviceID)
 	if err != nil {
 		return nil, err
 	}
-	device, err := rpcClient.edgeProtocol.ParseDeviceTicket(rawObject.RawData[0])
+	device, err := rpcClient.edgeProtocol.ParseDeviceTicket(rawObject.(edge.Response).RawData[0])
 	if err != nil {
 		return nil, err
 	}
@@ -446,13 +455,13 @@ func (rpcClient *RPCClient) GetObject(deviceID [20]byte) (*edge.DeviceTicket, er
 // GetNode returns network address for node
 func (rpcClient *RPCClient) GetNode(nodeID [20]byte) (*edge.ServerObj, error) {
 	encNodeID := util.EncodeToString(nodeID[:])
-	rawNode, err := rpcClient.CallContext("getnode", encNodeID)
+	rawNode, err := rpcClient.CallContext("getnode", nil, encNodeID)
 	if err != nil {
 		return nil, err
 	}
-	obj, err := rpcClient.edgeProtocol.ParseServerObj(rawNode.RawData[0])
+	obj, err := rpcClient.edgeProtocol.ParseServerObj(rawNode.(edge.Response).RawData[0])
 	if err != nil {
-		return nil, fmt.Errorf("GetNode(): parseerror '%v' in '%v'", err, string(rawNode.RawData[0]))
+		return nil, fmt.Errorf("GetNode(): parseerror '%v' in '%v'", err, string(rawNode.(edge.Response).RawData[0]))
 	}
 	return obj, nil
 }
@@ -461,7 +470,9 @@ func (rpcClient *RPCClient) GetNode(nodeID [20]byte) (*edge.ServerObj, error) {
 func (rpcClient *RPCClient) Greet() error {
 	var requestID uint64
 	requestID = rpcClient.requestIDGenerator.Uint64()
-	_, err := rpcClient.CastContext(requestID, "hello", 1000)
+	_, err := rpcClient.CastContext(requestID, "hello", func(buffer []byte) (interface{}, error) {
+		return nil, nil
+	}, 1000)
 	if err != nil {
 		return err
 	}
@@ -522,26 +533,26 @@ func (rpcClient *RPCClient) submitTicket(ticket *edge.DeviceTicket) error {
 	encFleetAddr := util.EncodeToString(ticket.FleetAddr[:])
 	encLocalAddr := util.EncodeToString(ticket.LocalAddr)
 	encSig := util.EncodeToString(ticket.DeviceSig)
-	resp, err := rpcClient.CallContext("ticket", ticket.BlockNumber, encFleetAddr, ticket.TotalConnections, ticket.TotalBytes, encLocalAddr, encSig)
+	resp, err := rpcClient.CallContext("ticket", nil, ticket.BlockNumber, encFleetAddr, ticket.TotalConnections, ticket.TotalBytes, encLocalAddr, encSig)
 	if err != nil {
 		rpcClient.Error("failed to submit ticket: %v", err)
 		return err
 	}
-	status := string(resp.RawData[0])
+	status := string(resp.(edge.Response).RawData[0])
 	switch status {
 	case "too_low":
 
-		tc := util.DecodeStringToIntForce(string(resp.RawData[2]))
-		tb := util.DecodeStringToIntForce(string(resp.RawData[3]))
+		tc := util.DecodeStringToIntForce(string(resp.(edge.Response).RawData[2]))
+		tb := util.DecodeStringToIntForce(string(resp.(edge.Response).RawData[3]))
 		sid, _ := rpcClient.s.GetServerID()
 		lastTicket := edge.DeviceTicket{
 			ServerID:         sid,
-			BlockHash:        util.DecodeForce(resp.RawData[1]),
+			BlockHash:        util.DecodeForce(resp.(edge.Response).RawData[1]),
 			FleetAddr:        rpcClient.Config.FleetAddr,
 			TotalConnections: tc,
 			TotalBytes:       tb,
-			LocalAddr:        util.DecodeForce(resp.RawData[4]),
-			DeviceSig:        util.DecodeForce(resp.RawData[5]),
+			LocalAddr:        util.DecodeForce(resp.(edge.Response).RawData[4]),
+			DeviceSig:        util.DecodeForce(resp.(edge.Response).RawData[5]),
 		}
 
 		addr, err := rpcClient.s.GetClientAddress()
@@ -563,23 +574,23 @@ func (rpcClient *RPCClient) submitTicket(ticket *edge.DeviceTicket) error {
 			}
 
 		} else {
-			rpcClient.Warn("received fake ticket.. last_ticket=%v response=%v", lastTicket, string(resp.Raw))
+			rpcClient.Warn("received fake ticket.. last_ticket=%v response=%v", lastTicket, string(resp.(edge.Response).Raw))
 		}
 
 	case "ok", "thanks!":
 	default:
-		rpcClient.Info("response of submit ticket: %s %s", status, string(resp.Raw))
+		rpcClient.Info("response of submit ticket: %s %s", status, string(resp.(edge.Response).Raw))
 	}
 	return err
 }
 
 // PortOpen call portopen RPC
 func (rpcClient *RPCClient) PortOpen(deviceID string, port int, mode string) (*edge.PortOpen, error) {
-	rawPortOpen, err := rpcClient.CallContext("portopen", deviceID, port, mode)
+	rawPortOpen, err := rpcClient.CallContext("portopen", nil, deviceID, port, mode)
 	if err != nil {
 		return nil, err
 	}
-	return rpcClient.edgeProtocol.ParsePortOpen(rawPortOpen.RawData)
+	return rpcClient.edgeProtocol.ParsePortOpen(rawPortOpen.(edge.Response).RawData)
 }
 
 // ResponsePortOpen response portopen request
@@ -596,26 +607,28 @@ func (rpcClient *RPCClient) ResponsePortOpen(portOpen *edge.PortOpen, err error)
 }
 
 // PortSend call portsend RPC
-func (rpcClient *RPCClient) PortSend(ref int, data []byte) (edge.Response, error) {
-	return rpcClient.CallContext("portsend", ref, data)
+func (rpcClient *RPCClient) PortSend(ref int, data []byte) (interface{}, error) {
+	return rpcClient.CallContext("portsend", nil, ref, data)
 }
 
 // CastPortClose cast portclose RPC
 func (rpcClient *RPCClient) CastPortClose(ref int) (err error) {
 	var requestID uint64
 	requestID = rpcClient.requestIDGenerator.Uint64()
-	_, err = rpcClient.CastContext(requestID, "portclose", ref)
+	_, err = rpcClient.CastContext(requestID, "portclose", func(buffer []byte) (interface{}, error) {
+		return nil, nil
+	}, ref)
 	return err
 }
 
 // PortClose portclose RPC
-func (rpcClient *RPCClient) PortClose(ref int) (edge.Response, error) {
-	return rpcClient.CallContext("portclose", ref)
+func (rpcClient *RPCClient) PortClose(ref int) (interface{}, error) {
+	return rpcClient.CallContext("portclose", nil, ref)
 }
 
 // Ping call ping RPC
-func (rpcClient *RPCClient) Ping() (edge.Response, error) {
-	return rpcClient.CallContext("ping")
+func (rpcClient *RPCClient) Ping() (interface{}, error) {
+	return rpcClient.CallContext("ping", nil)
 }
 
 // GetAccountValue returns account storage value
@@ -625,20 +638,20 @@ func (rpcClient *RPCClient) GetAccountValue(account [20]byte, rawKey []byte) (*e
 	// pad key to 32 bytes
 	key := util.PaddingBytesPrefix(rawKey, 0, 32)
 	encKey := util.EncodeToString(key)
-	rawAccountValue, err := rpcClient.CallContext("getaccountvalue", blockNumber, encAccount, encKey)
+	rawAccountValue, err := rpcClient.CallContext("getaccountvalue", nil, blockNumber, encAccount, encKey)
 	if err != nil {
 		return nil, err
 	}
-	return rpcClient.edgeProtocol.ParseAccountValue(rawAccountValue.RawData[0])
+	return rpcClient.edgeProtocol.ParseAccountValue(rawAccountValue.(edge.Response).RawData[0])
 }
 
 // GetStateRoots returns state roots
 func (rpcClient *RPCClient) GetStateRoots(blockNumber int) (*edge.StateRoots, error) {
-	rawStateRoots, err := rpcClient.CallContext("getstateroots", blockNumber)
+	rawStateRoots, err := rpcClient.CallContext("getstateroots", nil, blockNumber)
 	if err != nil {
 		return nil, err
 	}
-	return rpcClient.edgeProtocol.ParseStateRoots(rawStateRoots.RawData[0])
+	return rpcClient.edgeProtocol.ParseStateRoots(rawStateRoots.(edge.Response).RawData[0])
 }
 
 // GetAccount returns account information: nonce, balance, storage root, code
@@ -647,22 +660,22 @@ func (rpcClient *RPCClient) GetAccount(blockNumber int, account []byte) (*edge.A
 		return nil, fmt.Errorf("Account must be 20 bytes")
 	}
 	encAccount := util.EncodeToString(account)
-	rawAccount, err := rpcClient.CallContext("getaccount", blockNumber, encAccount)
+	rawAccount, err := rpcClient.CallContext("getaccount", nil, blockNumber, encAccount)
 	if err != nil {
 		return nil, err
 	}
-	return rpcClient.edgeProtocol.ParseAccount(rawAccount.RawData)
+	return rpcClient.edgeProtocol.ParseAccount(rawAccount.(edge.Response).RawData)
 }
 
 // GetAccountRoots returns account state roots
 func (rpcClient *RPCClient) GetAccountRoots(account [20]byte) (*edge.AccountRoots, error) {
 	blockNumber, _ := LastValid()
 	encAccount := util.EncodeToString(account[:])
-	rawAccountRoots, err := rpcClient.CallContext("getaccountroots", blockNumber, encAccount)
+	rawAccountRoots, err := rpcClient.CallContext("getaccountroots", nil, blockNumber, encAccount)
 	if err != nil {
 		return nil, err
 	}
-	return rpcClient.edgeProtocol.ParseAccountRoots(rawAccountRoots.RawData[0])
+	return rpcClient.edgeProtocol.ParseAccountRoots(rawAccountRoots.(edge.Response).RawData[0])
 }
 
 func (rpcClient *RPCClient) GetAccountValueRaw(addr [20]byte, key []byte) ([]byte, error) {
@@ -711,7 +724,7 @@ func (rpcClient *RPCClient) ResolveBlockHash(blockNumber int) (blockHash []byte,
 	if blockHeader == nil {
 		lvbn, _ := bq.Last()
 		rpcClient.Info("Validating ticket based on non-checked block %v %v", blockNumber, lvbn)
-		blockHeader, err = rpcClient.GetBlockHeaderUnsafe(blockNumber)
+		blockHeader, err = rpcClient.GetBlockHeaderUnsafe(uint64(blockNumber))
 		if err != nil {
 			return
 		}

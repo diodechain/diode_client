@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"strconv"
 	"strings"
@@ -185,7 +186,18 @@ func (rpcClient *RPCClient) handleInboundMessage() {
 					rpcClient.Error("Call.response is nil: %s %s", call.method, string(msg.Buffer))
 					continue
 				}
-				enqueueMessage(call.response, msg, enqueueTimeout)
+				if msg.IsError(rpcClient.edgeProtocol) {
+					rpcError, _ := msg.ReadAsError(rpcClient.edgeProtocol)
+					enqueueResponse(call.response, rpcError, enqueueTimeout)
+					continue
+				}
+				res, err := call.Parse(msg.Buffer)
+				if err != nil {
+					rpcClient.Error("cannot decode response: %s", err.Error())
+					// TODO: send error to the call signal, lead to RPCTimeoutError
+					continue
+				}
+				enqueueResponse(call.response, res, enqueueTimeout)
 				close(call.response)
 				continue
 			}
@@ -266,7 +278,8 @@ func (rpcClient *RPCClient) sendMessage() {
 				// issue by adding id in each rpc call)
 				rpcClient.Error("Failed to write to node: %v", err)
 				res := rpcClient.edgeProtocol.NewErrorResponse(call.method, err)
-				enqueueMessage(call.response, res, enqueueTimeout)
+				log.Println(res)
+				// enqueueMessage(call.response, res, enqueueTimeout)
 				continue
 			}
 			if n != len(call.data) {
@@ -311,7 +324,7 @@ func (rpcClient *RPCClient) watchLatestBlock() {
 				}
 
 				for num := lastblock + 1; num <= blockNumMax; num++ {
-					blockHeader, err := rpcClient.GetBlockHeaderUnsafe(num)
+					blockHeader, err := rpcClient.GetBlockHeaderUnsafe(uint64(num))
 					if err != nil {
 						rpcClient.Error("Couldn't download block header %v", err)
 						return
