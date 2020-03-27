@@ -605,28 +605,6 @@ func (rlpV2 RLP_V2) ParseAccountValue(rawAccountValue []byte) (*AccountValue, er
 	return accountValue, nil
 }
 
-func (rlpV2 RLP_V2) ParseBlockHeaders(raw []byte, size int) ([]*blockquick.BlockHeader, error) {
-	responses := make([]*blockquick.BlockHeader, 0, size)
-	var err error = nil
-	jsonparser.ArrayEach(raw, func(value []byte, _type jsonparser.ValueType, offset int, err2 error) {
-		if err != nil {
-			return
-		}
-		if err != nil {
-			err = err2
-			return
-		}
-		// rawHeader, _, _, _ := jsonparser.Get(value, "[0]")
-		// miner, _, _, _ := jsonparser.Get(value, "[1]")
-		// header, err := rlpV2.ParseBlockHeader(rawHeader)
-		// if err != nil {
-		// 	return
-		// }
-		// responses = append(responses, header.(blockquick.BlockHeader))
-	})
-	return responses, err
-}
-
 func (rlpV2 RLP_V2) ParseDeviceTicket(rawObject []byte) (*DeviceTicket, error) {
 	if bytes.Equal(NullData, rawObject) {
 		err := fmt.Errorf("cannot find the object of device")

@@ -3,10 +3,6 @@
 // Licensed under the Diode License, Version 1.0
 package edge
 
-import (
-	"github.com/diodechain/diode_go_client/blockquick"
-)
-
 // EdgeProtocol interface defines functions that are required to diode edge protocol
 type EdgeProtocol interface {
 	parseResponse(rawResponse []byte) (response Response, err error)
@@ -26,7 +22,6 @@ type EdgeProtocol interface {
 	parseBlock(buffer []byte) (interface{}, error)
 	parseBlockHeader(buffer []byte) (interface{}, error)
 	parseBlockquick(buffer []byte) (interface{}, error)
-	ParseBlockHeaders(raw []byte, size int) ([]*blockquick.BlockHeader, error)
 	ParsePortOpen(rawResponse [][]byte) (*PortOpen, error)
 	// ParsePortSend(rawResponse [][]byte) (*PortSend, error)
 	// ParsePortClose(rawResponse [][]byte) (*PortClose, error)
