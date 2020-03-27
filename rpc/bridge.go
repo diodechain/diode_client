@@ -180,7 +180,7 @@ func (rpcClient *RPCClient) handleInboundMessage() {
 			go rpcClient.CheckTicket()
 			if msg.IsResponse(rpcClient.edgeProtocol) {
 				rpcClient.backoff.StepBack()
-				call := rpcClient.firstCallByMethod(msg.ResponseMethod(rpcClient.edgeProtocol))
+				call := rpcClient.firstCallByID(msg.ResponseID(rpcClient.edgeProtocol))
 				if call.response == nil {
 					// should not happen
 					rpcClient.Error("Call.response is nil: %s %s", call.method, string(msg.Buffer))

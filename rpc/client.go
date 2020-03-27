@@ -39,7 +39,7 @@ type RPCClient struct {
 	enableMetrics         bool
 	metrics               *Metrics
 	Verbose               bool
-	calls                 []Call
+	calls                 map[uint64]Call
 	blockTicker           *time.Ticker
 	blockTickerDuration   time.Duration
 	finishBlockTickerChan chan bool
@@ -63,6 +63,7 @@ func NewRPCClient(s *SSL, config *RPCConfig, pool *DataPool) RPCClient {
 		s:                     s,
 		callQueue:             make(chan Call, 1024),
 		messageQueue:          make(chan edge.Message, 1024),
+		calls:                 make(map[uint64]Call),
 		wg:                    &sync.WaitGroup{},
 		started:               false,
 		ticketTickerDuration:  1 * time.Millisecond,
@@ -296,7 +297,7 @@ func (rpcClient *RPCClient) ValidateNetwork() (bool, error) {
 
 	blockNumMax := peak - confirmationSize
 	// fetch more blocks than windowSize
-	blocks, err := rpcClient.GetBlockQuick(lvbn, windowSize+confirmationSize+1)
+	blocks, err := rpcClient.GetBlockquick(uint64(lvbn), uint64(windowSize+confirmationSize+1))
 	if err != nil {
 		return false, err
 	}
@@ -339,30 +340,22 @@ func (rpcClient *RPCClient) GetBlockPeak() (int, error) {
 	if err != nil {
 		return -1, err
 	}
-	if blockPeak, ok := rawBlockPeak.(uint64); !ok {
-		return -1, nil
-	} else {
+	if blockPeak, ok := rawBlockPeak.(uint64); ok {
 		return int(blockPeak), nil
 	}
+	return -1, nil
 }
 
-// GetBlockQuick returns block header
-func (rpcClient *RPCClient) GetBlockQuick(lastValid int, windowSize int) ([]*blockquick.BlockHeader, error) {
-	sequence, err := rpcClient.CallContext("getblockquick2", nil, lastValid, windowSize)
+// GetBlockquick returns block headers used for blockquick algorithm
+func (rpcClient *RPCClient) GetBlockquick(lastValid uint64, windowSize uint64) ([]*blockquick.BlockHeader, error) {
+	rawSequence, err := rpcClient.CallContext("getblockquick2", nil, lastValid, windowSize)
 	if err != nil {
 		return nil, err
 	}
-	responses, err := rpcClient.edgeProtocol.ParseBlockquick(sequence.(edge.Response).RawData[0], windowSize)
-	if err != nil {
-		return nil, err
+	if sequence, ok := rawSequence.([]uint64); ok {
+		return rpcClient.GetBlockHeadersUnsafe2(sequence)
 	}
-	return rpcClient.GetBlockHeadersUnsafe2(responses)
-}
-
-// GetBlockHeaderValid returns a validated recent block header
-// (only available for the last windowsSize blocks)
-func (rpcClient *RPCClient) GetBlockHeaderValid(blockNum int) *blockquick.BlockHeader {
-	return bq.GetBlockHeader(blockNum)
+	return nil, nil
 }
 
 // GetBlockHeaderUnsafe returns an unchecked block header from the server
@@ -377,40 +370,23 @@ func (rpcClient *RPCClient) GetBlockHeaderUnsafe(blockNum uint64) (*blockquick.B
 	return nil, nil
 }
 
-// GetBlockHeadersUnsafe returns a consecutive range of block headers
-func (rpcClient *RPCClient) GetBlockHeadersUnsafe(blockNumMin int, blockNumMax int) ([]*blockquick.BlockHeader, error) {
-	if blockNumMin > blockNumMax {
-		return nil, fmt.Errorf("GetBlockHeadersUnsafe(): blockNumMin needs to be <= max")
-	}
-	count := blockNumMax - blockNumMin + 1
-	blockNumbers := make([]int, 0, count)
-	for i := blockNumMin; i <= blockNumMax; i++ {
-		blockNumbers = append(blockNumbers, i)
-	}
-	return rpcClient.GetBlockHeadersUnsafe2(blockNumbers)
-}
-
 // GetBlockHeadersUnsafe2 returns a range of block headers
 // TODO: use copy instead reference of BlockHeader
-func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []int) ([]*blockquick.BlockHeader, error) {
+func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]*blockquick.BlockHeader, error) {
 	count := len(blockNumbers)
-	responses := make(map[int]*blockquick.BlockHeader)
+	responses := make(map[uint64]*blockquick.BlockHeader)
 	headers := make([]*blockquick.BlockHeader, 0)
 	mx := sync.Mutex{}
 	wg := &sync.WaitGroup{}
 	wg.Add(count)
 	for _, i := range blockNumbers {
-		go func(bn int) {
+		go func(bn uint64) {
 			defer wg.Done()
-			_, err := rpcClient.CallContext("getblockheader2", nil, bn)
+			header, err := rpcClient.GetBlockHeaderUnsafe(bn)
 			if err != nil {
+				log.Println("GG: ", err)
 				return
 			}
-			// header, err := rpcClient.edgeProtocol.ParseBlockHeader(response.(edge.Response).RawData[0], response.(edge.Response).RawData[1])
-			// if err != nil {
-			// 	return
-			// }
-			header := &blockquick.BlockHeader{}
 			mx.Lock()
 			responses[bn] = header
 			mx.Unlock()
@@ -420,13 +396,32 @@ func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []int) ([]*block
 	// copy responses to headers
 	for _, i := range blockNumbers {
 		if responses[i] != nil {
-			if i != responses[i].Number() {
+			if int(i) != responses[i].Number() {
 				return nil, fmt.Errorf("Received blocks out of order!")
 			}
 			headers = append(headers, responses[i])
 		}
 	}
 	return headers, nil
+}
+
+// GetBlockHeaderValid returns a validated recent block header
+// (only available for the last windowsSize blocks)
+func (rpcClient *RPCClient) GetBlockHeaderValid(blockNum int) *blockquick.BlockHeader {
+	return bq.GetBlockHeader(blockNum)
+}
+
+// GetBlockHeadersUnsafe returns a consecutive range of block headers
+func (rpcClient *RPCClient) GetBlockHeadersUnsafe(blockNumMin int, blockNumMax int) ([]*blockquick.BlockHeader, error) {
+	if blockNumMin > blockNumMax {
+		return nil, fmt.Errorf("GetBlockHeadersUnsafe(): blockNumMin needs to be <= max")
+	}
+	count := blockNumMax - blockNumMin + 1
+	blockNumbers := make([]uint64, 0, count)
+	for i := blockNumMin; i <= blockNumMax; i++ {
+		blockNumbers = append(blockNumbers, uint64(i))
+	}
+	return rpcClient.GetBlockHeadersUnsafe2(blockNumbers)
 }
 
 // GetBlock returns block

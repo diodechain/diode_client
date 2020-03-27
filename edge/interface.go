@@ -14,7 +14,7 @@ type EdgeProtocol interface {
 	parseError(rawError []byte) (Error, error)
 	IsResponseType(rawData []byte) bool
 	IsErrorType(rawData []byte) bool
-	ResponseMethod(rawData []byte) string
+	ResponseID(buffer []byte) uint64
 	NewMerkleTree(rawTree []byte) (MerkleTree, error)
 	NewErrorResponse(method string, err error) Message
 	NewMessage(requestID uint64, method string, args ...interface{}) ([]byte, func(buffer []byte) (interface{}, error), error)
@@ -25,6 +25,8 @@ type EdgeProtocol interface {
 	parseBlockPeak(buffer []byte) (interface{}, error)
 	parseBlock(buffer []byte) (interface{}, error)
 	parseBlockHeader(buffer []byte) (interface{}, error)
+	parseBlockquick(buffer []byte) (interface{}, error)
+	ParseBlockHeaders(raw []byte, size int) ([]*blockquick.BlockHeader, error)
 	ParsePortOpen(rawResponse [][]byte) (*PortOpen, error)
 	// ParsePortSend(rawResponse [][]byte) (*PortSend, error)
 	// ParsePortClose(rawResponse [][]byte) (*PortClose, error)
@@ -33,8 +35,6 @@ type EdgeProtocol interface {
 	ParseAccountRoots(rawAccountRoots []byte) (*AccountRoots, error)
 	ParseAccount(rawAccount [][]byte) (*Account, error)
 	ParseAccountValue(rawAccountValue []byte) (*AccountValue, error)
-	ParseBlockquick(raw []byte, size int) ([]int, error)
-	ParseBlockHeaders(raw []byte, size int) ([]*blockquick.BlockHeader, error)
 	ParseDeviceTicket(rawObject []byte) (*DeviceTicket, error)
 }
 

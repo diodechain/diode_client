@@ -10,12 +10,12 @@ type Message struct {
 	Buffer []byte
 }
 
-// ResponseMethod returns response method of the message
-func (msg *Message) ResponseMethod(edgeProtocol EdgeProtocol) string {
+// ResponseID returns response identifier of the message
+func (msg *Message) ResponseID(edgeProtocol EdgeProtocol) uint64 {
 	if !msg.IsResponse(edgeProtocol) {
-		return ""
+		return 0
 	}
-	return edgeProtocol.ResponseMethod(msg.Buffer)
+	return edgeProtocol.ResponseID(msg.Buffer)
 }
 
 // IsResponse returns true if the message is response

@@ -6,14 +6,14 @@ package rpc
 func (rpcClient *RPCClient) addCall(c Call) {
 	rpcClient.rm.Lock()
 	defer rpcClient.rm.Unlock()
-	rpcClient.calls = append(rpcClient.calls, c)
+	rpcClient.calls[c.id] = c
 }
 
 func (rpcClient *RPCClient) popCall() (c Call) {
 	rpcClient.rm.Lock()
 	defer rpcClient.rm.Unlock()
 	c = rpcClient.calls[0]
-	rpcClient.calls = rpcClient.calls[1:]
+	delete(rpcClient.calls, c.id)
 	return
 }
 
@@ -31,7 +31,7 @@ func (rpcClient *RPCClient) recall() {
 	defer rpcClient.rm.Unlock()
 	// copy calls
 	calls := rpcClient.calls
-	rpcClient.calls = make([]Call, 0)
+	rpcClient.calls = make(map[uint64]Call, 0)
 	for _, call := range calls {
 		call.retryTimes--
 		if call.retryTimes >= 0 {
@@ -57,25 +57,25 @@ func (rpcClient *RPCClient) recall() {
 func (rpcClient *RPCClient) removeCallByID(id uint64) {
 	rpcClient.rm.Lock()
 	defer rpcClient.rm.Unlock()
-	var c Call
-	var i int
-	for i, c = range rpcClient.calls {
-		if c.id == id {
-			rpcClient.calls = append(rpcClient.calls[:i], rpcClient.calls[i+1:]...)
-			break
-		}
-	}
+	delete(rpcClient.calls, id)
 }
 
 func (rpcClient *RPCClient) firstCallByMethod(method string) (c Call) {
 	rpcClient.rm.Lock()
 	defer rpcClient.rm.Unlock()
-	var i int
+	var i uint64
 	for i, c = range rpcClient.calls {
 		if c.method == method {
-			rpcClient.calls = append(rpcClient.calls[:i], rpcClient.calls[i+1:]...)
+			delete(rpcClient.calls, i)
 			break
 		}
 	}
+	return
+}
+
+func (rpcClient *RPCClient) firstCallByID(id uint64) (c Call) {
+	rpcClient.rm.Lock()
+	defer rpcClient.rm.Unlock()
+	c = rpcClient.calls[id]
 	return
 }

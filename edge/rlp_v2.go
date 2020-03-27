@@ -109,8 +109,11 @@ func (rlpV2 RLP_V2) IsErrorType(rawData []byte) bool {
 	return bytes.Contains(rawData, errorPivot)
 }
 
-func (rlpV2 RLP_V2) ResponseMethod(rawData []byte) string {
-	return jsonString(rawData, "[1]")
+func (rlpV2 RLP_V2) ResponseID(buffer []byte) uint64 {
+	var response responseID
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	decodeStream.Decode(&response)
+	return response.RequestID
 }
 
 // NewMerkleTree returns merkle tree of given byte of json
@@ -167,10 +170,28 @@ type blockHeaderRequest struct {
 	}
 }
 
+type blockquickRequest struct {
+	RequestID uint64
+	Payload   struct {
+		Method     string
+		LastValid  uint64
+		WindowSize uint64
+	}
+}
+
 // Response struct
 type Item struct {
 	Key   string
 	Value []byte
+}
+
+type responseID struct {
+	RequestID uint64
+}
+
+type errorResponse struct {
+	RequestID uint64
+	Payload   []string
 }
 
 type blockPeakResponse struct {
@@ -192,9 +213,12 @@ type blockHeaderResponse struct {
 	}
 }
 
-type errorResponse struct {
+type blockquickResponse struct {
 	RequestID uint64
-	Payload   []string
+	Payload   struct {
+		Type  string
+		Items []uint64
+	}
 }
 
 func findItemInItems(items interface{}, key string) (item Item, err error) {
@@ -254,6 +278,17 @@ func (rlpV2 RLP_V2) NewMessage(requestID uint64, method string, args ...interfac
 			return nil, nil, err
 		}
 		return decodedRlp, rlpV2.parseBlockHeader, err
+	case "getblockquick2":
+		request := blockquickRequest{}
+		request.RequestID = requestID
+		request.Payload.Method = method
+		request.Payload.LastValid = args[0].(uint64)
+		request.Payload.WindowSize = args[1].(uint64)
+		decodedRlp, err := rlp.EncodeToBytes(request)
+		if err != nil {
+			return nil, nil, err
+		}
+		return decodedRlp, rlpV2.parseBlockquick, err
 	default:
 		return nil, nil, fmt.Errorf("not found")
 	}
@@ -403,6 +438,16 @@ func (rlpV2 RLP_V2) parseBlockHeader(buffer []byte) (interface{}, error) {
 		return nil, fmt.Errorf("Blockhash != real hash %v %v", blockHash.Value, header)
 	}
 	return header, nil
+}
+
+func (rlpV2 RLP_V2) parseBlockquick(buffer []byte) (interface{}, error) {
+	var response blockquickResponse
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	err := decodeStream.Decode(&response)
+	if err != nil {
+		return nil, err
+	}
+	return response.Payload.Items, nil
 }
 
 func (rlpV2 RLP_V2) ParsePortOpen(rawResponse [][]byte) (*PortOpen, error) {
@@ -558,26 +603,6 @@ func (rlpV2 RLP_V2) ParseAccountValue(rawAccountValue []byte) (*AccountValue, er
 		proof:       rawAccountValue,
 	}
 	return accountValue, nil
-}
-
-func (rlpV2 RLP_V2) ParseBlockquick(raw []byte, size int) ([]int, error) {
-	responses := make([]int, 0, size)
-	var err error = nil
-	jsonparser.ArrayEach(raw, func(value []byte, _type jsonparser.ValueType, offset int, err2 error) {
-		if err != nil {
-			return
-		}
-		if err != nil {
-			err = err2
-			return
-		}
-		num, err := util.DecodeStringToInt(string(value))
-		if err != nil {
-			return
-		}
-		responses = append(responses, int(num))
-	})
-	return responses, err
 }
 
 func (rlpV2 RLP_V2) ParseBlockHeaders(raw []byte, size int) ([]*blockquick.BlockHeader, error) {
