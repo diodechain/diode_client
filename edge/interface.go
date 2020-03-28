@@ -8,6 +8,13 @@ type EdgeProtocol interface {
 	parseResponse(rawResponse []byte) (response Response, err error)
 	parseRequest(rawRequest []byte) (request Request, err error)
 	parseError(rawError []byte) (Error, error)
+	// parse response of rpc call
+	parseBlockPeak(buffer []byte) (interface{}, error)
+	parseBlock(buffer []byte) (interface{}, error)
+	parseBlockHeader(buffer []byte) (interface{}, error)
+	parseBlockquick(buffer []byte) (interface{}, error)
+	parseDeviceTicket(buffer []byte) (interface{}, error)
+	parseAccount(buffer []byte) (interface{}, error)
 	IsResponseType(rawData []byte) bool
 	IsErrorType(rawData []byte) bool
 	ResponseID(buffer []byte) uint64
@@ -18,18 +25,14 @@ type EdgeProtocol interface {
 	NewPortSendRequest(request Request) (*PortSend, error)
 	NewPortCloseRequest(request Request) (*PortClose, error)
 	// parse response of rpc call
-	parseBlockPeak(buffer []byte) (interface{}, error)
-	parseBlock(buffer []byte) (interface{}, error)
-	parseBlockHeader(buffer []byte) (interface{}, error)
-	parseBlockquick(buffer []byte) (interface{}, error)
+	// ParseAccount(rawAccount [][]byte) (*Account, error)
+	ParseAccountValue(rawAccountValue []byte) (*AccountValue, error)
+	ParseAccountRoots(rawAccountRoots []byte) (*AccountRoots, error)
 	ParsePortOpen(rawResponse [][]byte) (*PortOpen, error)
 	// ParsePortSend(rawResponse [][]byte) (*PortSend, error)
 	// ParsePortClose(rawResponse [][]byte) (*PortClose, error)
 	ParseServerObj(rawObject []byte) (*ServerObj, error)
 	ParseStateRoots(rawStateRoots []byte) (*StateRoots, error)
-	ParseAccountRoots(rawAccountRoots []byte) (*AccountRoots, error)
-	ParseAccount(rawAccount [][]byte) (*Account, error)
-	ParseAccountValue(rawAccountValue []byte) (*AccountValue, error)
 	ParseDeviceTicket(rawObject []byte) (*DeviceTicket, error)
 }
 

@@ -6,9 +6,9 @@ package rpc
 import (
 	"fmt"
 	"log"
-	"math/rand"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/diodechain/diode_go_client/blockquick"
@@ -18,6 +18,11 @@ import (
 	"github.com/diodechain/diode_go_client/edge"
 	"github.com/diodechain/diode_go_client/util"
 	"github.com/diodechain/log15"
+)
+
+var (
+	RequestID uint64 = 0
+	mx        sync.Mutex
 )
 
 // RPCConfig struct for rpc client
@@ -33,7 +38,6 @@ type RPCClient struct {
 	backoff               Backoff
 	callQueue             chan Call
 	messageQueue          chan edge.Message
-	requestIDGenerator    *rand.Rand
 	s                     *SSL
 	logger                log15.Logger
 	enableMetrics         bool
@@ -55,11 +59,16 @@ type RPCClient struct {
 	Config                *RPCConfig
 }
 
+func getRequestID() uint64 {
+	mx.Lock()
+	defer mx.Unlock()
+	atomic.AddUint64(&RequestID, 1)
+	return RequestID
+}
+
 // NewRPCClient returns rpc client
 func NewRPCClient(s *SSL, config *RPCConfig, pool *DataPool) RPCClient {
-	now := time.Now()
 	return RPCClient{
-		requestIDGenerator:    rand.New(rand.NewSource(now.UnixNano())),
 		s:                     s,
 		callQueue:             make(chan Call, 1024),
 		messageQueue:          make(chan edge.Message, 1024),
@@ -203,7 +212,7 @@ func (rpcClient *RPCClient) CallContext(method string, parse func(buffer []byte)
 	var ts time.Time
 	var tsDiff time.Duration
 	var requestID uint64
-	requestID = rpcClient.requestIDGenerator.Uint64()
+	requestID = getRequestID()
 	resCall, err = rpcClient.CastContext(requestID, method, parse, args...)
 	if err != nil {
 		return
@@ -384,7 +393,6 @@ func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]*bl
 			defer wg.Done()
 			header, err := rpcClient.GetBlockHeaderUnsafe(bn)
 			if err != nil {
-				log.Println("GG: ", err)
 				return
 			}
 			mx.Lock()
@@ -462,12 +470,13 @@ func (rpcClient *RPCClient) GetNode(nodeID [20]byte) (*edge.ServerObj, error) {
 }
 
 // Greet Initiates the connection
+// TODO: test compression flag
 func (rpcClient *RPCClient) Greet() error {
 	var requestID uint64
-	requestID = rpcClient.requestIDGenerator.Uint64()
-	_, err := rpcClient.CastContext(requestID, "hello", func(buffer []byte) (interface{}, error) {
-		return nil, nil
-	}, 1000)
+	var flag uint64
+	requestID = getRequestID()
+	flag = 1000
+	_, err := rpcClient.CastContext(requestID, "hello", nil, flag)
 	if err != nil {
 		return err
 	}
@@ -524,57 +533,46 @@ func (rpcClient *RPCClient) newTicket() (*edge.DeviceTicket, error) {
 }
 
 // SubmitTicket submit ticket to server
+// TODO: resend when got too old error
 func (rpcClient *RPCClient) submitTicket(ticket *edge.DeviceTicket) error {
-	encFleetAddr := util.EncodeToString(ticket.FleetAddr[:])
-	encLocalAddr := util.EncodeToString(ticket.LocalAddr)
-	encSig := util.EncodeToString(ticket.DeviceSig)
-	resp, err := rpcClient.CallContext("ticket", nil, ticket.BlockNumber, encFleetAddr, ticket.TotalConnections, ticket.TotalBytes, encLocalAddr, encSig)
+	resp, err := rpcClient.CallContext("ticket", nil, uint64(ticket.BlockNumber), ticket.FleetAddr[:], uint64(ticket.TotalConnections), uint64(ticket.TotalBytes), ticket.LocalAddr, ticket.DeviceSig)
 	if err != nil {
 		rpcClient.Error("failed to submit ticket: %v", err)
 		return err
 	}
-	status := string(resp.(edge.Response).RawData[0])
-	switch status {
-	case "too_low":
+	if lastTicket, ok := resp.(edge.DeviceTicket); ok {
+		if lastTicket.Err == edge.ErrTicketTooLow {
+			sid, _ := rpcClient.s.GetServerID()
+			lastTicket.ServerID = sid
+			lastTicket.FleetAddr = rpcClient.Config.FleetAddr
 
-		tc := util.DecodeStringToIntForce(string(resp.(edge.Response).RawData[2]))
-		tb := util.DecodeStringToIntForce(string(resp.(edge.Response).RawData[3]))
-		sid, _ := rpcClient.s.GetServerID()
-		lastTicket := edge.DeviceTicket{
-			ServerID:         sid,
-			BlockHash:        util.DecodeForce(resp.(edge.Response).RawData[1]),
-			FleetAddr:        rpcClient.Config.FleetAddr,
-			TotalConnections: tc,
-			TotalBytes:       tb,
-			LocalAddr:        util.DecodeForce(resp.(edge.Response).RawData[4]),
-			DeviceSig:        util.DecodeForce(resp.(edge.Response).RawData[5]),
-		}
-
-		addr, err := rpcClient.s.GetClientAddress()
-		if err != nil {
-			// rpcClient.s.Logger.Error(fmt.Sprintf("SubmitTicket can't identify self: %s", err.Error()), "module", "ssl")
-			return err
-		}
-
-		if !lastTicket.ValidateDeviceSig(addr) {
-			lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)
-		}
-		if lastTicket.ValidateDeviceSig(addr) {
-			rpcClient.s.totalBytes = tb + 1024
-			rpcClient.s.totalConnections = tc + 1
-			err = rpcClient.SubmitNewTicket()
+			addr, err := rpcClient.s.GetClientAddress()
 			if err != nil {
-				// rpcClient.s.Logger.Error(fmt.Sprintf("failed to submit ticket: %s", err.Error()), "module", "ssl")
-				return nil
+				// rpcClient.s.Logger.Error(fmt.Sprintf("SubmitTicket can't identify self: %s", err.Error()), "module", "ssl")
+				return err
 			}
 
-		} else {
-			rpcClient.Warn("received fake ticket.. last_ticket=%v response=%v", lastTicket, string(resp.(edge.Response).Raw))
-		}
+			if !lastTicket.ValidateDeviceSig(addr) {
+				lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)
+			}
+			if lastTicket.ValidateDeviceSig(addr) {
+				rpcClient.s.totalBytes = lastTicket.TotalBytes + 1024
+				rpcClient.s.totalConnections = lastTicket.TotalConnections + 1
+				err = rpcClient.SubmitNewTicket()
+				if err != nil {
+					// rpcClient.s.Logger.Error(fmt.Sprintf("failed to submit ticket: %s", err.Error()), "module", "ssl")
+					return nil
+				}
 
-	case "ok", "thanks!":
-	default:
-		rpcClient.Info("response of submit ticket: %s %s", status, string(resp.(edge.Response).Raw))
+			} else {
+				rpcClient.Warn("received fake ticket.. last_ticket=%v", lastTicket)
+			}
+		} else if lastTicket.Err == edge.ErrTicketTooOld {
+			rpcClient.Info("received too old ticket")
+		} else {
+			rpcClient.Info("received ok ticket?!")
+		}
+		return nil
 	}
 	return err
 }
@@ -609,7 +607,7 @@ func (rpcClient *RPCClient) PortSend(ref int, data []byte) (interface{}, error) 
 // CastPortClose cast portclose RPC
 func (rpcClient *RPCClient) CastPortClose(ref int) (err error) {
 	var requestID uint64
-	requestID = rpcClient.requestIDGenerator.Uint64()
+	requestID = getRequestID()
 	_, err = rpcClient.CastContext(requestID, "portclose", func(buffer []byte) (interface{}, error) {
 		return nil, nil
 	}, ref)
@@ -650,16 +648,19 @@ func (rpcClient *RPCClient) GetStateRoots(blockNumber int) (*edge.StateRoots, er
 }
 
 // GetAccount returns account information: nonce, balance, storage root, code
-func (rpcClient *RPCClient) GetAccount(blockNumber int, account []byte) (*edge.Account, error) {
+func (rpcClient *RPCClient) GetAccount(blockNumber uint64, account []byte) (*edge.Account, error) {
 	if len(account) != 20 {
 		return nil, fmt.Errorf("Account must be 20 bytes")
 	}
-	encAccount := util.EncodeToString(account)
-	rawAccount, err := rpcClient.CallContext("getaccount", nil, blockNumber, encAccount)
+	paddedAccount := util.PaddingBytesPrefix(account, 0, 32)
+	rawAccount, err := rpcClient.CallContext("getaccount", nil, blockNumber, paddedAccount)
 	if err != nil {
 		return nil, err
 	}
-	return rpcClient.edgeProtocol.ParseAccount(rawAccount.(edge.Response).RawData)
+	if account, ok := rawAccount.(*edge.Account); ok {
+		return account, nil
+	}
+	return nil, nil
 }
 
 // GetAccountRoots returns account state roots

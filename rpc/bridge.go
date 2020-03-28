@@ -191,6 +191,10 @@ func (rpcClient *RPCClient) handleInboundMessage() {
 					enqueueResponse(call.response, rpcError, enqueueTimeout)
 					continue
 				}
+				if call.Parse == nil {
+					rpcClient.Debug("no parse callback for rpc call: id: %d, method: %s", call.id, call.method)
+					continue
+				}
 				res, err := call.Parse(msg.Buffer)
 				if err != nil {
 					rpcClient.Error("cannot decode response: %s", err.Error())

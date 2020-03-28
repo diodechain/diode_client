@@ -13,6 +13,11 @@ import (
 	"github.com/diodechain/diode_go_client/util"
 )
 
+var (
+	ErrTicketTooLow = fmt.Errorf("too low")
+	ErrTicketTooOld = fmt.Errorf("too old")
+)
+
 // DeviceTicket struct for connection and transmission
 type DeviceTicket struct {
 	ServerID         [20]byte

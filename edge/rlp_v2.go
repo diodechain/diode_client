@@ -6,6 +6,7 @@ package edge
 import (
 	"bytes"
 	"fmt"
+	"log"
 	"math/big"
 	"reflect"
 
@@ -17,10 +18,15 @@ import (
 )
 
 var (
-	responsePivot         = []byte("response")
-	errorPivot            = []byte("error")
-	errWrongTypeForItems  = fmt.Errorf("Items should be array or slice")
-	errKeyNotFoundInItems = fmt.Errorf("Key not found")
+	responsePivot          = []byte("response")
+	errorPivot             = []byte("error")
+	ticketTooOldPivot      = []byte("too_old")
+	ticketTooLowPivot      = []byte("too_low")
+	ticketThanksPivot      = []byte("thanks!")
+	okPivot                = []byte("ok")
+	errWrongTypeForItems   = fmt.Errorf("items should be array or slice")
+	errKeyNotFoundInItems  = fmt.Errorf("key not found")
+	ErrFailedToParseTicket = fmt.Errorf("failed to parse ticket")
 )
 
 type RLP_V2 struct{}
@@ -93,10 +99,12 @@ func (rlpV2 RLP_V2) parseError(rawError []byte) (Error, error) {
 	var response errorResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(rawError), 0)
 	_ = decodeStream.Decode(&response)
+	log.Printf("%+v\n", response)
 	err := Error{
 		// Method:  response.Payload[0],
 		// TODO: response.Payload[1] will be ? string
-		Message: response.Payload[2],
+		// Message: response.Payload[2],
+		Message: "",
 	}
 	return err, nil
 }
@@ -179,6 +187,36 @@ type blockquickRequest struct {
 	}
 }
 
+type helloRequest struct {
+	RequestID uint64
+	Payload   struct {
+		Method string
+		Flag   uint64
+	}
+}
+
+type ticketRequest struct {
+	RequestID uint64
+	Payload   struct {
+		Method           string
+		BlockNumber      uint64
+		FleetAddr        []byte
+		TotalConnections uint64
+		TotalBytes       uint64
+		LocalAddr        []byte
+		DeviceSig        []byte
+	}
+}
+
+type accountRequest struct {
+	RequestID uint64
+	Payload   struct {
+		Method      string
+		BlockNumber uint64
+		Address     []byte
+	}
+}
+
 // Response struct
 type Item struct {
 	Key   string
@@ -218,6 +256,48 @@ type blockquickResponse struct {
 	Payload   struct {
 		Type  string
 		Items []uint64
+	}
+}
+
+// type helloResponse struct {}
+
+type ticketThanksResponse struct {
+	RequestID uint64
+	Payload   struct {
+		Type      string
+		Result    string
+		PaidBytes []byte
+	}
+}
+
+type ticketTooOldResponse struct {
+	RequestID uint64
+	Payload   struct {
+		Type   string
+		Result string
+		Min    []byte
+	}
+}
+
+type ticketTooLowResponse struct {
+	RequestID uint64
+	Payload   struct {
+		Type             string
+		Result           string
+		BlockHash        []byte
+		TotalConnections []byte
+		TotalBytes       []byte
+		LocalAddr        []byte
+		DeviceSig        []byte
+	}
+}
+
+type accountResponse struct {
+	RequestID uint64
+	Payload   struct {
+		Type        string
+		Items       [6]Item
+		MinerPubkey []byte
 	}
 }
 
@@ -289,6 +369,42 @@ func (rlpV2 RLP_V2) NewMessage(requestID uint64, method string, args ...interfac
 			return nil, nil, err
 		}
 		return decodedRlp, rlpV2.parseBlockquick, err
+	case "getaccount":
+		request := accountRequest{}
+		request.RequestID = requestID
+		request.Payload.Method = method
+		request.Payload.BlockNumber = args[0].(uint64)
+		request.Payload.Address = args[1].([]byte)
+		decodedRlp, err := rlp.EncodeToBytes(request)
+		if err != nil {
+			return nil, nil, err
+		}
+		return decodedRlp, rlpV2.parseAccount, err
+	case "hello":
+		request := helloRequest{}
+		request.RequestID = requestID
+		request.Payload.Method = method
+		request.Payload.Flag = args[0].(uint64)
+		decodedRlp, err := rlp.EncodeToBytes(request)
+		if err != nil {
+			return nil, nil, err
+		}
+		return decodedRlp, nil, err
+	case "ticket":
+		request := ticketRequest{}
+		request.RequestID = requestID
+		request.Payload.Method = method
+		request.Payload.BlockNumber = args[0].(uint64)
+		request.Payload.FleetAddr = args[1].([]byte)
+		request.Payload.TotalConnections = args[2].(uint64)
+		request.Payload.TotalBytes = args[3].(uint64)
+		request.Payload.LocalAddr = args[4].([]byte)
+		request.Payload.DeviceSig = args[5].([]byte)
+		decodedRlp, err := rlp.EncodeToBytes(request)
+		if err != nil {
+			return nil, nil, err
+		}
+		return decodedRlp, rlpV2.parseDeviceTicket, err
 	default:
 		return nil, nil, fmt.Errorf("not found")
 	}
@@ -414,10 +530,6 @@ func (rlpV2 RLP_V2) parseBlockHeader(buffer []byte) (interface{}, error) {
 	minerSig, _ := findItemInItems(response.Payload.Items, "miner_signature")
 	timestamp, _ := findItemInItems(response.Payload.Items, "timestamp")
 	number, _ := findItemInItems(response.Payload.Items, "number")
-	// decode to int
-	dtimestamp := util.DecodeBytesToInt(timestamp.Value)
-	dnumber := util.DecodeBytesToInt(number.Value)
-	dnonce := util.DecodeBytesToInt(nonce.Value)
 	// also can decompress pubkey and marshal to pubkey bytes
 	dminerPubkey := secp256k1.DecompressPubkeyBytes(response.Payload.MinerPubkey)
 	header, err := blockquick.NewHeader(
@@ -426,9 +538,9 @@ func (rlpV2 RLP_V2) parseBlockHeader(buffer []byte) (interface{}, error) {
 		prevBlock.Value,
 		minerSig.Value,
 		dminerPubkey,
-		uint64(dtimestamp),
-		uint64(dnumber),
-		uint64(dnonce),
+		util.DecodeBytesToUint(timestamp.Value),
+		util.DecodeBytesToUint(number.Value),
+		util.DecodeBytesToUint(nonce.Value),
 	)
 	if err != nil {
 		return nil, err
@@ -448,6 +560,113 @@ func (rlpV2 RLP_V2) parseBlockquick(buffer []byte) (interface{}, error) {
 		return nil, err
 	}
 	return response.Payload.Items, nil
+}
+
+// TODO: check error from findItemInItems
+// TODO: use big.Int instead of uint64?
+func (rlpV2 RLP_V2) parseDeviceTicket(buffer []byte) (interface{}, error) {
+	if bytes.Contains(buffer, ticketThanksPivot) {
+		var response ticketThanksResponse
+		decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+		err := decodeStream.Decode(&response)
+		if err != nil {
+			return nil, err
+		}
+		// create empty ticket
+		ticket := DeviceTicket{}
+		return ticket, nil
+	} else if bytes.Contains(buffer, ticketTooLowPivot) {
+		var response ticketTooLowResponse
+		decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+		err := decodeStream.Decode(&response)
+		if err != nil {
+			return nil, err
+		}
+		err = ErrTicketTooLow
+		ticket := DeviceTicket{
+			BlockHash:        response.Payload.BlockHash,
+			TotalConnections: util.DecodeBytesToUint(response.Payload.TotalConnections),
+			TotalBytes:       util.DecodeBytesToUint(response.Payload.TotalBytes),
+			LocalAddr:        response.Payload.LocalAddr,
+			DeviceSig:        response.Payload.DeviceSig,
+			Err:              err,
+		}
+		return ticket, nil
+	} else if bytes.Contains(buffer, ticketTooOldPivot) {
+		var response ticketTooOldResponse
+		decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+		err := decodeStream.Decode(&response)
+		if err != nil {
+			return nil, err
+		}
+		err = ErrTicketTooOld
+		ticket := DeviceTicket{
+			Err: err,
+		}
+		return ticket, nil
+	}
+	return nil, ErrFailedToParseTicket
+}
+
+// how about pass rawAccountData and rawAccountProof instead of multi dimension slice
+func (rlpV2 RLP_V2) parseAccount(buffer []byte) (interface{}, error) {
+	var response blockHeaderResponse
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	err := decodeStream.Decode(&response)
+	log.Printf("%+v\n", response)
+	if err != nil {
+		return nil, err
+	}
+	return nil, nil
+	// hexStorageRoot, err := jsonparser.GetString(rawAccount[0], "storageRoot")
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// storageRoot, err := util.DecodeString(hexStorageRoot)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// hexNonce, err := jsonparser.GetString(rawAccount[0], "nonce")
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// nonceByt, err := util.DecodeString(hexNonce)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// nonce := &big.Int{}
+	// nonce.SetBytes(nonceByt)
+	// hexCode, err := jsonparser.GetString(rawAccount[0], "code")
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// code, err := util.DecodeString(hexCode)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// hexBalance, err := jsonparser.GetString(rawAccount[0], "balance")
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// balanceByt, err := util.DecodeString(hexBalance)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// balance := &big.Int{}
+	// balance.SetBytes(balanceByt)
+	// stateTree, err := rlpV2.NewMerkleTree(rawAccount[1])
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// account := &Account{
+	// 	StorageRoot: storageRoot,
+	// 	Nonce:       nonce.Int64(),
+	// 	Code:        code,
+	// 	Balance:     balance.Int64(),
+	// 	stateTree:   stateTree,
+	// 	proof:       rawAccount[1],
+	// }
+	// return account, nil
 }
 
 func (rlpV2 RLP_V2) ParsePortOpen(rawResponse [][]byte) (*PortOpen, error) {
@@ -536,60 +755,6 @@ func (rlpV2 RLP_V2) ParseAccountRoots(rawAccountRoots []byte) (*AccountRoots, er
 		AccountRoots: parsedAccountRoots,
 	}
 	return accountRoots, nil
-}
-
-// TODO: check error from jsonparser
-// how about pass rawAccountData and rawAccountProof instead of multi dimension slice
-func (rlpV2 RLP_V2) ParseAccount(rawAccount [][]byte) (*Account, error) {
-	hexStorageRoot, err := jsonparser.GetString(rawAccount[0], "storageRoot")
-	if err != nil {
-		return nil, err
-	}
-	storageRoot, err := util.DecodeString(hexStorageRoot)
-	if err != nil {
-		return nil, err
-	}
-	hexNonce, err := jsonparser.GetString(rawAccount[0], "nonce")
-	if err != nil {
-		return nil, err
-	}
-	nonceByt, err := util.DecodeString(hexNonce)
-	if err != nil {
-		return nil, err
-	}
-	nonce := &big.Int{}
-	nonce.SetBytes(nonceByt)
-	hexCode, err := jsonparser.GetString(rawAccount[0], "code")
-	if err != nil {
-		return nil, err
-	}
-	code, err := util.DecodeString(hexCode)
-	if err != nil {
-		return nil, err
-	}
-	hexBalance, err := jsonparser.GetString(rawAccount[0], "balance")
-	if err != nil {
-		return nil, err
-	}
-	balanceByt, err := util.DecodeString(hexBalance)
-	if err != nil {
-		return nil, err
-	}
-	balance := &big.Int{}
-	balance.SetBytes(balanceByt)
-	stateTree, err := rlpV2.NewMerkleTree(rawAccount[1])
-	if err != nil {
-		return nil, err
-	}
-	account := &Account{
-		StorageRoot: storageRoot,
-		Nonce:       nonce.Int64(),
-		Code:        code,
-		Balance:     balance.Int64(),
-		stateTree:   stateTree,
-		proof:       rawAccount[1],
-	}
-	return account, nil
 }
 
 // TODO: check error from jsonparser
