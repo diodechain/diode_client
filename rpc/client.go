@@ -433,6 +433,7 @@ func (rpcClient *RPCClient) GetBlockHeadersUnsafe(blockNumMin int, blockNumMax i
 }
 
 // GetBlock returns block
+// TODO: make sure this rpc works (disconnect from server)
 func (rpcClient *RPCClient) GetBlock(blockNum uint64) (interface{}, error) {
 	return rpcClient.CallContext("getblock", nil, blockNum)
 }
@@ -648,12 +649,8 @@ func (rpcClient *RPCClient) GetStateRoots(blockNumber int) (*edge.StateRoots, er
 }
 
 // GetAccount returns account information: nonce, balance, storage root, code
-func (rpcClient *RPCClient) GetAccount(blockNumber uint64, account []byte) (*edge.Account, error) {
-	if len(account) != 20 {
-		return nil, fmt.Errorf("Account must be 20 bytes")
-	}
-	paddedAccount := util.PaddingBytesPrefix(account, 0, 32)
-	rawAccount, err := rpcClient.CallContext("getaccount", nil, blockNumber, paddedAccount)
+func (rpcClient *RPCClient) GetAccount(blockNumber uint64, account [20]byte) (*edge.Account, error) {
+	rawAccount, err := rpcClient.CallContext("getaccount", nil, blockNumber, account[:])
 	if err != nil {
 		return nil, err
 	}
@@ -664,14 +661,23 @@ func (rpcClient *RPCClient) GetAccount(blockNumber uint64, account []byte) (*edg
 }
 
 // GetAccountRoots returns account state roots
-func (rpcClient *RPCClient) GetAccountRoots(account [20]byte) (*edge.AccountRoots, error) {
-	blockNumber, _ := LastValid()
+func (rpcClient *RPCClient) GetAccountRoots(blockNumber uint64, account [20]byte) (*edge.AccountRoots, error) {
+	if blockNumber <= 0 {
+		bn, _ := LastValid()
+		blockNumber = uint64(bn)
+	}
+	// paddedAccount := []byte{}
+	// copy(paddedAccount, account[:])
+	// hexAccount := util.EncodeForce(account[:])
+	// log.Println(hexAccount)
 	encAccount := util.EncodeToString(account[:])
 	rawAccountRoots, err := rpcClient.CallContext("getaccountroots", nil, blockNumber, encAccount)
 	if err != nil {
 		return nil, err
 	}
-	return rpcClient.edgeProtocol.ParseAccountRoots(rawAccountRoots.(edge.Response).RawData[0])
+	// return rpcClient.edgeProtocol.ParseAccountRoots(rawAccountRoots.(edge.Response).RawData[0])
+	log.Printf("%+v\n", rawAccountRoots)
+	return nil, nil
 }
 
 func (rpcClient *RPCClient) GetAccountValueRaw(addr [20]byte, key []byte) ([]byte, error) {
@@ -680,7 +686,7 @@ func (rpcClient *RPCClient) GetAccountValueRaw(addr [20]byte, key []byte) ([]byt
 		return NullData, err
 	}
 	// get account roots
-	acr, err := rpcClient.GetAccountRoots(addr)
+	acr, err := rpcClient.GetAccountRoots(0, addr)
 	if err != nil {
 		return NullData, err
 	}

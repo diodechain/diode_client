@@ -217,6 +217,16 @@ type accountRequest struct {
 	}
 }
 
+type accountRootsRequest struct {
+	RequestID uint64
+	Payload   struct {
+		Method      string
+		BlockNumber uint64
+		// Address     []byte
+		Address string
+	}
+}
+
 // Response struct
 type Item struct {
 	Key   string
@@ -295,9 +305,22 @@ type ticketTooLowResponse struct {
 type accountResponse struct {
 	RequestID uint64
 	Payload   struct {
-		Type        string
-		Items       [6]Item
-		MinerPubkey []byte
+		Type  string
+		Items [4]Item
+		// StateTree struct {
+		// 	Module []byte
+		// 	Data1  []byte
+		// }
+	}
+}
+
+type accountRootsResponse struct {
+	RequestID uint64
+	Payload   struct {
+		Type  string
+		Roots struct {
+			Data [][]byte
+		}
 	}
 }
 
@@ -380,6 +403,18 @@ func (rlpV2 RLP_V2) NewMessage(requestID uint64, method string, args ...interfac
 			return nil, nil, err
 		}
 		return decodedRlp, rlpV2.parseAccount, err
+	case "getaccountroots":
+		request := accountRootsRequest{}
+		request.RequestID = requestID
+		request.Payload.Method = method
+		request.Payload.BlockNumber = args[0].(uint64)
+		// request.Payload.Address = args[1].([]byte)
+		request.Payload.Address = args[1].(string)
+		decodedRlp, err := rlp.EncodeToBytes(request)
+		if err != nil {
+			return nil, nil, err
+		}
+		return decodedRlp, rlpV2.parseAccountRoots, err
 	case "hello":
 		request := helloRequest{}
 		request.RequestID = requestID
@@ -608,9 +643,37 @@ func (rlpV2 RLP_V2) parseDeviceTicket(buffer []byte) (interface{}, error) {
 	return nil, ErrFailedToParseTicket
 }
 
-// how about pass rawAccountData and rawAccountProof instead of multi dimension slice
+// TODO: decode merkle tree from message
 func (rlpV2 RLP_V2) parseAccount(buffer []byte) (interface{}, error) {
-	var response blockHeaderResponse
+	var response accountResponse
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	_ = decodeStream.Decode(&response)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	storageRoot, _ := findItemInItems(response.Payload.Items, "storageRoot")
+	nonce, _ := findItemInItems(response.Payload.Items, "nonce")
+	code, _ := findItemInItems(response.Payload.Items, "code")
+	balance, _ := findItemInItems(response.Payload.Items, "balance")
+	dnonce := util.DecodeBytesToInt(nonce.Value)
+	dbalance := util.DecodeBytesToInt(balance.Value)
+	// stateTree, err := rlpV2.NewMerkleTree(rawAccount[1])
+	// if err != nil {
+	// 	return nil, err
+	// }
+	account := &Account{
+		StorageRoot: storageRoot.Value,
+		Nonce:       int64(dnonce),
+		Code:        code.Value,
+		Balance:     int64(dbalance),
+		// stateTree:   stateTree,
+		// proof:       rawAccount[1],
+	}
+	return account, nil
+}
+
+func (rlpV2 RLP_V2) parseAccountRoots(buffer []byte) (interface{}, error) {
+	var response accountRootsResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&response)
 	log.Printf("%+v\n", response)
@@ -618,55 +681,27 @@ func (rlpV2 RLP_V2) parseAccount(buffer []byte) (interface{}, error) {
 		return nil, err
 	}
 	return nil, nil
-	// hexStorageRoot, err := jsonparser.GetString(rawAccount[0], "storageRoot")
-	// if err != nil {
-	// 	return nil, err
+	// parsedAccountRoots := make([][]byte, 16)
+	// ind := 0
+	// handler := func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
+	// 	if err != nil {
+	// 		return
+	// 	}
+	// 	// Decode error: index out of range
+	// 	// decodedValue := make([]byte, 32)
+	// 	// _, err = Decode(decodedValue, value[:])
+	// 	decodedValue, err := util.DecodeString(string(value[:]))
+	// 	if err == nil {
+	// 		parsedAccountRoots[ind] = decodedValue
+	// 		ind++
+	// 	}
 	// }
-	// storageRoot, err := util.DecodeString(hexStorageRoot)
-	// if err != nil {
-	// 	return nil, err
+	// // should not catch error here
+	// jsonparser.ArrayEach(rawAccountRoots, handler)
+	// accountRoots := &AccountRoots{
+	// 	AccountRoots: parsedAccountRoots,
 	// }
-	// hexNonce, err := jsonparser.GetString(rawAccount[0], "nonce")
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// nonceByt, err := util.DecodeString(hexNonce)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// nonce := &big.Int{}
-	// nonce.SetBytes(nonceByt)
-	// hexCode, err := jsonparser.GetString(rawAccount[0], "code")
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// code, err := util.DecodeString(hexCode)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// hexBalance, err := jsonparser.GetString(rawAccount[0], "balance")
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// balanceByt, err := util.DecodeString(hexBalance)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// balance := &big.Int{}
-	// balance.SetBytes(balanceByt)
-	// stateTree, err := rlpV2.NewMerkleTree(rawAccount[1])
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// account := &Account{
-	// 	StorageRoot: storageRoot,
-	// 	Nonce:       nonce.Int64(),
-	// 	Code:        code,
-	// 	Balance:     balance.Int64(),
-	// 	stateTree:   stateTree,
-	// 	proof:       rawAccount[1],
-	// }
-	// return account, nil
+	// return accountRoots, nil
 }
 
 func (rlpV2 RLP_V2) ParsePortOpen(rawResponse [][]byte) (*PortOpen, error) {
@@ -730,31 +765,6 @@ func (rlpV2 RLP_V2) ParseStateRoots(rawStateRoots []byte) (*StateRoots, error) {
 		StateRoots: parsedStateRoots,
 	}
 	return stateRoots, nil
-}
-
-// TODO: check error from jsonparser
-func (rlpV2 RLP_V2) ParseAccountRoots(rawAccountRoots []byte) (*AccountRoots, error) {
-	parsedAccountRoots := make([][]byte, 16)
-	ind := 0
-	handler := func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-		if err != nil {
-			return
-		}
-		// Decode error: index out of range
-		// decodedValue := make([]byte, 32)
-		// _, err = Decode(decodedValue, value[:])
-		decodedValue, err := util.DecodeString(string(value[:]))
-		if err == nil {
-			parsedAccountRoots[ind] = decodedValue
-			ind++
-		}
-	}
-	// should not catch error here
-	jsonparser.ArrayEach(rawAccountRoots, handler)
-	accountRoots := &AccountRoots{
-		AccountRoots: parsedAccountRoots,
-	}
-	return accountRoots, nil
 }
 
 // TODO: check error from jsonparser
