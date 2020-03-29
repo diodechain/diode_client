@@ -660,26 +660,6 @@ func (rpcClient *RPCClient) GetAccount(blockNumber uint64, account [20]byte) (*e
 	return nil, nil
 }
 
-// GetAccountRoots returns account state roots
-func (rpcClient *RPCClient) GetAccountRoots(blockNumber uint64, account [20]byte) (*edge.AccountRoots, error) {
-	if blockNumber <= 0 {
-		bn, _ := LastValid()
-		blockNumber = uint64(bn)
-	}
-	// paddedAccount := []byte{}
-	// copy(paddedAccount, account[:])
-	// hexAccount := util.EncodeForce(account[:])
-	// log.Println(hexAccount)
-	encAccount := util.EncodeToString(account[:])
-	rawAccountRoots, err := rpcClient.CallContext("getaccountroots", nil, blockNumber, encAccount)
-	if err != nil {
-		return nil, err
-	}
-	// return rpcClient.edgeProtocol.ParseAccountRoots(rawAccountRoots.(edge.Response).RawData[0])
-	log.Printf("%+v\n", rawAccountRoots)
-	return nil, nil
-}
-
 func (rpcClient *RPCClient) GetAccountValueRaw(addr [20]byte, key []byte) ([]byte, error) {
 	acv, err := rpcClient.GetAccountValue(addr, key)
 	if err != nil {
@@ -701,6 +681,22 @@ func (rpcClient *RPCClient) GetAccountValueRaw(addr [20]byte, key []byte) ([]byt
 		return NullData, err
 	}
 	return raw, nil
+}
+
+// GetAccountRoots returns account state roots
+func (rpcClient *RPCClient) GetAccountRoots(blockNumber uint64, account [20]byte) (*edge.AccountRoots, error) {
+	if blockNumber <= 0 {
+		bn, _ := LastValid()
+		blockNumber = uint64(bn)
+	}
+	rawAccountRoots, err := rpcClient.CallContext("getaccountroots", nil, blockNumber, account[:])
+	if err != nil {
+		return nil, err
+	}
+	if accountRoots, ok := rawAccountRoots.(*edge.AccountRoots); ok {
+		return accountRoots, nil
+	}
+	return nil, nil
 }
 
 func (rpcClient *RPCClient) ResolveDNS(name string) (addr [20]byte, err error) {

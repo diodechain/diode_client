@@ -222,8 +222,7 @@ type accountRootsRequest struct {
 	Payload   struct {
 		Method      string
 		BlockNumber uint64
-		// Address     []byte
-		Address string
+		Address     []byte
 	}
 }
 
@@ -317,10 +316,8 @@ type accountResponse struct {
 type accountRootsResponse struct {
 	RequestID uint64
 	Payload   struct {
-		Type  string
-		Roots struct {
-			Data [][]byte
-		}
+		Type         string
+		AccountRoots [][]byte
 	}
 }
 
@@ -408,8 +405,7 @@ func (rlpV2 RLP_V2) NewMessage(requestID uint64, method string, args ...interfac
 		request.RequestID = requestID
 		request.Payload.Method = method
 		request.Payload.BlockNumber = args[0].(uint64)
-		// request.Payload.Address = args[1].([]byte)
-		request.Payload.Address = args[1].(string)
+		request.Payload.Address = args[1].([]byte)
 		decodedRlp, err := rlp.EncodeToBytes(request)
 		if err != nil {
 			return nil, nil, err
@@ -676,32 +672,13 @@ func (rlpV2 RLP_V2) parseAccountRoots(buffer []byte) (interface{}, error) {
 	var response accountRootsResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&response)
-	log.Printf("%+v\n", response)
 	if err != nil {
 		return nil, err
 	}
-	return nil, nil
-	// parsedAccountRoots := make([][]byte, 16)
-	// ind := 0
-	// handler := func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-	// 	if err != nil {
-	// 		return
-	// 	}
-	// 	// Decode error: index out of range
-	// 	// decodedValue := make([]byte, 32)
-	// 	// _, err = Decode(decodedValue, value[:])
-	// 	decodedValue, err := util.DecodeString(string(value[:]))
-	// 	if err == nil {
-	// 		parsedAccountRoots[ind] = decodedValue
-	// 		ind++
-	// 	}
-	// }
-	// // should not catch error here
-	// jsonparser.ArrayEach(rawAccountRoots, handler)
-	// accountRoots := &AccountRoots{
-	// 	AccountRoots: parsedAccountRoots,
-	// }
-	// return accountRoots, nil
+	accountRoots := &AccountRoots{
+		AccountRoots: response.Payload.AccountRoots,
+	}
+	return accountRoots, nil
 }
 
 func (rlpV2 RLP_V2) ParsePortOpen(rawResponse [][]byte) (*PortOpen, error) {
