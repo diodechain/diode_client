@@ -625,20 +625,6 @@ func (rpcClient *RPCClient) Ping() (interface{}, error) {
 	return rpcClient.CallContext("ping", nil)
 }
 
-// GetAccountValue returns account storage value
-func (rpcClient *RPCClient) GetAccountValue(account [20]byte, rawKey []byte) (*edge.AccountValue, error) {
-	blockNumber, _ := LastValid()
-	encAccount := util.EncodeToString(account[:])
-	// pad key to 32 bytes
-	key := util.PaddingBytesPrefix(rawKey, 0, 32)
-	encKey := util.EncodeToString(key)
-	rawAccountValue, err := rpcClient.CallContext("getaccountvalue", nil, blockNumber, encAccount, encKey)
-	if err != nil {
-		return nil, err
-	}
-	return rpcClient.edgeProtocol.ParseAccountValue(rawAccountValue.(edge.Response).RawData[0])
-}
-
 // GetStateRoots returns state roots
 func (rpcClient *RPCClient) GetStateRoots(blockNumber int) (*edge.StateRoots, error) {
 	rawStateRoots, err := rpcClient.CallContext("getstateroots", nil, blockNumber)
@@ -660,8 +646,28 @@ func (rpcClient *RPCClient) GetAccount(blockNumber uint64, account [20]byte) (*e
 	return nil, nil
 }
 
+// GetAccountValue returns account storage value
+func (rpcClient *RPCClient) GetAccountValue(blockNumber uint64, account [20]byte, rawKey []byte) (*edge.AccountValue, error) {
+	if blockNumber <= 0 {
+		bn, _ := LastValid()
+		blockNumber = uint64(bn)
+	}
+	// encAccount := util.EncodeToString(account[:])
+	// pad key to 32 bytes
+	key := util.PaddingBytesPrefix(rawKey, 0, 32)
+	// encKey := util.EncodeToString(key)
+	rawAccountValue, err := rpcClient.CallContext("getaccountvalue", nil, blockNumber, account[:], key)
+	if err != nil {
+		return nil, err
+	}
+	if accountValue, ok := rawAccountValue.(*edge.AccountValue); ok {
+		return accountValue, nil
+	}
+	return nil, nil
+}
+
 func (rpcClient *RPCClient) GetAccountValueRaw(addr [20]byte, key []byte) ([]byte, error) {
-	acv, err := rpcClient.GetAccountValue(addr, key)
+	acv, err := rpcClient.GetAccountValue(0, addr, key)
 	if err != nil {
 		return NullData, err
 	}

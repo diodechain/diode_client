@@ -16,17 +16,17 @@ type EdgeProtocol interface {
 	parseDeviceTicket(buffer []byte) (interface{}, error)
 	parseAccount(buffer []byte) (interface{}, error)
 	parseAccountRoots(buffer []byte) (interface{}, error)
+	parseAccountValue(buffer []byte) (interface{}, error)
 	IsResponseType(rawData []byte) bool
 	IsErrorType(rawData []byte) bool
 	ResponseID(buffer []byte) uint64
-	NewMerkleTree(rawTree []byte) (MerkleTree, error)
+	NewMerkleTree(rawTree []interface{}) (MerkleTree, error)
 	NewErrorResponse(method string, err error) Message
 	NewMessage(requestID uint64, method string, args ...interface{}) ([]byte, func(buffer []byte) (interface{}, error), error)
 	NewPortOpenRequest(request Request) (*PortOpen, error)
 	NewPortSendRequest(request Request) (*PortSend, error)
 	NewPortCloseRequest(request Request) (*PortClose, error)
 	// parse response of rpc call
-	ParseAccountValue(rawAccountValue []byte) (*AccountValue, error)
 	ParsePortOpen(rawResponse [][]byte) (*PortOpen, error)
 	// ParsePortSend(rawResponse [][]byte) (*PortSend, error)
 	// ParsePortClose(rawResponse [][]byte) (*PortClose, error)
@@ -37,6 +37,6 @@ type EdgeProtocol interface {
 
 // MerkleTreeParser interface defines functions that are required to diode merkle tree
 type MerkleTreeParser interface {
-	parseProof(proof []byte) (rootHash []byte, module uint64, leaves []MerkleTreeLeave, err error)
-	rparse(proof []byte) (interface{}, uint64, []MerkleTreeLeave, error)
+	parseProof(proof interface{}) (rootHash []byte, module uint64, leaves []MerkleTreeLeave, err error)
+	rparse(proof interface{}) (interface{}, uint64, []MerkleTreeLeave, error)
 }

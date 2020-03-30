@@ -6,7 +6,6 @@ package edge
 import (
 	"bytes"
 	"fmt"
-	"log"
 	"math/big"
 	"reflect"
 
@@ -99,7 +98,6 @@ func (rlpV2 RLP_V2) parseError(rawError []byte) (Error, error) {
 	var response errorResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(rawError), 0)
 	_ = decodeStream.Decode(&response)
-	log.Printf("%+v\n", response)
 	err := Error{
 		// Method:  response.Payload[0],
 		// TODO: response.Payload[1] will be ? string
@@ -126,13 +124,9 @@ func (rlpV2 RLP_V2) ResponseID(buffer []byte) uint64 {
 
 // NewMerkleTree returns merkle tree of given byte of json
 // eg: ["0x", "0x1", ["0x2bbfda354b607b8cdd7d52c29344c76c17d76bb7d9187874a994144b55eaf931","0x0000000000000000000000000000000000000000000000000000000000000001"]]
-func (rlpV2 RLP_V2) NewMerkleTree(rawTree []byte) (mt MerkleTree, err error) {
-	if !isJSONArr(rawTree) {
-		err = errorWrongTree
-		return
-	}
+func (rlpV2 RLP_V2) NewMerkleTree(rawTree []interface{}) (mt MerkleTree, err error) {
 	mt = MerkleTree{
-		mtp:     JSONMerkleTreeParser{},
+		mtp:     RLPMerkleTreeParser{},
 		RawTree: rawTree,
 	}
 	rootHash, module, leaves, err := mt.parse()
@@ -226,6 +220,16 @@ type accountRootsRequest struct {
 	}
 }
 
+type accountValueRequest struct {
+	RequestID uint64
+	Payload   struct {
+		Method      string
+		BlockNumber uint64
+		Address     []byte
+		Key         []byte
+	}
+}
+
 // Response struct
 type Item struct {
 	Key   string
@@ -304,12 +308,9 @@ type ticketTooLowResponse struct {
 type accountResponse struct {
 	RequestID uint64
 	Payload   struct {
-		Type  string
-		Items [4]Item
-		// StateTree struct {
-		// 	Module []byte
-		// 	Data1  []byte
-		// }
+		Type        string
+		Items       [4]Item
+		MerkleProof []interface{}
 	}
 }
 
@@ -318,6 +319,14 @@ type accountRootsResponse struct {
 	Payload   struct {
 		Type         string
 		AccountRoots [][]byte
+	}
+}
+
+type accountValueResponse struct {
+	RequestID uint64
+	Payload   struct {
+		Type        string
+		MerkleProof []interface{}
 	}
 }
 
@@ -411,6 +420,18 @@ func (rlpV2 RLP_V2) NewMessage(requestID uint64, method string, args ...interfac
 			return nil, nil, err
 		}
 		return decodedRlp, rlpV2.parseAccountRoots, err
+	case "getaccountvalue":
+		request := accountValueRequest{}
+		request.RequestID = requestID
+		request.Payload.Method = method
+		request.Payload.BlockNumber = args[0].(uint64)
+		request.Payload.Address = args[1].([]byte)
+		request.Payload.Key = args[2].([]byte)
+		decodedRlp, err := rlp.EncodeToBytes(request)
+		if err != nil {
+			return nil, nil, err
+		}
+		return decodedRlp, rlpV2.parseAccountValue, err
 	case "hello":
 		request := helloRequest{}
 		request.RequestID = requestID
@@ -643,27 +664,26 @@ func (rlpV2 RLP_V2) parseDeviceTicket(buffer []byte) (interface{}, error) {
 func (rlpV2 RLP_V2) parseAccount(buffer []byte) (interface{}, error) {
 	var response accountResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
-	_ = decodeStream.Decode(&response)
-	// if err != nil {
-	// 	return nil, err
-	// }
+	err := decodeStream.Decode(&response)
+	if err != nil {
+		return nil, err
+	}
 	storageRoot, _ := findItemInItems(response.Payload.Items, "storageRoot")
 	nonce, _ := findItemInItems(response.Payload.Items, "nonce")
 	code, _ := findItemInItems(response.Payload.Items, "code")
 	balance, _ := findItemInItems(response.Payload.Items, "balance")
 	dnonce := util.DecodeBytesToInt(nonce.Value)
 	dbalance := util.DecodeBytesToInt(balance.Value)
-	// stateTree, err := rlpV2.NewMerkleTree(rawAccount[1])
-	// if err != nil {
-	// 	return nil, err
-	// }
+	stateTree, err := rlpV2.NewMerkleTree(response.Payload.MerkleProof)
+	if err != nil {
+		return nil, err
+	}
 	account := &Account{
 		StorageRoot: storageRoot.Value,
 		Nonce:       int64(dnonce),
 		Code:        code.Value,
 		Balance:     int64(dbalance),
-		// stateTree:   stateTree,
-		// proof:       rawAccount[1],
+		stateTree:   stateTree,
 	}
 	return account, nil
 }
@@ -679,6 +699,23 @@ func (rlpV2 RLP_V2) parseAccountRoots(buffer []byte) (interface{}, error) {
 		AccountRoots: response.Payload.AccountRoots,
 	}
 	return accountRoots, nil
+}
+
+func (rlpV2 RLP_V2) parseAccountValue(buffer []byte) (interface{}, error) {
+	var response accountValueResponse
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	err := decodeStream.Decode(&response)
+	if err != nil {
+		return nil, err
+	}
+	accountTree, err := rlpV2.NewMerkleTree(response.Payload.MerkleProof)
+	if err != nil {
+		return nil, err
+	}
+	accountValue := &AccountValue{
+		accountTree: accountTree,
+	}
+	return accountValue, nil
 }
 
 func (rlpV2 RLP_V2) ParsePortOpen(rawResponse [][]byte) (*PortOpen, error) {
@@ -742,19 +779,6 @@ func (rlpV2 RLP_V2) ParseStateRoots(rawStateRoots []byte) (*StateRoots, error) {
 		StateRoots: parsedStateRoots,
 	}
 	return stateRoots, nil
-}
-
-// TODO: check error from jsonparser
-func (rlpV2 RLP_V2) ParseAccountValue(rawAccountValue []byte) (*AccountValue, error) {
-	accountTree, err := rlpV2.NewMerkleTree(rawAccountValue)
-	if err != nil {
-		return nil, err
-	}
-	accountValue := &AccountValue{
-		accountTree: accountTree,
-		proof:       rawAccountValue,
-	}
-	return accountValue, nil
 }
 
 func (rlpV2 RLP_V2) ParseDeviceTicket(rawObject []byte) (*DeviceTicket, error) {

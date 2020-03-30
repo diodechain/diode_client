@@ -7,15 +7,15 @@ import (
 	"bytes"
 	"fmt"
 	"math"
+	"reflect"
 
-	"github.com/buger/jsonparser"
 	"github.com/diodechain/diode_go_client/util"
 	bert "github.com/diodechain/gobert"
 )
 
 var (
-	errorWrongTree   = fmt.Errorf("Wrong merkle tree data")
-	errorKeyNotFound = fmt.Errorf("Key not found in merkle tree")
+	errWrongTree   = fmt.Errorf("Wrong merkle tree data")
+	errKeyNotFound = fmt.Errorf("Key not found in merkle tree")
 )
 
 // MerkleTreeNode struct for node of merkle tree
@@ -34,7 +34,7 @@ type MerkleTree struct {
 	mtp      MerkleTreeParser
 	Nodes    []MerkleTreeNode
 	Leaves   []MerkleTreeLeave
-	RawTree  []byte
+	RawTree  []interface{}
 	RootHash []byte
 	Module   uint64
 }
@@ -46,7 +46,7 @@ func (mt *MerkleTree) Get(key []byte) ([]byte, error) {
 			return leave.Value, nil
 		}
 	}
-	return nil, errorKeyNotFound
+	return nil, errKeyNotFound
 }
 
 func (mt *MerkleTree) parse() (rootHash []byte, module uint64, leaves []MerkleTreeLeave, err error) {
@@ -59,28 +59,34 @@ func (mt *MerkleTree) parse() (rootHash []byte, module uint64, leaves []MerkleTr
 	return
 }
 
-type JSONMerkleTreeParser struct{}
+type RLPMerkleTreeParser struct{}
 
 // parseProof returns bert hash of [proof]
 // proof: [<prefix>, <modulo>, <values>] | {<proof>, <proof>} | <hash>
-func (mt JSONMerkleTreeParser) parseProof(proof []byte) (rootHash []byte, module uint64, leaves []MerkleTreeLeave, err error) {
+func (mt RLPMerkleTreeParser) parseProof(proof interface{}) (rootHash []byte, module uint64, leaves []MerkleTreeLeave, err error) {
 	var proofLen, prefixByt, bitsLength int
 	var prefix interface{}
 	var bitsPrefix []byte
-	var proofKey string
 	var bytPrefix []byte
-	var hexModule string
-	var hexKey string
-	var hexValue string
+	var bytModule []byte
 	var key []byte
 	var value []byte
-	proofLen = JSONArrLen(proof)
-	bytPrefix, _, _, err = jsonparser.Get(proof, "[0]")
-	if err != nil {
+	var val reflect.Value
+	var subVal reflect.Value
+	var kind reflect.Kind
+	var ok bool
+	val = reflect.ValueOf(proof)
+	kind = val.Kind()
+	if kind != reflect.Slice && kind != reflect.Array {
+		err = errWrongTree
 		return
 	}
-	// empty return 0x || empty string
-	if len(bytPrefix) <= 0 || util.IsZeroPrefix(bytPrefix) {
+	proofLen = val.Len()
+	if bytPrefix, ok = val.Index(0).Interface().([]byte); !ok {
+		err = errWrongTree
+		return
+	}
+	if len(bytPrefix) <= 0 {
 		prefix = []byte("")
 	} else {
 		// decode bits string, change to binary encoding?
@@ -101,14 +107,11 @@ func (mt JSONMerkleTreeParser) parseProof(proof []byte) (rootHash []byte, module
 			Bits:  uint8(bitsLength),
 		}
 	}
-	hexModule, err = jsonparser.GetString(proof, "[1]")
-	if err != nil {
+	if bytModule, ok = val.Index(1).Interface().([]byte); !ok {
+		err = errWrongTree
 		return
 	}
-	module, err = util.DecodeStringToInt(string(hexModule))
-	if err != nil {
-		return
-	}
+	module = util.DecodeBytesToUint(bytModule)
 	bertProof := bert.List{
 		Items: []bert.Term{
 			prefix,
@@ -116,22 +119,22 @@ func (mt JSONMerkleTreeParser) parseProof(proof []byte) (rootHash []byte, module
 		},
 	}
 	for i := 2; i < proofLen; i++ {
-		proofKey = fmt.Sprintf("[%d]", i)
-		values, _, _, _ := jsonparser.Get(proof, proofKey)
-		hexKey, err = jsonparser.GetString(values, "[0]")
-		if err != nil {
+		subVal = val.Index(i).Elem()
+		kind = subVal.Kind()
+		if kind != reflect.Slice && kind != reflect.Array {
+			err = errWrongTree
 			return
 		}
-		hexValue, err = jsonparser.GetString(values, "[1]")
-		if err != nil {
+		if subVal.Len() < 1 {
+			err = errWrongTree
 			return
 		}
-		key, err = util.DecodeString(hexKey)
-		if err != nil {
+		if key, ok = subVal.Index(0).Interface().([]byte); !ok {
+			err = errWrongTree
 			return
 		}
-		value, err = util.DecodeString(hexValue)
-		if err != nil {
+		if value, ok = subVal.Index(1).Interface().([]byte); !ok {
+			err = errWrongTree
 			return
 		}
 		proofs := make([][]byte, 2)
@@ -150,20 +153,21 @@ func (mt JSONMerkleTreeParser) parseProof(proof []byte) (rootHash []byte, module
 }
 
 // parse recursively
-func (mt JSONMerkleTreeParser) rparse(proof []byte) (interface{}, uint64, []MerkleTreeLeave, error) {
-	var parsedProof []byte
-	if isJSONArr(proof) {
-		proofLen := JSONArrLen(proof)
-		if proofLen == 1 {
-			dec, err := util.DecodeString(string(proof[1 : len(proof)-1]))
-			return dec, 0, nil, err
-		} else if proofLen == 2 {
-			leftRaw, _, _, _ := jsonparser.Get(proof, "[0]")
+func (mt RLPMerkleTreeParser) rparse(proof interface{}) (interface{}, uint64, []MerkleTreeLeave, error) {
+	val := reflect.ValueOf(proof)
+	kind := val.Kind()
+	if kind == reflect.Slice || kind == reflect.Array {
+		proofLen := val.Len()
+		if bytVal, ok := val.Interface().([]byte); ok {
+			return bytVal, 0, nil, nil
+		}
+		if proofLen == 2 {
+			leftRaw := val.Index(0).Interface()
 			leftItem, lmodule, lleaves, err := mt.rparse(leftRaw)
 			if err != nil {
 				return nil, 0, nil, err
 			}
-			rightRaw, _, _, _ := jsonparser.Get(proof, "[1]")
+			rightRaw := val.Index(1).Interface()
 			rightItem, rmodule, rleaves, err := mt.rparse(rightRaw)
 			if err != nil {
 				return nil, 0, nil, err
@@ -177,17 +181,8 @@ func (mt JSONMerkleTreeParser) rparse(proof []byte) (interface{}, uint64, []Merk
 			leaves := append(lleaves, rleaves...)
 			return rootHash, module, leaves, err
 		} else if proofLen >= 3 {
-			// parseProof
 			return mt.parseProof(proof)
 		}
-	} else if util.IsHexNumber(proof) {
-		dec, err := util.DecodeStringToInt(string(proof))
-		return dec, 0, nil, err
-	} else if util.IsHex(proof) {
-		dec, err := util.DecodeString(string(proof))
-		return dec, 0, nil, err
-	} else {
-		return nil, 0, nil, errorWrongTree
 	}
-	return parsedProof, 0, nil, nil
+	return nil, 0, nil, errWrongTree
 }
