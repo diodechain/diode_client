@@ -9,7 +9,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/diodechain/diode_go_client/util"
 	"github.com/gorilla/websocket"
 )
 
@@ -142,9 +141,8 @@ func (conn *ConnectedConn) copyToSSL(client *RPCClient, ref uint64) error {
 			return nil
 		}
 		if len(buf) > 0 {
-			encStr := util.EncodeToString(buf)
-			encBuf := []byte(encStr)
-			err := client.CastPortSend(ref, encBuf)
+			// TODO: E2E encryption
+			err := client.CastPortSend(ref, buf)
 			if err != nil {
 				return err
 			}

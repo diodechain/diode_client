@@ -4,7 +4,6 @@
 package rpc
 
 import (
-	"encoding/hex"
 	"fmt"
 	"io"
 	"log"
@@ -126,13 +125,8 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			rpcClient.Error("failed to decode portsend request: %v", portSend.Err.Message)
 			return
 		}
-		decData := make([]byte, hex.DecodedLen(len(portSend.Data)))
-		_, err := util.Decode(decData, portSend.Data)
-		if err != nil {
-			rpcClient.Error("failed to decode portsend data: %v", err.Error())
-			return
-		}
-		// decData := portSend.Data
+		// TODO: E2E encryption
+		decData := portSend.Data
 		// start to write data
 		deviceKey := rpcClient.GetDeviceKey(portSend.Ref)
 		cachedConnDevice := rpcClient.pool.GetDevice(deviceKey)
@@ -159,12 +153,6 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 	} else {
 		rpcClient.Warn("doesn't support rpc request: %+v ", inboundRequest)
 	}
-
-	// case "goodbye":
-	// 	rpcClient.Warn("server disconnected, reason: %v, %v", string(request.RawData[0]), string(request.RawData[1]))
-	// 	if !rpcClient.Closed() {
-	// 		rpcClient.Close()
-	// 	}
 	return
 }
 
