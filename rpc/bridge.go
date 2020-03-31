@@ -36,13 +36,11 @@ func (rpcClient *RPCClient) Wait() {
 }
 
 // handle inbound request
-func (rpcClient *RPCClient) handleInboundRequest(request edge.Request) {
-	switch request.Method {
-	case "portopen":
-		portOpen, err := rpcClient.edgeProtocol.NewPortOpenRequest(request)
-		if err != nil {
-			go rpcClient.ResponsePortOpen(portOpen, err)
-			rpcClient.Error("Failed to decode portopen request: %v", err)
+func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
+	if portOpen, ok := inboundRequest.(*edge.PortOpen); ok {
+		if portOpen.Err != nil {
+			go rpcClient.ResponsePortOpen(portOpen, fmt.Errorf(portOpen.Err.Message))
+			rpcClient.Error("Failed to decode portopen request: %v", portOpen.Err.Message)
 			return
 		}
 		// Checking blacklist and whitelist
@@ -123,18 +121,18 @@ func (rpcClient *RPCClient) handleInboundRequest(request edge.Request) {
 			connDevice.copyToSSL()
 			connDevice.Close()
 		}()
-	case "portsend":
-		portSend, err := rpcClient.edgeProtocol.NewPortSendRequest(request)
-		if err != nil {
-			rpcClient.Error("failed to decode portsend request: %v", err.Error())
+	} else if portSend, ok := inboundRequest.(*edge.PortSend); ok {
+		if portSend.Err != nil {
+			rpcClient.Error("failed to decode portsend request: %v", portSend.Err.Message)
 			return
 		}
 		decData := make([]byte, hex.DecodedLen(len(portSend.Data)))
-		_, err = util.Decode(decData, portSend.Data)
+		_, err := util.Decode(decData, portSend.Data)
 		if err != nil {
 			rpcClient.Error("failed to decode portsend data: %v", err.Error())
 			return
 		}
+		// decData := portSend.Data
 		// start to write data
 		deviceKey := rpcClient.GetDeviceKey(portSend.Ref)
 		cachedConnDevice := rpcClient.pool.GetDevice(deviceKey)
@@ -144,12 +142,7 @@ func (rpcClient *RPCClient) handleInboundRequest(request edge.Request) {
 			rpcClient.Error("cannot find the portsend connected device %d", portSend.Ref)
 			rpcClient.CastPortClose(int(portSend.Ref))
 		}
-	case "portclose":
-		portClose, err := rpcClient.edgeProtocol.NewPortCloseRequest(request)
-		if err != nil {
-			rpcClient.Error("failed to decode portclose request: %v", err)
-			return
-		}
+	} else if portClose, ok := inboundRequest.(*edge.PortClose); ok {
 		deviceKey := rpcClient.GetDeviceKey(portClose.Ref)
 		cachedConnDevice := rpcClient.pool.GetDevice(deviceKey)
 		if cachedConnDevice != nil {
@@ -158,14 +151,20 @@ func (rpcClient *RPCClient) handleInboundRequest(request edge.Request) {
 		} else {
 			rpcClient.Error("cannot find the portclose connected device %d", portClose.Ref)
 		}
-	case "goodbye":
-		rpcClient.Warn("server disconnected, reason: %v, %v", string(request.RawData[0]), string(request.RawData[1]))
+	} else if goodbye, ok := inboundRequest.(edge.Goodbye); ok {
+		rpcClient.Warn("server disconnected, reason: %v", goodbye.Reason)
 		if !rpcClient.Closed() {
 			rpcClient.Close()
 		}
-	default:
-		rpcClient.Warn("doesn't support rpc request: %v ", string(request.Method))
+	} else {
+		rpcClient.Warn("doesn't support rpc request: %+v ", inboundRequest)
 	}
+
+	// case "goodbye":
+	// 	rpcClient.Warn("server disconnected, reason: %v, %v", string(request.RawData[0]), string(request.RawData[1]))
+	// 	if !rpcClient.Closed() {
+	// 		rpcClient.Close()
+	// 	}
 	return
 }
 
@@ -205,12 +204,12 @@ func (rpcClient *RPCClient) handleInboundMessage() {
 				close(call.response)
 				continue
 			}
-			request, err := msg.ReadAsRequest(rpcClient.edgeProtocol)
+			inboundRequest, err := msg.ReadAsRequest(rpcClient.edgeProtocol)
 			if err != nil {
 				rpcClient.Error("Not rpc request: %v", err)
 				continue
 			}
-			rpcClient.handleInboundRequest(request)
+			rpcClient.handleInboundRequest(inboundRequest)
 		}
 	}
 }

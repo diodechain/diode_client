@@ -32,23 +32,30 @@ type Error struct {
 }
 
 type PortOpen struct {
-	Ref      int64
-	Port     int64
-	DeviceID string
-	Ok       bool
-	Err      *Error
+	Ref         uint64
+	Port        uint64
+	RawDeviceID []byte
+	DeviceID    string
+	Ok          bool
+	Err         *Error
 }
 
 type PortSend struct {
-	Ref  int64
+	Ref  uint64
 	Data []byte
 	Ok   bool
 	Err  *Error
 }
 
 type PortClose struct {
-	Ref int64
+	Ref uint64
 	Ok  bool
+	Err *Error
+}
+
+type Goodbye struct {
+	Reason []string
+	Err    *Error
 }
 
 type ServerObj struct {

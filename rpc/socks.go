@@ -339,7 +339,7 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, mode str
 		return nil, &HttpError{500, fmt.Errorf("GetServer() failed: %v", err)}
 	}
 
-	portOpen, err := client.PortOpen(deviceID, int(port), mode)
+	portOpen, err := client.PortOpen(dDeviceID, int(port), mode)
 	if err != nil {
 		// This might fail when a device has reconnected. Clearing the cache and trying once more
 		socksServer.datapool.SetCache(deviceID, nil)

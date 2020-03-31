@@ -130,7 +130,7 @@ func (rpcClient *RPCClient) GetClientAddress() ([20]byte, error) {
 }
 
 // GetDeviceKey returns device key of given ref
-func (rpcClient *RPCClient) GetDeviceKey(ref int64) string {
+func (rpcClient *RPCClient) GetDeviceKey(ref uint64) string {
 	prefixByt, err := rpcClient.s.GetServerID()
 	if err != nil {
 		return ""
@@ -175,9 +175,9 @@ func (rpcClient *RPCClient) waitMessage(call Call, rpcTimeout time.Duration) (re
 }
 
 // RespondContext sends a message without expecting a response
-func (rpcClient *RPCClient) RespondContext(requestID uint64, method string, args ...interface{}) (call Call, err error) {
+func (rpcClient *RPCClient) RespondContext(requestID uint64, responseType string, method string, args ...interface{}) (call Call, err error) {
 	var msg []byte
-	msg, _, err = rpcClient.edgeProtocol.NewMessage(requestID, method, args...)
+	msg, _, err = rpcClient.edgeProtocol.NewResponseMessage(requestID, responseType, method, args...)
 	if err != nil {
 		return
 	}
@@ -443,17 +443,16 @@ func (rpcClient *RPCClient) GetObject(deviceID [20]byte) (*edge.DeviceTicket, er
 	if len(deviceID) != 20 {
 		return nil, fmt.Errorf("Device ID must be 20 bytes")
 	}
-	encDeviceID := util.EncodeToString(deviceID[:])
-	rawObject, err := rpcClient.CallContext("getobject", nil, encDeviceID)
+	// encDeviceID := util.EncodeToString(deviceID[:])
+	rawObject, err := rpcClient.CallContext("getobject", nil, deviceID[:])
 	if err != nil {
 		return nil, err
 	}
-	device, err := rpcClient.edgeProtocol.ParseDeviceTicket(rawObject.(edge.Response).RawData[0])
-	if err != nil {
-		return nil, err
+	if device, ok := rawObject.(*edge.DeviceTicket); ok {
+		device.BlockHash, err = rpcClient.ResolveBlockHash(device.BlockNumber)
+		return device, nil
 	}
-	device.BlockHash, err = rpcClient.ResolveBlockHash(device.BlockNumber)
-	return device, err
+	return nil, nil
 }
 
 // GetNode returns network address for node
@@ -570,8 +569,6 @@ func (rpcClient *RPCClient) submitTicket(ticket *edge.DeviceTicket) error {
 			}
 		} else if lastTicket.Err == edge.ErrTicketTooOld {
 			rpcClient.Info("received too old ticket")
-		} else {
-			rpcClient.Info("received ok ticket?!")
 		}
 		return nil
 	}
@@ -579,20 +576,23 @@ func (rpcClient *RPCClient) submitTicket(ticket *edge.DeviceTicket) error {
 }
 
 // PortOpen call portopen RPC
-func (rpcClient *RPCClient) PortOpen(deviceID string, port int, mode string) (*edge.PortOpen, error) {
-	rawPortOpen, err := rpcClient.CallContext("portopen", nil, deviceID, port, mode)
+func (rpcClient *RPCClient) PortOpen(deviceID [20]byte, port int, mode string) (*edge.PortOpen, error) {
+	rawPortOpen, err := rpcClient.CallContext("portopen", nil, deviceID[:], uint64(port), mode)
 	if err != nil {
 		return nil, err
 	}
-	return rpcClient.edgeProtocol.ParsePortOpen(rawPortOpen.(edge.Response).RawData)
+	if portOpen, ok := rawPortOpen.(*edge.PortOpen); ok {
+		return portOpen, nil
+	}
+	return nil, nil
 }
 
 // ResponsePortOpen response portopen request
 func (rpcClient *RPCClient) ResponsePortOpen(portOpen *edge.PortOpen, err error) error {
 	if err != nil {
-		_, err = rpcClient.RespondContext(0, "error", "portopen", int(portOpen.Ref), err.Error())
+		_, err = rpcClient.RespondContext(0, "error", "portopen", uint64(portOpen.Ref), err.Error())
 	} else {
-		_, err = rpcClient.RespondContext(0, "response", "portopen", int(portOpen.Ref), "ok")
+		_, err = rpcClient.RespondContext(0, "response", "portopen", uint64(portOpen.Ref), "ok")
 	}
 	if err != nil {
 		return err
@@ -601,23 +601,29 @@ func (rpcClient *RPCClient) ResponsePortOpen(portOpen *edge.PortOpen, err error)
 }
 
 // PortSend call portsend RPC
-func (rpcClient *RPCClient) PortSend(ref int, data []byte) (interface{}, error) {
+func (rpcClient *RPCClient) PortSend(ref uint64, data []byte) (interface{}, error) {
 	return rpcClient.CallContext("portsend", nil, ref, data)
+}
+
+// CastPortSend call portsend RPC
+func (rpcClient *RPCClient) CastPortSend(ref uint64, data []byte) (err error) {
+	var requestID uint64
+	requestID = getRequestID()
+	_, err = rpcClient.CastContext(requestID, "portsend", nil, ref, data)
+	return err
 }
 
 // CastPortClose cast portclose RPC
 func (rpcClient *RPCClient) CastPortClose(ref int) (err error) {
 	var requestID uint64
 	requestID = getRequestID()
-	_, err = rpcClient.CastContext(requestID, "portclose", func(buffer []byte) (interface{}, error) {
-		return nil, nil
-	}, ref)
+	_, err = rpcClient.CastContext(requestID, "portclose", nil, uint64(ref))
 	return err
 }
 
 // PortClose portclose RPC
 func (rpcClient *RPCClient) PortClose(ref int) (interface{}, error) {
-	return rpcClient.CallContext("portclose", nil, ref)
+	return rpcClient.CallContext("portclose", nil, uint64(ref))
 }
 
 // Ping call ping RPC

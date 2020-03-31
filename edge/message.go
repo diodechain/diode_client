@@ -34,13 +34,14 @@ func (msg *Message) IsError(edgeProtocol EdgeProtocol) bool {
 }
 
 // ReadAsResponse returns Response of the message
-func (msg *Message) ReadAsResponse(edgeProtocol EdgeProtocol) (Response, error) {
-	return edgeProtocol.parseResponse(msg.Buffer)
+func (msg *Message) ReadAsResponse(edgeProtocol EdgeProtocol) (interface{}, error) {
+	// return edgeProtocol.parseResponse(msg.Buffer)
+	return nil, nil
 }
 
 // ReadAsRequest returns Request of the message
-func (msg *Message) ReadAsRequest(edgeProtocol EdgeProtocol) (Request, error) {
-	return edgeProtocol.parseRequest(msg.Buffer)
+func (msg *Message) ReadAsRequest(edgeProtocol EdgeProtocol) (interface{}, error) {
+	return edgeProtocol.parseInboundRequest(msg.Buffer)
 }
 
 // ReadAsError returns Error of the message

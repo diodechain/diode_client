@@ -6,8 +6,6 @@ package edge
 import (
 	"bytes"
 	"fmt"
-	"math/big"
-	"reflect"
 
 	"github.com/buger/jsonparser"
 	"github.com/diodechain/diode_go_client/blockquick"
@@ -22,6 +20,10 @@ var (
 	ticketTooOldPivot      = []byte("too_old")
 	ticketTooLowPivot      = []byte("too_low")
 	ticketThanksPivot      = []byte("thanks!")
+	portOpenPivot          = []byte("portopen")
+	portSendPivot          = []byte("portsend")
+	portClosePivot         = []byte("portclose")
+	goodbyePivot           = []byte("goodbye")
 	okPivot                = []byte("ok")
 	errWrongTypeForItems   = fmt.Errorf("items should be array or slice")
 	errKeyNotFoundInItems  = fmt.Errorf("key not found")
@@ -30,79 +32,28 @@ var (
 
 type RLP_V2 struct{}
 
-// TODO: check error from jsonparser
-func (rlpV2 RLP_V2) parseResponse(rawResponse []byte) (response Response, err error) {
-	responseType := jsonString(rawResponse, "[0]")
-	if responseType == "error" {
-		errMsg, _ := jsonparser.GetString(rawResponse, "[2]")
-		err = fmt.Errorf("error from server: %s", errMsg)
-		return
-	}
-	if responseType != "response" {
-		err = fmt.Errorf("unknown response type: %s", responseType)
-		return
-	}
-	// correct response
-	method, _, _, _ := jsonparser.Get(rawResponse, "[1]")
-	rawData := [][]byte{}
-
-	// see: https://github.com/buger/jsonparser/issues/145
-	copyRawResponse := make([]byte, len(rawResponse))
-	copy(copyRawResponse, rawResponse)
-	tmpRawData := jsonparser.Delete(copyRawResponse, "[0]")
-	tmpRawData = jsonparser.Delete(tmpRawData, "[0]")
-	handler := func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-		if err == nil {
-			rawData = append(rawData, value)
-		}
-	}
-	// should not catch error here
-	jsonparser.ArrayEach(tmpRawData, handler)
-	response = Response{
-		Raw:     rawResponse,
-		RawData: rawData,
-		Method:  string(method),
+func (rlpV2 RLP_V2) parseInboundRequest(buffer []byte) (req interface{}, err error) {
+	if bytes.Contains(buffer, portOpenPivot) {
+		return rlpV2.parseInboundPortOpenRequest(buffer)
+	} else if bytes.Contains(buffer, portSendPivot) {
+		return rlpV2.parseInboundPortSendRequest(buffer)
+	} else if bytes.Contains(buffer, portClosePivot) {
+		return rlpV2.parseInboundPortCloseRequest(buffer)
+	} else if bytes.Contains(buffer, goodbyePivot) {
+		return rlpV2.parseInboundGoodbyeRequest(buffer)
 	}
 	return
 }
 
-func (rlpV2 RLP_V2) parseRequest(rawRequest []byte) (request Request, err error) {
-	// correct response
-	var method []byte
-	var rawData [][]byte
-	method, _, _, err = jsonparser.Get(rawRequest, "[0]")
-	if err != nil {
-		return
-	}
-	// see: https://github.com/buger/jsonparser/issues/145
-	copyRawRequest := make([]byte, len(rawRequest))
-	copy(copyRawRequest, rawRequest)
-	tmpRawData := jsonparser.Delete(copyRawRequest, "[0]")
-	handler := func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-		if err == nil {
-			rawData = append(rawData, value)
-		}
-	}
-	// should not catch error here
-	jsonparser.ArrayEach(tmpRawData, handler)
-	request = Request{
-		Raw:     rawRequest,
-		Method:  string(method),
-		RawData: rawData,
-	}
-	return
-}
-
-// TODO: check error from jsonparser
 func (rlpV2 RLP_V2) parseError(rawError []byte) (Error, error) {
 	var response errorResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(rawError), 0)
 	_ = decodeStream.Decode(&response)
 	err := Error{
+		// TODO: method required?
 		// Method:  response.Payload[0],
 		// TODO: response.Payload[1] will be ? string
-		// Message: response.Payload[2],
-		Message: "",
+		Message: response.Payload[len(response.Payload)-1],
 	}
 	return err, nil
 }
@@ -147,215 +98,6 @@ func (rlpV2 RLP_V2) NewErrorResponse(method string, err error) Message {
 	}
 }
 
-// TODO: make sure it works
-// Request struct
-type blockPeakRequest struct {
-	RequestID uint64
-	Payload   struct {
-		Method string
-	}
-}
-
-type blockRequest struct {
-	RequestID uint64
-	Payload   struct {
-		Method      string
-		BlockNumber uint64
-	}
-}
-
-type blockHeaderRequest struct {
-	RequestID uint64
-	Payload   struct {
-		Method      string
-		BlockNumber uint64
-	}
-}
-
-type blockquickRequest struct {
-	RequestID uint64
-	Payload   struct {
-		Method     string
-		LastValid  uint64
-		WindowSize uint64
-	}
-}
-
-type helloRequest struct {
-	RequestID uint64
-	Payload   struct {
-		Method string
-		Flag   uint64
-	}
-}
-
-type ticketRequest struct {
-	RequestID uint64
-	Payload   struct {
-		Method           string
-		BlockNumber      uint64
-		FleetAddr        []byte
-		TotalConnections uint64
-		TotalBytes       uint64
-		LocalAddr        []byte
-		DeviceSig        []byte
-	}
-}
-
-type accountRequest struct {
-	RequestID uint64
-	Payload   struct {
-		Method      string
-		BlockNumber uint64
-		Address     []byte
-	}
-}
-
-type accountRootsRequest struct {
-	RequestID uint64
-	Payload   struct {
-		Method      string
-		BlockNumber uint64
-		Address     []byte
-	}
-}
-
-type accountValueRequest struct {
-	RequestID uint64
-	Payload   struct {
-		Method      string
-		BlockNumber uint64
-		Address     []byte
-		Key         []byte
-	}
-}
-
-// Response struct
-type Item struct {
-	Key   string
-	Value []byte
-}
-
-type responseID struct {
-	RequestID uint64
-}
-
-type errorResponse struct {
-	RequestID uint64
-	Payload   []string
-}
-
-type blockPeakResponse struct {
-	RequestID uint64
-	Payload   struct {
-		Type        string
-		BlockNumber uint64
-	}
-}
-
-// type blockResponse struct {}
-
-type blockHeaderResponse struct {
-	RequestID uint64
-	Payload   struct {
-		Type        string
-		Items       [8]Item
-		MinerPubkey []byte
-	}
-}
-
-type blockquickResponse struct {
-	RequestID uint64
-	Payload   struct {
-		Type  string
-		Items []uint64
-	}
-}
-
-// type helloResponse struct {}
-
-type ticketThanksResponse struct {
-	RequestID uint64
-	Payload   struct {
-		Type      string
-		Result    string
-		PaidBytes []byte
-	}
-}
-
-type ticketTooOldResponse struct {
-	RequestID uint64
-	Payload   struct {
-		Type   string
-		Result string
-		Min    []byte
-	}
-}
-
-type ticketTooLowResponse struct {
-	RequestID uint64
-	Payload   struct {
-		Type             string
-		Result           string
-		BlockHash        []byte
-		TotalConnections []byte
-		TotalBytes       []byte
-		LocalAddr        []byte
-		DeviceSig        []byte
-	}
-}
-
-type accountResponse struct {
-	RequestID uint64
-	Payload   struct {
-		Type        string
-		Items       [4]Item
-		MerkleProof []interface{}
-	}
-}
-
-type accountRootsResponse struct {
-	RequestID uint64
-	Payload   struct {
-		Type         string
-		AccountRoots [][]byte
-	}
-}
-
-type accountValueResponse struct {
-	RequestID uint64
-	Payload   struct {
-		Type        string
-		MerkleProof []interface{}
-	}
-}
-
-func findItemInItems(items interface{}, key string) (item Item, err error) {
-	val := reflect.ValueOf(items)
-	switch val.Kind() {
-	case reflect.Slice:
-	case reflect.Array:
-		ok := false
-		i := 0
-		len := val.Len()
-		for ; i < len; i++ {
-			v := val.Index(i)
-			if item, ok = v.Interface().(Item); ok {
-				if item.Key == key {
-					return
-				}
-			}
-		}
-		break
-	default:
-		err = errWrongTypeForItems
-		return
-	}
-	err = errKeyNotFoundInItems
-	return
-}
-
-// TODO: change to encoding/binary
 func (rlpV2 RLP_V2) NewMessage(requestID uint64, method string, args ...interface{}) ([]byte, func(buffer []byte) (interface{}, error), error) {
 	switch method {
 	case "getblock":
@@ -457,92 +199,156 @@ func (rlpV2 RLP_V2) NewMessage(requestID uint64, method string, args ...interfac
 			return nil, nil, err
 		}
 		return decodedRlp, rlpV2.parseDeviceTicket, err
+	case "portopen":
+		request := portOpenRequest{}
+		request.RequestID = requestID
+		request.Payload.Method = method
+		request.Payload.DeviceID = args[0].([]byte)
+		request.Payload.Port = args[1].(uint64)
+		request.Payload.Mode = args[2].(string)
+		decodedRlp, err := rlp.EncodeToBytes(request)
+		if err != nil {
+			return nil, nil, err
+		}
+		return decodedRlp, rlpV2.parsePortOpen, err
+	case "portsend":
+		request := portSendRequest{}
+		request.RequestID = requestID
+		request.Payload.Method = method
+		request.Payload.Ref = args[0].(uint64)
+		request.Payload.Data = args[1].([]byte)
+		decodedRlp, err := rlp.EncodeToBytes(request)
+		if err != nil {
+			return nil, nil, err
+		}
+		return decodedRlp, nil, err
+	case "portclose":
+		request := portCloseRequest{}
+		request.RequestID = requestID
+		request.Payload.Method = method
+		request.Payload.Ref = args[0].(uint64)
+		decodedRlp, err := rlp.EncodeToBytes(request)
+		if err != nil {
+			return nil, nil, err
+		}
+		return decodedRlp, nil, err
+	case "getobject":
+		request := objectRequest{}
+		request.RequestID = requestID
+		request.Payload.Method = method
+		request.Payload.DeviceID = args[0].([]byte)
+		decodedRlp, err := rlp.EncodeToBytes(request)
+		if err != nil {
+			return nil, nil, err
+		}
+		return decodedRlp, rlpV2.parseDeviceObject, err
 	default:
 		return nil, nil, fmt.Errorf("not found")
 	}
 }
 
-func (rlpV2 RLP_V2) NewPortOpenRequest(request Request) (*PortOpen, error) {
-	hexPort, err := jsonparser.GetString(request.Raw, "[1]")
+func (rlpV2 RLP_V2) NewResponseMessage(requestID uint64, responseType string, method string, args ...interface{}) ([]byte, func(buffer []byte) (interface{}, error), error) {
+	switch method {
+	case "portopen":
+		request := portOpenOutboundResponse{}
+		request.RequestID = requestID
+		request.Payload.ResponseType = responseType
+		request.Payload.Ref = args[0].(uint64)
+		request.Payload.Result = args[1].(string)
+		decodedRlp, err := rlp.EncodeToBytes(request)
+		if err != nil {
+			return nil, nil, err
+		}
+		return decodedRlp, nil, err
+	case "portsend":
+		request := portSendRequest{}
+		request.RequestID = requestID
+		request.Payload.Method = method
+		request.Payload.Ref = args[0].(uint64)
+		request.Payload.Data = args[1].([]byte)
+		decodedRlp, err := rlp.EncodeToBytes(request)
+		if err != nil {
+			return nil, nil, err
+		}
+		return decodedRlp, nil, err
+	case "portclose":
+		request := portCloseRequest{}
+		request.RequestID = requestID
+		request.Payload.Method = method
+		request.Payload.Ref = args[0].(uint64)
+		decodedRlp, err := rlp.EncodeToBytes(request)
+		if err != nil {
+			return nil, nil, err
+		}
+		return decodedRlp, nil, err
+	default:
+		return nil, nil, fmt.Errorf("not found")
+	}
+}
+
+// parse inbound request
+func (rlpV2 RLP_V2) parseInboundPortOpenRequest(buffer []byte) (interface{}, error) {
+	var inboundRequest portOpenInboundRequest
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	err := decodeStream.Decode(&inboundRequest)
 	if err != nil {
 		return nil, err
 	}
-	portByt, err := util.DecodeString(hexPort)
-	if err != nil {
-		return nil, err
-	}
-	portBig := &big.Int{}
-	portBig.SetBytes(portByt)
-	port := portBig.Int64()
-	hexRef, err := jsonparser.GetString(request.Raw, "[2]")
-	if err != nil {
-		return nil, err
-	}
-	refByt, err := util.DecodeString(hexRef)
-	if err != nil {
-		return nil, err
-	}
-	refBig := &big.Int{}
-	refBig.SetBytes(refByt)
-	ref := refBig.Int64()
-	deviceID, err := jsonparser.GetString(request.Raw, "[3]")
-	if err != nil {
-		return nil, err
-	}
+	deviceID := util.EncodeToString(inboundRequest.Payload.DeviceID)
 	portOpen := &PortOpen{
-		Port:     port,
-		Ref:      ref,
-		DeviceID: deviceID,
-		Ok:       true,
+		Port:        inboundRequest.Payload.Port,
+		Ref:         inboundRequest.Payload.Ref,
+		RawDeviceID: inboundRequest.Payload.DeviceID,
+		DeviceID:    deviceID,
+		Ok:          true,
 	}
 	return portOpen, nil
 }
 
-func (rlpV2 RLP_V2) NewPortSendRequest(request Request) (*PortSend, error) {
-	hexRef, err := jsonparser.GetString(request.Raw, "[1]")
-	if err != nil {
-		return nil, err
-	}
-	refByt, err := util.DecodeString(hexRef)
-	if err != nil {
-		return nil, err
-	}
-	refBig := &big.Int{}
-	refBig.SetBytes(refByt)
-	ref := refBig.Int64()
-	data, _, _, err := jsonparser.Get(request.Raw, "[2]")
+func (rlpV2 RLP_V2) parseInboundPortSendRequest(buffer []byte) (interface{}, error) {
+	var inboundRequest portSendInboundRequest
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	err := decodeStream.Decode(&inboundRequest)
 	if err != nil {
 		return nil, err
 	}
 	portSend := &PortSend{
-		Ref:  ref,
-		Data: data,
+		Ref:  inboundRequest.Payload.Ref,
+		Data: inboundRequest.Payload.Data,
 		Ok:   true,
 	}
 	return portSend, nil
 }
 
-func (rlpV2 RLP_V2) NewPortCloseRequest(request Request) (*PortClose, error) {
-	hexRef, err := jsonparser.GetString(request.Raw, "[1]")
+func (rlpV2 RLP_V2) parseInboundPortCloseRequest(buffer []byte) (interface{}, error) {
+	var inboundRequest portCloseInboundRequest
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	err := decodeStream.Decode(&inboundRequest)
 	if err != nil {
 		return nil, err
 	}
-	refByt, err := util.DecodeString(hexRef)
-	if err != nil {
-		return nil, err
-	}
-	refBig := &big.Int{}
-	refBig.SetBytes(refByt)
-	ref := refBig.Int64()
 	portClose := &PortClose{
-		Ref: ref,
+		Ref: inboundRequest.Payload.Ref,
 		Ok:  true,
 	}
 	return portClose, nil
 }
 
-// parse response of rpc call
+// TODO: should test it
+func (rlpV2 RLP_V2) parseInboundGoodbyeRequest(buffer []byte) (interface{}, error) {
+	var inboundRequest goodbyeInboundRequest
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	err := decodeStream.Decode(&inboundRequest)
+	if err != nil {
+		return nil, err
+	}
+	goodbye := Goodbye{
+		Reason: inboundRequest.Payload.Reason,
+	}
+	return goodbye, nil
+}
 
+// parse response of rpc call
 func (rlpV2 RLP_V2) parseBlockPeak(buffer []byte) (interface{}, error) {
 	var response blockPeakResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
@@ -637,8 +443,8 @@ func (rlpV2 RLP_V2) parseDeviceTicket(buffer []byte) (interface{}, error) {
 		err = ErrTicketTooLow
 		ticket := DeviceTicket{
 			BlockHash:        response.Payload.BlockHash,
-			TotalConnections: util.DecodeBytesToUint(response.Payload.TotalConnections),
-			TotalBytes:       util.DecodeBytesToUint(response.Payload.TotalBytes),
+			TotalConnections: response.Payload.TotalConnections,
+			TotalBytes:       response.Payload.TotalBytes,
 			LocalAddr:        response.Payload.LocalAddr,
 			DeviceSig:        response.Payload.DeviceSig,
 			Err:              err,
@@ -658,6 +464,31 @@ func (rlpV2 RLP_V2) parseDeviceTicket(buffer []byte) (interface{}, error) {
 		return ticket, nil
 	}
 	return nil, ErrFailedToParseTicket
+}
+
+func (rlpV2 RLP_V2) parseDeviceObject(buffer []byte) (interface{}, error) {
+	var response objectResponse
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	err := decodeStream.Decode(&response)
+	if err != nil {
+		return nil, err
+	}
+	serverID := [20]byte{}
+	copy(serverID[:], response.Payload.Ticket.ServerID)
+	fleetAddr := [20]byte{}
+	copy(fleetAddr[:], response.Payload.Ticket.FleetAddr)
+	deviceObj := &DeviceTicket{
+		ServerID:         serverID,
+		BlockNumber:      int(response.Payload.Ticket.PeakBlock),
+		BlockHash:        nil,
+		FleetAddr:        fleetAddr,
+		TotalConnections: response.Payload.Ticket.TotalConnections,
+		TotalBytes:       response.Payload.Ticket.TotalBytes,
+		DeviceSig:        response.Payload.Ticket.DeviceSig,
+		ServerSig:        response.Payload.Ticket.ServerSig,
+		LocalAddr:        response.Payload.Ticket.LocalAddr,
+	}
+	return deviceObj, nil
 }
 
 // TODO: decode merkle tree from message
@@ -718,19 +549,16 @@ func (rlpV2 RLP_V2) parseAccountValue(buffer []byte) (interface{}, error) {
 	return accountValue, nil
 }
 
-func (rlpV2 RLP_V2) ParsePortOpen(rawResponse [][]byte) (*PortOpen, error) {
-	ok := string(rawResponse[0])
-	hexRef := string(rawResponse[1])
-	refByt, err := util.DecodeString(hexRef)
+func (rlpV2 RLP_V2) parsePortOpen(buffer []byte) (interface{}, error) {
+	var response portOpenResponse
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	err := decodeStream.Decode(&response)
 	if err != nil {
 		return nil, err
 	}
-	refBig := &big.Int{}
-	refBig.SetBytes(refByt)
-	ref := refBig.Int64()
 	portOpen := &PortOpen{
-		Ok:  (ok == "ok"),
-		Ref: ref,
+		Ok:  (response.Payload.Result == "ok"),
+		Ref: response.Payload.Ref,
 	}
 	return portOpen, nil
 }
@@ -779,94 +607,4 @@ func (rlpV2 RLP_V2) ParseStateRoots(rawStateRoots []byte) (*StateRoots, error) {
 		StateRoots: parsedStateRoots,
 	}
 	return stateRoots, nil
-}
-
-func (rlpV2 RLP_V2) ParseDeviceTicket(rawObject []byte) (*DeviceTicket, error) {
-	if bytes.Equal(NullData, rawObject) {
-		err := fmt.Errorf("cannot find the object of device")
-		deviceObj := &DeviceTicket{
-			Err: err,
-		}
-		return deviceObj, err
-	}
-	serverID, err := jsonparser.GetString(rawObject, "[1]")
-	if err != nil {
-		return nil, err
-	}
-	peakBlock, err := jsonparser.GetString(rawObject, "[2]")
-	if err != nil {
-		return nil, err
-	}
-	fleetAddr, err := jsonparser.GetString(rawObject, "[3]")
-	if err != nil {
-		return nil, err
-	}
-	totalConnections, err := jsonparser.GetString(rawObject, "[4]")
-	if err != nil {
-		return nil, err
-	}
-	totalBytes, err := jsonparser.GetString(rawObject, "[5]")
-	if err != nil {
-		return nil, err
-	}
-	localAddr, err := jsonparser.GetString(rawObject, "[6]")
-	if err != nil {
-		return nil, err
-	}
-	dlocalAddr, err := util.DecodeString(localAddr[:])
-	if err != nil {
-		return nil, err
-	}
-	deviceSig, err := jsonparser.GetString(rawObject, "[7]")
-	if err != nil {
-		return nil, err
-	}
-	serverSig, err := jsonparser.GetString(rawObject, "[8]")
-	if err != nil {
-		return nil, err
-	}
-	dserverID, err := util.DecodeString(serverID[:])
-	if err != nil {
-		return nil, err
-	}
-	var eserverID [20]byte
-	copy(eserverID[:], dserverID)
-	dpeakBlock, err := util.DecodeStringToInt(peakBlock[:])
-	if err != nil {
-		return nil, err
-	}
-	dfleetAddr, err := util.DecodeString(fleetAddr[:])
-	if err != nil {
-		return nil, err
-	}
-	var efleetAddr [20]byte
-	copy(efleetAddr[:], dfleetAddr)
-	dtotalConnections, err := util.DecodeStringToInt(totalConnections[:])
-	if err != nil {
-		return nil, err
-	}
-	dtotalBytes, err := util.DecodeStringToInt(totalBytes[:])
-	if err != nil {
-		return nil, err
-	}
-	ddeviceSig, err := util.DecodeString(deviceSig[:])
-	if err != nil {
-		return nil, err
-	}
-	dserverSig, err := util.DecodeString(serverSig[:])
-	if err != nil {
-		return nil, err
-	}
-	deviceObj := &DeviceTicket{
-		ServerID:         eserverID,
-		BlockNumber:      int(dpeakBlock),
-		BlockHash:        nil,
-		FleetAddr:        efleetAddr,
-		TotalConnections: dtotalConnections,
-		TotalBytes:       dtotalBytes,
-		DeviceSig:        ddeviceSig,
-		ServerSig:        dserverSig,
-		LocalAddr:        dlocalAddr,
-	}
-	return deviceObj, nil
 }

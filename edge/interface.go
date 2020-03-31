@@ -5,8 +5,8 @@ package edge
 
 // EdgeProtocol interface defines functions that are required to diode edge protocol
 type EdgeProtocol interface {
-	parseResponse(rawResponse []byte) (response Response, err error)
-	parseRequest(rawRequest []byte) (request Request, err error)
+	// parseResponse(bufefr []byte) (interface{}, err error)
+
 	parseError(rawError []byte) (Error, error)
 	// parse response of rpc call
 	parseBlockPeak(buffer []byte) (interface{}, error)
@@ -14,25 +14,29 @@ type EdgeProtocol interface {
 	parseBlockHeader(buffer []byte) (interface{}, error)
 	parseBlockquick(buffer []byte) (interface{}, error)
 	parseDeviceTicket(buffer []byte) (interface{}, error)
+	parseDeviceObject(buffer []byte) (interface{}, error)
 	parseAccount(buffer []byte) (interface{}, error)
 	parseAccountRoots(buffer []byte) (interface{}, error)
 	parseAccountValue(buffer []byte) (interface{}, error)
+	parsePortOpen(buffer []byte) (interface{}, error)
+	// parsePortSend(buffer []byte) (interface{}, error)
+	// parsePortClose(buffer []byte) (interface{}, error)
+	// parse inbound request
+	parseInboundRequest(buffer []byte) (interface{}, error)
+	parseInboundPortOpenRequest(buffer []byte) (interface{}, error)
+	parseInboundPortSendRequest(buffer []byte) (interface{}, error)
+	parseInboundPortCloseRequest(buffer []byte) (interface{}, error)
+	parseInboundGoodbyeRequest(buffer []byte) (interface{}, error)
 	IsResponseType(rawData []byte) bool
 	IsErrorType(rawData []byte) bool
 	ResponseID(buffer []byte) uint64
 	NewMerkleTree(rawTree []interface{}) (MerkleTree, error)
 	NewErrorResponse(method string, err error) Message
 	NewMessage(requestID uint64, method string, args ...interface{}) ([]byte, func(buffer []byte) (interface{}, error), error)
-	NewPortOpenRequest(request Request) (*PortOpen, error)
-	NewPortSendRequest(request Request) (*PortSend, error)
-	NewPortCloseRequest(request Request) (*PortClose, error)
-	// parse response of rpc call
-	ParsePortOpen(rawResponse [][]byte) (*PortOpen, error)
-	// ParsePortSend(rawResponse [][]byte) (*PortSend, error)
-	// ParsePortClose(rawResponse [][]byte) (*PortClose, error)
+	NewResponseMessage(requestID uint64, responseType string, method string, args ...interface{}) ([]byte, func(buffer []byte) (interface{}, error), error)
+	// TODO: rpc calls
 	ParseServerObj(rawObject []byte) (*ServerObj, error)
 	ParseStateRoots(rawStateRoots []byte) (*StateRoots, error)
-	ParseDeviceTicket(rawObject []byte) (*DeviceTicket, error)
 }
 
 // MerkleTreeParser interface defines functions that are required to diode merkle tree
