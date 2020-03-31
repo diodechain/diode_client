@@ -457,16 +457,14 @@ func (rpcClient *RPCClient) GetObject(deviceID [20]byte) (*edge.DeviceTicket, er
 
 // GetNode returns network address for node
 func (rpcClient *RPCClient) GetNode(nodeID [20]byte) (*edge.ServerObj, error) {
-	encNodeID := util.EncodeToString(nodeID[:])
-	rawNode, err := rpcClient.CallContext("getnode", nil, encNodeID)
+	rawNode, err := rpcClient.CallContext("getnode", nil, nodeID[:])
 	if err != nil {
 		return nil, err
 	}
-	obj, err := rpcClient.edgeProtocol.ParseServerObj(rawNode.(edge.Response).RawData[0])
-	if err != nil {
-		return nil, fmt.Errorf("GetNode(): parseerror '%v' in '%v'", err, string(rawNode.(edge.Response).RawData[0]))
+	if obj, ok := rawNode.(*edge.ServerObj); ok {
+		return obj, nil
 	}
-	return obj, nil
+	return nil, fmt.Errorf("GetNode(): parseerror")
 }
 
 // Greet Initiates the connection
@@ -637,7 +635,10 @@ func (rpcClient *RPCClient) GetStateRoots(blockNumber int) (*edge.StateRoots, er
 	if err != nil {
 		return nil, err
 	}
-	return rpcClient.edgeProtocol.ParseStateRoots(rawStateRoots.(edge.Response).RawData[0])
+	if stateRoots, ok := rawStateRoots.(*edge.StateRoots); ok {
+		return stateRoots, nil
+	}
+	return nil, nil
 }
 
 // GetAccount returns account information: nonce, balance, storage root, code

@@ -60,8 +60,8 @@ type Goodbye struct {
 
 type ServerObj struct {
 	Host         []byte
-	EdgePort     int64
-	ServerPort   int64
+	EdgePort     uint64
+	ServerPort   uint64
 	Sig          []byte
 	ServerPubKey []byte
 }

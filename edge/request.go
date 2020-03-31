@@ -120,3 +120,19 @@ type objectRequest struct {
 		DeviceID []byte
 	}
 }
+
+type serverObjectRequest struct {
+	RequestID uint64
+	Payload   struct {
+		Method   string
+		ServerID []byte
+	}
+}
+
+type stateRootsRequest struct {
+	RequestID uint64
+	Payload   struct {
+		Method      string
+		BlockNumber uint64
+	}
+}

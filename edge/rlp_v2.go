@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"fmt"
 
-	"github.com/buger/jsonparser"
 	"github.com/diodechain/diode_go_client/blockquick"
 	"github.com/diodechain/diode_go_client/crypto/secp256k1"
 	"github.com/diodechain/diode_go_client/rlp"
@@ -242,6 +241,26 @@ func (rlpV2 RLP_V2) NewMessage(requestID uint64, method string, args ...interfac
 			return nil, nil, err
 		}
 		return decodedRlp, rlpV2.parseDeviceObject, err
+	case "getnode":
+		request := serverObjectRequest{}
+		request.RequestID = requestID
+		request.Payload.Method = method
+		request.Payload.ServerID = args[0].([]byte)
+		decodedRlp, err := rlp.EncodeToBytes(request)
+		if err != nil {
+			return nil, nil, err
+		}
+		return decodedRlp, rlpV2.parseServerObj, err
+	case "getstateroots":
+		request := stateRootsRequest{}
+		request.RequestID = requestID
+		request.Payload.Method = method
+		request.Payload.BlockNumber = args[0].(uint64)
+		decodedRlp, err := rlp.EncodeToBytes(request)
+		if err != nil {
+			return nil, nil, err
+		}
+		return decodedRlp, rlpV2.parseStateRoots, err
 	default:
 		return nil, nil, fmt.Errorf("not found")
 	}
@@ -359,14 +378,18 @@ func (rlpV2 RLP_V2) parseBlockPeak(buffer []byte) (interface{}, error) {
 	return response.Payload.BlockNumber, nil
 }
 
-// TODO: Test this
+// TODO: parse block
 func (rlpV2 RLP_V2) parseBlock(buffer []byte) (interface{}, error) {
-	var response blockPeakResponse
+	var response blockResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&response)
 	if err != nil {
 		return nil, err
 	}
+	// response.Payload.Block.Coinbase
+	// response.Payload.Block.Header
+	// response.Payload.Block.Receipts
+	// response.Payload.Block.Transactions
 	return response, nil
 }
 
@@ -563,48 +586,32 @@ func (rlpV2 RLP_V2) parsePortOpen(buffer []byte) (interface{}, error) {
 	return portOpen, nil
 }
 
-func (rlpV2 RLP_V2) ParseServerObj(rawObject []byte) (*ServerObj, error) {
-	if bytes.Equal(NullData, rawObject) {
-		return nil, fmt.Errorf("cannot find the node of server")
-	}
-	host := []byte(jsonString(rawObject, "[1]"))
-	edgePort := jsonInteger(rawObject, "[2]")
-	serverPort := jsonInteger(rawObject, "[3]")
-	serverSig := jsonString(rawObject, "[4]")
-	dserverSig, err := util.DecodeString(serverSig[:])
+func (rlpV2 RLP_V2) parseServerObj(buffer []byte) (interface{}, error) {
+	var response serverObjectResponse
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	err := decodeStream.Decode(&response)
 	if err != nil {
 		return nil, err
 	}
 	serverObj := &ServerObj{
-		Host:       host,
-		EdgePort:   edgePort,
-		ServerPort: serverPort,
-		Sig:        dserverSig,
+		Host:       response.Payload.ServerObject.Host,
+		EdgePort:   response.Payload.ServerObject.EdgePort,
+		ServerPort: response.Payload.ServerObject.ServerPort,
+		Sig:        response.Payload.ServerObject.ServerSig,
 	}
 	return serverObj, nil
 }
 
 // TODO: check error from jsonparser
-func (rlpV2 RLP_V2) ParseStateRoots(rawStateRoots []byte) (*StateRoots, error) {
-	parsedStateRoots := make([][]byte, 16)
-	ind := 0
-	handler := func(value []byte, dataType jsonparser.ValueType, offset int, err error) {
-		if err != nil {
-			return
-		}
-		// Decode error: index out of range
-		// decodedValue := make([]byte, 32)
-		// _, err = Decode(decodedValue, value[:])
-		decodedValue, err := util.DecodeString(string(value[:]))
-		if err == nil {
-			parsedStateRoots[ind] = decodedValue
-			ind++
-		}
+func (rlpV2 RLP_V2) parseStateRoots(buffer []byte) (interface{}, error) {
+	var response stateRootsResponse
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	err := decodeStream.Decode(&response)
+	if err != nil {
+		return nil, err
 	}
-	// should not catch error here
-	jsonparser.ArrayEach(rawStateRoots, handler)
 	stateRoots := &StateRoots{
-		StateRoots: parsedStateRoots,
+		StateRoots: response.Payload.StateRoots,
 	}
 	return stateRoots, nil
 }

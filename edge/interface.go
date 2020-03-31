@@ -21,6 +21,8 @@ type EdgeProtocol interface {
 	parsePortOpen(buffer []byte) (interface{}, error)
 	// parsePortSend(buffer []byte) (interface{}, error)
 	// parsePortClose(buffer []byte) (interface{}, error)
+	parseServerObj(buffer []byte) (interface{}, error)
+	parseStateRoots(buffer []byte) (interface{}, error)
 	// parse inbound request
 	parseInboundRequest(buffer []byte) (interface{}, error)
 	parseInboundPortOpenRequest(buffer []byte) (interface{}, error)
@@ -34,9 +36,6 @@ type EdgeProtocol interface {
 	NewErrorResponse(method string, err error) Message
 	NewMessage(requestID uint64, method string, args ...interface{}) ([]byte, func(buffer []byte) (interface{}, error), error)
 	NewResponseMessage(requestID uint64, responseType string, method string, args ...interface{}) ([]byte, func(buffer []byte) (interface{}, error), error)
-	// TODO: rpc calls
-	ParseServerObj(rawObject []byte) (*ServerObj, error)
-	ParseStateRoots(rawStateRoots []byte) (*StateRoots, error)
 }
 
 // MerkleTreeParser interface defines functions that are required to diode merkle tree

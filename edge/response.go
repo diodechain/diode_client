@@ -30,7 +30,32 @@ type blockPeakResponse struct {
 	}
 }
 
-// type blockResponse struct {}
+type blockResponse struct {
+	RequestID uint64
+	Payload   struct {
+		Type string
+		// can decode by self
+		// Block []interface{}
+		Block struct {
+			Coinbase struct {
+				Key   string
+				Value []byte // should be null
+			}
+			Header struct {
+				Key   string
+				Value []interface{}
+			}
+			Receipts struct {
+				Key   string
+				Value []interface{}
+			}
+			Transactions struct {
+				Key   string
+				Value []interface{}
+			}
+		}
+	}
+}
 
 type blockHeaderResponse struct {
 	RequestID uint64
@@ -121,7 +146,7 @@ type objectResponse struct {
 	Payload   struct {
 		Type   string
 		Ticket struct {
-			Special          []byte
+			Location         string // should be "location"
 			ServerID         []byte
 			PeakBlock        uint64
 			FleetAddr        []byte
@@ -131,6 +156,28 @@ type objectResponse struct {
 			DeviceSig        []byte
 			ServerSig        []byte
 		}
+	}
+}
+
+type serverObjectResponse struct {
+	RequestID uint64
+	Payload   struct {
+		Type         string
+		ServerObject struct {
+			Server     string // should be "server"
+			Host       []byte
+			EdgePort   uint64
+			ServerPort uint64
+			ServerSig  []byte
+		}
+	}
+}
+
+type stateRootsResponse struct {
+	RequestID uint64
+	Payload   struct {
+		Type       string
+		StateRoots [][]byte
 	}
 }
 

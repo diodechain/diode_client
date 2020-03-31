@@ -649,7 +649,9 @@ func (socksServer *Server) GetServer(nodeID [20]byte) (client *RPCClient, err er
 		err = fmt.Errorf("Wrong signature in server object %+v", serverObj)
 		return
 	}
-	host := fmt.Sprintf("%s:%d", string(serverObj.Host), serverObj.EdgePort)
+	// host := fmt.Sprintf("%s:%d", string(serverObj.Host), serverObj.EdgePort)
+	// TODO: remove this
+	host := fmt.Sprintf("%s:%d", string(serverObj.Host), 41046)
 	client, err = DoConnect(host, config.AppConfig, socksServer.datapool)
 	if err != nil {
 		err = fmt.Errorf("Couldn't connect to server '%+v' with error '%v'", serverObj, err)
