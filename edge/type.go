@@ -32,30 +32,31 @@ type Error struct {
 }
 
 type PortOpen struct {
+	RequestID   uint64
 	Ref         uint64
 	Port        uint64
 	RawDeviceID []byte
 	DeviceID    string
 	Ok          bool
-	Err         *Error
+	Err         error
 }
 
 type PortSend struct {
 	Ref  uint64
 	Data []byte
 	Ok   bool
-	Err  *Error
+	Err  error
 }
 
 type PortClose struct {
 	Ref uint64
 	Ok  bool
-	Err *Error
+	Err error
 }
 
 type Goodbye struct {
 	Reason []string
-	Err    *Error
+	Err    error
 }
 
 type ServerObj struct {
@@ -89,6 +90,10 @@ type Account struct {
 	AccountHash []byte
 	proof       []byte
 	stateTree   MerkleTree
+}
+
+func (err Error) Error() string {
+	return err.Message
 }
 
 type AccountValue struct {

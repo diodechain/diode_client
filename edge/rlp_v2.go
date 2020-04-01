@@ -311,8 +311,9 @@ func (rlpV2 RLP_V2) parsePortOpenResponse(buffer []byte) (interface{}, error) {
 		return nil, err
 	}
 	portOpen := &PortOpen{
-		Ok:  (response.Payload.Result == "ok"),
 		Ref: response.Payload.Ref,
+		Ok:  (response.Payload.Result == "ok"),
+		// RequestID: response.RequestID,
 	}
 	return portOpen, nil
 }
@@ -357,6 +358,7 @@ func (rlpV2 RLP_V2) parseInboundPortOpenRequest(buffer []byte) (interface{}, err
 	}
 	deviceID := util.EncodeToString(inboundRequest.Payload.DeviceID)
 	portOpen := &PortOpen{
+		RequestID:   inboundRequest.RequestID,
 		Port:        inboundRequest.Payload.Port,
 		Ref:         inboundRequest.Payload.Ref,
 		RawDeviceID: inboundRequest.Payload.DeviceID,

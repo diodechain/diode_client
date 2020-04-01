@@ -38,8 +38,8 @@ func (rpcClient *RPCClient) Wait() {
 func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 	if portOpen, ok := inboundRequest.(*edge.PortOpen); ok {
 		if portOpen.Err != nil {
-			go rpcClient.ResponsePortOpen(portOpen, fmt.Errorf(portOpen.Err.Message))
-			rpcClient.Error("Failed to decode portopen request: %v", portOpen.Err.Message)
+			go rpcClient.ResponsePortOpen(portOpen, fmt.Errorf(portOpen.Err.Error()))
+			rpcClient.Error("Failed to decode portopen request: %v", portOpen.Err.Error())
 			return
 		}
 		// Checking blacklist and whitelist
@@ -122,7 +122,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 		}()
 	} else if portSend, ok := inboundRequest.(*edge.PortSend); ok {
 		if portSend.Err != nil {
-			rpcClient.Error("failed to decode portsend request: %v", portSend.Err.Message)
+			rpcClient.Error("failed to decode portsend request: %v", portSend.Err.Error())
 			return
 		}
 		// TODO: E2E encryption
@@ -185,7 +185,10 @@ func (rpcClient *RPCClient) handleInboundMessage() {
 				res, err := call.Parse(msg.Buffer)
 				if err != nil {
 					rpcClient.Error("cannot decode response: %s", err.Error())
-					// TODO: send error to the call signal, lead to RPCTimeoutError
+					rpcError := edge.Error{
+						Message: err.Error(),
+					}
+					enqueueResponse(call.response, rpcError, enqueueTimeout)
 					continue
 				}
 				enqueueResponse(call.response, res, enqueueTimeout)

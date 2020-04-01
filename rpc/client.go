@@ -588,9 +588,9 @@ func (rpcClient *RPCClient) PortOpen(deviceID [20]byte, port int, mode string) (
 // ResponsePortOpen response portopen request
 func (rpcClient *RPCClient) ResponsePortOpen(portOpen *edge.PortOpen, err error) error {
 	if err != nil {
-		_, err = rpcClient.RespondContext(0, "error", "portopen", uint64(portOpen.Ref), err.Error())
+		_, err = rpcClient.RespondContext(portOpen.RequestID, "error", "portopen", uint64(portOpen.Ref), err.Error())
 	} else {
-		_, err = rpcClient.RespondContext(0, "response", "portopen", uint64(portOpen.Ref), "ok")
+		_, err = rpcClient.RespondContext(portOpen.RequestID, "response", "portopen", uint64(portOpen.Ref), "ok")
 	}
 	if err != nil {
 		return err
