@@ -192,7 +192,7 @@ func (rpcClient *RPCClient) handleInboundMessage() {
 				close(call.response)
 				continue
 			}
-			inboundRequest, err := msg.ReadAsRequest(rpcClient.edgeProtocol)
+			inboundRequest, err := msg.ReadAsInboundRequest(rpcClient.edgeProtocol)
 			if err != nil {
 				rpcClient.Error("Not rpc request: %v", err)
 				continue
