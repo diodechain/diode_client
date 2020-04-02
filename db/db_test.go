@@ -32,7 +32,7 @@ var (
 			Value: []byte("PKI"),
 		},
 		DBTest{
-			Key:   "exosite",
+			Key:   "ibtc",
 			Value: []byte("iot"),
 		},
 	}
