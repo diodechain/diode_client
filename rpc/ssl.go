@@ -28,13 +28,9 @@ import (
 )
 
 const (
-	// https://docs.huihoo.com/doxygen/openssl/1.0.1c/crypto_2objects_2obj__mac_8h.html
-	NID_secp256k1 openssl.EllipticCurve = 714
-	// https://github.com/openssl/openssl/blob/master/apps/ecparam.c#L221
-	NID_secp256r1     openssl.EllipticCurve = 415
-	confirmationSize                        = 6
-	windowSize                              = 100
-	rpcCallRetryTimes                       = 2
+	confirmationSize  = 6
+	windowSize        = 100
+	rpcCallRetryTimes = 2
 
 	lvbnKey = "lvbn3"
 	lvbhKey = "lvbh3"
@@ -419,19 +415,19 @@ func storeLastValid() {
 func EnsurePrivatePEM() []byte {
 	key, _ := db.DB.Get("private")
 	if key == nil {
-		privKey, err := openssl.GenerateECKey(NID_secp256k1)
+		privKey, err := openssl.GenerateECKey(openssl.Secp256k1)
 		if err != nil {
-			config.AppConfig.Logger.Error(fmt.Sprintf("failed to generate ec key: %s", err.Error()), "module", "ssl")
+			config.AppConfig.Logger.Error(fmt.Sprintf("Failed to generate ec key: %s", err.Error()), "module", "ssl")
 			os.Exit(129)
 		}
 		bytes, err := privKey.MarshalPKCS1PrivateKeyPEM()
 		if err != nil {
-			config.AppConfig.Logger.Error(fmt.Sprintf("failed to marshal ec key: %s", err.Error()), "module", "ssl")
+			config.AppConfig.Logger.Error(fmt.Sprintf("Failed to marshal ec key: %s", err.Error()), "module", "ssl")
 			os.Exit(129)
 		}
 		err = db.DB.Put("private", bytes)
 		if err != nil {
-			config.AppConfig.Logger.Error(fmt.Sprintf("failed to svae ec key to file: %s", err.Error()), "module", "ssl")
+			config.AppConfig.Logger.Error(fmt.Sprintf("Failed to save ec key to file: %s", err.Error()), "module", "ssl")
 			os.Exit(129)
 		}
 		return bytes
@@ -566,12 +562,12 @@ func initSSL(config *config.Config) *openssl.Ctx {
 		return ok
 	}
 	ctx.SetVerify(verifyOption, cb)
-	err = ctx.SetEllipticCurve(NID_secp256k1)
+	err = ctx.SetEllipticCurve(openssl.Secp256k1)
 	if err != nil {
 		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
 		os.Exit(129)
 	}
-	curves := []openssl.EllipticCurve{NID_secp256k1, NID_secp256r1}
+	curves := []openssl.EllipticCurve{openssl.Secp256k1}
 	err = ctx.SetSupportedEllipticCurves(curves)
 	if err != nil {
 		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
