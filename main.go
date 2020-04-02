@@ -231,7 +231,7 @@ func printError(msg string, err error, status int) {
 func connect(c chan *rpc.RPCClient, host string, config *config.Config, wg *sync.WaitGroup, pool *rpc.DataPool) {
 	client, err := rpc.DoConnect(host, config, pool)
 	if err != nil {
-		config.Logger.Error(fmt.Sprintf("Connection to host: %s failed", host), "module", "main")
+		config.Logger.Error(fmt.Sprintf("Connection to host: %s failed: %+v", host, err), "module", "main")
 		wg.Done()
 	} else {
 		c <- client

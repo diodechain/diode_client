@@ -35,6 +35,7 @@ func OpenFile(path string) (*Database, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer f.Close()
 	r := bufio.NewReader(f)
 	magic, _ := binary.ReadUvarint(r)
 	values := make(map[string][]byte)
