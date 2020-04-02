@@ -7,7 +7,7 @@ require (
 	github.com/diodechain/go-cache v2.1.0+incompatible
 	github.com/diodechain/gobert v1.0.0
 	github.com/diodechain/log15 v0.0.0-20200121072611-36569d26a3ed
-	github.com/diodechain/openssl v1.0.2
+	github.com/diodechain/openssl v1.0.3
 	github.com/ethereum/go-ethereum v1.9.11
 	github.com/exosite/gobert v0.0.0-20191127232240-ee599973c1c6
 	github.com/felixge/tcpkeepalive v0.0.0-20160804073959-5bb0b2dea91e
