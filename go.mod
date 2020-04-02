@@ -14,5 +14,6 @@ require (
 	github.com/gorilla/websocket v1.4.1
 	github.com/rcrowley/go-metrics v0.0.0-20190826022208-cac0b30c2563
 	github.com/stretchr/testify v1.4.0
+	github.com/ucirello/tcpkeepalive v0.0.0-20180903163222-92daabaeadac
 	golang.org/x/sys v0.0.0-20191026070338-33540a1f6037
 )

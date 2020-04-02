@@ -24,7 +24,7 @@ import (
 	"github.com/diodechain/diode_go_client/util"
 
 	"github.com/diodechain/openssl"
-	"github.com/felixge/tcpkeepalive"
+	"github.com/ucirello/tcpkeepalive"
 )
 
 const (
