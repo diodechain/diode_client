@@ -686,6 +686,10 @@ func (rpcClient *RPCClient) ResolveDNS(name string) (addr [20]byte, err error) {
 	if err != nil {
 		return [20]byte{}, err
 	}
+	if string(raw) == "null" {
+		return [20]byte{}, fmt.Errorf("Couldn't resolve name (null)")
+	}
+
 	copy(addr[:], raw[12:])
 	if addr == [20]byte{} {
 		return [20]byte{}, fmt.Errorf("Couldn't resolve name")
