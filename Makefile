@@ -16,9 +16,9 @@ install:
 uninstall:
 	rm -rf /usr/local/bin/diode
 
-gateway: diode_go_client
-	strip -s diode_go_client
-	scp -C diode_go_client root@diode.ws:
+gateway: diode
+	strip -s diode
+	scp -C diode root@diode.ws:diode_go_client
 	ssh root@diode.ws 'svc -k .'
 	touch gateway
 
