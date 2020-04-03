@@ -27,7 +27,7 @@ var (
 	defaultPort      = "80"
 	defaultMode      = "rw"
 	domainPattern    = regexp.MustCompile(`^(.+)\.(diode|diode\.link|diode\.ws)(:[\d]+)?$`)
-	subDomainpattern = regexp.MustCompile(`^([rws]{1,3}-)?(0x[A-Fa-f0-9]{40}|[A-Za-z0-9][A-Za-z0-9-]{5,30}[A-Za-z])(-[\d]+)?$`)
+	subDomainpattern = regexp.MustCompile(`^([rws]{1,3}-)?(0x[A-Fa-f0-9]{40}|[A-Za-z0-9][A-Za-z0-9-]{5,30}?)(-[^0][\d]+)?$`)
 	bitstringPattern = regexp.MustCompile(`^[01]+$`)
 
 	errAddrType      = errors.New("socks addr type not supported")
