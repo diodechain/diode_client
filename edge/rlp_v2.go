@@ -456,12 +456,9 @@ func (rlpV2 RLP_V2) NewMerkleTree(rawTree []interface{}) (mt MerkleTree, err err
 	return
 }
 
-func (rlpV2 RLP_V2) NewErrorResponse(method string, err error) Message {
-	ret := []byte(fmt.Sprintf("[\"error\", \"%s\", \"%+v\"]", method, err.Error()))
-	return Message{
-		Len:    len(ret),
-		Buffer: ret,
-	}
+func (rlpV2 RLP_V2) NewErrorResponse(err error) (rpcErr Error) {
+	rpcErr.Message = err.Error()
+	return
 }
 
 func (rlpV2 RLP_V2) NewMessage(requestID uint64, method string, args ...interface{}) ([]byte, func(buffer []byte) (interface{}, error), error) {

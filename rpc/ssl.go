@@ -386,24 +386,6 @@ func (s *SSL) reconnect() error {
 	return nil
 }
 
-func enqueueResponse(resp chan interface{}, msg interface{}, sendTimeout time.Duration) error {
-	select {
-	case resp <- msg:
-		return nil
-	case _ = <-time.After(sendTimeout):
-		return fmt.Errorf("send response to channel timeout")
-	}
-}
-
-func enqueueMessage(resp chan edge.Message, msg edge.Message, sendTimeout time.Duration) error {
-	select {
-	case resp <- msg:
-		return nil
-	case _ = <-time.After(sendTimeout):
-		return fmt.Errorf("send message to channel timeout")
-	}
-}
-
 // LastValid returns the last valid block number and block header
 func LastValid() (int, blockquick.Hash) {
 	if bq == nil {

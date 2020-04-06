@@ -37,7 +37,6 @@ type RPCConfig struct {
 type RPCClient struct {
 	backoff               Backoff
 	callQueue             chan Call
-	messageQueue          chan edge.Message
 	s                     *SSL
 	logger                log15.Logger
 	enableMetrics         bool
@@ -71,7 +70,6 @@ func NewRPCClient(s *SSL, config *RPCConfig, pool *DataPool) RPCClient {
 	return RPCClient{
 		s:                     s,
 		callQueue:             make(chan Call, 1024),
-		messageQueue:          make(chan edge.Message, 1024),
 		calls:                 make(map[uint64]Call),
 		wg:                    &sync.WaitGroup{},
 		started:               false,
@@ -148,7 +146,7 @@ func (rpcClient *RPCClient) enqueueCall(resq chan Call, call Call, sendTimeout t
 	}
 }
 
-func (rpcClient *RPCClient) waitMessage(call Call, rpcTimeout time.Duration) (res interface{}, err error) {
+func (rpcClient *RPCClient) waitResponse(call Call, rpcTimeout time.Duration) (res interface{}, err error) {
 	select {
 	case resp := <-call.response:
 		if rpcError, ok := resp.(edge.Error); ok {
@@ -220,7 +218,7 @@ func (rpcClient *RPCClient) CallContext(method string, parse func(buffer []byte)
 	rpcTimeout, _ := time.ParseDuration(fmt.Sprintf("%ds", (10 + len(rpcClient.calls))))
 	for {
 		ts = time.Now()
-		res, err = rpcClient.waitMessage(resCall, rpcTimeout)
+		res, err = rpcClient.waitResponse(resCall, rpcTimeout)
 		if err != nil {
 			tsDiff = time.Since(ts)
 			rpcClient.Error("Failed to call: %s [%v]: %v", method, tsDiff, err)
@@ -838,7 +836,6 @@ func (rpcClient *RPCClient) Close() (err error) {
 	if !rpcClient.s.Closed() {
 		err = rpcClient.s.Close()
 		close(rpcClient.callQueue)
-		close(rpcClient.messageQueue)
 	}
 	return
 }

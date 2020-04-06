@@ -32,7 +32,7 @@ type EdgeProtocol interface {
 	IsErrorType(rawData []byte) bool
 	ResponseID(buffer []byte) uint64
 	NewMerkleTree(rawTree []interface{}) (MerkleTree, error)
-	NewErrorResponse(method string, err error) Message
+	NewErrorResponse(err error) Error
 	NewMessage(requestID uint64, method string, args ...interface{}) ([]byte, func(buffer []byte) (interface{}, error), error)
 	NewResponseMessage(requestID uint64, responseType string, method string, args ...interface{}) ([]byte, func(buffer []byte) (interface{}, error), error)
 }

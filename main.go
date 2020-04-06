@@ -65,8 +65,7 @@ func main() {
 					if util.IsHex(value) {
 						value, err = util.DecodeString(list[1])
 						if err != nil {
-							config.Logger.Info(err.Error(), "module", "main")
-							os.Exit(1)
+							printError("Couldn't decode hex string", err, 1)
 						}
 					}
 					db.DB.Put(list[0], []byte(list[1]))
@@ -132,8 +131,7 @@ func main() {
 	close(c)
 
 	if client == nil {
-		config.Logger.Error("Could not connect to any server.", "module", "main")
-		os.Exit(129)
+		printError("Couldn't connect to any server", fmt.Errorf("server are not validated"), 129)
 	}
 	lvbn, _ := rpc.LastValid()
 	config.Logger.Info(fmt.Sprintf("Network is validated, last valid block number: %d", lvbn), "module", "main")
@@ -223,6 +221,11 @@ func main() {
 func printLabel(label string, value string) {
 	msg := fmt.Sprintf("%-20s : %-80s", label, value)
 	config.AppConfig.Logger.Info(msg, "module", "main")
+}
+
+func printError(msg string, err error, status int) {
+	config.AppConfig.Logger.Error(msg, "module", "main", "error", err)
+	os.Exit(status)
 }
 
 func connect(c chan *rpc.RPCClient, host string, config *config.Config, wg *sync.WaitGroup, pool *rpc.DataPool) {

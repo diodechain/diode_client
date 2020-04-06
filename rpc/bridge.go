@@ -6,7 +6,6 @@ package rpc
 import (
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"strconv"
 	"strings"
@@ -20,6 +19,15 @@ import (
 var (
 	errPortNotPublished = fmt.Errorf("port was not published")
 )
+
+func enqueueResponse(resp chan interface{}, msg interface{}, sendTimeout time.Duration) error {
+	select {
+	case resp <- msg:
+		return nil
+	case _ = <-time.After(sendTimeout):
+		return fmt.Errorf("send response to channel timeout")
+	}
+}
 
 func (rpcClient *RPCClient) addWorker(worker func()) {
 	rpcClient.wg.Add(1)
@@ -98,28 +106,26 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 		clientID := fmt.Sprintf("%s%d", portOpen.DeviceID, portOpen.Ref)
 		connDevice := &ConnectedDevice{}
 
-		go func() {
-			// connect to stream service
-			host := net.JoinHostPort("localhost", strconv.Itoa(int(publishedPort.Src)))
-			remoteConn, err := net.DialTimeout("tcp", host, rpcClient.timeout)
-			if err != nil {
-				_ = rpcClient.ResponsePortOpen(portOpen, err)
-				rpcClient.Error("failed to connect local: %v", err)
-				return
-			}
-			_ = rpcClient.ResponsePortOpen(portOpen, nil)
-			deviceKey := rpcClient.GetDeviceKey(portOpen.Ref)
+		// connect to stream service
+		host := net.JoinHostPort("localhost", strconv.Itoa(int(publishedPort.Src)))
+		remoteConn, err := net.DialTimeout("tcp", host, rpcClient.timeout)
+		if err != nil {
+			_ = rpcClient.ResponsePortOpen(portOpen, err)
+			rpcClient.Error("failed to connect local: %v", err)
+			return
+		}
+		_ = rpcClient.ResponsePortOpen(portOpen, nil)
+		deviceKey := rpcClient.GetDeviceKey(portOpen.Ref)
 
-			connDevice.Ref = portOpen.Ref
-			connDevice.ClientID = clientID
-			connDevice.DeviceID = portOpen.DeviceID
-			connDevice.Conn.Conn = remoteConn
-			connDevice.Client = rpcClient
-			rpcClient.pool.SetDevice(deviceKey, connDevice)
+		connDevice.Ref = portOpen.Ref
+		connDevice.ClientID = clientID
+		connDevice.DeviceID = portOpen.DeviceID
+		connDevice.Conn.Conn = remoteConn
+		connDevice.Client = rpcClient
+		rpcClient.pool.SetDevice(deviceKey, connDevice)
 
-			connDevice.copyToSSL()
-			connDevice.Close()
-		}()
+		connDevice.copyToSSL()
+		connDevice.Close()
 	} else if portSend, ok := inboundRequest.(*edge.PortSend); ok {
 		if portSend.Err != nil {
 			rpcClient.Error("failed to decode portsend request: %v", portSend.Err.Error())
@@ -157,52 +163,45 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 }
 
 // handle inbound message
-func (rpcClient *RPCClient) handleInboundMessage() {
-	for {
-		select {
-		case msg, ok := <-rpcClient.messageQueue:
-			if !ok {
-				return
-			}
-			go rpcClient.CheckTicket()
-			if msg.IsResponse(rpcClient.edgeProtocol) {
-				rpcClient.backoff.StepBack()
-				call := rpcClient.firstCallByID(msg.ResponseID(rpcClient.edgeProtocol))
-				if call.response == nil {
-					// should not happen
-					rpcClient.Error("Call.response is nil: %s %s", call.method, string(msg.Buffer))
-					continue
-				}
-				if msg.IsError(rpcClient.edgeProtocol) {
-					rpcError, _ := msg.ReadAsError(rpcClient.edgeProtocol)
-					enqueueResponse(call.response, rpcError, enqueueTimeout)
-					continue
-				}
-				if call.Parse == nil {
-					rpcClient.Debug("no parse callback for rpc call: id: %d, method: %s", call.id, call.method)
-					continue
-				}
-				res, err := call.Parse(msg.Buffer)
-				if err != nil {
-					rpcClient.Error("cannot decode response: %s", err.Error())
-					rpcError := edge.Error{
-						Message: err.Error(),
-					}
-					enqueueResponse(call.response, rpcError, enqueueTimeout)
-					continue
-				}
-				enqueueResponse(call.response, res, enqueueTimeout)
-				close(call.response)
-				continue
-			}
-			inboundRequest, err := msg.ReadAsInboundRequest(rpcClient.edgeProtocol)
-			if err != nil {
-				rpcClient.Error("Not rpc request: %v", err)
-				continue
-			}
-			rpcClient.handleInboundRequest(inboundRequest)
+func (rpcClient *RPCClient) handleInboundMessage(msg edge.Message) {
+	go rpcClient.CheckTicket()
+	if msg.IsResponse(rpcClient.edgeProtocol) {
+		rpcClient.backoff.StepBack()
+		call := rpcClient.firstCallByID(msg.ResponseID(rpcClient.edgeProtocol))
+		if call.response == nil {
+			// should not happen
+			rpcClient.Error("Call.response is nil: %s %s", call.method, string(msg.Buffer))
+			return
 		}
+		if msg.IsError(rpcClient.edgeProtocol) {
+			rpcError, _ := msg.ReadAsError(rpcClient.edgeProtocol)
+			enqueueResponse(call.response, rpcError, enqueueTimeout)
+			return
+		}
+		if call.Parse == nil {
+			rpcClient.Debug("no parse callback for rpc call: id: %d, method: %s", call.id, call.method)
+			return
+		}
+		res, err := call.Parse(msg.Buffer)
+		if err != nil {
+			rpcClient.Error("cannot decode response: %s", err.Error())
+			rpcError := edge.Error{
+				Message: err.Error(),
+			}
+			enqueueResponse(call.response, rpcError, enqueueTimeout)
+			return
+		}
+		enqueueResponse(call.response, res, enqueueTimeout)
+		close(call.response)
+		return
 	}
+	inboundRequest, err := msg.ReadAsInboundRequest(rpcClient.edgeProtocol)
+	if err != nil {
+		rpcClient.Error("Not rpc request: %v", err)
+		return
+	}
+	rpcClient.Debug("Got inbound request")
+	rpcClient.handleInboundRequest(inboundRequest)
 }
 
 // infinite loop to read message from server
@@ -242,8 +241,7 @@ func (rpcClient *RPCClient) recvMessage() {
 		}
 		if msg.Len > 0 {
 			rpcClient.Debug("Receive %d bytes data from ssl", msg.Len)
-			// we couldn't gurantee the order of message if use goroutine: go handleInboundMessage
-			enqueueMessage(rpcClient.messageQueue, msg, enqueueTimeout)
+			go rpcClient.handleInboundMessage(msg)
 		}
 	}
 }
@@ -271,9 +269,8 @@ func (rpcClient *RPCClient) sendMessage() {
 				// if reconnect here the recall() will get wrong response (maybe solve this
 				// issue by adding id in each rpc call)
 				rpcClient.Error("Failed to write to node: %v", err)
-				res := rpcClient.edgeProtocol.NewErrorResponse(call.method, err)
-				log.Println(res)
-				// enqueueMessage(call.response, res, enqueueTimeout)
+				res := rpcClient.edgeProtocol.NewErrorResponse(err)
+				enqueueResponse(call.response, res, enqueueTimeout)
 				continue
 			}
 			if n != len(call.data) {
@@ -347,7 +344,6 @@ func (rpcClient *RPCClient) watchLatestBlock() {
 func (rpcClient *RPCClient) Start() {
 	rpcClient.addWorker(rpcClient.recvMessage)
 	rpcClient.addWorker(rpcClient.sendMessage)
-	rpcClient.addWorker(rpcClient.handleInboundMessage)
 	rpcClient.addWorker(rpcClient.watchLatestBlock)
 	rpcClient.started = true
 }
