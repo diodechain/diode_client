@@ -31,3 +31,4 @@ diode:
 static:
 	go get -a -tags openssl_static github.com/diodechain/openssl
 	go build -tags netgo,openssl_static -ldflags '-extldflags "-static"' -o diode
+

@@ -21,6 +21,12 @@ var (
 	secp256k1halfN = new(big.Int).Div(secp256k1N, big.NewInt(2))
 )
 
+// Address represents an Ethereum address
+type Address [20]byte
+
+// Sha3 hash
+type Sha3 [32]byte
+
 var errInvalidPubkey = errors.New("invalid secp256k1 public key")
 
 // ECPEMPrivateKey openssl ec pem private key
@@ -159,8 +165,8 @@ func Sha256(data []byte) []byte {
 	return sha256.Sum(nil)
 }
 
-// Sha3 the data
-func Sha3(data []byte) []byte {
+// Sha3Hash the data
+func Sha3Hash(data []byte) []byte {
 	hash := sha3.NewKeccak256()
 	hash.Write(append(data))
 	return hash.Sum(nil)
@@ -173,7 +179,7 @@ func zeroBytes(bytes []byte) {
 }
 
 // PubkeyToAddress returns diode address
-func PubkeyToAddress(pubkey []byte) (addr [20]byte) {
+func PubkeyToAddress(pubkey []byte) (addr Address) {
 	if len(pubkey) == 33 {
 		pubkey = secp256k1.DecompressPubkeyBytes(pubkey)
 	}

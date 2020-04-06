@@ -13,7 +13,6 @@ import (
 
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/edge"
-	"github.com/diodechain/diode_go_client/util"
 )
 
 var (
@@ -74,41 +73,45 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 		}
 
 		// find published port
-		publishedPort := rpcClient.pool.GetPublishedPort(int(portOpen.Port))
+		publishedPort := rpcClient.pool.GetPublishedPort(portOpen.PortNumber)
 		if publishedPort == nil {
 			go rpcClient.ResponsePortOpen(portOpen, errPortNotPublished)
-			rpcClient.Info("port was not published port = %v", portOpen.Port)
+			rpcClient.Info("Port was not published port = %v", portOpen.PortNumber)
 			return
 		}
+		if publishedPort.Protocol != config.AnyProtocol && publishedPort.Protocol != portOpen.Protocol {
+			go rpcClient.ResponsePortOpen(portOpen, errPortNotPublished)
+			rpcClient.Info("Port was not published as this type (%v != %v) port = %v", publishedPort.Protocol, portOpen.Protocol, portOpen.PortNumber)
+			return
+		}
+
 		if !publishedPort.IsWhitelisted(portOpen.DeviceID) {
 			if publishedPort.Mode == config.ProtectedPublishedMode {
-				decDeviceID, _ := util.DecodeString(portOpen.DeviceID)
-				deviceID := [20]byte{}
-				copy(deviceID[:], decDeviceID)
-				isAccessWhilisted, err := rpcClient.IsAccessWhitelisted(rpcClient.Config.FleetAddr, deviceID)
+				isAccessWhilisted, err := rpcClient.IsAccessWhitelisted(rpcClient.Config.FleetAddr, portOpen.DeviceID)
 				if err != nil || !isAccessWhilisted {
-					err := fmt.Errorf(
-						"Device %v is not in the whitelist (1)",
-						portOpen.DeviceID,
-					)
+					err := fmt.Errorf("Device %v is not in the whitelist (1)", portOpen.DeviceID)
 					go rpcClient.ResponsePortOpen(portOpen, err)
 					return
 				}
 			} else {
-				err := fmt.Errorf(
-					"Device %v is not in the whitelist (2)",
-					portOpen.DeviceID,
-				)
+				err := fmt.Errorf("Device %v is not in the whitelist (2)", portOpen.DeviceID)
 				go rpcClient.ResponsePortOpen(portOpen, err)
 				return
 			}
 		}
-		clientID := fmt.Sprintf("%s%d", portOpen.DeviceID, portOpen.Ref)
+		clientID := fmt.Sprintf("%s%x", portOpen.DeviceID, portOpen.Ref)
 		connDevice := &ConnectedDevice{}
 
 		// connect to stream service
 		host := net.JoinHostPort("localhost", strconv.Itoa(int(publishedPort.Src)))
-		remoteConn, err := net.DialTimeout("tcp", host, rpcClient.timeout)
+
+		network := "tcp"
+		if portOpen.Protocol == config.UDPProtocol {
+			network = "udp"
+		}
+
+		remoteConn, err := net.DialTimeout(network, host, rpcClient.timeout)
+
 		if err != nil {
 			_ = rpcClient.ResponsePortOpen(portOpen, err)
 			rpcClient.Error("failed to connect local: %v", err)
@@ -139,8 +142,8 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 		if cachedConnDevice != nil {
 			cachedConnDevice.writeToTCP(decData)
 		} else {
-			rpcClient.Warn("Cannot find the portsend connected device %d", portSend.Ref)
-			rpcClient.CastPortClose(int(portSend.Ref))
+			rpcClient.Warn("Cannot find the portsend connected device %x", portSend.Ref)
+			rpcClient.CastPortClose(portSend.Ref)
 		}
 	} else if portClose, ok := inboundRequest.(*edge.PortClose); ok {
 		deviceKey := rpcClient.GetDeviceKey(portClose.Ref)
@@ -149,7 +152,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			cachedConnDevice.Close()
 			rpcClient.pool.SetDevice(deviceKey, nil)
 		} else {
-			rpcClient.Warn("Cannot find the portclose connected device %d", portClose.Ref)
+			rpcClient.Warn("Cannot find the portclose connected device %x", portClose.Ref)
 		}
 	} else if goodbye, ok := inboundRequest.(edge.Goodbye); ok {
 		rpcClient.Warn("server disconnected, reason: %v", goodbye.Reason)
@@ -259,7 +262,7 @@ func (rpcClient *RPCClient) sendMessage() {
 				rpcClient.addCall(call)
 				continue
 			}
-			rpcClient.Debug("Send new rpc: %s", call.method)
+			rpcClient.Debug("Send new rpc: %s id: %d", call.method, call.id)
 			ts := time.Now()
 			conn := rpcClient.s.getOpensslConn()
 			n, err := conn.Write(call.data)

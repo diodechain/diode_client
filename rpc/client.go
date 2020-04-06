@@ -4,6 +4,7 @@
 package rpc
 
 import (
+	"encoding/binary"
 	"fmt"
 	"log"
 	"os"
@@ -27,10 +28,10 @@ var (
 
 // RPCConfig struct for rpc client
 type RPCConfig struct {
-	RegistryAddr [20]byte
-	FleetAddr    [20]byte
-	Blacklists   map[string]bool
-	Whitelists   map[string]bool
+	RegistryAddr Address
+	FleetAddr    Address
+	Blacklists   map[Address]bool
+	Whitelists   map[Address]bool
 }
 
 // RPCClient struct for rpc client
@@ -128,13 +129,13 @@ func (rpcClient *RPCClient) GetClientAddress() ([20]byte, error) {
 }
 
 // GetDeviceKey returns device key of given ref
-func (rpcClient *RPCClient) GetDeviceKey(ref uint64) string {
+func (rpcClient *RPCClient) GetDeviceKey(ref string) string {
 	prefixByt, err := rpcClient.s.GetServerID()
 	if err != nil {
 		return ""
 	}
 	prefix := util.EncodeToString(prefixByt[:])
-	return fmt.Sprintf("%s:%d", prefix, ref)
+	return fmt.Sprintf("%s:%s", prefix, ref)
 }
 
 func (rpcClient *RPCClient) enqueueCall(resq chan Call, call Call, sendTimeout time.Duration) error {
@@ -179,7 +180,7 @@ func (rpcClient *RPCClient) RespondContext(requestID uint64, responseType string
 	if err != nil {
 		return
 	}
-	call, err = rpcClient.s.sendPayload(requestID, method, msg, nil, nil)
+	call, err = preparePayload(requestID, method, msg, nil, nil)
 	if err != nil {
 		return
 	}
@@ -196,12 +197,36 @@ func (rpcClient *RPCClient) CastContext(requestID uint64, method string, parse f
 	}
 	// resMsg := make(chan edge.Message)
 	resMsg := make(chan interface{})
-	call, err = rpcClient.s.sendPayload(requestID, method, msg, parse, resMsg)
+	call, err = preparePayload(requestID, method, msg, parse, resMsg)
 	if err != nil {
 		return
 	}
 	err = rpcClient.enqueueCall(rpcClient.callQueue, call, enqueueTimeout)
 	return
+}
+
+func preparePayload(requestID uint64, method string, payload []byte, parse func(buffer []byte) (interface{}, error), message chan interface{}) (Call, error) {
+	// add length of payload
+	lenPay := len(payload)
+	lenByt := make([]byte, 2)
+	bytPay := make([]byte, lenPay+2)
+	binary.BigEndian.PutUint16(lenByt, uint16(lenPay))
+	bytPay[0] = lenByt[0]
+	bytPay[1] = lenByt[1]
+	for i, s := range payload {
+		bytPay[i+2] = byte(s)
+	}
+	call := Call{
+		id:         requestID,
+		method:     method,
+		retryTimes: rpcCallRetryTimes,
+		response:   message,
+		signal:     make(chan Signal),
+		data:       bytPay,
+		Parse:      parse,
+	}
+	// atomic.AddInt64(&rpcID, 1)
+	return call, nil
 }
 
 // CallContext returns the response after calling the rpc
@@ -572,8 +597,8 @@ func (rpcClient *RPCClient) submitTicket(ticket *edge.DeviceTicket) error {
 }
 
 // PortOpen call portopen RPC
-func (rpcClient *RPCClient) PortOpen(deviceID [20]byte, port int, mode string) (*edge.PortOpen, error) {
-	rawPortOpen, err := rpcClient.CallContext("portopen", nil, deviceID[:], uint64(port), mode)
+func (rpcClient *RPCClient) PortOpen(deviceID [20]byte, port string, mode string) (*edge.PortOpen, error) {
+	rawPortOpen, err := rpcClient.CallContext("portopen", nil, deviceID[:], port, mode)
 	if err != nil {
 		return nil, err
 	}
@@ -586,9 +611,9 @@ func (rpcClient *RPCClient) PortOpen(deviceID [20]byte, port int, mode string) (
 // ResponsePortOpen response portopen request
 func (rpcClient *RPCClient) ResponsePortOpen(portOpen *edge.PortOpen, err error) error {
 	if err != nil {
-		_, err = rpcClient.RespondContext(portOpen.RequestID, "error", "portopen", uint64(portOpen.Ref), err.Error())
+		_, err = rpcClient.RespondContext(portOpen.RequestID, "error", "portopen", portOpen.Ref, err.Error())
 	} else {
-		_, err = rpcClient.RespondContext(portOpen.RequestID, "response", "portopen", uint64(portOpen.Ref), "ok")
+		_, err = rpcClient.RespondContext(portOpen.RequestID, "response", "portopen", portOpen.Ref, "ok")
 	}
 	if err != nil {
 		return err
@@ -597,12 +622,12 @@ func (rpcClient *RPCClient) ResponsePortOpen(portOpen *edge.PortOpen, err error)
 }
 
 // PortSend call portsend RPC
-func (rpcClient *RPCClient) PortSend(ref uint64, data []byte) (interface{}, error) {
+func (rpcClient *RPCClient) PortSend(ref string, data []byte) (interface{}, error) {
 	return rpcClient.CallContext("portsend", nil, ref, data)
 }
 
 // CastPortSend call portsend RPC
-func (rpcClient *RPCClient) CastPortSend(ref uint64, data []byte) (err error) {
+func (rpcClient *RPCClient) CastPortSend(ref string, data []byte) (err error) {
 	var requestID uint64
 	requestID = getRequestID()
 	_, err = rpcClient.CastContext(requestID, "portsend", nil, ref, data)
@@ -610,16 +635,16 @@ func (rpcClient *RPCClient) CastPortSend(ref uint64, data []byte) (err error) {
 }
 
 // CastPortClose cast portclose RPC
-func (rpcClient *RPCClient) CastPortClose(ref int) (err error) {
+func (rpcClient *RPCClient) CastPortClose(ref string) (err error) {
 	var requestID uint64
 	requestID = getRequestID()
-	_, err = rpcClient.CastContext(requestID, "portclose", nil, uint64(ref))
+	_, err = rpcClient.CastContext(requestID, "portclose", nil, ref)
 	return err
 }
 
 // PortClose portclose RPC
-func (rpcClient *RPCClient) PortClose(ref int) (interface{}, error) {
-	return rpcClient.CallContext("portclose", nil, uint64(ref))
+func (rpcClient *RPCClient) PortClose(ref string) (interface{}, error) {
+	return rpcClient.CallContext("portclose", nil, ref)
 }
 
 // Ping call ping RPC
@@ -710,7 +735,7 @@ func (rpcClient *RPCClient) GetAccountRoots(blockNumber uint64, account [20]byte
 	return nil, nil
 }
 
-func (rpcClient *RPCClient) ResolveDNS(name string) (addr [20]byte, err error) {
+func (rpcClient *RPCClient) ResolveDNS(name string) (addr Address, err error) {
 	rpcClient.Info("resolving DN: %s", name)
 	key := contract.DNSMetaKey(name)
 	raw, err := rpcClient.GetAccountValueRaw(contract.DNSAddr, key)
@@ -763,7 +788,7 @@ func (rpcClient *RPCClient) IsDeviceWhitelisted(addr [20]byte) (bool, error) {
 }
 
 // IsAccessWhitelisted returns is given address whitelisted
-func (rpcClient *RPCClient) IsAccessWhitelisted(fleetAddr [20]byte, clientAddr [20]byte) (bool, error) {
+func (rpcClient *RPCClient) IsAccessWhitelisted(fleetAddr Address, clientAddr Address) (bool, error) {
 	deviceAddr, err := rpcClient.s.GetClientAddress()
 	if err != nil {
 		return false, err

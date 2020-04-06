@@ -9,14 +9,6 @@ func (rpcClient *RPCClient) addCall(c Call) {
 	rpcClient.calls[c.id] = c
 }
 
-func (rpcClient *RPCClient) popCall() (c Call) {
-	rpcClient.rm.Lock()
-	defer rpcClient.rm.Unlock()
-	c = rpcClient.calls[0]
-	delete(rpcClient.calls, c.id)
-	return
-}
-
 func (rpcClient *RPCClient) notifyCalls(signal Signal) {
 	rpcClient.rm.Lock()
 	defer rpcClient.rm.Unlock()
@@ -54,28 +46,10 @@ func (rpcClient *RPCClient) recall() {
 	return
 }
 
-func (rpcClient *RPCClient) removeCallByID(id uint64) {
-	rpcClient.rm.Lock()
-	defer rpcClient.rm.Unlock()
-	delete(rpcClient.calls, id)
-}
-
-func (rpcClient *RPCClient) firstCallByMethod(method string) (c Call) {
-	rpcClient.rm.Lock()
-	defer rpcClient.rm.Unlock()
-	var i uint64
-	for i, c = range rpcClient.calls {
-		if c.method == method {
-			delete(rpcClient.calls, i)
-			break
-		}
-	}
-	return
-}
-
 func (rpcClient *RPCClient) firstCallByID(id uint64) (c Call) {
 	rpcClient.rm.Lock()
 	defer rpcClient.rm.Unlock()
 	c = rpcClient.calls[id]
+	delete(rpcClient.calls, id)
 	return
 }

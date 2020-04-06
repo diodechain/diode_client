@@ -20,10 +20,10 @@ var (
 
 // DeviceTicket struct for connection and transmission
 type DeviceTicket struct {
-	ServerID         [20]byte
+	ServerID         Address
 	BlockNumber      int
 	BlockHash        []byte
-	FleetAddr        [20]byte
+	FleetAddr        Address
 	TotalConnections uint64
 	TotalBytes       uint64
 	LocalAddr        []byte
@@ -45,7 +45,7 @@ func (ct *DeviceTicket) HashWithoutSig() ([]byte, error) {
 	if err := ct.ValidateValues(); err != nil {
 		return nil, err
 	}
-	return crypto.Sha3(ct.arrayBlob()[:192]), nil
+	return crypto.Sha3Hash(ct.arrayBlob()[:192]), nil
 }
 
 // Hash returns hash of device object
@@ -53,7 +53,7 @@ func (ct *DeviceTicket) Hash() ([]byte, error) {
 	if err := ct.ValidateValues(); err != nil {
 		return nil, err
 	}
-	return crypto.Sha3(ct.arrayBlob()), nil
+	return crypto.Sha3Hash(ct.arrayBlob()), nil
 }
 
 func (ct *DeviceTicket) arrayBlob() []byte {
@@ -105,7 +105,7 @@ func (ct *DeviceTicket) RecoverDevicePubKey() ([]byte, error) {
 }
 
 // DeviceAddress returns device address
-func (ct *DeviceTicket) DeviceAddress() ([20]byte, error) {
+func (ct *DeviceTicket) DeviceAddress() (Address, error) {
 	devicePubkey, err := ct.RecoverDevicePubKey()
 	if err != nil {
 		return [20]byte{}, err
@@ -136,12 +136,12 @@ func (ct *DeviceTicket) RecoverServerPubKey() ([]byte, error) {
 }
 
 // ValidateSigs returns true of both device and server sig are valid
-func (ct *DeviceTicket) ValidateSigs(deviceID [20]byte) bool {
+func (ct *DeviceTicket) ValidateSigs(deviceID Address) bool {
 	return ct.ValidateDeviceSig(deviceID) && ct.ValidateServerSig()
 }
 
 // ValidateDeviceSig returns true if device sig is valid
-func (ct *DeviceTicket) ValidateDeviceSig(deviceID [20]byte) bool {
+func (ct *DeviceTicket) ValidateDeviceSig(deviceID Address) bool {
 	addr, err := ct.DeviceAddress()
 	if err != nil {
 		ct.Err = fmt.Errorf("failed to recover device public key: %s", err.Error())

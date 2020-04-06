@@ -4,6 +4,7 @@
 package rpc
 
 import (
+	"net"
 	"sync"
 	"time"
 
@@ -35,32 +36,36 @@ func NewPoolWithPublishedPorts(publishedPorts map[int]*config.Port) *DataPool {
 	}
 }
 
-func (p *DataPool) GetCacheDNS(key string) []byte {
+func (p *DataPool) GetCacheDNS(key string) (dns Address, ok bool) {
 	p.rm.RLock()
 	defer p.rm.RUnlock()
 	cachedDNS, hit := p.memoryCache.Get(key)
 	if !hit {
-		return nil
+		ok = false
+		return
 	}
-	dns, ok := cachedDNS.([]byte)
+	dns, ok = cachedDNS.(Address)
 	if !ok {
 		// remove dns key
-		p.SetCacheDNS(key, nil)
-		return nil
+		p.DeleteCacheDNS(key)
 	}
-	return dns
+	return
 }
 
-func (p *DataPool) SetCacheDNS(key string, dns []byte) {
+func (p *DataPool) SetCacheDNS(key string, dns Address) {
 	p.rm.Lock()
 	defer p.rm.Unlock()
-	if dns == nil {
-		p.memoryCache.Delete(key)
-	} else {
-		p.memoryCache.Set(key, dns, cache.DefaultExpiration)
-	}
+	p.memoryCache.Set(key, dns, cache.DefaultExpiration)
+}
+func (p *DataPool) DeleteCacheDNS(key string) {
+	p.rm.Lock()
+	defer p.rm.Unlock()
+	p.memoryCache.Delete(key)
 }
 
+func (p *DataPool) GetCacheDevice(key Address) *edge.DeviceTicket {
+	return p.GetCache(string(key[:]))
+}
 func (p *DataPool) GetCache(key string) *edge.DeviceTicket {
 	p.rm.RLock()
 	defer p.rm.RUnlock()
@@ -69,6 +74,10 @@ func (p *DataPool) GetCache(key string) *edge.DeviceTicket {
 		return nil
 	}
 	return cacheObj.(*edge.DeviceTicket)
+}
+
+func (p *DataPool) SetCacheDevice(key Address, tck *edge.DeviceTicket) {
+	p.SetCache(string(key[:]), tck)
 }
 
 func (p *DataPool) SetCache(key string, tck *edge.DeviceTicket) {
@@ -85,6 +94,18 @@ func (p *DataPool) GetDevice(key string) *ConnectedDevice {
 	p.rm.RLock()
 	defer p.rm.RUnlock()
 	return p.devices[key]
+}
+
+// FindDevice tries to locate a connection based on local conn
+func (p *DataPool) FindDevice(addr net.Addr) *ConnectedDevice {
+	p.rm.RLock()
+	defer p.rm.RUnlock()
+	for _, v := range p.devices {
+		if v.Conn.Conn.LocalAddr().String() == addr.String() {
+			return v
+		}
+	}
+	return nil
 }
 
 func (p *DataPool) SetDevice(key string, dev *ConnectedDevice) {

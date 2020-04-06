@@ -4,6 +4,7 @@
 package contract
 
 import (
+	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/crypto/sha3"
 	"github.com/diodechain/diode_go_client/util"
 )
@@ -22,8 +23,11 @@ const (
 	AccessWhitelistIndex
 )
 
+// Address represents an Ethereum address
+type Address = crypto.Address
+
 // DeviceWhitelistKey returns storage key of device whitelist of givin address
-func DeviceWhitelistKey(addr [20]byte) []byte {
+func DeviceWhitelistKey(addr Address) []byte {
 	index := util.IntToBytes(DeviceWhitelistIndex)
 	padIndex := util.PaddingBytesPrefix(index, 0, 32)
 	padAddr := util.PaddingBytesPrefix(addr[:], 0, 32)
@@ -33,7 +37,7 @@ func DeviceWhitelistKey(addr [20]byte) []byte {
 }
 
 // AccessWhitelistKey returns storage key of access whitelist of givin address
-func AccessWhitelistKey(deviceAddr [20]byte, clientAddr [20]byte) []byte {
+func AccessWhitelistKey(deviceAddr Address, clientAddr Address) []byte {
 	index := util.IntToBytes(AccessWhitelistIndex)
 	padIndex := util.PaddingBytesPrefix(index, 0, 32)
 	padDeviceAddr := util.PaddingBytesPrefix(deviceAddr[:], 0, 32)
