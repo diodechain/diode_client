@@ -22,7 +22,7 @@ gateway: diode
 	ssh root@diode.ws 'svc -k .'
 	touch gateway
 
-.PHONY: diode_go_client
+.PHONY: diode
 diode:
 	go build -ldflags "-X main.version=`git describe --tags --dirty`" -o diode
 
