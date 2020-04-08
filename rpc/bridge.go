@@ -139,7 +139,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 		if cachedConnDevice != nil {
 			cachedConnDevice.writeToTCP(decData)
 		} else {
-			rpcClient.Error("cannot find the portsend connected device %d", portSend.Ref)
+			rpcClient.Warn("Cannot find the portsend connected device %d", portSend.Ref)
 			rpcClient.CastPortClose(int(portSend.Ref))
 		}
 	} else if portClose, ok := inboundRequest.(*edge.PortClose); ok {
@@ -149,7 +149,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			cachedConnDevice.Close()
 			rpcClient.pool.SetDevice(deviceKey, nil)
 		} else {
-			rpcClient.Error("cannot find the portclose connected device %d", portClose.Ref)
+			rpcClient.Warn("Cannot find the portclose connected device %d", portClose.Ref)
 		}
 	} else if goodbye, ok := inboundRequest.(edge.Goodbye); ok {
 		rpcClient.Warn("server disconnected, reason: %v", goodbye.Reason)
@@ -169,8 +169,8 @@ func (rpcClient *RPCClient) handleInboundMessage(msg edge.Message) {
 		rpcClient.backoff.StepBack()
 		call := rpcClient.firstCallByID(msg.ResponseID(rpcClient.edgeProtocol))
 		if call.response == nil {
-			// should not happen
-			rpcClient.Error("Call.response is nil: %s %s", call.method, string(msg.Buffer))
+			// should not wait response for the call
+			rpcClient.Warn("Call.response is nil id: %d, method: %s, this might lead to rpc timeout error if you wait rpc response", call.id, call.method)
 			return
 		}
 		if msg.IsError(rpcClient.edgeProtocol) {
@@ -179,7 +179,7 @@ func (rpcClient *RPCClient) handleInboundMessage(msg edge.Message) {
 			return
 		}
 		if call.Parse == nil {
-			rpcClient.Debug("no parse callback for rpc call: id: %d, method: %s", call.id, call.method)
+			rpcClient.Debug("no parse callback for rpc call id: %d, method: %s", call.id, call.method)
 			return
 		}
 		res, err := call.Parse(msg.Buffer)

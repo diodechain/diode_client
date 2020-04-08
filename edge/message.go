@@ -18,9 +18,20 @@ func (msg *Message) ResponseID(edgeProtocol EdgeProtocol) uint64 {
 	return edgeProtocol.ResponseID(msg.Buffer)
 }
 
+func (msg *Message) pivotBuffer() []byte {
+	var length int
+	if len(msg.Buffer) > 20 {
+		length = 19
+	} else {
+		length = len(msg.Buffer)
+	}
+	return msg.Buffer[0:length]
+}
+
 // IsResponse returns true if the message is response
 func (msg *Message) IsResponse(edgeProtocol EdgeProtocol) bool {
-	return edgeProtocol.IsResponseType(msg.Buffer) || edgeProtocol.IsErrorType(msg.Buffer)
+	pivot := msg.pivotBuffer()
+	return edgeProtocol.IsResponseType(pivot) || edgeProtocol.IsErrorType(pivot)
 }
 
 // IsRequest returns true if the message is request
@@ -30,7 +41,8 @@ func (msg *Message) IsRequest(edgeProtocol EdgeProtocol) bool {
 
 // IsError returns true if the message is error
 func (msg *Message) IsError(edgeProtocol EdgeProtocol) bool {
-	return edgeProtocol.IsErrorType(msg.Buffer)
+	pivot := msg.pivotBuffer()
+	return edgeProtocol.IsErrorType(pivot)
 }
 
 // ReadAsResponse returns Response of the message
