@@ -18,6 +18,7 @@ uninstall:
 
 gateway: diode
 	strip -s diode
+	upx diode
 	scp -C diode root@diode.ws:diode_go_client
 	ssh root@diode.ws 'svc -k .'
 	touch gateway
