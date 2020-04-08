@@ -19,11 +19,11 @@ var (
 	errPortNotPublished = fmt.Errorf("port was not published")
 )
 
-func enqueueResponse(resp chan interface{}, msg interface{}, sendTimeout time.Duration) error {
+func (c *Call) enqueueResponse(msg interface{}) error {
 	select {
-	case resp <- msg:
+	case c.response <- msg:
 		return nil
-	case _ = <-time.After(sendTimeout):
+	case _ = <-time.After(enqueueTimeout):
 		return fmt.Errorf("send response to channel timeout")
 	}
 }
@@ -44,91 +44,94 @@ func (rpcClient *RPCClient) Wait() {
 // handle inbound request
 func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 	if portOpen, ok := inboundRequest.(*edge.PortOpen); ok {
-		if portOpen.Err != nil {
-			go rpcClient.ResponsePortOpen(portOpen, fmt.Errorf(portOpen.Err.Error()))
-			rpcClient.Error("Failed to decode portopen request: %v", portOpen.Err.Error())
-			return
-		}
-		// Checking blacklist and whitelist
-		if len(rpcClient.Config.Blacklists) > 0 {
-			if rpcClient.Config.Blacklists[portOpen.DeviceID] {
-				err := fmt.Errorf(
-					"Device %v is on the black list",
-					portOpen.DeviceID,
-				)
-				go rpcClient.ResponsePortOpen(portOpen, err)
+		go func() {
+			if portOpen.Err != nil {
+				rpcClient.ResponsePortOpen(portOpen, fmt.Errorf(portOpen.Err.Error()))
+				rpcClient.Error("Failed to decode portopen request: %v", portOpen.Err.Error())
 				return
 			}
-		} else {
-			if len(rpcClient.Config.Whitelists) > 0 {
-				if !rpcClient.Config.Whitelists[portOpen.DeviceID] {
+			// Checking blacklist and whitelist
+			if len(rpcClient.Config.Blacklists) > 0 {
+				if rpcClient.Config.Blacklists[portOpen.DeviceID] {
 					err := fmt.Errorf(
-						"Device %v is not in the white list",
+						"Device %v is on the black list",
 						portOpen.DeviceID,
 					)
-					go rpcClient.ResponsePortOpen(portOpen, err)
-					return
-				}
-			}
-		}
-
-		// find published port
-		publishedPort := rpcClient.pool.GetPublishedPort(portOpen.PortNumber)
-		if publishedPort == nil {
-			go rpcClient.ResponsePortOpen(portOpen, errPortNotPublished)
-			rpcClient.Info("Port was not published port = %v", portOpen.PortNumber)
-			return
-		}
-		if publishedPort.Protocol != config.AnyProtocol && publishedPort.Protocol != portOpen.Protocol {
-			go rpcClient.ResponsePortOpen(portOpen, errPortNotPublished)
-			rpcClient.Info("Port was not published as this type (%v != %v) port = %v", publishedPort.Protocol, portOpen.Protocol, portOpen.PortNumber)
-			return
-		}
-
-		if !publishedPort.IsWhitelisted(portOpen.DeviceID) {
-			if publishedPort.Mode == config.ProtectedPublishedMode {
-				isAccessWhilisted, err := rpcClient.IsAccessWhitelisted(rpcClient.Config.FleetAddr, portOpen.DeviceID)
-				if err != nil || !isAccessWhilisted {
-					err := fmt.Errorf("Device %v is not in the whitelist (1)", portOpen.DeviceID)
-					go rpcClient.ResponsePortOpen(portOpen, err)
+					rpcClient.ResponsePortOpen(portOpen, err)
 					return
 				}
 			} else {
-				err := fmt.Errorf("Device %v is not in the whitelist (2)", portOpen.DeviceID)
-				go rpcClient.ResponsePortOpen(portOpen, err)
+				if len(rpcClient.Config.Whitelists) > 0 {
+					if !rpcClient.Config.Whitelists[portOpen.DeviceID] {
+						err := fmt.Errorf(
+							"Device %v is not in the white list",
+							portOpen.DeviceID,
+						)
+						rpcClient.ResponsePortOpen(portOpen, err)
+						return
+					}
+				}
+			}
+
+			// find published port
+			publishedPort := rpcClient.pool.GetPublishedPort(portOpen.PortNumber)
+			if publishedPort == nil {
+				rpcClient.ResponsePortOpen(portOpen, errPortNotPublished)
+				rpcClient.Info("Port was not published port = %v", portOpen.PortNumber)
 				return
 			}
-		}
-		clientID := fmt.Sprintf("%s%x", portOpen.DeviceID, portOpen.Ref)
-		connDevice := &ConnectedDevice{}
+			if publishedPort.Protocol != config.AnyProtocol && publishedPort.Protocol != portOpen.Protocol {
+				rpcClient.ResponsePortOpen(portOpen, errPortNotPublished)
+				rpcClient.Info("Port was not published as this type (%v != %v) port = %v", publishedPort.Protocol, portOpen.Protocol, portOpen.PortNumber)
+				return
+			}
 
-		// connect to stream service
-		host := net.JoinHostPort("localhost", strconv.Itoa(int(publishedPort.Src)))
+			if !publishedPort.IsWhitelisted(portOpen.DeviceID) {
+				if publishedPort.Mode == config.ProtectedPublishedMode {
+					isAccessWhilisted, err := rpcClient.IsAccessWhitelisted(rpcClient.Config.FleetAddr, portOpen.DeviceID)
+					if err != nil || !isAccessWhilisted {
+						err := fmt.Errorf("Device %v is not in the whitelist (1)", portOpen.DeviceID)
+						rpcClient.ResponsePortOpen(portOpen, err)
+						return
+					}
+				} else {
+					err := fmt.Errorf("Device %v is not in the whitelist (2)", portOpen.DeviceID)
+					rpcClient.ResponsePortOpen(portOpen, err)
+					return
+				}
+			}
 
-		network := "tcp"
-		if portOpen.Protocol == config.UDPProtocol {
-			network = "udp"
-		}
+			clientID := fmt.Sprintf("%s%x", portOpen.DeviceID, portOpen.Ref)
+			connDevice := &ConnectedDevice{}
 
-		remoteConn, err := net.DialTimeout(network, host, rpcClient.timeout)
+			// connect to stream service
+			host := net.JoinHostPort("localhost", strconv.Itoa(int(publishedPort.Src)))
 
-		if err != nil {
-			_ = rpcClient.ResponsePortOpen(portOpen, err)
-			rpcClient.Error("failed to connect local: %v", err)
-			return
-		}
-		_ = rpcClient.ResponsePortOpen(portOpen, nil)
-		deviceKey := rpcClient.GetDeviceKey(portOpen.Ref)
+			network := "tcp"
+			if portOpen.Protocol == config.UDPProtocol {
+				network = "udp"
+			}
 
-		connDevice.Ref = portOpen.Ref
-		connDevice.ClientID = clientID
-		connDevice.DeviceID = portOpen.DeviceID
-		connDevice.Conn.Conn = remoteConn
-		connDevice.Client = rpcClient
-		rpcClient.pool.SetDevice(deviceKey, connDevice)
+			remoteConn, err := net.DialTimeout(network, host, rpcClient.timeout)
 
-		connDevice.copyToSSL()
-		connDevice.Close()
+			if err != nil {
+				_ = rpcClient.ResponsePortOpen(portOpen, err)
+				rpcClient.Error("failed to connect local: %v", err)
+				return
+			}
+			_ = rpcClient.ResponsePortOpen(portOpen, nil)
+			deviceKey := rpcClient.GetDeviceKey(portOpen.Ref)
+
+			connDevice.Ref = portOpen.Ref
+			connDevice.ClientID = clientID
+			connDevice.DeviceID = portOpen.DeviceID
+			connDevice.Conn.Conn = remoteConn
+			connDevice.Client = rpcClient
+			rpcClient.pool.SetDevice(deviceKey, connDevice)
+
+			connDevice.copyToSSL()
+			connDevice.Close()
+		}()
 	} else if portSend, ok := inboundRequest.(*edge.PortSend); ok {
 		if portSend.Err != nil {
 			rpcClient.Error("failed to decode portsend request: %v", portSend.Err.Error())
@@ -178,7 +181,7 @@ func (rpcClient *RPCClient) handleInboundMessage(msg edge.Message) {
 		}
 		if msg.IsError(rpcClient.edgeProtocol) {
 			rpcError, _ := msg.ReadAsError(rpcClient.edgeProtocol)
-			enqueueResponse(call.response, rpcError, enqueueTimeout)
+			call.enqueueResponse(rpcError)
 			return
 		}
 		if call.Parse == nil {
@@ -191,10 +194,10 @@ func (rpcClient *RPCClient) handleInboundMessage(msg edge.Message) {
 			rpcError := edge.Error{
 				Message: err.Error(),
 			}
-			enqueueResponse(call.response, rpcError, enqueueTimeout)
+			call.enqueueResponse(rpcError)
 			return
 		}
-		enqueueResponse(call.response, res, enqueueTimeout)
+		call.enqueueResponse(res)
 		close(call.response)
 		return
 	}
@@ -244,7 +247,7 @@ func (rpcClient *RPCClient) recvMessage() {
 		}
 		if msg.Len > 0 {
 			rpcClient.Debug("Receive %d bytes data from ssl", msg.Len)
-			go rpcClient.handleInboundMessage(msg)
+			rpcClient.handleInboundMessage(msg)
 		}
 	}
 }
@@ -273,7 +276,7 @@ func (rpcClient *RPCClient) sendMessage() {
 				// issue by adding id in each rpc call)
 				rpcClient.Error("Failed to write to node: %v", err)
 				res := rpcClient.edgeProtocol.NewErrorResponse(err)
-				enqueueResponse(call.response, res, enqueueTimeout)
+				call.enqueueResponse(res)
 				continue
 			}
 			if n != len(call.data) {

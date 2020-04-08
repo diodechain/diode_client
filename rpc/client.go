@@ -138,11 +138,11 @@ func (rpcClient *RPCClient) GetDeviceKey(ref string) string {
 	return fmt.Sprintf("%s:%s", prefix, ref)
 }
 
-func (rpcClient *RPCClient) enqueueCall(resq chan Call, call Call, sendTimeout time.Duration) error {
+func (rpcClient *RPCClient) enqueueCall(call Call) error {
 	select {
-	case resq <- call:
+	case rpcClient.callQueue <- call:
 		return nil
-	case _ = <-time.After(sendTimeout):
+	case _ = <-time.After(enqueueTimeout):
 		return fmt.Errorf("send call to channel timeout")
 	}
 }
@@ -184,7 +184,7 @@ func (rpcClient *RPCClient) RespondContext(requestID uint64, responseType string
 	if err != nil {
 		return
 	}
-	err = rpcClient.enqueueCall(rpcClient.callQueue, call, enqueueTimeout)
+	err = rpcClient.enqueueCall(call)
 	return
 }
 
@@ -201,7 +201,7 @@ func (rpcClient *RPCClient) CastContext(requestID uint64, method string, parse f
 	if err != nil {
 		return
 	}
-	err = rpcClient.enqueueCall(rpcClient.callQueue, call, enqueueTimeout)
+	err = rpcClient.enqueueCall(call)
 	return
 }
 
