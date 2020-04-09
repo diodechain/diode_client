@@ -84,6 +84,7 @@ type Config struct {
 	ProtectedPublishedPorts stringValues
 	PrivatePublishedPorts   stringValues
 	LogMode                 int
+	LogFilePath             string
 	Logger                  log.Logger
 }
 
@@ -134,11 +135,17 @@ func init() {
 	AppConfig = parseFlag()
 }
 
-func newLogger(logMode int) log.Logger {
+func newLogger(cfg *Config) log.Logger {
 	var logHandler log.Handler
 	logger := log.New()
-	if (logMode & LogToConsole) > 0 {
+	if (cfg.LogMode & LogToConsole) > 0 {
 		logHandler = log.StreamHandler(os.Stderr, log.TerminalFormat())
+	} else if (cfg.LogMode & LogToFile) > 0 {
+		fd, err := os.OpenFile(cfg.LogFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			panic(err)
+		}
+		logHandler = log.StreamHandler(fd, log.TerminalFormat())
 	}
 	logger.SetHandler(log.MultiHandler(
 		log.MatchFilterHandler("module", "main", logHandler),
@@ -259,6 +266,7 @@ func parseFlag() *Config {
 	flag.BoolVar(&cfg.EnableMetrics, "metrics", false, "enable metrics stats")
 	flag.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
 	flag.IntVar(&cfg.RlimitNofile, "rlimit_nofile", 0, "specify the file descriptor numbers that can be opened by this process")
+	flag.StringVar(&cfg.LogFilePath, "logfilepath", "", "file path to log file")
 
 	// tcp keepalive for node connection
 	flag.BoolVar(&cfg.EnableKeepAlive, "keepalive", runtime.GOOS != "windows", "enable tcp keepalive (only Linux >= 2.4, DragonFly, FreeBSD, NetBSD and OS X >= 10.8 are supported)")
@@ -338,8 +346,12 @@ func parseFlag() *Config {
 	cfg.Command = commandName
 
 	// TODO: add another log mode
-	cfg.LogMode = LogToConsole
-	cfg.Logger = newLogger(cfg.LogMode)
+	if len(cfg.LogFilePath) > 0 {
+		cfg.LogMode = LogToFile
+	} else {
+		cfg.LogMode = LogToConsole
+	}
+	cfg.Logger = newLogger(cfg)
 
 	parsedRPCAddr := strings.Split(*remoteRPCAddr, ",")
 	remoteRPCAddrs := []string{}
