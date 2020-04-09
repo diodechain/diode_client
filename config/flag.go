@@ -37,6 +37,11 @@ OPTIONS
 
 	usageText = `COMMANDS
 `
+	bootDiodeAddrs = [3]string{
+		"asia.testnet.diode.io:41046",
+		"europe.testnet.diode.io:41046",
+		"usa.testnet.diode.io:41046",
+	}
 )
 
 // Config for poc-client
@@ -284,11 +289,14 @@ func parseFlag() *Config {
 		wrongCommandLineFlag(err)
 	}
 
-	remoteRPCAddr := flag.String("diodeaddrs", "asia.testnet.diode.io:41046,europe.testnet.diode.io:41046,usa.testnet.diode.io:41046", "addresses of Diode node server")
+	var diodeaddrs stringValues
+	var blacklists stringValues
+	var whitelists stringValues
+	flag.Var(&diodeaddrs, "diodeaddrs", "addresses of Diode node server (default: asia.testnet.diode.io:41046, europe.testnet.diode.io:41046, usa.testnet.diode.io:41046)")
 	remoteRPCTimeout := flag.Int("timeout", 5, "timeout seconds to connect to the remote rpc server")
 	retryWait := flag.Int("retrywait", 1, "wait seconds before next retry")
-	blacklists := flag.String("blacklists", "", "addresses are not allowed to connect to published resource (worked when whitelists is empty)")
-	whitelists := flag.String("whitelists", "", "addresses are allowed to connect to published resource (worked when blacklists is empty)")
+	flag.Var(&blacklists, "blacklists", "addresses are not allowed to connect to published resource (worked when whitelists is empty)")
+	flag.Var(&whitelists, "whitelists", "addresses are allowed to connect to published resource (worked when blacklists is empty)")
 
 	flag.BoolVar(&cfg.SkipHostValidation, "skiphostvalidation", false, "skip host validation")
 
@@ -353,15 +361,18 @@ func parseFlag() *Config {
 	}
 	cfg.Logger = newLogger(cfg)
 
-	parsedRPCAddr := strings.Split(*remoteRPCAddr, ",")
-	remoteRPCAddrs := []string{}
-	// TODO: check domain is valid
-	for _, RPCAddr := range parsedRPCAddr {
-		if len(RPCAddr) > 0 && !stringsContain(remoteRPCAddrs, &RPCAddr) {
-			remoteRPCAddrs = append(remoteRPCAddrs, RPCAddr)
+	if len(diodeaddrs) <= 0 {
+		cfg.RemoteRPCAddrs = bootDiodeAddrs[:]
+	} else {
+		remoteRPCAddrs := []string{}
+		// TODO: check domain is valid
+		for _, RPCAddr := range diodeaddrs {
+			if len(RPCAddr) > 0 && !stringsContain(remoteRPCAddrs, &RPCAddr) {
+				remoteRPCAddrs = append(remoteRPCAddrs, RPCAddr)
+			}
 		}
+		cfg.RemoteRPCAddrs = remoteRPCAddrs
 	}
-	cfg.RemoteRPCAddrs = remoteRPCAddrs
 	retryWaitTime, err := time.ParseDuration(strconv.Itoa(*retryWait) + "s")
 	cfg.RetryWait = retryWaitTime
 	if err != nil {
@@ -382,17 +393,15 @@ func parseFlag() *Config {
 	if err != nil {
 		wrongCommandLineFlag(err)
 	}
-	parsedBlacklists := strings.Split(*blacklists, ",")
 	blacklistsIDs := make(map[string]bool)
-	for _, blacklistedID := range parsedBlacklists {
+	for _, blacklistedID := range blacklists {
 		if util.IsAddress([]byte(blacklistedID)) {
 			blacklistsIDs[strings.ToLower(blacklistedID)] = true
 		}
 	}
 	cfg.Blacklists = blacklistsIDs
-	parsedWhitelists := strings.Split(*whitelists, ",")
 	whitelistsIDs := make(map[string]bool)
-	for _, whitelistedID := range parsedWhitelists {
+	for _, whitelistedID := range whitelists {
 		if util.IsAddress([]byte(whitelistedID)) {
 			whitelistsIDs[strings.ToLower(whitelistedID)] = true
 		}
