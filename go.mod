@@ -6,7 +6,7 @@ require (
 	github.com/buger/jsonparser v0.0.0-20191204142016-1a29609e0929
 	github.com/diodechain/go-cache v2.1.0+incompatible
 	github.com/diodechain/gobert v1.0.0
-	github.com/diodechain/log15 v0.0.0-20200121072611-36569d26a3ed
+	github.com/diodechain/log15 v0.0.0-20200410080737-5718e6d20f99
 	github.com/diodechain/openssl v1.0.3
 	github.com/ethereum/go-ethereum v1.9.11
 	github.com/exosite/gobert v0.0.0-20191127232240-ee599973c1c6
@@ -16,4 +16,5 @@ require (
 	github.com/stretchr/testify v1.4.0
 	github.com/ucirello/tcpkeepalive v0.0.0-20180903163222-92daabaeadac
 	golang.org/x/sys v0.0.0-20191026070338-33540a1f6037
+	gopkg.in/yaml.v2 v2.2.2
 )

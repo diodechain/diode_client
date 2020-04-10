@@ -146,19 +146,14 @@ func newLogger(cfg *Config) log.Logger {
 	if (cfg.LogMode & LogToConsole) > 0 {
 		logHandler = log.StreamHandler(os.Stderr, log.TerminalFormat())
 	} else if (cfg.LogMode & LogToFile) > 0 {
-		fd, err := os.OpenFile(cfg.LogFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		// when close file?
+		f, err := os.OpenFile(cfg.LogFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
 			panic(err)
 		}
-		logHandler = log.StreamHandler(fd, log.TerminalFormat())
+		logHandler = log.ClosingHandler{f, log.StreamHandler(f, log.TerminalFormat())}
 	}
-	logger.SetHandler(log.MultiHandler(
-		log.MatchFilterHandler("module", "main", logHandler),
-		log.MatchFilterHandler("module", "ssl", logHandler),
-		log.MatchFilterHandler("module", "rpc", logHandler),
-		log.MatchFilterHandler("module", "socks", logHandler),
-		log.MatchFilterHandler("module", "httpd", logHandler),
-	))
+	logger.SetHandler(logHandler)
 	return logger
 }
 
@@ -299,8 +294,8 @@ func parseFlag() *Config {
 	flag.Var(&whitelists, "whitelists", "addresses are allowed to connect to published resource (worked when blacklists is empty)")
 
 	flag.BoolVar(&cfg.SkipHostValidation, "skiphostvalidation", false, "skip host validation")
-
 	flag.Parse()
+
 	commandName := flag.Arg(0)
 	args := flag.Args()
 	commandFlag := commandFlags[commandName]

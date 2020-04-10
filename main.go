@@ -16,6 +16,7 @@ import (
 	"github.com/diodechain/diode_go_client/db"
 	"github.com/diodechain/diode_go_client/rpc"
 	"github.com/diodechain/diode_go_client/util"
+	"github.com/diodechain/log15"
 )
 
 var (
@@ -172,6 +173,10 @@ func main() {
 			}
 			if proxyServer != nil && proxyServer.Started() {
 				proxyServer.Close()
+			}
+			handler := config.Logger.GetHandler()
+			if closingHandler, ok := handler.(log15.ClosingHandler); ok {
+				closingHandler.WriteCloser.Close()
 			}
 			os.Exit(0)
 		}
