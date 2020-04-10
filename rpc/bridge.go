@@ -54,7 +54,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			if len(rpcClient.Config.Blacklists) > 0 {
 				if rpcClient.Config.Blacklists[portOpen.DeviceID] {
 					err := fmt.Errorf(
-						"Device %v is on the black list",
+						"Device %x is on the black list",
 						portOpen.DeviceID,
 					)
 					rpcClient.ResponsePortOpen(portOpen, err)
@@ -64,7 +64,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 				if len(rpcClient.Config.Whitelists) > 0 {
 					if !rpcClient.Config.Whitelists[portOpen.DeviceID] {
 						err := fmt.Errorf(
-							"Device %v is not in the white list",
+							"Device %x is not in the white list",
 							portOpen.DeviceID,
 						)
 						rpcClient.ResponsePortOpen(portOpen, err)
@@ -90,12 +90,12 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 				if publishedPort.Mode == config.ProtectedPublishedMode {
 					isAccessWhilisted, err := rpcClient.IsAccessWhitelisted(rpcClient.Config.FleetAddr, portOpen.DeviceID)
 					if err != nil || !isAccessWhilisted {
-						err := fmt.Errorf("Device %v is not in the whitelist (1)", portOpen.DeviceID)
+						err := fmt.Errorf("Device %x is not in the whitelist (1)", portOpen.DeviceID)
 						rpcClient.ResponsePortOpen(portOpen, err)
 						return
 					}
 				} else {
-					err := fmt.Errorf("Device %v is not in the whitelist (2)", portOpen.DeviceID)
+					err := fmt.Errorf("Device %x is not in the whitelist (2)", portOpen.DeviceID)
 					rpcClient.ResponsePortOpen(portOpen, err)
 					return
 				}
