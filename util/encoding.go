@@ -43,10 +43,7 @@ func IsHex(src []byte) bool {
 		return false
 	}
 	if bytes.HasPrefix(src, prefixBytes) {
-		if !isHexBytes(src[2:]) {
-			return false
-		}
-		return true
+		return isHexBytes(src[2:])
 	}
 	if isHexBytes(src) {
 		return true
@@ -60,10 +57,7 @@ func IsHexNumber(src []byte) bool {
 		return false
 	}
 	if bytes.HasPrefix(src, upperPrefixBytes) {
-		if !isHexBytes(src[2:]) {
-			return false
-		}
-		return true
+		return isHexBytes(src[2:])
 	}
 	if isHexBytes(src) {
 		return true

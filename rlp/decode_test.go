@@ -105,9 +105,9 @@ func TestStreamErrors(t *testing.T) {
 		{"89000000000000000001", calls{"Uint"}, nil, errUintOverflow},
 		{"00", calls{"List"}, nil, ErrExpectedList},
 		{"80", calls{"List"}, nil, ErrExpectedList},
-		{"C0", calls{"List", "Uint"}, nil, EOL},
+		{"C0", calls{"List", "Uint"}, nil, ErrEOL},
 		{"C8C9010101010101010101", calls{"List", "Kind"}, nil, ErrElemTooLarge},
-		{"C3C2010201", calls{"List", "List", "Uint", "Uint", "ListEnd", "Uint"}, nil, EOL},
+		{"C3C2010201", calls{"List", "List", "Uint", "Uint", "ListEnd", "Uint"}, nil, ErrEOL},
 		{"00", calls{"ListEnd"}, nil, errNotInList},
 		{"C401020304", calls{"List", "Uint", "ListEnd"}, nil, errNotAtEOL},
 
@@ -190,7 +190,7 @@ func TestStreamErrors(t *testing.T) {
 
 			"Bytes", // past final element
 			"Bytes", // this one should fail
-		}, nil, EOL},
+		}, nil, ErrEOL},
 	}
 
 testfor:
@@ -247,8 +247,8 @@ func TestStreamList(t *testing.T) {
 		}
 	}
 
-	if _, err := s.Uint(); err != EOL {
-		t.Errorf("Uint error mismatch, got %v, want %v", err, EOL)
+	if _, err := s.Uint(); err != ErrEOL {
+		t.Errorf("Uint error mismatch, got %v, want %v", err, ErrEOL)
 	}
 	if err = s.ListEnd(); err != nil {
 		t.Fatalf("ListEnd error: %v", err)
@@ -695,8 +695,9 @@ func ExampleDecode() {
 	input, _ := hex.DecodeString("C90A1486666F6F626172")
 
 	type example struct {
-		A, B    uint
-		private uint // private fields are ignored
+		A, B uint
+		//lint:ignore U1000 private fields are ignored
+		private uint
 		String  string
 	}
 

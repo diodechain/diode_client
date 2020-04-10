@@ -200,7 +200,6 @@ func findItemInItems(items interface{}, key string) (item Item, err error) {
 				}
 			}
 		}
-		break
 	default:
 		err = errWrongTypeForItems
 		return

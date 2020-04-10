@@ -69,34 +69,34 @@ func cmpParams(p1, p2 *ECIESParams) bool {
 		p1.BlockSize == p2.BlockSize
 }
 
-// cmpPublic returns true if the two public keys represent the same pojnt.
-func cmpPublic(pub1, pub2 PublicKey) bool {
-	if pub1.X == nil || pub1.Y == nil {
-		fmt.Println(ErrInvalidPublicKey.Error())
-		return false
-	}
-	if pub2.X == nil || pub2.Y == nil {
-		fmt.Println(ErrInvalidPublicKey.Error())
-		return false
-	}
-	pub1Out := elliptic.Marshal(pub1.Curve, pub1.X, pub1.Y)
-	pub2Out := elliptic.Marshal(pub2.Curve, pub2.X, pub2.Y)
+// // cmpPublic returns true if the two public keys represent the same pojnt.
+// func cmpPublic(pub1, pub2 PublicKey) bool {
+// 	if pub1.X == nil || pub1.Y == nil {
+// 		fmt.Println(ErrInvalidPublicKey.Error())
+// 		return false
+// 	}
+// 	if pub2.X == nil || pub2.Y == nil {
+// 		fmt.Println(ErrInvalidPublicKey.Error())
+// 		return false
+// 	}
+// 	pub1Out := elliptic.Marshal(pub1.Curve, pub1.X, pub1.Y)
+// 	pub2Out := elliptic.Marshal(pub2.Curve, pub2.X, pub2.Y)
 
-	return bytes.Equal(pub1Out, pub2Out)
-}
+// 	return bytes.Equal(pub1Out, pub2Out)
+// }
 
-// cmpPrivate returns true if the two private keys are the same.
-func cmpPrivate(prv1, prv2 *PrivateKey) bool {
-	if prv1 == nil || prv1.D == nil {
-		return false
-	} else if prv2 == nil || prv2.D == nil {
-		return false
-	} else if prv1.D.Cmp(prv2.D) != 0 {
-		return false
-	} else {
-		return cmpPublic(prv1.PublicKey, prv2.PublicKey)
-	}
-}
+// // cmpPrivate returns true if the two private keys are the same.
+// func cmpPrivate(prv1, prv2 *PrivateKey) bool {
+// 	if prv1 == nil || prv1.D == nil {
+// 		return false
+// 	} else if prv2 == nil || prv2.D == nil {
+// 		return false
+// 	} else if prv1.D.Cmp(prv2.D) != 0 {
+// 		return false
+// 	} else {
+// 		return cmpPublic(prv1.PublicKey, prv2.PublicKey)
+// 	}
+// }
 
 // Validate the ECDH component.
 func TestSharedKey(t *testing.T) {

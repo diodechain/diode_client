@@ -35,7 +35,7 @@ type DeviceTicket struct {
 // ValidateValues checks length of byte[] arrays and returns an error message
 func (ct *DeviceTicket) ValidateValues() error {
 	if len(ct.BlockHash) != 32 {
-		return fmt.Errorf("Blockhash must be 32 bytes")
+		return fmt.Errorf("blockhash must be 32 bytes")
 	}
 	return nil
 }

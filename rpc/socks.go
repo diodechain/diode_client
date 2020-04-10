@@ -24,25 +24,13 @@ import (
 var (
 	Commands         = []string{"CONNECT", "BIND", "UDP ASSOCIATE"}
 	AddrType         = []string{"", "IPv4", "", "Domain", "IPv6"}
-	defaultPort      = "80"
 	defaultMode      = "rw"
 	domainPattern    = regexp.MustCompile(`^(.+)\.(diode|diode\.link|diode\.ws)(:[\d]+)?$`)
 	subDomainpattern = regexp.MustCompile(`^([rws]{1,3}-)?(0x[A-Fa-f0-9]{40}|[A-Za-z0-9][A-Za-z0-9-]{5,30}?)(-[^0][\d]+)?$`)
-	bitstringPattern = regexp.MustCompile(`^[01]+$`)
 
-	errAddrType      = errors.New("socks addr type not supported")
-	errVer           = errors.New("socks version not supported")
-	errMethod        = errors.New("socks only support noauth method")
-	errAuthExtraData = errors.New("socks authentication get extra data")
-	errReqExtraData  = errors.New("socks request get extra data")
-	errCmd           = errors.New("socks only support connect command")
-
-	prefix            = "0x"
-	prefixBytes       = []byte(prefix)
-	prefixLength      = len(prefix)
-	upperPrefix       = "0X"
-	upperPrefixBytes  = []byte(upperPrefix)
-	upperPrefixLength = len(upperPrefix)
+	errAddrType = errors.New("socks addr type not supported")
+	errVer      = errors.New("socks version not supported")
+	errCmd      = errors.New("socks only support connect command")
 )
 
 const (
@@ -147,19 +135,11 @@ func handShake4(conn net.Conn, buf []byte) (url string, err error) {
 		return
 	}
 
-	user, err := readString(conn, buf)
+	_, err = readString(conn, buf)
 	if err != nil {
 		return
 	}
-	if user != "" {
-		// TODO: user authentication?
-	}
-
 	host, err := readString(conn, buf)
-	if err != nil {
-		return
-	}
-
 	if err != nil {
 		return
 	}
@@ -177,7 +157,7 @@ func readString(conn net.Conn, buf []byte) (string, error) {
 		}
 		length++
 		if length >= len(buf) {
-			return "", fmt.Errorf("String too long")
+			return "", fmt.Errorf("string too long")
 		}
 		if buf[length-1] == 0 {
 			// Finished reading
@@ -193,7 +173,7 @@ func handShake5(conn net.Conn, buf []byte) (url string, err error) {
 
 	nmethod := int(buf[idNmethod]) //  client support auth mode
 	msgLen := nmethod + 2          //  auth msg length
-	if 2 == msgLen {               // handshake done, common case
+	if msgLen == 2 {               // handshake done, common case
 		// do nothing, jump directly to send confirmation
 	} else { // has more methods to read, rare case
 		if _, err = io.ReadFull(conn, buf[2:msgLen]); err != nil {
@@ -280,7 +260,7 @@ func handShake5(conn net.Conn, buf []byte) (url string, err error) {
 		return
 	}
 
-	if 2 == reqLen {
+	if reqLen == 2 {
 		// common case, do nothing
 	} else { // rare case
 		if _, err = io.ReadFull(conn, buf[5:reqLen]); err != nil {
@@ -357,13 +337,13 @@ func (socksServer *Server) checkAccess(deviceName string) (*edge.DeviceTicket, e
 	// Checking blacklist and whitelist
 	if len(socksServer.Config.Blacklists) > 0 {
 		if socksServer.Config.Blacklists[deviceID] {
-			err := fmt.Errorf("Device %x is in the black list", deviceName)
+			err := fmt.Errorf("device %x is in the black list", deviceName)
 			return nil, HttpError{403, err}
 		}
 	} else {
 		if len(socksServer.Config.Whitelists) > 0 {
 			if !socksServer.Config.Whitelists[deviceID] {
-				err := fmt.Errorf("Device %x is not in the white list", deviceName)
+				err := fmt.Errorf("device %x is not in the white list", deviceName)
 				return nil, HttpError{403, err}
 			}
 		}
@@ -378,18 +358,18 @@ func (socksServer *Server) checkAccess(deviceName string) (*edge.DeviceTicket, e
 		return nil, HttpError{500, err}
 	}
 	if device.BlockHash, err = socksServer.Client.ResolveBlockHash(device.BlockNumber); err != nil {
-		err = fmt.Errorf("Failed to resolve() %v", err)
+		err = fmt.Errorf("failed to resolve() %v", err)
 		return nil, HttpError{500, err}
 	}
 	if device.Err != nil {
 		return nil, HttpError{404, DeviceError{err}}
 	}
 	if !device.ValidateDeviceSig(deviceID) {
-		err = fmt.Errorf("Wrong device signature in device object")
+		err = fmt.Errorf("wrong device signature in device object")
 		return nil, HttpError{500, err}
 	}
 	if !device.ValidateServerSig() {
-		err = fmt.Errorf("Wrong server signature in device object")
+		err = fmt.Errorf("wrong server signature in device object")
 		return nil, HttpError{500, err}
 	}
 	socksServer.datapool.SetCacheDevice(deviceID, device)
@@ -477,18 +457,15 @@ func writeSocksReturn(conn net.Conn, ver int, addr net.Addr, port int) {
 	}
 
 	// IP
+	var ip net.IP
 	if tcpAddr.Zone == "ip6" {
+		ip = tcpAddr.IP.To16()
 		rep[3] = 0x04
 	} else {
+		ip = tcpAddr.IP.To4()
 		rep[3] = 0x01
 	}
 
-	var ip net.IP
-	if "ip6" == tcpAddr.Zone {
-		ip = tcpAddr.IP.To16()
-	} else {
-		ip = tcpAddr.IP.To4()
-	}
 	pindex := 4
 	for _, b := range ip {
 		rep[pindex] = b
@@ -592,7 +569,6 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 	} else if socksServer.Config.EnableProxy {
 		socksServer.pipeSocksWSThenClose(conn, ver, device, port, mode)
 	}
-	return
 }
 
 // Start socks server
@@ -676,7 +652,7 @@ func (socksServer *Server) handleUDP(packet []byte) {
 	case typeDm: // domain name
 		dmLen = int(packet[idDmLen])
 	default:
-		err = errAddrType
+		socksServer.Client.Error("handleUDP error: Non supported protocol %v", packet[idType])
 		return
 	}
 
@@ -703,7 +679,6 @@ func (socksServer *Server) handleUDP(packet []byte) {
 	}
 
 	socksServer.forwardUDP(addr, deviceName, port, mode, data)
-	return
 }
 
 func (socksServer *Server) forwardUDP(addr net.Addr, deviceName string, port int, mode string, data []byte) {
@@ -851,7 +826,7 @@ func (socksServer *Server) GetServer(nodeID Address) (client *RPCClient, err err
 		return
 	}
 	if !serverObj.ValidateSig(nodeID) {
-		err = fmt.Errorf("Wrong signature in server object %+v", serverObj)
+		err = fmt.Errorf("wrong signature in server object %+v", serverObj)
 		return
 	}
 	// host := fmt.Sprintf("%s:%d", string(serverObj.Host), serverObj.EdgePort)
@@ -859,31 +834,29 @@ func (socksServer *Server) GetServer(nodeID Address) (client *RPCClient, err err
 	host := fmt.Sprintf("%s:%d", string(serverObj.Host), 41046)
 	client, err = DoConnect(host, config.AppConfig, socksServer.datapool)
 	if err != nil {
-		err = fmt.Errorf("Couldn't connect to server '%+v' with error '%v'", serverObj, err)
+		err = fmt.Errorf("couldn't connect to server '%+v' with error '%v'", serverObj, err)
 		return
 	}
 	err = client.Greet()
 	if err != nil {
-		err = fmt.Errorf("Couldn't submitTicket to server with error '%v'", err)
+		err = fmt.Errorf("couldn't submitTicket to server with error '%v'", err)
 		return
 	}
 	socksServer.pool[nodeID] = client
 	// listen to signal
 	go func(nodeID Address) {
 		for {
-			select {
-			case signal, ok := <-client.signal:
-				if !ok {
-					return
-				}
-				switch signal {
-				case CLOSED:
-					delete(socksServer.pool, nodeID)
-					break
-				case RECONNECTED:
-					break
-				}
-				break
+			// TODO check this logic
+			signal, ok := <-client.signal
+			if !ok {
+				return
+			}
+			switch signal {
+			case CLOSED:
+				delete(socksServer.pool, nodeID)
+				return
+			case RECONNECTED:
+				continue
 			}
 		}
 	}(nodeID)

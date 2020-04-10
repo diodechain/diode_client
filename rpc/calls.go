@@ -15,7 +15,6 @@ func (rpcClient *RPCClient) notifyCalls(signal Signal) {
 	for _, call := range rpcClient.calls {
 		notifySignal(call.signal, signal, enqueueTimeout)
 	}
-	return
 }
 
 func (rpcClient *RPCClient) recall() {
@@ -23,7 +22,7 @@ func (rpcClient *RPCClient) recall() {
 	defer rpcClient.rm.Unlock()
 	// copy calls
 	calls := rpcClient.calls
-	rpcClient.calls = make(map[uint64]Call, 0)
+	rpcClient.calls = make(map[uint64]Call)
 	for _, call := range calls {
 		call.retryTimes--
 		if call.retryTimes >= 0 {
@@ -43,7 +42,6 @@ func (rpcClient *RPCClient) recall() {
 			}
 		}
 	}
-	return
 }
 
 func (rpcClient *RPCClient) firstCallByID(id uint64) (c Call) {

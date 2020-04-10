@@ -68,7 +68,7 @@ func main() {
 					var err error
 					value := []byte(list[1])
 					if util.IsHex(value) {
-						value, err = util.DecodeString(list[1])
+						_, err = util.DecodeString(list[1])
 						if err != nil {
 							printError("Couldn't decode hex string", err, 1)
 						}

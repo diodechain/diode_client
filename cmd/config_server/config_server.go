@@ -132,8 +132,7 @@ func (configAPIHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		var isDirty bool
 		updatedConfig = diodeConfig
 		// validate put body
-		var validationError map[string]string
-		validationError = make(map[string]string)
+		validationError := make(map[string]string)
 		if len(c.FleetAddr) > 0 {
 			if !IsAddress([]byte(c.FleetAddr)) {
 				validationError["fleet"] = "invalid fleet address"
@@ -211,7 +210,6 @@ func (configAPIHandler) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	notFoundError(w)
-	return
 }
 
 func clientError(w http.ResponseWriter, validationError map[string]string) {
@@ -282,10 +280,10 @@ func stopServer(err error) {
 func loadConfigFromFile(filePath string) (configBytes []byte, err error) {
 	var f *os.File
 	f, err = os.OpenFile(filePath, os.O_RDONLY, 0400)
-	defer f.Close()
 	if err != nil {
 		return
 	}
+	defer f.Close()
 	var fs os.FileInfo
 	fs, err = f.Stat()
 	if err != nil {
@@ -321,8 +319,7 @@ func init() {
 // TODO: restart diode when update config?
 func main() {
 	var err error
-	var mux *http.ServeMux
-	mux = http.NewServeMux()
+	mux := http.NewServeMux()
 	mux.Handle("/config/", configAPIHandler{})
 	mux.HandleFunc("/", func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path != "/" {

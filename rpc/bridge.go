@@ -23,7 +23,7 @@ func (c *Call) enqueueResponse(msg interface{}) error {
 	select {
 	case c.response <- msg:
 		return nil
-	case _ = <-time.After(enqueueTimeout):
+	case <-time.After(enqueueTimeout):
 		return fmt.Errorf("send response to channel timeout")
 	}
 }
@@ -54,7 +54,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			if len(rpcClient.Config.Blacklists) > 0 {
 				if rpcClient.Config.Blacklists[portOpen.DeviceID] {
 					err := fmt.Errorf(
-						"Device %x is on the black list",
+						"device %x is on the black list",
 						portOpen.DeviceID,
 					)
 					rpcClient.ResponsePortOpen(portOpen, err)
@@ -64,7 +64,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 				if len(rpcClient.Config.Whitelists) > 0 {
 					if !rpcClient.Config.Whitelists[portOpen.DeviceID] {
 						err := fmt.Errorf(
-							"Device %x is not in the white list",
+							"device %x is not in the white list",
 							portOpen.DeviceID,
 						)
 						rpcClient.ResponsePortOpen(portOpen, err)
@@ -90,18 +90,19 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 				if publishedPort.Mode == config.ProtectedPublishedMode {
 					isAccessWhilisted, err := rpcClient.IsAccessWhitelisted(rpcClient.Config.FleetAddr, portOpen.DeviceID)
 					if err != nil || !isAccessWhilisted {
-						err := fmt.Errorf("Device %x is not in the whitelist (1)", portOpen.DeviceID)
+						err := fmt.Errorf("device %x is not in the whitelist (1)", portOpen.DeviceID)
 						rpcClient.ResponsePortOpen(portOpen, err)
 						return
 					}
 				} else {
-					err := fmt.Errorf("Device %x is not in the whitelist (2)", portOpen.DeviceID)
+					err := fmt.Errorf("device %x is not in the whitelist (2)", portOpen.DeviceID)
 					rpcClient.ResponsePortOpen(portOpen, err)
 					return
 				}
 			}
 
-			clientID := fmt.Sprintf("%s%x", portOpen.DeviceID, portOpen.Ref)
+			// TODO check that this format %x%x conforms with the read side
+			clientID := fmt.Sprintf("%x%x", portOpen.DeviceID, portOpen.Ref)
 			connDevice := &ConnectedDevice{}
 
 			// connect to stream service
@@ -165,7 +166,6 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 	} else {
 		rpcClient.Warn("doesn't support rpc request: %+v ", inboundRequest)
 	}
-	return
 }
 
 // handle inbound message
@@ -255,42 +255,40 @@ func (rpcClient *RPCClient) recvMessage() {
 // infinite loop to send message to server
 func (rpcClient *RPCClient) sendMessage() {
 	for {
-		select {
-		case call, ok := <-rpcClient.callQueue:
-			if !ok {
-				return
-			}
-			if rpcClient.Reconnecting() {
-				rpcClient.Debug("Resend rpc due to reconnect: %s", call.method)
-				rpcClient.addCall(call)
-				continue
-			}
-			rpcClient.Debug("Send new rpc: %s id: %d", call.method, call.id)
-			ts := time.Now()
-			conn := rpcClient.s.getOpensslConn()
-			n, err := conn.Write(call.data)
-			if err != nil {
-				// should not reconnect here
-				// because there might be some pending buffers (response) in tcp connection
-				// if reconnect here the recall() will get wrong response (maybe solve this
-				// issue by adding id in each rpc call)
-				rpcClient.Error("Failed to write to node: %v", err)
-				res := rpcClient.edgeProtocol.NewErrorResponse(err)
-				call.enqueueResponse(res)
-				continue
-			}
-			if n != len(call.data) {
-				// exceeds the packet size, drop it
-				rpcClient.Error("Wrong length of data")
-				continue
-			}
-			rpcClient.s.incrementTotalBytes(n)
-			tsDiff := time.Since(ts)
-			if rpcClient.enableMetrics {
-				rpcClient.metrics.UpdateWriteTimer(tsDiff)
-			}
-			rpcClient.addCall(call)
+		call, ok := <-rpcClient.callQueue
+		if !ok {
+			return
 		}
+		if rpcClient.Reconnecting() {
+			rpcClient.Debug("Resend rpc due to reconnect: %s", call.method)
+			rpcClient.addCall(call)
+			continue
+		}
+		rpcClient.Debug("Send new rpc: %s id: %d", call.method, call.id)
+		ts := time.Now()
+		conn := rpcClient.s.getOpensslConn()
+		n, err := conn.Write(call.data)
+		if err != nil {
+			// should not reconnect here
+			// because there might be some pending buffers (response) in tcp connection
+			// if reconnect here the recall() will get wrong response (maybe solve this
+			// issue by adding id in each rpc call)
+			rpcClient.Error("Failed to write to node: %v", err)
+			res := rpcClient.edgeProtocol.NewErrorResponse(err)
+			call.enqueueResponse(res)
+			continue
+		}
+		if n != len(call.data) {
+			// exceeds the packet size, drop it
+			rpcClient.Error("Wrong length of data")
+			continue
+		}
+		rpcClient.s.incrementTotalBytes(n)
+		tsDiff := time.Since(ts)
+		if rpcClient.enableMetrics {
+			rpcClient.metrics.UpdateWriteTimer(tsDiff)
+		}
+		rpcClient.addCall(call)
 	}
 }
 
@@ -340,7 +338,6 @@ func (rpcClient *RPCClient) watchLatestBlock() {
 				rpcClient.Info("Added block(s) %v-%v, last valid %v", lastblock, blockNumMax, lastn)
 				lastblock = blockNumMax
 				storeLastValid()
-				return
 			}()
 		}
 	}

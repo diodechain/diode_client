@@ -28,7 +28,7 @@ func unzip(in []byte) string {
 		config.AppConfig.Logger.Error(fmt.Sprintf("failed to unzip: %s", err.Error()), "module", "httpd")
 		os.Exit(129)
 	}
-	return string(out.Bytes())
+	return out.String()
 
 }
 
