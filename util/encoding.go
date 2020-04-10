@@ -37,14 +37,6 @@ func isHexBytes(src []byte) bool {
 	return true
 }
 
-// IsZeroPrefix returns given bytes is 0x prefixed
-func IsZeroPrefix(src []byte) bool {
-	if len(src) < prefixLength {
-		return false
-	}
-	return bytes.HasPrefix(src, prefixBytes)
-}
-
 // IsHex returns given bytes is hex (0x prefixed)
 func IsHex(src []byte) bool {
 	if len(src) < prefixLength {
@@ -91,6 +83,21 @@ func IsAddress(src []byte) bool {
 		return true
 	}
 	return false
+}
+
+type Address = crypto.Address
+
+func DecodeAddress(src string) (Address, error) {
+	var result Address
+	dst, err := DecodeString(src)
+	if err != nil {
+		return result, err
+	}
+	if len(dst) != len(result) {
+		return result, fmt.Errorf("DecodeAddress(): Wrong address length %d", len(dst))
+	}
+	copy(result[:], dst)
+	return result, nil
 }
 
 // EncodeToString encode bytes to string

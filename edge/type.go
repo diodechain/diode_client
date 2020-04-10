@@ -12,6 +12,9 @@ import (
 	bert "github.com/diodechain/gobert"
 )
 
+// Address represents an Ethereum address
+type Address = crypto.Address
+
 type Response struct {
 	Raw     []byte
 	RawData [][]byte
@@ -32,24 +35,24 @@ type Error struct {
 }
 
 type PortOpen struct {
-	RequestID   uint64
-	Ref         uint64
-	Port        uint64
-	RawDeviceID []byte
-	DeviceID    string
-	Ok          bool
-	Err         error
+	RequestID  uint64
+	Ref        string
+	Protocol   int
+	PortNumber int
+	DeviceID   Address
+	Ok         bool
+	Err        error
 }
 
 type PortSend struct {
-	Ref  uint64
+	Ref  string
 	Data []byte
 	Ok   bool
 	Err  error
 }
 
 type PortClose struct {
-	Ref uint64
+	Ref string
 	Ok  bool
 	Err error
 }

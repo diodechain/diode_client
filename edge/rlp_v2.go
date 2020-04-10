@@ -5,9 +5,11 @@ package edge
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 
 	"github.com/diodechain/diode_go_client/blockquick"
+	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/crypto/secp256k1"
 	"github.com/diodechain/diode_go_client/rlp"
 	"github.com/diodechain/diode_go_client/util"
@@ -356,16 +358,41 @@ func (rlpV2 RLP_V2) parseInboundPortOpenRequest(buffer []byte) (interface{}, err
 	if err != nil {
 		return nil, err
 	}
-	deviceID := util.EncodeToString(inboundRequest.Payload.DeviceID)
+
 	portOpen := &PortOpen{
-		RequestID:   inboundRequest.RequestID,
-		Port:        inboundRequest.Payload.Port,
-		Ref:         inboundRequest.Payload.Ref,
-		RawDeviceID: inboundRequest.Payload.DeviceID,
-		DeviceID:    deviceID,
-		Ok:          true,
+		RequestID: inboundRequest.RequestID,
+		Ref:       inboundRequest.Payload.Ref,
+		Ok:        true,
 	}
-	return portOpen, nil
+	copy(portOpen.DeviceID[:], inboundRequest.Payload.DeviceID)
+	port := inboundRequest.Payload.Port
+
+	// Version 1 (before udp support)
+	if len(port) <= 2 {
+		portOpen.Protocol = config.TCPProtocol
+		if len(port) == 2 {
+			portOpen.PortNumber = int(binary.BigEndian.Uint16([]byte(port)))
+		} else {
+			portOpen.PortNumber = int(port[0])
+		}
+		return portOpen, nil
+	}
+
+	// Version 2 TCP
+	n, err := fmt.Sscanf(port, "tcp:%d", &portOpen.PortNumber)
+	if err == nil && n == 1 {
+		portOpen.Protocol = config.TCPProtocol
+		return portOpen, nil
+	}
+
+	// Version 2 UDP
+	n, err = fmt.Sscanf(port, "udp:%d", &portOpen.PortNumber)
+	if err == nil && n == 1 {
+		portOpen.Protocol = config.UDPProtocol
+		return portOpen, nil
+	}
+
+	return nil, fmt.Errorf("Not supported port format: %v", inboundRequest.Payload.Port)
 }
 
 func (rlpV2 RLP_V2) parseInboundPortSendRequest(buffer []byte) (interface{}, error) {
@@ -462,168 +489,48 @@ func (rlpV2 RLP_V2) NewErrorResponse(err error) (rpcErr Error) {
 }
 
 func (rlpV2 RLP_V2) NewMessage(requestID uint64, method string, args ...interface{}) ([]byte, func(buffer []byte) (interface{}, error), error) {
+	request := generalRequest{}
+	request.RequestID = requestID
+	request.Payload = make([]interface{}, len(args)+1)
+	request.Payload[0] = []byte(method)
+	for i, arg := range args {
+		request.Payload[i+1] = arg
+	}
+	decodedRlp, err := rlp.EncodeToBytes(request)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	switch method {
 	case "hello":
-		request := helloRequest{}
-		request.RequestID = requestID
-		request.Payload.Method = method
-		request.Payload.Flag = args[0].(uint64)
-		decodedRlp, err := rlp.EncodeToBytes(request)
-		if err != nil {
-			return nil, nil, err
-		}
 		return decodedRlp, nil, nil
 	case "portsend":
-		request := portSendRequest{}
-		request.RequestID = requestID
-		request.Payload.Method = method
-		request.Payload.Ref = args[0].(uint64)
-		request.Payload.Data = args[1].([]byte)
-		decodedRlp, err := rlp.EncodeToBytes(request)
-		if err != nil {
-			return nil, nil, err
-		}
 		return decodedRlp, nil, nil
 	case "portclose":
-		request := portCloseRequest{}
-		request.RequestID = requestID
-		request.Payload.Method = method
-		request.Payload.Ref = args[0].(uint64)
-		decodedRlp, err := rlp.EncodeToBytes(request)
-		if err != nil {
-			return nil, nil, err
-		}
 		return decodedRlp, nil, nil
 	case "getblock":
-		request := blockRequest{}
-		request.RequestID = requestID
-		request.Payload.Method = method
-		request.Payload.BlockNumber = args[0].(uint64)
-		decodedRlp, err := rlp.EncodeToBytes(request)
-		if err != nil {
-			return nil, nil, err
-		}
 		return decodedRlp, rlpV2.parseBlockResponse, nil
 	case "getblockpeak":
-		request := blockPeakRequest{}
-		request.RequestID = requestID
-		request.Payload.Method = method
-		decodedRlp, err := rlp.EncodeToBytes(request)
-		if err != nil {
-			return nil, nil, err
-		}
 		return decodedRlp, rlpV2.parseBlockPeakResponse, nil
 	case "getblockheader2":
-		request := blockHeaderRequest{}
-		request.RequestID = requestID
-		request.Payload.Method = method
-		request.Payload.BlockNumber = args[0].(uint64)
-		decodedRlp, err := rlp.EncodeToBytes(request)
-		if err != nil {
-			return nil, nil, err
-		}
 		return decodedRlp, rlpV2.parseBlockHeaderResponse, nil
 	case "getblockquick2":
-		request := blockquickRequest{}
-		request.RequestID = requestID
-		request.Payload.Method = method
-		request.Payload.LastValid = args[0].(uint64)
-		request.Payload.WindowSize = args[1].(uint64)
-		decodedRlp, err := rlp.EncodeToBytes(request)
-		if err != nil {
-			return nil, nil, err
-		}
 		return decodedRlp, rlpV2.parseBlockquickResponse, nil
 	case "getaccount":
-		request := accountRequest{}
-		request.RequestID = requestID
-		request.Payload.Method = method
-		request.Payload.BlockNumber = args[0].(uint64)
-		request.Payload.Address = args[1].([]byte)
-		decodedRlp, err := rlp.EncodeToBytes(request)
-		if err != nil {
-			return nil, nil, err
-		}
 		return decodedRlp, rlpV2.parseAccountResponse, nil
 	case "getaccountroots":
-		request := accountRootsRequest{}
-		request.RequestID = requestID
-		request.Payload.Method = method
-		request.Payload.BlockNumber = args[0].(uint64)
-		request.Payload.Address = args[1].([]byte)
-		decodedRlp, err := rlp.EncodeToBytes(request)
-		if err != nil {
-			return nil, nil, err
-		}
 		return decodedRlp, rlpV2.parseAccountRootsResponse, nil
 	case "getaccountvalue":
-		request := accountValueRequest{}
-		request.RequestID = requestID
-		request.Payload.Method = method
-		request.Payload.BlockNumber = args[0].(uint64)
-		request.Payload.Address = args[1].([]byte)
-		request.Payload.Key = args[2].([]byte)
-		decodedRlp, err := rlp.EncodeToBytes(request)
-		if err != nil {
-			return nil, nil, err
-		}
 		return decodedRlp, rlpV2.parseAccountValueResponse, nil
 	case "ticket":
-		request := ticketRequest{}
-		request.RequestID = requestID
-		request.Payload.Method = method
-		request.Payload.BlockNumber = args[0].(uint64)
-		request.Payload.FleetAddr = args[1].([]byte)
-		request.Payload.TotalConnections = args[2].(uint64)
-		request.Payload.TotalBytes = args[3].(uint64)
-		request.Payload.LocalAddr = args[4].([]byte)
-		request.Payload.DeviceSig = args[5].([]byte)
-		decodedRlp, err := rlp.EncodeToBytes(request)
-		if err != nil {
-			return nil, nil, err
-		}
 		return decodedRlp, rlpV2.parseDeviceTicketResponse, nil
 	case "portopen":
-		request := portOpenRequest{}
-		request.RequestID = requestID
-		request.Payload.Method = method
-		request.Payload.DeviceID = args[0].([]byte)
-		request.Payload.Port = args[1].(uint64)
-		request.Payload.Mode = args[2].(string)
-		decodedRlp, err := rlp.EncodeToBytes(request)
-		if err != nil {
-			return nil, nil, err
-		}
 		return decodedRlp, rlpV2.parsePortOpenResponse, nil
 	case "getobject":
-		request := objectRequest{}
-		request.RequestID = requestID
-		request.Payload.Method = method
-		request.Payload.DeviceID = args[0].([]byte)
-		decodedRlp, err := rlp.EncodeToBytes(request)
-		if err != nil {
-			return nil, nil, err
-		}
 		return decodedRlp, rlpV2.parseDeviceObjectResponse, nil
 	case "getnode":
-		request := serverObjectRequest{}
-		request.RequestID = requestID
-		request.Payload.Method = method
-		request.Payload.ServerID = args[0].([]byte)
-		decodedRlp, err := rlp.EncodeToBytes(request)
-		if err != nil {
-			return nil, nil, err
-		}
 		return decodedRlp, rlpV2.parseServerObjResponse, nil
 	case "getstateroots":
-		request := stateRootsRequest{}
-		request.RequestID = requestID
-		request.Payload.Method = method
-		request.Payload.BlockNumber = args[0].(uint64)
-		decodedRlp, err := rlp.EncodeToBytes(request)
-		if err != nil {
-			return nil, nil, err
-		}
 		return decodedRlp, rlpV2.parseStateRootsResponse, nil
 	default:
 		return nil, nil, ErrRPCNotSupport
@@ -631,40 +538,25 @@ func (rlpV2 RLP_V2) NewMessage(requestID uint64, method string, args ...interfac
 }
 
 func (rlpV2 RLP_V2) NewResponseMessage(requestID uint64, responseType string, method string, args ...interface{}) ([]byte, func(buffer []byte) (interface{}, error), error) {
+	request := generalRequest{}
+	request.RequestID = requestID
+	request.Payload = make([]interface{}, len(args)+1)
+	request.Payload[0] = []byte(method)
+	for i, arg := range args {
+		request.Payload[i+1] = arg
+	}
+
 	switch method {
 	case "portopen":
-		request := portOpenOutboundResponse{}
-		request.RequestID = requestID
-		request.Payload.ResponseType = responseType
-		request.Payload.Ref = args[0].(uint64)
-		request.Payload.Result = args[1].(string)
-		decodedRlp, err := rlp.EncodeToBytes(request)
-		if err != nil {
-			return nil, nil, err
-		}
-		return decodedRlp, nil, nil
+		request.Payload[0] = responseType
 	case "portsend":
-		request := portSendRequest{}
-		request.RequestID = requestID
-		request.Payload.Method = method
-		request.Payload.Ref = args[0].(uint64)
-		request.Payload.Data = args[1].([]byte)
-		decodedRlp, err := rlp.EncodeToBytes(request)
-		if err != nil {
-			return nil, nil, err
-		}
-		return decodedRlp, nil, nil
 	case "portclose":
-		request := portCloseRequest{}
-		request.RequestID = requestID
-		request.Payload.Method = method
-		request.Payload.Ref = args[0].(uint64)
-		decodedRlp, err := rlp.EncodeToBytes(request)
-		if err != nil {
-			return nil, nil, err
-		}
-		return decodedRlp, nil, nil
 	default:
 		return nil, nil, ErrRPCNotSupport
 	}
+	decodedRlp, err := rlp.EncodeToBytes(request)
+	if err != nil {
+		return nil, nil, err
+	}
+	return decodedRlp, nil, nil
 }

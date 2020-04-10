@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/util"
 	log "github.com/diodechain/log15"
 )
@@ -23,6 +24,9 @@ const (
 	PrivatePublishedMode
 	LogToConsole = 1 << iota
 	LogToFile
+	TCPProtocol = 1 << iota
+	UDPProtocol
+	AnyProtocol
 )
 
 var (
@@ -43,6 +47,9 @@ OPTIONS
 		"usa.testnet.diode.io:41046",
 	}
 )
+
+// Address represents an Ethereum address
+type Address = crypto.Address
 
 // Config for poc-client
 type Config struct {
@@ -82,8 +89,8 @@ type Config struct {
 	ConfigDelete            stringValues
 	ConfigSet               stringValues
 	RlimitNofile            int
-	Blacklists              map[string]bool
-	Whitelists              map[string]bool
+	Blacklists              map[Address]bool
+	Whitelists              map[Address]bool
 	PublishedPorts          map[int]*Port
 	PublicPublishedPorts    stringValues
 	ProtectedPublishedPorts stringValues
@@ -98,11 +105,12 @@ type Port struct {
 	Src       int
 	To        int
 	Mode      int
-	whitelist map[string]bool
+	Protocol  int
+	whitelist map[Address]bool
 }
 
 // IsWhitelisted returns true if device is whitelisted
-func (port *Port) IsWhitelisted(addr string) bool {
+func (port *Port) IsWhitelisted(addr Address) bool {
 	switch port.Mode {
 	case PublicPublishedMode:
 		return true
@@ -186,7 +194,8 @@ func parsePublishedPorts(publishedPortsArr []string, mode int) []*Port {
 					Src:       srcPort,
 					To:        toPort,
 					Mode:      mode,
-					whitelist: make(map[string]bool),
+					Protocol:  AnyProtocol,
+					whitelist: make(map[Address]bool),
 				}
 				ports = append(ports, port)
 			} else {
@@ -218,14 +227,18 @@ func parsePrivatePublishedPorts(publishedPorts []string) []*Port {
 					Src:       srcPort,
 					To:        toPort,
 					Mode:      PrivatePublishedMode,
-					whitelist: make(map[string]bool),
+					Protocol:  AnyProtocol,
+					whitelist: make(map[Address]bool),
 				}
 				for i := 1; i < parsedPublishedPortLen; i++ {
-					addr := parsedPublishedPort[i]
-					if util.IsAddress([]byte(addr)) {
-						if !port.whitelist[addr] {
-							port.whitelist[addr] = true
-						}
+					addr, err := util.DecodeAddress(parsedPublishedPort[i])
+					if err != nil {
+						wrongCommandLineFlag(fmt.Errorf("'%s' is not an address: %v", parsedPublishedPort[i], err))
+						continue
+					}
+
+					if !port.whitelist[addr] {
+						port.whitelist[addr] = true
 					}
 				}
 				ports = append(ports, port)
@@ -388,18 +401,24 @@ func parseFlag() *Config {
 	if err != nil {
 		wrongCommandLineFlag(err)
 	}
-	blacklistsIDs := make(map[string]bool)
+	blacklistsIDs := make(map[Address]bool)
 	for _, blacklistedID := range blacklists {
-		if util.IsAddress([]byte(blacklistedID)) {
-			blacklistsIDs[strings.ToLower(blacklistedID)] = true
+		addr, err := util.DecodeAddress(blacklistedID)
+		if err != nil {
+			cfg.Logger.Error(fmt.Sprintf("Blacklist entry '%s' is not an address: %v", blacklistedID, err), "module", "main")
+			continue
 		}
+		blacklistsIDs[addr] = true
 	}
 	cfg.Blacklists = blacklistsIDs
-	whitelistsIDs := make(map[string]bool)
+	whitelistsIDs := make(map[Address]bool)
 	for _, whitelistedID := range whitelists {
-		if util.IsAddress([]byte(whitelistedID)) {
-			whitelistsIDs[strings.ToLower(whitelistedID)] = true
+		addr, err := util.DecodeAddress(whitelistedID)
+		if err != nil {
+			cfg.Logger.Error(fmt.Sprintf("Whitelist entry '%s' is not an address: %v", whitelistedID, err), "module", "main")
+			continue
 		}
+		whitelistsIDs[addr] = true
 	}
 	cfg.Whitelists = whitelistsIDs
 	if cfg.RlimitNofile > 0 {

@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/diodechain/diode_go_client/config"
 	"github.com/gorilla/websocket"
 )
 
@@ -94,7 +95,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 	}
 
 	clientIP := r.RemoteAddr
-	connDevice, httpErr := proxyServer.socksServer.connectDevice(deviceID, port, mode)
+	connDevice, httpErr := proxyServer.socksServer.connectDevice(deviceID, port, config.TCPProtocol, mode)
 	if httpErr != nil {
 		httpError(w, httpErr.code, httpErr.err.Error())
 		return

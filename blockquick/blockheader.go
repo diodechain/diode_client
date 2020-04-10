@@ -61,7 +61,7 @@ func NewHeader(txHash []byte, stateHash []byte, prevBlock []byte, minerSig []byt
 }
 
 // Hash returns sha3 of bert encoded block header
-func (bh *BlockHeader) Hash() (hash Hash) {
+func (bh *BlockHeader) Hash() (hash Sha3) {
 	encHeader, err := bh.Serialize()
 	if err != nil {
 		log.Panicf("BlockHeader.Hash(): %v", err)
@@ -76,7 +76,7 @@ func (bh *BlockHeader) Miner() Address {
 }
 
 // Parent returns the block parents hash (the previous block hash)
-func (bh *BlockHeader) Parent() (hash Hash) {
+func (bh *BlockHeader) Parent() (hash Sha3) {
 	copy(hash[:], bh.prevBlock)
 	return
 }

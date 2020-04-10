@@ -329,30 +329,6 @@ func (s *SSL) readMessage() (msg edge.Message, err error) {
 	return msg, nil
 }
 
-func (s *SSL) sendPayload(requestID uint64, method string, payload []byte, parse func(buffer []byte) (interface{}, error), message chan interface{}) (Call, error) {
-	// add length of payload
-	lenPay := len(payload)
-	lenByt := make([]byte, 2)
-	bytPay := make([]byte, lenPay+2)
-	binary.BigEndian.PutUint16(lenByt, uint16(lenPay))
-	bytPay[0] = lenByt[0]
-	bytPay[1] = lenByt[1]
-	for i, s := range payload {
-		bytPay[i+2] = byte(s)
-	}
-	call := Call{
-		id:         requestID,
-		method:     method,
-		retryTimes: rpcCallRetryTimes,
-		response:   message,
-		signal:     make(chan Signal),
-		data:       bytPay,
-		Parse:      parse,
-	}
-	// atomic.AddInt64(&rpcID, 1)
-	return call, nil
-}
-
 func (s *SSL) reconnect() error {
 	s.rm.Lock()
 	s.reconnecting = true
@@ -383,14 +359,14 @@ func (s *SSL) reconnect() error {
 }
 
 // LastValid returns the last valid block number and block header
-func LastValid() (int, blockquick.Hash) {
+func LastValid() (int, crypto.Sha3) {
 	if bq == nil {
 		return restoreLastValid()
 	}
 	return bq.Last()
 }
 
-func restoreLastValid() (int, blockquick.Hash) {
+func restoreLastValid() (int, crypto.Sha3) {
 	lvbn, err := db.DB.Get(lvbnKey)
 	var lvbh []byte
 	if err == nil {

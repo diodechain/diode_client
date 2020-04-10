@@ -137,7 +137,7 @@ type portOpenResponse struct {
 	Payload   struct {
 		Method string
 		Result string
-		Ref    uint64
+		Ref    string
 	}
 }
 

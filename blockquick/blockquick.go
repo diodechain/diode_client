@@ -4,22 +4,23 @@
 package blockquick
 
 import (
+	"github.com/diodechain/diode_go_client/crypto"
 	"fmt"
 	"sync"
 )
 
 // Address represents an Ethereum address of a miner
-type Address [20]byte
+type Address = crypto.Address
 
 // Hash is a Sha3 hash
-type Hash [32]byte
+type Sha3 = crypto.Sha3
 
 // Window is a state
 type Window struct {
 	mx          sync.RWMutex
 	lastValid   *BlockScore
 	finals      []*BlockScore
-	pending     map[Hash]*BlockScore
+	pending     map[Sha3]*BlockScore
 	minerCounts map[Address]int
 	windowSize  int
 }
@@ -28,7 +29,7 @@ type Window struct {
 type BlockScore struct {
 	parent  *BlockScore
 	bh      *BlockHeader
-	hash    Hash
+	hash    Sha3
 	miner   Address
 	isFinal bool
 }
@@ -40,7 +41,7 @@ func New(bhs []*BlockHeader, windowSize int) (*Window, error) {
 	}
 
 	win := &Window{
-		pending:    make(map[Hash]*BlockScore, windowSize),
+		pending:    make(map[Sha3]*BlockScore, windowSize),
 		windowSize: windowSize,
 	}
 
@@ -89,7 +90,7 @@ func (win *Window) GetBlockHeader(num int) *BlockHeader {
 
 // Last is the peak of the finalized blocks and can be behind lastValid
 // if a new lastValid has been validated using a couple of gapped blocks
-func (win *Window) Last() (int, Hash) {
+func (win *Window) Last() (int, Sha3) {
 	win.mx.Lock()
 	defer win.mx.Unlock()
 

@@ -8,8 +8,8 @@ type portOpenInboundRequest struct {
 	RequestID uint64
 	Payload   struct {
 		Method   string
-		Port     uint64
-		Ref      uint64
+		Port     string
+		Ref      string
 		DeviceID []byte
 	}
 }
@@ -18,7 +18,7 @@ type portSendInboundRequest struct {
 	RequestID uint64
 	Payload   struct {
 		Method string
-		Ref    uint64
+		Ref    string
 		Data   []byte
 	}
 }
@@ -27,7 +27,7 @@ type portCloseInboundRequest struct {
 	RequestID uint64
 	Payload   struct {
 		Method string
-		Ref    uint64
+		Ref    string
 	}
 }
 

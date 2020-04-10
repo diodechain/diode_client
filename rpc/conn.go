@@ -14,12 +14,11 @@ import (
 
 // ConnectedDevice connected device
 type ConnectedDevice struct {
-	Ref       uint64
-	ClientID  string
-	DeviceID  string
-	DDeviceID []byte
-	Conn      ConnectedConn
-	Client    *RPCClient
+	Ref      string
+	ClientID string
+	DeviceID Address
+	Conn     ConnectedConn
+	Client   *RPCClient
 }
 
 // LocalAddr returns local network address of device
@@ -44,7 +43,7 @@ func (device *ConnectedDevice) Close() {
 	// check if disconnect
 	if device.Client.s.pool.GetDevice(deviceKey) != nil {
 		device.Client.s.pool.SetDevice(deviceKey, nil)
-		device.Client.CastPortClose(int(device.Ref))
+		device.Client.CastPortClose(device.Ref)
 
 		// send portclose request and channel
 		if device.Conn.IsWS() {
@@ -62,8 +61,7 @@ func (device *ConnectedDevice) Close() {
 // The non-nil error almost be io.EOF or "use of closed network"
 // Any error means connection is dead, and we should send portclose and close the connection.
 func (device *ConnectedDevice) copyToSSL() {
-	ref := uint64(device.Ref)
-	err := device.Conn.copyToSSL(device.Client, ref)
+	err := device.Conn.copyToSSL(device.Client, device.Ref)
 	if err != nil {
 		device.Client.Debug("copyToSSL failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
 		device.Close()
@@ -131,7 +129,7 @@ func (conn *ConnectedConn) read() (buf []byte, err error) {
 	return
 }
 
-func (conn *ConnectedConn) copyToSSL(client *RPCClient, ref uint64) error {
+func (conn *ConnectedConn) copyToSSL(client *RPCClient, ref string) error {
 	for {
 		buf, err := conn.read()
 		if err != nil {
@@ -141,7 +139,6 @@ func (conn *ConnectedConn) copyToSSL(client *RPCClient, ref uint64) error {
 			return nil
 		}
 		if len(buf) > 0 {
-			// TODO: E2E encryption
 			err := client.CastPortSend(ref, buf)
 			if err != nil {
 				return err
