@@ -33,9 +33,9 @@ func main() {
 	var err error
 	var pool *rpc.DataPool
 
-	config := config.AppConfig
-	if len(config.PublishedPorts) > 0 {
-		pool = rpc.NewPoolWithPublishedPorts(config.PublishedPorts)
+	cfg := config.AppConfig
+	if len(cfg.PublishedPorts) > 0 {
+		pool = rpc.NewPoolWithPublishedPorts(cfg.PublishedPorts)
 	} else {
 		pool = rpc.NewPool()
 	}
@@ -43,26 +43,26 @@ func main() {
 	printLabel("Diode Client version", version)
 
 	// Initialize db
-	clidb, err := db.OpenFile(config.DBPath)
+	clidb, err := db.OpenFile(cfg.DBPath)
 	if err != nil {
 		panic(err)
 	}
 	db.DB = clidb
 
-	if config.Command == "config" {
-		if len(config.ConfigDelete) > 0 {
-			for _, deleteKey := range config.ConfigDelete {
+	if cfg.Command == "cfg" {
+		if len(cfg.ConfigDelete) > 0 {
+			for _, deleteKey := range cfg.ConfigDelete {
 				db.DB.Del(deleteKey)
-				config.Logger.Info(fmt.Sprintf("delete: %s", deleteKey), "module", "main")
+				cfg.Logger.Info(fmt.Sprintf("delete: %s", deleteKey), "module", "main")
 			}
 		}
-		if config.ConfigList {
+		if cfg.ConfigList {
 			for _, name := range db.DB.List() {
-				config.Logger.Info(name, "module", "main")
+				cfg.Logger.Info(name, "module", "main")
 			}
 		}
-		if len(config.ConfigSet) > 0 {
-			for _, configSet := range config.ConfigSet {
+		if len(cfg.ConfigSet) > 0 {
+			for _, configSet := range cfg.ConfigSet {
 				list := strings.Split(configSet, "=")
 				if len(list) == 2 {
 					var err error
@@ -74,7 +74,7 @@ func main() {
 						}
 					}
 					db.DB.Put(list[0], []byte(list[1]))
-					config.Logger.Info(fmt.Sprintf("set: %s", list[0]), "module", "main")
+					cfg.Logger.Info(fmt.Sprintf("set: %s", list[0]), "module", "main")
 				}
 			}
 		}
@@ -91,22 +91,22 @@ func main() {
 		fleetAddr, err := db.DB.Get("fleet_id")
 		if err == nil {
 			printLabel("Fleet address", string(fleetAddr))
-			// call config set fleet_id to update the fleet id
-			config.FleetAddr = string(fleetAddr)
+			// call cfg set fleet_id to update the fleet id
+			cfg.FleetAddr = string(fleetAddr)
 			decFleetID := util.DecodeForce(fleetAddr)
-			copy(config.DecFleetAddr[:], decFleetID)
+			copy(cfg.DecFleetAddr[:], decFleetID)
 		} else {
-			db.DB.Put("fleet_id", []byte(config.FleetAddr))
+			db.DB.Put("fleet_id", []byte(cfg.FleetAddr))
 		}
 	}
 
 	// Connect to first server to respond
 	wg := &sync.WaitGroup{}
-	rpcAddrLen := len(config.RemoteRPCAddrs)
+	rpcAddrLen := len(cfg.RemoteRPCAddrs)
 	c := make(chan *rpc.RPCClient, rpcAddrLen)
 	wg.Add(rpcAddrLen)
-	for _, RemoteRPCAddr := range config.RemoteRPCAddrs {
-		go connect(c, RemoteRPCAddr, config, wg, pool)
+	for _, RemoteRPCAddr := range cfg.RemoteRPCAddrs {
+		go connect(c, RemoteRPCAddr, cfg, wg, pool)
 	}
 
 	// var client *rpc.RPCClient
@@ -114,15 +114,15 @@ func main() {
 	go func() {
 		for rpcClient := range c {
 			if client == nil && rpcClient != nil {
-				config.Logger.Info(fmt.Sprintf("Connected to host: %s, validating...", rpcClient.Host()), "module", "main")
+				cfg.Logger.Info(fmt.Sprintf("Connected to host: %s, validating...", rpcClient.Host()), "module", "main")
 				isValid, err := rpcClient.ValidateNetwork()
 				if isValid {
 					client = rpcClient
 				} else {
 					if err != nil {
-						config.Logger.Error(fmt.Sprintf("Network is not valid (err: %s), trying next...", err.Error()), "module", "main")
+						cfg.Logger.Error(fmt.Sprintf("Network is not valid (err: %s), trying next...", err.Error()), "module", "main")
 					} else {
-						config.Logger.Error("Network is not valid for unknown reasons", "module", "main")
+						cfg.Logger.Error("Network is not valid for unknown reasons", "module", "main")
 					}
 					rpcClient.Close()
 				}
@@ -139,26 +139,26 @@ func main() {
 		printError("Couldn't connect to any server", fmt.Errorf("server are not validated"), 129)
 	}
 	lvbn, _ := rpc.LastValid()
-	config.Logger.Info(fmt.Sprintf("Network is validated, last valid block number: %d", lvbn), "module", "main")
+	cfg.Logger.Info(fmt.Sprintf("Network is validated, last valid block number: %d", lvbn), "module", "main")
 
 	// check device access to fleet contract and registry
 	clientAddr, err := client.GetClientAddress()
 	if err != nil {
-		config.Logger.Error(err.Error())
+		cfg.Logger.Error(err.Error())
 		return
 	}
 
 	// check device whitelist
 	isDeviceWhitelisted, err := client.IsDeviceWhitelisted(clientAddr)
 	if !isDeviceWhitelisted {
-		config.Logger.Error(fmt.Sprintf("Device was not whitelisted: <%v>", err), "module", "main")
+		cfg.Logger.Error(fmt.Sprintf("Device was not whitelisted: <%v>", err), "module", "main")
 		return
 	}
 
 	// send ticket
 	err = client.Greet()
 	if err != nil {
-		config.Logger.Error(err.Error(), "module", "main")
+		cfg.Logger.Error(err.Error(), "module", "main")
 		return
 	}
 
@@ -178,7 +178,7 @@ func main() {
 			if proxyServer != nil && proxyServer.Started() {
 				proxyServer.Close()
 			}
-			handler := config.Logger.GetHandler()
+			handler := cfg.Logger.GetHandler()
 			if closingHandler, ok := handler.(log15.ClosingHandler); ok {
 				closingHandler.WriteCloser.Close()
 			}
@@ -187,39 +187,47 @@ func main() {
 	}()
 
 	socksConfig := &rpc.Config{
-		Addr:            config.SocksServerAddr,
-		FleetAddr:       config.DecFleetAddr,
-		Blacklists:      config.Blacklists,
-		Whitelists:      config.Whitelists,
-		EnableProxy:     config.EnableProxyServer,
-		ProxyServerAddr: config.ProxyServerAddr,
+		Addr:            cfg.SocksServerAddr,
+		FleetAddr:       cfg.DecFleetAddr,
+		Blacklists:      cfg.Blacklists,
+		Whitelists:      cfg.Whitelists,
+		EnableProxy:     cfg.EnableProxyServer,
+		ProxyServerAddr: cfg.ProxyServerAddr,
 	}
 	socksServer = client.NewSocksServer(socksConfig, pool)
 
-	if config.EnableSocksServer {
+	if cfg.EnableSocksServer {
 		// start socks server
 		if err := socksServer.Start(); err != nil {
-			config.Logger.Error(err.Error(), "module", "main")
+			cfg.Logger.Error(err.Error(), "module", "main")
 			return
 		}
 	}
-	if config.EnableProxyServer {
+	if cfg.EnableProxyServer {
 		proxyConfig := rpc.ProxyConfig{
-			EnableProxy:      config.EnableProxyServer,
-			EnableSProxy:     config.EnableSProxyServer,
-			ProxyServerAddr:  config.ProxyServerAddr,
-			SProxyServerAddr: config.SProxyServerAddr,
-			CertPath:         config.SProxyServerCertPath,
-			PrivPath:         config.SProxyServerPrivPath,
-			AllowRedirect:    config.AllowRedirectToSProxy,
+			EnableProxy:      cfg.EnableProxyServer,
+			EnableSProxy:     cfg.EnableSProxyServer,
+			ProxyServerAddr:  cfg.ProxyServerAddr,
+			SProxyServerAddr: cfg.SProxyServerAddr,
+			CertPath:         cfg.SProxyServerCertPath,
+			PrivPath:         cfg.SProxyServerPrivPath,
+			AllowRedirect:    cfg.AllowRedirectToSProxy,
 		}
 		// Start proxy server
 		if proxyServer, err = rpc.NewProxyServer(socksServer, proxyConfig); err != nil {
-			config.Logger.Error(err.Error(), "module", "main")
+			cfg.Logger.Error(err.Error(), "module", "main")
 			return
 		}
 		if err := proxyServer.Start(); err != nil {
-			config.Logger.Error(err.Error(), "module", "main")
+			cfg.Logger.Error(err.Error(), "module", "main")
+			return
+		}
+	}
+
+	for _, bind := range cfg.Binds {
+		err = socksServer.StartBind(bind)
+		if err != nil {
+			cfg.Logger.Error(err.Error(), "module", "main")
 			return
 		}
 	}
@@ -238,10 +246,10 @@ func printError(msg string, err error, status int) {
 	os.Exit(status)
 }
 
-func connect(c chan *rpc.RPCClient, host string, config *config.Config, wg *sync.WaitGroup, pool *rpc.DataPool) {
-	client, err := rpc.DoConnect(host, config, pool)
+func connect(c chan *rpc.RPCClient, host string, cfg *config.Config, wg *sync.WaitGroup, pool *rpc.DataPool) {
+	client, err := rpc.DoConnect(host, cfg, pool)
 	if err != nil {
-		config.Logger.Error(fmt.Sprintf("Connection to host: %s failed: %+v", host, err), "module", "main")
+		cfg.Logger.Error(fmt.Sprintf("Connection to host: %s failed: %+v", host, err), "module", "main")
 		wg.Done()
 	} else {
 		c <- client
