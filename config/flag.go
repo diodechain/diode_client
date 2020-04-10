@@ -16,6 +16,7 @@ import (
 	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/util"
 	log "github.com/diodechain/log15"
+	"gopkg.in/yaml.v2"
 )
 
 const (
@@ -53,51 +54,54 @@ type Address = crypto.Address
 
 // Config for poc-client
 type Config struct {
-	Command                 string
-	DBPath                  string
-	Debug                   bool
-	EnableMetrics           bool
-	DecFleetAddr            [20]byte
-	DecRegistryAddr         [20]byte
-	EnableKeepAlive         bool
-	KeepAliveCount          int
-	KeepAliveIdle           time.Duration
-	KeepAliveInterval       time.Duration
-	FleetAddr               string
-	ProxyServerAddr         string
-	ProxyServerHost         string
-	ProxyServerPort         int
-	SProxyServerAddr        string
-	SProxyServerHost        string
-	SProxyServerPort        int
-	SProxyServerCertPath    string
-	SProxyServerPrivPath    string
-	RegistryAddr            string
-	RemoteRPCAddrs          []string
-	RemoteRPCTimeout        time.Duration
-	RetryTimes              int
-	RetryWait               time.Duration
-	AllowRedirectToSProxy   bool
-	EnableProxyServer       bool
-	EnableSProxyServer      bool
-	EnableSocksServer       bool
-	SkipHostValidation      bool
-	SocksServerAddr         string
-	SocksServerHost         string
-	SocksServerPort         int
-	ConfigList              bool
-	ConfigDelete            stringValues
-	ConfigSet               stringValues
-	RlimitNofile            int
-	Blacklists              map[Address]bool
-	Whitelists              map[Address]bool
-	PublishedPorts          map[int]*Port
-	PublicPublishedPorts    stringValues
-	ProtectedPublishedPorts stringValues
-	PrivatePublishedPorts   stringValues
-	LogMode                 int
-	LogFilePath             string
-	Logger                  log.Logger
+	DBPath                  string           `yaml:"dbpath,omitempty"`
+	Debug                   bool             `yaml:"debug,omitempty"`
+	EnableMetrics           bool             `yaml:"metrics,omitempty"`
+	EnableKeepAlive         bool             `yaml:"keepalive,omitempty"`
+	KeepAliveCount          int              `yaml:"keepalivecount,omitempty"`
+	KeepAliveIdle           time.Duration    `yaml:"keepaliveidle,omitempty"`
+	KeepAliveInterval       time.Duration    `yaml:"keepaliveinterval,omitempty"`
+	FleetAddr               string           `yaml:"fleet,omitempty"`
+	RegistryAddr            string           `yaml:"registry,omitempty"`
+	RemoteRPCAddrs          stringValues     `yaml:"diodeaddrs,omitempty"`
+	RemoteRPCTimeout        time.Duration    `yaml:"timeout,omitempty"`
+	RetryTimes              int              `yaml:"retrytimes,omitempty"`
+	RetryWait               time.Duration    `yaml:"retrywait,omitempty"`
+	SkipHostValidation      bool             `yaml:"skiphostvalidation,omitempty"`
+	RlimitNofile            int              `yaml:"rlimit_nofile,omitempty"`
+	LogFilePath             string           `yaml:"logfilepath,omitempty"`
+	SBlacklists             stringValues     `yaml:"blacklists,omitempty"`
+	SWhitelists             stringValues     `yaml:"whitelists,omitempty"`
+	Command                 string           `yaml:"-"`
+	DecFleetAddr            [20]byte         `yaml:"-"`
+	DecRegistryAddr         [20]byte         `yaml:"-"`
+	ProxyServerAddr         string           `yaml:"-"`
+	ProxyServerHost         string           `yaml:"-"`
+	ProxyServerPort         int              `yaml:"-"`
+	SProxyServerAddr        string           `yaml:"-"`
+	SProxyServerHost        string           `yaml:"-"`
+	SProxyServerPort        int              `yaml:"-"`
+	SProxyServerCertPath    string           `yaml:"-"`
+	SProxyServerPrivPath    string           `yaml:"-"`
+	AllowRedirectToSProxy   bool             `yaml:"-"`
+	EnableProxyServer       bool             `yaml:"-"`
+	EnableSProxyServer      bool             `yaml:"-"`
+	EnableSocksServer       bool             `yaml:"-"`
+	SocksServerAddr         string           `yaml:"-"`
+	SocksServerHost         string           `yaml:"-"`
+	SocksServerPort         int              `yaml:"-"`
+	ConfigList              bool             `yaml:"-"`
+	ConfigDelete            stringValues     `yaml:"-"`
+	ConfigSet               stringValues     `yaml:"-"`
+	PublishedPorts          map[int]*Port    `yaml:"-"`
+	PublicPublishedPorts    stringValues     `yaml:"-"`
+	ProtectedPublishedPorts stringValues     `yaml:"-"`
+	PrivatePublishedPorts   stringValues     `yaml:"-"`
+	Blacklists              map[Address]bool `yaml:"-"`
+	Whitelists              map[Address]bool `yaml:"-"`
+	LogMode                 int              `yaml:"-"`
+	Logger                  log.Logger       `yaml:"-"`
+	ConfigFilePath          string           `yaml:"-"`
 }
 
 // Port struct for listening port
@@ -134,6 +138,11 @@ func (svs *stringValues) Set(value string) error {
 	return nil
 }
 
+func panicWithError(err error) {
+	fmt.Println(err.Error())
+	os.Exit(129)
+}
+
 func wrongCommandLineFlag(err error) {
 	fmt.Println(err.Error())
 	os.Exit(2)
@@ -157,7 +166,7 @@ func newLogger(cfg *Config) log.Logger {
 		// when close file?
 		f, err := os.OpenFile(cfg.LogFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 		if err != nil {
-			panic(err)
+			panicWithError(err)
 		}
 		logHandler = log.ClosingHandler{f, log.StreamHandler(f, log.TerminalFormat())}
 	}
@@ -280,6 +289,7 @@ func parseFlag() *Config {
 	flag.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
 	flag.IntVar(&cfg.RlimitNofile, "rlimit_nofile", 0, "specify the file descriptor numbers that can be opened by this process")
 	flag.StringVar(&cfg.LogFilePath, "logfilepath", "", "file path to log file")
+	flag.StringVar(&cfg.ConfigFilePath, "configpath", "", "yaml file path to config file")
 
 	// tcp keepalive for node connection
 	flag.BoolVar(&cfg.EnableKeepAlive, "keepalive", runtime.GOOS != "windows", "enable tcp keepalive (only Linux >= 2.4, DragonFly, FreeBSD, NetBSD and OS X >= 10.8 are supported)")
@@ -297,17 +307,35 @@ func parseFlag() *Config {
 		wrongCommandLineFlag(err)
 	}
 
-	var diodeaddrs stringValues
-	var blacklists stringValues
-	var whitelists stringValues
-	flag.Var(&diodeaddrs, "diodeaddrs", "addresses of Diode node server (default: asia.testnet.diode.io:41046, europe.testnet.diode.io:41046, usa.testnet.diode.io:41046)")
+	flag.Var(&cfg.RemoteRPCAddrs, "diodeaddrs", "addresses of Diode node server (default: asia.testnet.diode.io:41046, europe.testnet.diode.io:41046, usa.testnet.diode.io:41046)")
 	remoteRPCTimeout := flag.Int("timeout", 5, "timeout seconds to connect to the remote rpc server")
 	retryWait := flag.Int("retrywait", 1, "wait seconds before next retry")
-	flag.Var(&blacklists, "blacklists", "addresses are not allowed to connect to published resource (worked when whitelists is empty)")
-	flag.Var(&whitelists, "whitelists", "addresses are allowed to connect to published resource (worked when blacklists is empty)")
+	flag.Var(&cfg.SBlacklists, "blacklists", "addresses are not allowed to connect to published resource (worked when whitelists is empty)")
+	flag.Var(&cfg.SWhitelists, "whitelists", "addresses are allowed to connect to published resource (worked when blacklists is empty)")
 
 	flag.BoolVar(&cfg.SkipHostValidation, "skiphostvalidation", false, "skip host validation")
 	flag.Parse()
+
+	if len(cfg.ConfigFilePath) > 0 {
+		f, err := os.OpenFile(cfg.ConfigFilePath, os.O_RDONLY, 0400)
+		defer f.Close()
+		if err != nil {
+			panicWithError(err)
+		}
+		fs, err := f.Stat()
+		if err != nil {
+			panicWithError(err)
+		}
+		configBytes := make([]byte, fs.Size())
+		_, err = f.Read(configBytes)
+		if err != nil {
+			panicWithError(err)
+		}
+		err = yaml.Unmarshal(configBytes, cfg)
+		if err != nil {
+			panicWithError(err)
+		}
+	}
 
 	commandName := flag.Arg(0)
 	args := flag.Args()
@@ -369,12 +397,12 @@ func parseFlag() *Config {
 	}
 	cfg.Logger = newLogger(cfg)
 
-	if len(diodeaddrs) <= 0 {
+	if len(cfg.RemoteRPCAddrs) <= 0 {
 		cfg.RemoteRPCAddrs = bootDiodeAddrs[:]
 	} else {
 		remoteRPCAddrs := []string{}
 		// TODO: check domain is valid
-		for _, RPCAddr := range diodeaddrs {
+		for _, RPCAddr := range cfg.RemoteRPCAddrs {
 			if len(RPCAddr) > 0 && !stringsContain(remoteRPCAddrs, &RPCAddr) {
 				remoteRPCAddrs = append(remoteRPCAddrs, RPCAddr)
 			}
@@ -402,7 +430,7 @@ func parseFlag() *Config {
 		wrongCommandLineFlag(err)
 	}
 	blacklistsIDs := make(map[Address]bool)
-	for _, blacklistedID := range blacklists {
+	for _, blacklistedID := range cfg.SBlacklists {
 		addr, err := util.DecodeAddress(blacklistedID)
 		if err != nil {
 			cfg.Logger.Error(fmt.Sprintf("Blacklist entry '%s' is not an address: %v", blacklistedID, err), "module", "main")
@@ -412,7 +440,7 @@ func parseFlag() *Config {
 	}
 	cfg.Blacklists = blacklistsIDs
 	whitelistsIDs := make(map[Address]bool)
-	for _, whitelistedID := range whitelists {
+	for _, whitelistedID := range cfg.SWhitelists {
 		addr, err := util.DecodeAddress(whitelistedID)
 		if err != nil {
 			cfg.Logger.Error(fmt.Sprintf("Whitelist entry '%s' is not an address: %v", whitelistedID, err), "module", "main")

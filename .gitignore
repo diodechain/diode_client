@@ -7,3 +7,5 @@ wasm_exec.js
 .history
 diode_go_client
 diode
+.diode.yml
+*.log

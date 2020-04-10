@@ -1,0 +1,23 @@
+debug: false
+fleet:
+logfilepath: ./diode.log
+diodeaddrs:
+    - asia.testnet.diode.io:41046
+    - europe.testnet.diode.io:41046
+    - usa.testnet.diode.io:41046
+timeout: 10s
+retrytimes: 0
+retrywait: 10s
+skiphostvalidation: true
+# rlimit_nofile: 300
+# metrics: true
+# registry:
+# dbpath: ./db
+# keepalive: true
+# keepalivecount: 5
+# keepaliveinterval: 5s
+# keepaliveidle: 30s
+# blacklists:
+#     -
+# whitelists:
+#     -

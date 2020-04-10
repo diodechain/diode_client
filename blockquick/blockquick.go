@@ -4,8 +4,8 @@
 package blockquick
 
 import (
-	"github.com/diodechain/diode_go_client/crypto"
 	"fmt"
+	"github.com/diodechain/diode_go_client/crypto"
 	"sync"
 )
 
