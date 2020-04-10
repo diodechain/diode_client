@@ -4,7 +4,6 @@
 package rpc
 
 import (
-	"net"
 	"sync"
 	"time"
 
@@ -97,11 +96,11 @@ func (p *DataPool) GetDevice(key string) *ConnectedDevice {
 }
 
 // FindDevice tries to locate a connection based on local conn
-func (p *DataPool) FindDevice(addr net.Addr) *ConnectedDevice {
+func (p *DataPool) FindDevice(clientID string) *ConnectedDevice {
 	p.rm.RLock()
 	defer p.rm.RUnlock()
 	for _, v := range p.devices {
-		if v.Conn.Conn.LocalAddr().String() == addr.String() {
+		if v.ClientID == clientID {
 			return v
 		}
 	}

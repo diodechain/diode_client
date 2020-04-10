@@ -622,12 +622,7 @@ func (rpcClient *RPCClient) ResponsePortOpen(portOpen *edge.PortOpen, err error)
 }
 
 // PortSend call portsend RPC
-func (rpcClient *RPCClient) PortSend(ref string, data []byte) (interface{}, error) {
-	return rpcClient.CallContext("portsend", nil, ref, data)
-}
-
-// CastPortSend call portsend RPC
-func (rpcClient *RPCClient) CastPortSend(ref string, data []byte) (err error) {
+func (rpcClient *RPCClient) PortSend(ref string, data []byte) (err error) {
 	var requestID uint64
 	requestID = getRequestID()
 	_, err = rpcClient.CastContext(requestID, "portsend", nil, ref, data)

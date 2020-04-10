@@ -650,7 +650,7 @@ func (socksServer *Server) handleUDP(packet []byte) {
 	}
 
 	if packet[idFrag] != 0 {
-		socksServer.Client.Error("handleUDP error: frage %v not yet impl", packet[idFrag])
+		socksServer.Client.Error("handleUDP error: UDP frag %v not yet implemented", packet[idFrag])
 		return
 	}
 
@@ -682,18 +682,18 @@ func (socksServer *Server) handleUDP(packet []byte) {
 
 	// Finished parsing packet
 
-	isWS, deviceID, mode, port, err := parseHost(host)
+	isWS, deviceID, mode, _, err := parseHost(host)
 	if err != nil {
 		socksServer.Client.Error("handleUDP error: Failed to parse %s %v", host, err)
 		return
 	}
 
 	if isWS {
-		socksServer.Client.Error("handleUDP error: WS not supported")
+		socksServer.Client.Error("handleUDP error: WS is not supported")
 		return
 	}
 
-	connDevice := socksServer.datapool.FindDevice(addr)
+	connDevice := socksServer.datapool.FindDevice(addr.String())
 	if connDevice == nil {
 		// Is already done in socksServer.connectDevice()
 
@@ -717,7 +717,6 @@ func (socksServer *Server) handleUDP(packet []byte) {
 			return
 		}
 
-		clientIP := addr.String()
 		var httpErr *HttpError
 		connDevice, httpErr = socksServer.connectDevice(deviceID, port, config.UDPProtocol, mode)
 
@@ -728,14 +727,14 @@ func (socksServer *Server) handleUDP(packet []byte) {
 		}
 		deviceKey := connDevice.Client.GetDeviceKey(connDevice.Ref)
 
-		connDevice.ClientID = clientIP
+		connDevice.ClientID = addr.String()
 		connDevice.Conn = ConnectedConn{
 			Conn: conn,
 		}
 		socksServer.datapool.SetDevice(deviceKey, connDevice)
 	}
 
-	_, err = connDevice.Client.PortSend(connDevice.Ref, data)
+	err = connDevice.Client.PortSend(connDevice.Ref, data)
 	if err != nil {
 		socksServer.Client.Error("handleUDP error: PortSend(): %v", err)
 	}

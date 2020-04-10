@@ -139,7 +139,7 @@ func (conn *ConnectedConn) copyToSSL(client *RPCClient, ref string) error {
 			return nil
 		}
 		if len(buf) > 0 {
-			err := client.CastPortSend(ref, buf)
+			err := client.PortSend(ref, buf)
 			if err != nil {
 				return err
 			}
