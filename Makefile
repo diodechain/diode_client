@@ -9,7 +9,7 @@ test:
 
 .PHONY: install
 install:
-	go build -ldflags "-X main.version=`git describe --tags --dirty`" -o diode
+	go build -ldflags "-X main.version=`git describe --tags --dirty`" -o diode cmd/diode.go
 	mv diode /usr/local/bin/diode
 
 .PHONY: uninstall
@@ -25,10 +25,10 @@ gateway: diode
 
 .PHONY: diode
 diode:
-	go build -ldflags "-X main.version=`git describe --tags --dirty`" -o diode
+	go build -ldflags "-X main.version=`git describe --tags --dirty`" -o diode cmd/diode.go
 
 .PHONY: static
 static:
 	go get -a -tags openssl_static github.com/diodechain/openssl
-	go build -tags netgo,openssl_static -ldflags '-extldflags "-static"' -o diode
+	go build -tags netgo,openssl_static -ldflags '-extldflags "-static"' -o diode cmd/diode.go
 
