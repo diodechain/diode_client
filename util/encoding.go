@@ -77,7 +77,7 @@ func IsAddress(src []byte) bool {
 		return false
 	}
 	if bytes.HasPrefix(src, prefixBytes) {
-		if len(src[2:]) > addressLength || !isHexBytes(src[2:]) {
+		if len(src[2:]) != addressLength || !isHexBytes(src[2:]) {
 			return false
 		}
 		return true

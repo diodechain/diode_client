@@ -54,54 +54,54 @@ type Address = crypto.Address
 
 // Config for poc-client
 type Config struct {
-	DBPath                  string           `yaml:"dbpath,omitempty"`
-	Debug                   bool             `yaml:"debug,omitempty"`
-	EnableMetrics           bool             `yaml:"metrics,omitempty"`
-	EnableKeepAlive         bool             `yaml:"keepalive,omitempty"`
-	KeepAliveCount          int              `yaml:"keepalivecount,omitempty"`
-	KeepAliveIdle           time.Duration    `yaml:"keepaliveidle,omitempty"`
-	KeepAliveInterval       time.Duration    `yaml:"keepaliveinterval,omitempty"`
-	FleetAddr               string           `yaml:"fleet,omitempty"`
-	RegistryAddr            string           `yaml:"registry,omitempty"`
-	RemoteRPCAddrs          stringValues     `yaml:"diodeaddrs,omitempty"`
-	RemoteRPCTimeout        time.Duration    `yaml:"timeout,omitempty"`
-	RetryTimes              int              `yaml:"retrytimes,omitempty"`
-	RetryWait               time.Duration    `yaml:"retrywait,omitempty"`
-	SkipHostValidation      bool             `yaml:"skiphostvalidation,omitempty"`
-	RlimitNofile            int              `yaml:"rlimit_nofile,omitempty"`
-	LogFilePath             string           `yaml:"logfilepath,omitempty"`
-	SBlacklists             stringValues     `yaml:"blacklists,omitempty"`
-	SWhitelists             stringValues     `yaml:"whitelists,omitempty"`
-	Command                 string           `yaml:"-"`
-	DecFleetAddr            [20]byte         `yaml:"-"`
-	DecRegistryAddr         [20]byte         `yaml:"-"`
-	ProxyServerAddr         string           `yaml:"-"`
-	ProxyServerHost         string           `yaml:"-"`
-	ProxyServerPort         int              `yaml:"-"`
-	SProxyServerAddr        string           `yaml:"-"`
-	SProxyServerHost        string           `yaml:"-"`
-	SProxyServerPort        int              `yaml:"-"`
-	SProxyServerCertPath    string           `yaml:"-"`
-	SProxyServerPrivPath    string           `yaml:"-"`
-	AllowRedirectToSProxy   bool             `yaml:"-"`
-	EnableProxyServer       bool             `yaml:"-"`
-	EnableSProxyServer      bool             `yaml:"-"`
-	EnableSocksServer       bool             `yaml:"-"`
-	SocksServerAddr         string           `yaml:"-"`
-	SocksServerHost         string           `yaml:"-"`
-	SocksServerPort         int              `yaml:"-"`
-	ConfigList              bool             `yaml:"-"`
-	ConfigDelete            stringValues     `yaml:"-"`
-	ConfigSet               stringValues     `yaml:"-"`
-	PublishedPorts          map[int]*Port    `yaml:"-"`
-	PublicPublishedPorts    stringValues     `yaml:"-"`
-	ProtectedPublishedPorts stringValues     `yaml:"-"`
-	PrivatePublishedPorts   stringValues     `yaml:"-"`
-	Blacklists              map[Address]bool `yaml:"-"`
-	Whitelists              map[Address]bool `yaml:"-"`
-	LogMode                 int              `yaml:"-"`
-	Logger                  log.Logger       `yaml:"-"`
-	ConfigFilePath          string           `yaml:"-"`
+	DBPath                  string           `yaml:"dbpath,omitempty" json:"dbpath,omitempty"`
+	Debug                   bool             `yaml:"debug,omitempty" json:"debug,omitempty"`
+	EnableMetrics           bool             `yaml:"metrics,omitempty" json:"metrics,omitempty"`
+	EnableKeepAlive         bool             `yaml:"keepalive,omitempty" json:"keepalive,omitempty"`
+	KeepAliveCount          int              `yaml:"keepalivecount,omitempty" json:"keepalivecount,omitempty"`
+	KeepAliveIdle           time.Duration    `yaml:"keepaliveidle,omitempty" json:"keepaliveidle,omitempty"`
+	KeepAliveInterval       time.Duration    `yaml:"keepaliveinterval,omitempty" json:"keepaliveinterval,omitempty"`
+	FleetAddr               string           `yaml:"fleet,omitempty" json:"fleet,omitempty"`
+	RegistryAddr            string           `yaml:"registry,omitempty" json:"registry,omitempty"`
+	RemoteRPCAddrs          stringValues     `yaml:"diodeaddrs,omitempty" json:"diodeaddrs,omitempty"`
+	RemoteRPCTimeout        time.Duration    `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	RetryTimes              int              `yaml:"retrytimes,omitempty" json:"retrytimes,omitempty"`
+	RetryWait               time.Duration    `yaml:"retrywait,omitempty" json:"retrywait,omitempty"`
+	SkipHostValidation      bool             `yaml:"skiphostvalidation,omitempty" json:"skiphostvalidation,omitempty"`
+	RlimitNofile            int              `yaml:"rlimit_nofile,omitempty" json:"rlimit_nofile,omitempty"`
+	LogFilePath             string           `yaml:"logfilepath,omitempty" json:"logfilepath,omitempty"`
+	SBlacklists             stringValues     `yaml:"blacklists,omitempty" json:"blacklists,omitempty"`
+	SWhitelists             stringValues     `yaml:"whitelists,omitempty" json:"whitelists,omitempty"`
+	Command                 string           `yaml:"-" json:"-"`
+	DecFleetAddr            [20]byte         `yaml:"-" json:"-"`
+	DecRegistryAddr         [20]byte         `yaml:"-" json:"-"`
+	ProxyServerAddr         string           `yaml:"-" json:"-"`
+	ProxyServerHost         string           `yaml:"-" json:"-"`
+	ProxyServerPort         int              `yaml:"-" json:"-"`
+	SProxyServerAddr        string           `yaml:"-" json:"-"`
+	SProxyServerHost        string           `yaml:"-" json:"-"`
+	SProxyServerPort        int              `yaml:"-" json:"-"`
+	SProxyServerCertPath    string           `yaml:"-" json:"-"`
+	SProxyServerPrivPath    string           `yaml:"-" json:"-"`
+	AllowRedirectToSProxy   bool             `yaml:"-" json:"-"`
+	EnableProxyServer       bool             `yaml:"-" json:"-"`
+	EnableSProxyServer      bool             `yaml:"-" json:"-"`
+	EnableSocksServer       bool             `yaml:"-" json:"-"`
+	SocksServerAddr         string           `yaml:"-" json:"-"`
+	SocksServerHost         string           `yaml:"-" json:"-"`
+	SocksServerPort         int              `yaml:"-" json:"-"`
+	ConfigList              bool             `yaml:"-" json:"-"`
+	ConfigDelete            stringValues     `yaml:"-" json:"-"`
+	ConfigSet               stringValues     `yaml:"-" json:"-"`
+	PublishedPorts          map[int]*Port    `yaml:"-" json:"-"`
+	PublicPublishedPorts    stringValues     `yaml:"-" json:"-"`
+	ProtectedPublishedPorts stringValues     `yaml:"-" json:"-"`
+	PrivatePublishedPorts   stringValues     `yaml:"-" json:"-"`
+	Blacklists              map[Address]bool `yaml:"-" json:"-"`
+	Whitelists              map[Address]bool `yaml:"-" json:"-"`
+	LogMode                 int              `yaml:"-" json:"-"`
+	Logger                  log.Logger       `yaml:"-" json:"-"`
+	ConfigFilePath          string           `yaml:"-" json:"-"`
 }
 
 // Port struct for listening port
@@ -154,7 +154,6 @@ func init() {
 	commandFlags["socksd"] = &socksdCommandFlag
 	commandFlags["httpd"] = &httpdCommandFlag
 	commandFlags["config"] = &configCommandFlag
-	AppConfig = parseFlag()
 }
 
 func newLogger(cfg *Config) log.Logger {
@@ -261,9 +260,35 @@ func parsePrivatePublishedPorts(publishedPorts []string) []*Port {
 	return ports
 }
 
-// parseFlag parse command line flags and return Config
+// LoadConfigFromFile returns bytes data of config
+func LoadConfigFromFile(filePath string) (configBytes []byte, err error) {
+	var f *os.File
+	f, err = os.OpenFile(filePath, os.O_RDONLY, 0400)
+	defer f.Close()
+	if err != nil {
+		return
+	}
+	var fs os.FileInfo
+	fs, err = f.Stat()
+	if err != nil {
+		return
+	}
+	var n int
+	configBytes = make([]byte, fs.Size())
+	n, err = f.Read(configBytes)
+	if err != nil {
+		return
+	}
+	if n != int(fs.Size()) {
+		err = fmt.Errorf("readed file size not equal")
+		return
+	}
+	return
+}
+
+// ParseFlag parse command line flags and return Config
 // TODO: refactor flag usage and commandFlag usage text
-func parseFlag() *Config {
+func ParseFlag() {
 	cfg := &Config{}
 	wrapPublishCommandFlag(cfg)
 	wrapSocksdCommandFlag(cfg)
@@ -317,17 +342,7 @@ func parseFlag() *Config {
 	flag.Parse()
 
 	if len(cfg.ConfigFilePath) > 0 {
-		f, err := os.OpenFile(cfg.ConfigFilePath, os.O_RDONLY, 0400)
-		defer f.Close()
-		if err != nil {
-			panicWithError(err)
-		}
-		fs, err := f.Stat()
-		if err != nil {
-			panicWithError(err)
-		}
-		configBytes := make([]byte, fs.Size())
-		_, err = f.Read(configBytes)
+		configBytes, err := LoadConfigFromFile(cfg.ConfigFilePath)
 		if err != nil {
 			panicWithError(err)
 		}
@@ -455,5 +470,6 @@ func parseFlag() *Config {
 			os.Exit(2)
 		}
 	}
-	return cfg
+	AppConfig = cfg
+	// return cfg
 }

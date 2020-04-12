@@ -9,3 +9,4 @@ diode_go_client
 diode
 .diode.yml
 *.log
+config_server

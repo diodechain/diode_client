@@ -1,4 +1,4 @@
-TESTS= $(shell go list ./... | grep -v gowasm_test)
+TESTS= $(shell go list ./... | grep -v -e gowasm_test -e cmd)
 
 .PHONY: all
 all: diode
@@ -31,4 +31,6 @@ diode:
 static:
 	go get -a -tags openssl_static github.com/diodechain/openssl
 	go build -tags netgo,openssl_static -ldflags '-extldflags "-static"' -o diode cmd/diode.go
-
+.PHONY: config_server
+config_server:
+	go build -ldflags "-X main.serverAddress=localhost:1081 -X main.configPath=./.diode.yml" -o config_server cmd/config_server.go

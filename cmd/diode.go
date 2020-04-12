@@ -23,6 +23,10 @@ var (
 	version string = "development"
 )
 
+func init() {
+	config.ParseFlag()
+}
+
 func main() {
 	var socksServer *rpc.Server
 	var proxyServer *rpc.ProxyServer
