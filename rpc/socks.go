@@ -681,8 +681,7 @@ func (socksServer *Server) handleUDP(packet []byte) {
 	data := packet[idDm0+dmLen+2:]
 
 	// Finished parsing packet
-
-	isWS, deviceID, mode, _, err := parseHost(host)
+	isWS, deviceName, mode, _, err := parseHost(host)
 	if err != nil {
 		socksServer.Client.Error("handleUDP error: Failed to parse %s %v", host, err)
 		return
@@ -693,35 +692,25 @@ func (socksServer *Server) handleUDP(packet []byte) {
 		return
 	}
 
+	socksServer.forwardUDP(addr, deviceName, port, mode, data)
+	return
+}
+
+func (socksServer *Server) forwardUDP(addr net.Addr, deviceName string, port int, mode string, data []byte) {
 	connDevice := socksServer.datapool.FindDevice(addr.String())
 	if connDevice == nil {
-		// Is already done in socksServer.connectDevice()
-
-		// device, httpErr := socksServer.checkAccess(deviceID)
-		// if device == nil {
-		// 	socksServer.Client.Error("handleUDP error: checkAccess %v", httpErr.err)
-		// 	return
-		// }
-
-		// Preparing a response channel
-		// raddr, err := net.ResolveUDPAddr("udp", addr)
-		// if err != nil {
-		// 	socksServer.Client.Error("handleUDP error: ResolveUDPAddr %v", err)
-		// 	return
-		// }
-
 		// Preparing a response channel
 		conn, err := net.DialUDP("udp", nil, addr.(*net.UDPAddr))
 		if err != nil {
-			socksServer.Client.Error("handleUDP error: DialUDP %v", err)
+			socksServer.Client.Error("forwardUDP error: DialUDP %v", err)
 			return
 		}
 
 		var httpErr *HttpError
-		connDevice, httpErr = socksServer.connectDevice(deviceID, port, config.UDPProtocol, mode)
+		connDevice, httpErr = socksServer.connectDevice(deviceName, port, config.UDPProtocol, mode)
 
 		if httpErr != nil {
-			socksServer.Client.Error("handleUDP error: connectDevice(): %v", httpErr.err)
+			socksServer.Client.Error("forwardUDP error: connectDevice(): %v", httpErr.err)
 			conn.Close()
 			return
 		}
@@ -734,10 +723,72 @@ func (socksServer *Server) handleUDP(packet []byte) {
 		socksServer.datapool.SetDevice(deviceKey, connDevice)
 	}
 
-	err = connDevice.Client.PortSend(connDevice.Ref, data)
+	err := connDevice.Client.PortSend(connDevice.Ref, data)
 	if err != nil {
-		socksServer.Client.Error("handleUDP error: PortSend(): %v", err)
+		socksServer.Client.Error("forwardUDP error: PortSend(): %v", err)
 	}
+}
+
+func (socksServer *Server) StartBind(bind config.Bind) error {
+	address := fmt.Sprintf("127.0.0.1:%d", bind.LocalPort)
+	socksServer.Client.Info("Starting port bind %s", address)
+	switch bind.Protocol {
+	case config.UDPProtocol:
+		udp, err := net.ListenPacket("udp", address)
+		if err != nil {
+			return fmt.Errorf("StartBind() failed for: %+v because %v", bind, err)
+		}
+
+		packet := make([]byte, 2048)
+		go func() {
+			for {
+				_, addr, err := udp.ReadFrom(packet)
+				if err != nil {
+					socksServer.Client.Error("StartBind(udp): %v", err)
+					continue
+				}
+				socksServer.forwardUDP(addr, bind.To, bind.ToPort, "rw", packet)
+			}
+		}()
+
+	case config.TCPProtocol:
+		listener, err := net.Listen("tcp", address)
+		if err != nil {
+			return fmt.Errorf("StartBind() failed for: %+v because %v", bind, err)
+		}
+
+		go func() {
+			for {
+				conn, err := listener.Accept()
+				if err != nil {
+					socksServer.Client.Error(err.Error(), "module", "main")
+				}
+				go socksServer.handleBind(conn, bind)
+			}
+		}()
+	default:
+		return fmt.Errorf("StartBind() Unknown protocol: %+v", bind)
+	}
+	return nil
+}
+func (socksServer *Server) handleBind(conn net.Conn, bind config.Bind) {
+	connDevice, httpErr := socksServer.connectDevice(bind.To, bind.ToPort, bind.Protocol, "rw")
+
+	if httpErr != nil {
+		socksServer.Client.Error("Failed to connectDevice(): %v", httpErr.err)
+		return
+	}
+	deviceKey := connDevice.Client.GetDeviceKey(connDevice.Ref)
+
+	connDevice.ClientID = conn.RemoteAddr().String()
+	connDevice.Conn = ConnectedConn{
+		Conn: conn,
+	}
+	socksServer.datapool.SetDevice(deviceKey, connDevice)
+
+	// write request data to device
+	connDevice.copyToSSL()
+	connDevice.Close()
 }
 
 // NewSocksServer generate socksserver struct

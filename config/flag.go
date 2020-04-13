@@ -72,6 +72,7 @@ type Config struct {
 	LogFilePath             string           `yaml:"logfilepath,omitempty" json:"logfilepath,omitempty"`
 	SBlacklists             stringValues     `yaml:"blacklists,omitempty" json:"blacklists,omitempty"`
 	SWhitelists             stringValues     `yaml:"whitelists,omitempty" json:"whitelists,omitempty"`
+	SBinds                  stringValues     `yaml:"bind,omitempty" json:"bind,omitempty"`
 	Command                 string           `yaml:"-" json:"-"`
 	DecFleetAddr            [20]byte         `yaml:"-" json:"-"`
 	DecRegistryAddr         [20]byte         `yaml:"-" json:"-"`
@@ -102,6 +103,15 @@ type Config struct {
 	LogMode                 int              `yaml:"-" json:"-"`
 	Logger                  log.Logger       `yaml:"-" json:"-"`
 	ConfigFilePath          string           `yaml:"-" json:"-"`
+	Binds                   []Bind           `yaml:"-" json:"-"`
+}
+
+// Bind struct for port forwarding
+type Bind struct {
+	To        string
+	ToPort    int
+	LocalPort int
+	Protocol  int
 }
 
 // Port struct for listening port
@@ -181,6 +191,40 @@ func stringsContain(src []string, pivot *string) bool {
 		}
 	}
 	return false
+}
+
+func parseBind(bind string) (*Bind, error) {
+	elements := strings.Split(bind, ":")
+	if len(elements) == 3 {
+		elements = append(elements, "tcp")
+	}
+	if len(elements) != 4 {
+		return nil, fmt.Errorf("Bind format expected <local_port>:<to_address>:<to_port>:(udp|tcp) but got: %v", bind)
+	}
+
+	var err error
+	ret := &Bind{
+		To: elements[1],
+	}
+	ret.LocalPort, err = strconv.Atoi(elements[0])
+	if err != nil {
+		return nil, fmt.Errorf("Bind local_port should be a number but is: %v in: %v", elements[0], bind)
+	}
+
+	ret.ToPort, err = strconv.Atoi(elements[2])
+	if err != nil {
+		return nil, fmt.Errorf("Bind to_port should be a number but is: %v in: %v", elements[2], bind)
+	}
+
+	if elements[3] == "tcp" {
+		ret.Protocol = TCPProtocol
+	} else if elements[3] == "udp" {
+		ret.Protocol = UDPProtocol
+	} else {
+		return nil, fmt.Errorf("Bind protocol should be 'tcp' or 'udp' but is: %v in: %v", elements[3], bind)
+	}
+
+	return ret, nil
 }
 
 func parsePublishedPorts(publishedPortsArr []string, mode int) []*Port {
@@ -337,6 +381,7 @@ func ParseFlag() {
 	retryWait := flag.Int("retrywait", 1, "wait seconds before next retry")
 	flag.Var(&cfg.SBlacklists, "blacklists", "addresses are not allowed to connect to published resource (worked when whitelists is empty)")
 	flag.Var(&cfg.SWhitelists, "whitelists", "addresses are allowed to connect to published resource (worked when blacklists is empty)")
+	flag.Var(&cfg.SBinds, "bind", "bind a remote port to a local port. -bind <local_port>:<to_address>:<to_port>:(udp|tcp)")
 
 	flag.BoolVar(&cfg.SkipHostValidation, "skiphostvalidation", false, "skip host validation")
 	flag.Parse()
@@ -469,6 +514,14 @@ func ParseFlag() {
 			cfg.Logger.Error(fmt.Sprintf("cannot set rlimit: %s", err.Error()), "module", "main")
 			os.Exit(2)
 		}
+	}
+	cfg.Binds = make([]Bind, 0)
+	for _, str := range cfg.SBinds {
+		bind, err := parseBind(str)
+		if err != nil {
+			wrongCommandLineFlag(err)
+		}
+		cfg.Binds = append(cfg.Binds, *bind)
 	}
 	AppConfig = cfg
 	// return cfg
