@@ -211,6 +211,7 @@ func main() {
 			SProxyServerAddr: config.SProxyServerAddr,
 			CertPath:         config.SProxyServerCertPath,
 			PrivPath:         config.SProxyServerPrivPath,
+			AllowRedirect:    config.AllowRedirectToSProxy,
 		}
 		// Start proxy server
 		if proxyServer, err = rpc.NewProxyServer(socksServer, proxyConfig); err != nil {
