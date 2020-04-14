@@ -52,7 +52,7 @@ OPTIONS
 // Address represents an Ethereum address
 type Address = crypto.Address
 
-// Config for poc-client
+// Config for diode-go-client
 type Config struct {
 	DBPath                  string           `yaml:"dbpath,omitempty" json:"dbpath,omitempty"`
 	Debug                   bool             `yaml:"debug,omitempty" json:"debug,omitempty"`

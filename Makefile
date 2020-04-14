@@ -33,4 +33,4 @@ static:
 	go build -tags netgo,openssl_static -ldflags '-extldflags "-static"' -o diode cmd/diode.go
 .PHONY: config_server
 config_server:
-	go build -ldflags "-X main.serverAddress=localhost:1081 -X main.configPath=./.diode.yml" -o config_server cmd/config_server.go
+	GODEBUG=netdns=go CGO_ENABLED=0 go build -ldflags "-X main.serverAddress=localhost:1081 -X main.configPath=./.diode.yml" -o config_server cmd/config_server.go
