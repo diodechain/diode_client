@@ -33,6 +33,10 @@ type HttpError struct {
 	err  error
 }
 
+func (httpError HttpError) Error() string {
+	return httpError.err.Error()
+}
+
 type ProxyServer struct {
 	Config      ProxyConfig
 	socksServer *Server
@@ -95,10 +99,34 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 	}
 
 	clientIP := r.RemoteAddr
-	connDevice, httpErr := proxyServer.socksServer.connectDevice(deviceID, port, config.TCPProtocol, mode)
-	if httpErr != nil {
-		httpError(w, httpErr.code, httpErr.err.Error())
-		return
+	connDevice, err := proxyServer.socksServer.connectDevice(deviceID, port, config.TCPProtocol, mode)
+	if err != nil {
+		if httpErr, ok := err.(HttpError); ok {
+			var errMsg string
+			switch httpErr.code {
+			case 400:
+				errMsg = fmt.Sprintf("Bad request: %s", httpErr.Error())
+				break
+			case 404:
+				// why not err == errEmptyDNSresult
+				if err.Error() == errEmptyDNSresult.Error() {
+					errMsg = fmt.Sprintf("DNS name not found. Please check spelling.")
+				} else if _, ok := httpErr.err.(DeviceError); ok {
+					errMsg = fmt.Sprintf("Device is currently offline.")
+				} else {
+					errMsg = fmt.Sprintf("DNS entry does not exist. Please check spelling.")
+				}
+				break
+			case 403:
+				errMsg = fmt.Sprintf("Access device forbidden")
+				break
+			case 500:
+				errMsg = fmt.Sprintf("Internal server error: %s", httpErr.Error())
+				break
+			}
+			httpError(w, httpErr.code, errMsg)
+			return
+		}
 	}
 	connDevice.ClientID = clientIP
 

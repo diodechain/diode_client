@@ -87,6 +87,14 @@ type Server struct {
 	started  bool
 }
 
+type DeviceError struct {
+	err error
+}
+
+func (deviceError DeviceError) Error() string {
+	return fmt.Sprintf("This device is offline - Or you entered the wrong id? %v", deviceError.err)
+}
+
 func handShake(conn net.Conn) (version int, url string, err error) {
 	const (
 		idVer = 0
@@ -323,11 +331,72 @@ func parseHost(host string) (isWS bool, deviceID string, mode string, port int, 
 	return
 }
 
-func (socksServer *Server) connectDevice(deviceName string, port int, protocol int, mode string) (*ConnectedDevice, *HttpError) {
-	return socksServer.doConnectDevice(deviceName, port, protocol, mode, 1)
+func (socksServer *Server) checkAccess(deviceName string) (*edge.DeviceTicket, error) {
+	// Resolving DNS if needed
+	var err error
+	var deviceID Address
+	if !util.IsHex([]byte(deviceName)) {
+		dnsKey := fmt.Sprintf("dns:%s", deviceName)
+		var ok bool
+		deviceID, ok = socksServer.datapool.GetCacheDNS(dnsKey)
+		if !ok {
+			deviceID, err = socksServer.Client.ResolveDNS(deviceName)
+			if err != nil {
+				return nil, HttpError{404, err}
+			}
+			socksServer.datapool.SetCacheDNS(dnsKey, deviceID)
+		}
+	} else {
+		deviceID, err = util.DecodeAddress(deviceName)
+		if err != nil {
+			err = fmt.Errorf("DeviceAddress '%s' is not an address: %v", deviceName, err)
+			return nil, HttpError{400, err}
+		}
+	}
+
+	// Checking blacklist and whitelist
+	if len(socksServer.Config.Blacklists) > 0 {
+		if socksServer.Config.Blacklists[deviceID] {
+			err := fmt.Errorf("Device %x is in the black list", deviceName)
+			return nil, HttpError{403, err}
+		}
+	} else {
+		if len(socksServer.Config.Whitelists) > 0 {
+			if !socksServer.Config.Whitelists[deviceID] {
+				err := fmt.Errorf("Device %x is not in the white list", deviceName)
+				return nil, HttpError{403, err}
+			}
+		}
+	}
+	// Calling GetObject to locate the device
+	cachedDevice := socksServer.datapool.GetCacheDevice(deviceID)
+	if cachedDevice != nil {
+		return cachedDevice, nil
+	}
+	device, err := socksServer.Client.GetObject(deviceID)
+	if err != nil {
+		return nil, HttpError{500, err}
+	}
+	if device.BlockHash, err = socksServer.Client.ResolveBlockHash(device.BlockNumber); err != nil {
+		err = fmt.Errorf("Failed to resolve() %v", err)
+		return nil, HttpError{500, err}
+	}
+	if device.Err != nil {
+		return nil, HttpError{404, DeviceError{err}}
+	}
+	if !device.ValidateDeviceSig(deviceID) {
+		err = fmt.Errorf("Wrong device signature in device object")
+		return nil, HttpError{500, err}
+	}
+	if !device.ValidateServerSig() {
+		err = fmt.Errorf("Wrong server signature in device object")
+		return nil, HttpError{500, err}
+	}
+	socksServer.datapool.SetCacheDevice(deviceID, device)
+	return device, nil
 }
 
-func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol int, mode string, retry int) (*ConnectedDevice, *HttpError) {
+func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol int, mode string, retry int) (*ConnectedDevice, error) {
 	// This is double checked in some cases, but it does not hurt since
 	// checkAccess internally caches
 	device, httpErr := socksServer.checkAccess(deviceName)
@@ -338,12 +407,12 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 	// decode device id
 	deviceID, err := device.DeviceAddress()
 	if err != nil {
-		return nil, &HttpError{500, fmt.Errorf("DeviceAddress() failed: %v", err)}
+		return nil, HttpError{500, fmt.Errorf("DeviceAddress() failed: %v", err)}
 	}
 
 	client, err := socksServer.GetServer(device.ServerID)
 	if err != nil {
-		return nil, &HttpError{500, fmt.Errorf("GetServer() failed: %v", err)}
+		return nil, HttpError{500, fmt.Errorf("GetServer() failed: %v", err)}
 	}
 
 	var portName string
@@ -360,12 +429,15 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 		socksServer.datapool.SetCacheDevice(deviceID, nil)
 
 		if retry == 0 {
-			return nil, &HttpError{500, fmt.Errorf("PortOpen() failed: %v", err)}
+			if _, ok := err.(RPCError); ok {
+				return nil, HttpError{404, DeviceError{err}}
+			}
+			return nil, HttpError{500, fmt.Errorf("PortOpen() failed: %v", err)}
 		}
 		return socksServer.doConnectDevice(deviceName, port, protocol, mode, retry-1)
 	}
 	if portOpen != nil && portOpen.Err != nil {
-		return nil, &HttpError{500, fmt.Errorf("PortOpen() failed(2): %v", portOpen.Err)}
+		return nil, HttpError{500, fmt.Errorf("PortOpen() failed(2): %v", portOpen.Err)}
 	}
 
 	return &ConnectedDevice{
@@ -373,6 +445,10 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 		DeviceID: deviceID,
 		Client:   client,
 	}, nil
+}
+
+func (socksServer *Server) connectDevice(deviceName string, port int, protocol int, mode string) (*ConnectedDevice, error) {
+	return socksServer.doConnectDevice(deviceName, port, protocol, mode, 1)
 }
 
 func writeSocksError(conn net.Conn, ver int, err byte) {
@@ -431,7 +507,7 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *ed
 	connDevice, httpErr := socksServer.connectDevice(deviceID, port, config.TCPProtocol, mode)
 
 	if httpErr != nil {
-		socksServer.Client.Error("failed to connectDevice(): %v", httpErr.err)
+		socksServer.Client.Error("failed to connectDevice(): %v", httpErr.Error())
 		writeSocksError(conn, ver, socksRepNetworkUnreachable)
 		return
 	}
@@ -489,72 +565,6 @@ func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, device *
 	netCopy(remoteConn, conn)
 }
 
-func (socksServer *Server) checkAccess(deviceName string) (*edge.DeviceTicket, *HttpError) {
-	// Resolving DNS if needed
-	var err error
-	var deviceID Address
-	if !util.IsHex([]byte(deviceName)) {
-		dnsKey := fmt.Sprintf("dns:%s", deviceName)
-		var ok bool
-		deviceID, ok = socksServer.datapool.GetCacheDNS(dnsKey)
-		if !ok {
-			deviceID, err = socksServer.Client.ResolveDNS(deviceName)
-			if err != nil {
-				return nil, &HttpError{404, err}
-			}
-			socksServer.datapool.SetCacheDNS(dnsKey, deviceID)
-		}
-	} else {
-		deviceID, err = util.DecodeAddress(deviceName)
-		if err != nil {
-			err = fmt.Errorf("DeviceAddress '%s' is not an address: %v", deviceName, err)
-			return nil, &HttpError{403, err}
-		}
-	}
-
-	// Checking blacklist and whitelist
-	if len(socksServer.Config.Blacklists) > 0 {
-		if socksServer.Config.Blacklists[deviceID] {
-			err := fmt.Errorf("Device %x is in the black list", deviceName)
-			return nil, &HttpError{403, err}
-		}
-	} else {
-		if len(socksServer.Config.Whitelists) > 0 {
-			if !socksServer.Config.Whitelists[deviceID] {
-				err := fmt.Errorf("Device %x is not in the white list", deviceName)
-				return nil, &HttpError{403, err}
-			}
-		}
-	}
-	// Calling GetObject to locate the device
-	cachedDevice := socksServer.datapool.GetCacheDevice(deviceID)
-	if cachedDevice != nil {
-		return cachedDevice, nil
-	}
-	device, err := socksServer.Client.GetObject(deviceID)
-	if err != nil {
-		return nil, &HttpError{500, err}
-	}
-	if device.BlockHash, err = socksServer.Client.ResolveBlockHash(device.BlockNumber); err != nil {
-		err = fmt.Errorf("Failed to resolve() %v", err)
-		return nil, &HttpError{500, err}
-	}
-	if device.Err != nil {
-		err = fmt.Errorf("This device is offline - Or you entered the wrong id? %v", device.Err)
-		return nil, &HttpError{404, err}
-	}
-	if !device.ValidateDeviceSig(deviceID) {
-		err = fmt.Errorf("Wrong device signature in device object")
-		return nil, &HttpError{500, err}
-	}
-	if !device.ValidateServerSig() {
-		err = fmt.Errorf("Wrong server signature in device object")
-		return nil, &HttpError{500, err}
-	}
-	socksServer.datapool.SetCacheDevice(deviceID, device)
-	return device, nil
-}
-
 func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 	defer conn.Close()
 	defer socksServer.wg.Done()
@@ -574,7 +584,7 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 	}
 	device, httpErr := socksServer.checkAccess(deviceID)
 	if device == nil {
-		socksServer.Client.Error("failed to checkAccess %v", httpErr.err)
+		socksServer.Client.Error("failed to checkAccess %v", httpErr.Error())
 		return
 	}
 	if !isWS {
@@ -706,11 +716,14 @@ func (socksServer *Server) forwardUDP(addr net.Addr, deviceName string, port int
 			return
 		}
 
-		var httpErr *HttpError
-		connDevice, httpErr = socksServer.connectDevice(deviceName, port, config.UDPProtocol, mode)
+		var httpErr HttpError
+		var ok bool
+		connDevice, err = socksServer.connectDevice(deviceName, port, config.UDPProtocol, mode)
 
-		if httpErr != nil {
-			socksServer.Client.Error("forwardUDP error: connectDevice(): %v", httpErr.err)
+		if err != nil {
+			if httpErr, ok = err.(HttpError); ok {
+				socksServer.Client.Error("forwardUDP error: connectDevice(): %v", httpErr.Error())
+			}
 			conn.Close()
 			return
 		}
@@ -775,7 +788,7 @@ func (socksServer *Server) handleBind(conn net.Conn, bind config.Bind) {
 	connDevice, httpErr := socksServer.connectDevice(bind.To, bind.ToPort, bind.Protocol, "rw")
 
 	if httpErr != nil {
-		socksServer.Client.Error("Failed to connectDevice(): %v", httpErr.err)
+		socksServer.Client.Error("Failed to connectDevice(): %v", httpErr.Error())
 		return
 	}
 	deviceKey := connDevice.Client.GetDeviceKey(connDevice.Ref)

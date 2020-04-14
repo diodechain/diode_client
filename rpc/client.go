@@ -22,8 +22,9 @@ import (
 )
 
 var (
-	RequestID uint64 = 0
-	mx        sync.Mutex
+	RequestID         uint64 = 0
+	mx                sync.Mutex
+	errEmptyDNSresult = fmt.Errorf("Couldn't resolve name (null)")
 )
 
 // RPCConfig struct for rpc client
@@ -738,12 +739,12 @@ func (rpcClient *RPCClient) ResolveDNS(name string) (addr Address, err error) {
 		return [20]byte{}, err
 	}
 	if string(raw) == "null" {
-		return [20]byte{}, fmt.Errorf("Couldn't resolve name (null)")
+		return [20]byte{}, errEmptyDNSresult
 	}
 
 	copy(addr[:], raw[12:])
 	if addr == [20]byte{} {
-		return [20]byte{}, fmt.Errorf("Couldn't resolve name")
+		return [20]byte{}, errEmptyDNSresult
 	}
 	return addr, nil
 }
