@@ -1,0 +1,9 @@
+#!/bin/bash
+
+PRODUCT_HOME=/Library/Diode/__VERSION__
+
+echo "Post installation process started"
+echo $PRODUCT_HOME
+
+# echo 'export PATH=$PRODUCT_HOME:$PATH' > ~/.bash_profile
+ln -s ${PRODUCT_HOME}/diode /usr/local/bin/diode

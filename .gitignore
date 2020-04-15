@@ -10,3 +10,4 @@ diode
 .diode.yml
 *.log
 config_server
+darwin/build
