@@ -4,6 +4,8 @@
 *.log
 */private*
 .diode.yml
+/.vscode
+/dist
 darwin/build
 /client_debug
 /config_server
