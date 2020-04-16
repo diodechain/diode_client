@@ -55,7 +55,7 @@ func NewHeader(txHash []byte, stateHash []byte, prevBlock []byte, minerSig []byt
 		nonce:       nonce,
 	}
 	if !header.ValidateSig() {
-		return nil, fmt.Errorf("Invalid block %v %v", header, header.Hash())
+		return nil, fmt.Errorf("invalid block %v %v", header, header.Hash())
 	}
 	return header, nil
 }

@@ -106,33 +106,32 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 			switch httpErr.code {
 			case 400:
 				errMsg = fmt.Sprintf("Bad request: %s", httpErr.Error())
-				break
 			case 404:
 				// why not err == errEmptyDNSresult
 				if err.Error() == errEmptyDNSresult.Error() {
-					errMsg = fmt.Sprintf("DNS name not found. Please check spelling.")
+					errMsg = "DNS name not found. Please check spelling."
 				} else if _, ok := httpErr.err.(DeviceError); ok {
-					errMsg = fmt.Sprintf("Device is currently offline.")
+					errMsg = "Device is currently offline."
 				} else {
-					errMsg = fmt.Sprintf("DNS entry does not exist. Please check spelling.")
+					errMsg = "DNS entry does not exist. Please check spelling."
 				}
-				break
 			case 403:
-				errMsg = fmt.Sprintf("Access device forbidden")
-				break
+				errMsg = "Access device forbidden"
 			case 500:
 				errMsg = fmt.Sprintf("Internal server error: %s", httpErr.Error())
-				break
 			}
 			httpError(w, httpErr.code, errMsg)
 			return
 		}
 	}
-	connDevice.ClientID = clientIP
 
 	if connDevice == nil {
 		proxyServer.socksServer.Client.Debug("connDevice still nil")
+		httpError(w, 500, "connDevice still nil")
+		return
 	}
+
+	connDevice.ClientID = clientIP
 
 	if isWS {
 		upgrader := websocket.Upgrader{
@@ -190,7 +189,7 @@ func NewProxyServer(socksServer *Server, config ProxyConfig) (*ProxyServer, erro
 		return nil, fmt.Errorf("should start socks server first")
 	}
 	if config.AllowRedirect && !config.EnableSProxy {
-		return nil, fmt.Errorf("Wrong parameters, need started httpsd server for http redirect")
+		return nil, fmt.Errorf("wrong parameters, need started httpsd server for http redirect")
 	}
 	proxyServer := &ProxyServer{
 		socksServer: socksServer,

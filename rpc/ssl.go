@@ -37,7 +37,6 @@ const (
 )
 
 var (
-	rpcID          int64 = 1
 	bq             *blockquick.Window
 	enqueueTimeout = 100 * time.Millisecond
 )
@@ -275,20 +274,12 @@ func (s *SSL) incrementTotalConnections(n int) {
 	s.rm.Lock()
 	defer s.rm.Unlock()
 	s.totalConnections += uint64(n)
-	return
 }
 
 func (s *SSL) incrementTotalBytes(n int) {
 	s.rm.Lock()
 	defer s.rm.Unlock()
 	s.totalBytes += uint64(n)
-	return
-}
-
-func (s *SSL) setOpensslConn(conn *openssl.Conn) {
-	s.rm.Lock()
-	defer s.rm.Unlock()
-	s.conn = conn
 }
 
 func (s *SSL) getOpensslConn() *openssl.Conn {
@@ -302,7 +293,7 @@ func (s *SSL) readMessage() (msg edge.Message, err error) {
 	var n int
 	lenByt := make([]byte, 2)
 	conn := s.getOpensslConn()
-	n, err = conn.Read(lenByt)
+	_, err = conn.Read(lenByt)
 	if err != nil {
 		return
 	}
@@ -355,6 +346,7 @@ func (s *SSL) reconnect() error {
 			return err
 		}
 	}
+	s.incrementTotalConnections(1)
 	return nil
 }
 
@@ -431,7 +423,7 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 			}
 		}
 		if !isOk {
-			return nil, fmt.Errorf("Failed to connect to host: %s", host)
+			return nil, fmt.Errorf("failed to connect to host: %s", host)
 		}
 	}
 	// enable keepalive

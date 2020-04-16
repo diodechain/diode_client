@@ -22,7 +22,7 @@ func notifySignal(signalChan chan Signal, signal Signal, sendTimeout time.Durati
 	select {
 	case signalChan <- signal:
 		return nil
-	case _ = <-time.After(sendTimeout):
+	case <-time.After(sendTimeout):
 		return fmt.Errorf("notify signal to target timeout")
 	}
 }

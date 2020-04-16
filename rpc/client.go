@@ -24,7 +24,7 @@ import (
 var (
 	RequestID         uint64 = 0
 	mx                sync.Mutex
-	errEmptyDNSresult = fmt.Errorf("Couldn't resolve name (null)")
+	errEmptyDNSresult = fmt.Errorf("couldn't resolve name (null)")
 )
 
 // RPCConfig struct for rpc client
@@ -49,7 +49,6 @@ type RPCClient struct {
 	blockTickerDuration   time.Duration
 	finishBlockTickerChan chan bool
 	started               bool
-	ticketTicker          *time.Ticker
 	ticketTickerDuration  time.Duration
 	timeout               time.Duration
 	wg                    *sync.WaitGroup
@@ -143,7 +142,7 @@ func (rpcClient *RPCClient) enqueueCall(call Call) error {
 	select {
 	case rpcClient.callQueue <- call:
 		return nil
-	case _ = <-time.After(enqueueTimeout):
+	case <-time.After(enqueueTimeout):
 		return fmt.Errorf("send call to channel timeout")
 	}
 }
@@ -162,13 +161,11 @@ func (rpcClient *RPCClient) waitResponse(call Call, rpcTimeout time.Duration) (r
 		switch signal {
 		case RECONNECTING:
 			err = ReconnectError{}
-			break
 		case CANCELLED:
 			err = CancelledError{}
-			break
 		}
 		return
-	case _ = <-time.After(rpcTimeout):
+	case <-time.After(rpcTimeout):
 		err = RPCTimeoutError{rpcTimeout}
 		return
 	}
@@ -190,20 +187,16 @@ func (rpcClient *RPCClient) RespondContext(requestID uint64, responseType string
 }
 
 // CastContext returns a response future after calling the rpc
-func (rpcClient *RPCClient) CastContext(requestID uint64, method string, parse func(buffer []byte) (interface{}, error), args ...interface{}) (call Call, err error) {
-	var msg []byte
-	msg, parse, err = rpcClient.edgeProtocol.NewMessage(requestID, method, args...)
+func (rpcClient *RPCClient) CastContext(requestID uint64, method string, args ...interface{}) (Call, error) {
+	msg, parse, err := rpcClient.edgeProtocol.NewMessage(requestID, method, args...)
 	if err != nil {
-		return
+		return Call{}, err
 	}
-	// resMsg := make(chan edge.Message)
-	resMsg := make(chan interface{})
-	call, err = preparePayload(requestID, method, msg, parse, resMsg)
+	call, err := preparePayload(requestID, method, msg, parse, make(chan interface{}))
 	if err != nil {
-		return
+		return Call{}, err
 	}
-	err = rpcClient.enqueueCall(call)
-	return
+	return call, rpcClient.enqueueCall(call)
 }
 
 func preparePayload(requestID uint64, method string, payload []byte, parse func(buffer []byte) (interface{}, error), message chan interface{}) (Call, error) {
@@ -235,9 +228,8 @@ func (rpcClient *RPCClient) CallContext(method string, parse func(buffer []byte)
 	var resCall Call
 	var ts time.Time
 	var tsDiff time.Duration
-	var requestID uint64
-	requestID = getRequestID()
-	resCall, err = rpcClient.CastContext(requestID, method, parse, args...)
+	requestID := getRequestID()
+	resCall, err = rpcClient.CastContext(requestID, method, args...)
 	if err != nil {
 		return
 	}
@@ -256,12 +248,12 @@ func (rpcClient *RPCClient) CallContext(method string, parse func(buffer []byte)
 				rpcClient.Warn("Call will resend after reconnect, keep waiting")
 				continue
 			}
-			if _, ok := err.(CancelledError); ok {
-				break
-			}
-			if _, ok := err.(RPCError); ok {
-				break
-			}
+			// if _, ok := err.(CancelledError); ok {
+			// 	break
+			// }
+			// if _, ok := err.(RPCError); ok {
+			// 	break
+			// }
 			break
 		}
 		tsDiff = time.Since(ts)
@@ -309,16 +301,16 @@ func (rpcClient *RPCClient) ValidateNetwork() (bool, error) {
 			db.DB.Del(lvbnKey)
 			os.Exit(0)
 		}
-		return false, fmt.Errorf("Sent reference block does not match %v: %v != %v", lvbn, lvbh, hash)
+		return false, fmt.Errorf("sent reference block does not match %v: %v != %v", lvbn, lvbh, hash)
 	}
 
 	// Checking chain of previous blocks
 	for i := windowSize - 2; i >= 0; i-- {
 		if blockHeaders[i].Hash() != blockHeaders[i+1].Parent() {
-			return false, fmt.Errorf("Recevied blocks parent is not his parent: %+v %+v", blockHeaders[i+1], blockHeaders[i])
+			return false, fmt.Errorf("recevied blocks parent is not his parent: %+v %+v", blockHeaders[i+1], blockHeaders[i])
 		}
 		if !blockHeaders[i].ValidateSig() {
-			return false, fmt.Errorf("Recevied blocks signature is not valid: %v", blockHeaders[i])
+			return false, fmt.Errorf("recevied blocks signature is not valid: %v", blockHeaders[i])
 		}
 	}
 
@@ -429,7 +421,7 @@ func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]*bl
 	for _, i := range blockNumbers {
 		if responses[i] != nil {
 			if int(i) != responses[i].Number() {
-				return nil, fmt.Errorf("Received blocks out of order!")
+				return nil, fmt.Errorf("received blocks out of order")
 			}
 			headers = append(headers, responses[i])
 		}
@@ -465,7 +457,7 @@ func (rpcClient *RPCClient) GetBlock(blockNum uint64) (interface{}, error) {
 // GetObject returns network object for device
 func (rpcClient *RPCClient) GetObject(deviceID [20]byte) (*edge.DeviceTicket, error) {
 	if len(deviceID) != 20 {
-		return nil, fmt.Errorf("Device ID must be 20 bytes")
+		return nil, fmt.Errorf("device ID must be 20 bytes")
 	}
 	// encDeviceID := util.EncodeToString(deviceID[:])
 	rawObject, err := rpcClient.CallContext("getobject", nil, deviceID[:])
@@ -474,7 +466,7 @@ func (rpcClient *RPCClient) GetObject(deviceID [20]byte) (*edge.DeviceTicket, er
 	}
 	if device, ok := rawObject.(*edge.DeviceTicket); ok {
 		device.BlockHash, err = rpcClient.ResolveBlockHash(device.BlockNumber)
-		return device, nil
+		return device, err
 	}
 	return nil, nil
 }
@@ -498,7 +490,7 @@ func (rpcClient *RPCClient) Greet() error {
 	var flag uint64
 	requestID = getRequestID()
 	flag = 1000
-	_, err := rpcClient.CastContext(requestID, "hello", nil, flag)
+	_, err := rpcClient.CastContext(requestID, "hello", flag)
 	if err != nil {
 		return err
 	}
@@ -520,6 +512,9 @@ func (rpcClient *RPCClient) SubmitNewTicket() error {
 // NewTicket returns ticket
 func (rpcClient *RPCClient) newTicket() (*edge.DeviceTicket, error) {
 	serverID, err := rpcClient.s.GetServerID()
+	if err != nil {
+		return nil, err
+	}
 	rpcClient.s.counter = rpcClient.s.totalBytes
 	lvbn, lvbh := LastValid()
 	rpcClient.Debug("New ticket: %d", lvbn)
@@ -548,7 +543,7 @@ func (rpcClient *RPCClient) newTicket() (*edge.DeviceTicket, error) {
 		return nil, err
 	}
 	if !ticket.ValidateDeviceSig(deviceID) {
-		return nil, fmt.Errorf("Ticket not verifyable")
+		return nil, fmt.Errorf("ticket not verifyable")
 	}
 
 	return ticket, nil
@@ -624,17 +619,13 @@ func (rpcClient *RPCClient) ResponsePortOpen(portOpen *edge.PortOpen, err error)
 
 // PortSend call portsend RPC
 func (rpcClient *RPCClient) PortSend(ref string, data []byte) (err error) {
-	var requestID uint64
-	requestID = getRequestID()
-	_, err = rpcClient.CastContext(requestID, "portsend", nil, ref, data)
+	_, err = rpcClient.CastContext(getRequestID(), "portsend", ref, data)
 	return err
 }
 
 // CastPortClose cast portclose RPC
 func (rpcClient *RPCClient) CastPortClose(ref string) (err error) {
-	var requestID uint64
-	requestID = getRequestID()
-	_, err = rpcClient.CastContext(requestID, "portclose", nil, ref)
+	_, err = rpcClient.CastContext(getRequestID(), "portclose", ref)
 	return err
 }
 

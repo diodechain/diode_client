@@ -17,4 +17,5 @@ require (
 	github.com/ucirello/tcpkeepalive v0.0.0-20180903163222-92daabaeadac
 	golang.org/x/sys v0.0.0-20191026070338-33540a1f6037
 	gopkg.in/yaml.v2 v2.2.2
+	honnef.co/go/tools v0.0.1-2020.1.3 // indirect
 )

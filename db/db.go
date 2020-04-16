@@ -45,13 +45,13 @@ func OpenFile(path string) (*Database, error) {
 			return nil, err
 		}
 		for i := numTuples; i > 0; i-- {
-			size64, err := binary.ReadUvarint(r)
+			size64, _ := binary.ReadUvarint(r)
 			key := make([]byte, size64)
 			size, err := r.Read(key)
 			if size != len(key) || err != nil {
 				return nil, err
 			}
-			size64, err = binary.ReadUvarint(r)
+			size64, _ = binary.ReadUvarint(r)
 			value := make([]byte, size64)
 			size, err = r.Read(value)
 			if size != len(value) || err != nil {

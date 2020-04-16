@@ -172,12 +172,11 @@ func newLogger(cfg *Config) log.Logger {
 	if (cfg.LogMode & LogToConsole) > 0 {
 		logHandler = log.StreamHandler(os.Stderr, log.TerminalFormat())
 	} else if (cfg.LogMode & LogToFile) > 0 {
-		// when close file?
-		f, err := os.OpenFile(cfg.LogFilePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		var err error
+		logHandler, err = log.FileHandler(cfg.LogFilePath, log.TerminalFormat())
 		if err != nil {
 			panicWithError(err)
 		}
-		logHandler = log.ClosingHandler{f, log.StreamHandler(f, log.TerminalFormat())}
 	}
 	logger.SetHandler(logHandler)
 	return logger
@@ -295,10 +294,10 @@ func parsePrivatePublishedPorts(publishedPorts []string) []*Port {
 				}
 				ports = append(ports, port)
 			} else {
-				wrongCommandLineFlag(fmt.Errorf("Protected port mapping expected <from>:<to> but got: %v", parsedPort))
+				wrongCommandLineFlag(fmt.Errorf("protected port mapping expected <from>:<to> but got: %v", parsedPort))
 			}
 		} else {
-			wrongCommandLineFlag(fmt.Errorf("Protected port format expected <from>:<to>,[<who>] but got: %v", publishedPort))
+			wrongCommandLineFlag(fmt.Errorf("protected port format expected <from>:<to>,[<who>] but got: %v", publishedPort))
 		}
 	}
 	return ports
@@ -308,10 +307,10 @@ func parsePrivatePublishedPorts(publishedPorts []string) []*Port {
 func LoadConfigFromFile(filePath string) (configBytes []byte, err error) {
 	var f *os.File
 	f, err = os.OpenFile(filePath, os.O_RDONLY, 0400)
-	defer f.Close()
 	if err != nil {
 		return
 	}
+	defer f.Close()
 	var fs os.FileInfo
 	fs, err = f.Stat()
 	if err != nil {
@@ -339,10 +338,10 @@ func ParseFlag() {
 	wrapHttpdCommandFlag(cfg)
 	wrapConfigCommandFlag(cfg)
 	flag.Usage = func() {
-		fmt.Printf(brandText)
+		fmt.Print(brandText)
 		fmt.Printf(commandText, "COMMAND")
 		flag.PrintDefaults()
-		fmt.Printf(usageText)
+		fmt.Print(usageText)
 		for _, commandFlag := range commandFlags {
 			fmt.Printf("  %s\n", commandFlag.Name)
 			fmt.Printf("  %s\n", commandFlag.HelpText)
@@ -405,7 +404,6 @@ func ParseFlag() {
 		commandFlag.Parse(args[1:])
 		cfg.EnableSocksServer = true
 		cfg.SocksServerAddr = fmt.Sprintf("%s:%d", cfg.SocksServerHost, cfg.SocksServerPort)
-		break
 	case "httpd":
 		commandFlag.Parse(args[1:])
 		cfg.EnableProxyServer = true
@@ -414,34 +412,31 @@ func ParseFlag() {
 		if cfg.EnableSProxyServer {
 			cfg.SProxyServerAddr = fmt.Sprintf("%s:%d", cfg.SProxyServerHost, cfg.SProxyServerPort)
 		}
-		break
 	case "publish":
 		commandFlag.Parse(args[1:])
 		publishedPorts := make(map[int]*Port)
 		// copy to config
 		for _, port := range parsePublishedPorts(cfg.PublicPublishedPorts, PublicPublishedMode) {
 			if publishedPorts[port.To] != nil {
-				wrongCommandLineFlag(fmt.Errorf("Public port specified twice: %v", port.To))
+				wrongCommandLineFlag(fmt.Errorf("public port specified twice: %v", port.To))
 			}
 			publishedPorts[port.To] = port
 		}
 		for _, port := range parsePublishedPorts(cfg.ProtectedPublishedPorts, ProtectedPublishedMode) {
 			if publishedPorts[port.To] != nil {
-				wrongCommandLineFlag(fmt.Errorf("Port conflict between public and protected port: %v", port.To))
+				wrongCommandLineFlag(fmt.Errorf("port conflict between public and protected port: %v", port.To))
 			}
 			publishedPorts[port.To] = port
 		}
 		for _, port := range parsePrivatePublishedPorts(cfg.PrivatePublishedPorts) {
 			if publishedPorts[port.To] != nil {
-				wrongCommandLineFlag(fmt.Errorf("Port conflict with private port: %v", port.To))
+				wrongCommandLineFlag(fmt.Errorf("port conflict with private port: %v", port.To))
 			}
 			publishedPorts[port.To] = port
 		}
 		cfg.PublishedPorts = publishedPorts
-		break
 	case "config":
 		commandFlag.Parse(args[1:])
-		break
 	default:
 		flag.Usage()
 		os.Exit(0)

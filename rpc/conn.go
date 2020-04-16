@@ -98,7 +98,6 @@ func (conn *ConnectedConn) Close() {
 		conn.WSConn.Close()
 	}
 	conn.closed = true
-	return
 }
 
 // IsWS is this a WebSocket connection?

@@ -13,13 +13,6 @@ import (
 
 var (
 	NullData = []byte("null")
-
-	curlyBracketStart  = []byte("{")
-	curlyBracketEnd    = []byte("}")
-	squareBracketStart = []byte("[")
-	squareBracketEnd   = []byte("]")
-	doubleQuote        = []byte(`"`)
-	comma              = []byte(",")
 )
 
 // Address represents an Ethereum address
@@ -43,7 +36,7 @@ func (e ReconnectError) Error() string {
 	if len(e.Host) > 0 {
 		return fmt.Sprintf("reconnect to server: %s", e.Host)
 	}
-	return fmt.Sprintf("reconnect to server")
+	return "reconnect to server"
 }
 
 // CancelledError is struct for cancelled error
@@ -52,7 +45,7 @@ type CancelledError struct {
 }
 
 func (e CancelledError) Error() string {
-	return fmt.Sprintf("rpc call had been cancelled")
+	return "rpc call had been cancelled"
 }
 
 // RPCError is struct for rpc error

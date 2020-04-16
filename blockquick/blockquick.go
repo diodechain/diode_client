@@ -5,8 +5,9 @@ package blockquick
 
 import (
 	"fmt"
-	"github.com/diodechain/diode_go_client/crypto"
 	"sync"
+
+	"github.com/diodechain/diode_go_client/crypto"
 )
 
 // Address represents an Ethereum address of a miner
@@ -37,7 +38,7 @@ type BlockScore struct {
 // New creates a new BlockQuick window
 func New(bhs []*BlockHeader, windowSize int) (*Window, error) {
 	if len(bhs) != windowSize {
-		return nil, fmt.Errorf("Provided block header count != window size (%v/%v)", len(bhs), windowSize)
+		return nil, fmt.Errorf("provided block header count != window size (%v/%v)", len(bhs), windowSize)
 	}
 
 	win := &Window{
@@ -49,7 +50,7 @@ func New(bhs []*BlockHeader, windowSize int) (*Window, error) {
 
 	for i, bh := range bhs {
 		if !bh.ValidateSig() {
-			return nil, fmt.Errorf("Block has an invalid signature %v", bhs)
+			return nil, fmt.Errorf("block has an invalid signature %v", bhs)
 		}
 		bs := &BlockScore{
 			bh:      bh,
@@ -59,7 +60,7 @@ func New(bhs []*BlockHeader, windowSize int) (*Window, error) {
 		}
 		if i > 0 {
 			if bs.bh.Parent() != bss[i-1].hash {
-				return nil, fmt.Errorf("Received non-follower block %v is not a parent of %v", bss[i-1], bh)
+				return nil, fmt.Errorf("received non-follower block %v is not a parent of %v", bss[i-1], bh)
 			}
 			bs.parent = bss[i-1]
 		}
@@ -138,7 +139,7 @@ func (win *Window) AddBlock(bh *BlockHeader, allowGap bool) error {
 	defer win.mx.Unlock()
 
 	if !bh.ValidateSig() {
-		return fmt.Errorf("Invalid block header %v", bh)
+		return fmt.Errorf("invalid block header %v", bh)
 	}
 
 	if bh.number <= win.lastValid.bh.number {
@@ -170,10 +171,10 @@ func (win *Window) AddBlock(bh *BlockHeader, allowGap bool) error {
 	// Gap check
 	if bs.parent != nil {
 		if bh.number != bs.parent.bh.number+1 {
-			return fmt.Errorf("Child number is wrong %v, %v", bh.number, bs.parent.bh.number)
+			return fmt.Errorf("child number is wrong %v, %v", bh.number, bs.parent.bh.number)
 		}
-	} else if allowGap == false {
-		return fmt.Errorf("Don't know direct parent of this block")
+	} else if !allowGap {
+		return fmt.Errorf("don't know direct parent of this block")
 	}
 
 	// Adding block
@@ -219,8 +220,6 @@ func (win *Window) validate(bs *BlockScore) {
 			return
 		}
 	}
-
-	return
 }
 
 func (win *Window) finalize(bs *BlockScore) {

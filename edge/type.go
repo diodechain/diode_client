@@ -91,8 +91,9 @@ type Account struct {
 	Code        []byte
 	Balance     int64
 	AccountHash []byte
-	proof       []byte
-	stateTree   MerkleTree
+	// TODO: Why is is this unused?
+	// proof       []byte
+	stateTree MerkleTree
 }
 
 func (err Error) Error() string {
@@ -100,7 +101,6 @@ func (err Error) Error() string {
 }
 
 type AccountValue struct {
-	proof       []byte
 	accountTree MerkleTree
 }
 

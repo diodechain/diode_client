@@ -64,7 +64,7 @@ func wrapPublishCommandFlag(cfg *Config) {
 	publishCommandFlag.Flag.Var(&cfg.ProtectedPublishedPorts, "protected", "expose ports to protected users (in fleet contract), so that user could connect to")
 	publishCommandFlag.Flag.Var(&cfg.PrivatePublishedPorts, "private", "expose ports to private users, so that user could connect to")
 	publishCommandFlag.Flag.Usage = func() {
-		fmt.Printf(brandText)
+		fmt.Print(brandText)
 		fmt.Printf(commandText, socksdCommandFlag.Name)
 		flag.PrintDefaults()
 		printCommandDefaults(&publishCommandFlag, 0)
@@ -75,7 +75,7 @@ func wrapSocksdCommandFlag(cfg *Config) {
 	socksdCommandFlag.Flag.StringVar(&cfg.SocksServerHost, "socksd_host", "127.0.0.1", "host of socks server listening to")
 	socksdCommandFlag.Flag.IntVar(&cfg.SocksServerPort, "socksd_port", 1080, "port of socks server listening to")
 	socksdCommandFlag.Flag.Usage = func() {
-		fmt.Printf(brandText)
+		fmt.Print(brandText)
 		fmt.Printf(commandText, socksdCommandFlag.Name)
 		flag.PrintDefaults()
 		printCommandDefaults(&socksdCommandFlag, 0)
@@ -87,7 +87,7 @@ func wrapConfigCommandFlag(cfg *Config) {
 	configCommandFlag.Flag.BoolVar(&cfg.ConfigList, "list", false, "list all stored config keys")
 	configCommandFlag.Flag.Var(&cfg.ConfigSet, "set", "sets the given variable in the config")
 	configCommandFlag.Flag.Usage = func() {
-		fmt.Printf(brandText)
+		fmt.Print(brandText)
 		fmt.Printf(commandText, configCommandFlag.Name)
 		flag.PrintDefaults()
 		printCommandDefaults(&configCommandFlag, 0)
@@ -107,7 +107,7 @@ func wrapHttpdCommandFlag(cfg *Config) {
 	httpdCommandFlag.Flag.BoolVar(&cfg.EnableSProxyServer, "secure", false, "enable httpsd server")
 	httpdCommandFlag.Flag.BoolVar(&cfg.AllowRedirectToSProxy, "allow_redirect", false, "allow redirect all http transmission to httpsd")
 	httpdCommandFlag.Flag.Usage = func() {
-		fmt.Printf(brandText)
+		fmt.Print(brandText)
 		fmt.Printf(commandText, httpdCommandFlag.Name)
 		flag.PrintDefaults()
 		printCommandDefaults(&httpdCommandFlag, 0)

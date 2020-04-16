@@ -40,8 +40,6 @@ var (
 	objectPivot                = []byte("getobject")
 	nodePivot                  = []byte("getnode")
 	ticketPivot                = []byte("getticket")
-	helloPivot                 = []byte("hello")
-	okPivot                    = []byte("ok")
 	errWrongTypeForItems       = fmt.Errorf("items should be array or slice")
 	errKeyNotFoundInItems      = fmt.Errorf("key not found")
 	ErrFailedToParseTicket     = fmt.Errorf("failed to parse ticket")
@@ -161,7 +159,7 @@ func (rlpV2 RLP_V2) parseBlockHeaderResponse(buffer []byte) (interface{}, error)
 	}
 	hash := header.Hash()
 	if !bytes.Equal(hash[:], blockHash.Value) {
-		return nil, fmt.Errorf("Blockhash != real hash %v %v", blockHash.Value, header)
+		return nil, fmt.Errorf("blockhash != real hash %v %v", blockHash.Value, header)
 	}
 	return header, nil
 }
@@ -392,7 +390,7 @@ func (rlpV2 RLP_V2) parseInboundPortOpenRequest(buffer []byte) (interface{}, err
 		return portOpen, nil
 	}
 
-	return nil, fmt.Errorf("Not supported port format: %v", inboundRequest.Payload.Port)
+	return nil, fmt.Errorf("not supported port format: %v", inboundRequest.Payload.Port)
 }
 
 func (rlpV2 RLP_V2) parseInboundPortSendRequest(buffer []byte) (interface{}, error) {

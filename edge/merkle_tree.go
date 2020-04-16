@@ -14,8 +14,8 @@ import (
 )
 
 var (
-	errWrongTree   = fmt.Errorf("Wrong merkle tree data")
-	errKeyNotFound = fmt.Errorf("Key not found in merkle tree")
+	errWrongTree   = fmt.Errorf("wrong merkle tree data")
+	errKeyNotFound = fmt.Errorf("key not found in merkle tree")
 )
 
 // MerkleTreeNode struct for node of merkle tree

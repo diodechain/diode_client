@@ -1,0 +1,34 @@
+name: "CI"
+on: ["push", "pull_request"]
+
+jobs:
+  test:
+    name: "Run unit tests"
+    strategy:
+      matrix:
+        os: ["windows-latest", "ubuntu-latest", "macOS-latest"]
+        go: ["1.14.x"]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - if: runner.os == 'Windows'
+      run: |
+        choco install msys2
+        echo "::add-path::C:\\tools\\msys64\\usr\\bin"
+        echo "::add-path::C:\\tools\\msys64\\mingw64\\bin"
+        echo "::set-env name=PKG_CONFIG_PATH::/mingw64/lib/pkgconfig"
+    - if: runner.os == 'Windows'
+      run: pacman -S --noconfirm --needed base-devel mingw-w64-i686-toolchain mingw-w64-x86_64-toolchain mingw-w64-x86_64-openssl
+    - uses: actions/checkout@v2
+    - uses: actions/setup-go@v1
+      with:
+        go-version: ${{ matrix.go }}
+    - run: make test
+  lint:
+    name: "Run static analysis"
+    runs-on: "ubuntu-latest"
+    steps:
+    - uses: actions/setup-go@v1
+      with:
+        go-version: "1.14.x"
+    - uses: actions/checkout@v2
+    - run: make lint

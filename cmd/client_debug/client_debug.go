@@ -73,7 +73,6 @@ func main() {
 			log.Printf("Content #%d:  %s\n", j, string(body))
 			resp.Body.Close()
 			wg.Done()
-			return
 		}(i + 1)
 	}
 	wg.Wait()
