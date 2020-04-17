@@ -39,8 +39,10 @@ var (
   diode [OPTIONS] %s [ARG...]
 OPTIONS
 `
-
 	usageText = `COMMANDS
+`
+	finalText = `
+Run 'diode COMMAND --help' for more information on a command.
 `
 	bootDiodeAddrs = [3]string{
 		"asia.testnet.diode.io:41046",
@@ -332,6 +334,8 @@ func LoadConfigFromFile(filePath string) (configBytes []byte, err error) {
 // TODO: refactor flag usage and commandFlag usage text
 func ParseFlag() {
 	cfg := &Config{}
+	// wrap sub config
+	// wrapHelpCommandFlag(cfg)
 	wrapPublishCommandFlag(cfg)
 	wrapSocksdCommandFlag(cfg)
 	wrapHttpdCommandFlag(cfg)
@@ -346,8 +350,8 @@ func ParseFlag() {
 			fmt.Printf("  %s\n", commandFlag.HelpText)
 			printCommandDefaults(commandFlag, 4)
 		}
+		fmt.Print(finalText)
 	}
-
 	flag.StringVar(&cfg.DBPath, "dbpath", path.Join(".", "db", "private.db"), "file path to db file")
 	flag.StringVar(&cfg.RegistryAddr, "registry", "0x5000000000000000000000000000000000000000", "registry contract address")
 	flag.StringVar(&cfg.FleetAddr, "fleet", "0x6000000000000000000000000000000000000000", "fleet contract address")
