@@ -1,9 +1,18 @@
 #!/bin/bash
 
 PRODUCT_HOME=/Library/Diode/__VERSION__
+OPENSSL_DIRECTORY=/usr/local/opt/openssl/lib
 
 echo "Post installation process started"
 echo $PRODUCT_HOME
 
 # echo 'export PATH=$PRODUCT_HOME:$PATH' > ~/.bash_profile
-ln -s ${PRODUCT_HOME}/diode /usr/local/bin/diode
+ln -s $PRODUCT_HOME/diode /usr/local/bin/diode
+
+if [ ! -f $OPENSSL_DIRECTORY/libcrypto.1.0.0.dylib ]; then
+    mv $PRODUCT_HOME/libcrypto.1.0.0.dylib $OPENSSL_DIRECTORY/libcrypto.1.0.0.dylib
+fi
+
+if [ ! -f $OPENSSL_DIRECTORY/libssl.1.0.0.dylib ]; then
+    mv $PRODUCT_HOME/libssl.1.0.0.dylib $OPENSSL_DIRECTORY/libssl.1.0.0.dylib
+fi

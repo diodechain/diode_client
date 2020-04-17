@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# TODO: remove local db and config file
+# TODO: remove local db
 
 VERSION=__VERSION__
 
@@ -13,7 +13,7 @@ fi
 echo "Diode __VERSION__ uninstaller"
 
 while true; do
-    read -p "Do you want to continue [Y/n]?" answer
+    read -p "Do you wish to continue [Y/n]?" answer
     [[ $answer == "y" || $answer == "Y" || $answer == "" ]] && break
     [[ $answer == "n" || $answer == "N" ]] && exit 0
     echo "Please answer with 'y' or 'n'"
