@@ -160,7 +160,6 @@ func wrongCommandLineFlag(err error) {
 }
 
 func init() {
-	// commandFlags["help"] = &helpCommandFlag
 	commandFlags["publish"] = &publishCommandFlag
 	commandFlags["socksd"] = &socksdCommandFlag
 	commandFlags["httpd"] = &httpdCommandFlag
@@ -334,8 +333,6 @@ func LoadConfigFromFile(filePath string) (configBytes []byte, err error) {
 // TODO: refactor flag usage and commandFlag usage text
 func ParseFlag() {
 	cfg := &Config{}
-	// wrap sub config
-	// wrapHelpCommandFlag(cfg)
 	wrapPublishCommandFlag(cfg)
 	wrapSocksdCommandFlag(cfg)
 	wrapHttpdCommandFlag(cfg)
