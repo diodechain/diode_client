@@ -83,14 +83,18 @@ Name
 SYNOPSIS
   diode [OPTIONS] COMMAND [ARG...]
 OPTIONS
-  -blacklists string
+  -bind value
+    	bind a remote port to a local port. -bind <local_port>:<to_address>:<to_port>:(udp|tcp)
+  -blacklists value
     	addresses are not allowed to connect to published resource (worked when whitelists is empty)
+  -configpath string
+    	yaml file path to config file
   -dbpath string
-    	file path to db file (default "./db/private.db")
+    	file path to db file (default "db/private.db")
   -debug
     	turn on debug mode
-  -diodeaddrs string
-    	addresses of Diode node server (default "asia.testnet.diode.io:41045,europe.testnet.diode.io:41045,usa.testnet.diode.io:41045")
+  -diodeaddrs value
+    	addresses of Diode node server (default: asia.testnet.diode.io:41046, europe.testnet.diode.io:41046, usa.testnet.diode.io:41046)
   -fleet string
     	fleet contract address (default "0x6000000000000000000000000000000000000000")
   -keepalive
@@ -101,6 +105,8 @@ OPTIONS
     	the time (in seconds) the connection needs to remain idle before TCP starts sending keepalive probes (default 30)
   -keepaliveinterval int
     	the time (in seconds) between individual keepalive probes (default 5)
+  -logfilepath string
+    	file path to log file
   -metrics
     	enable metrics stats
   -registry string
@@ -111,13 +117,38 @@ OPTIONS
     	wait seconds before next retry (default 1)
   -rlimit_nofile int
     	specify the file descriptor numbers that can be opened by this process
-  -skiphostvalidation
-    	skip host validation
   -timeout int
     	timeout seconds to connect to the remote rpc server (default 5)
-  -whitelists string
-    	addresses are allowed to connect to published resource (worked when whitelists is empty)
+  -whitelists value
+    	addresses are allowed to connect to published resource (worked when blacklists is empty)
 COMMANDS
+  httpd
+    This command enables a public http server as is used by the "diode.link" website
+    ARG
+      -allow_redirect
+    	allow redirect all http transmission to httpsd
+      -certpath string
+    	Pem format of certificate file path of httpsd secure server (default "./priv/cert.pem")
+      -httpd_host string
+    	host of httpd server listening to (default "127.0.0.1")
+      -httpd_port int
+    	port of httpd server listening to (default 80)
+      -httpsd_host string
+    	host of httpsd server listening to (default "127.0.0.1")
+      -httpsd_port int
+    	port of httpsd server listening to (default 443)
+      -privpath string
+    	Pem format of private key file path of httpsd secure server (default "./priv/priv.pem")
+      -proxy_host string
+    	host of socksd proxy server (default "127.0.0.1")
+      -proxy_port int
+    	port of socksd proxy server (default 1080)
+      -secure
+    	enable httpsd server
+      -socksd
+    	enable socksd proxy server
+    EXAMPLE
+      diode httpd -httpd_port 8080 -httpsd_port 443 -secure -certpath ./cert.pem -privpath ./priv.pem
   config
     This command manages variables in the local config store.
     ARG
@@ -149,33 +180,6 @@ COMMANDS
     	port of socks server listening to (default 1080)
     EXAMPLE
       diode socksd -socksd_port 8082 -socksd_host 127.0.0.1
-  httpd
-    This command enables a public http server as is used by the "diode.link" website
-    ARG
-      -allow_redirect
-    	allow redirect all http transmission to httpsd
-      -certpath string
-    	Pem format of certificate file path of httpsd secure server (default "./priv/cert.pem")
-      -httpd_host string
-    	host of httpd server listening to (default "127.0.0.1")
-      -httpd_port int
-    	port of httpd server listening to (default 80)
-      -httpsd_host string
-    	host of httpsd server listening to (default "127.0.0.1")
-      -httpsd_port int
-    	port of httpsd server listening to (default 443)
-      -privpath string
-    	Pem format of private key file path of httpsd secure server (default "./priv/priv.pem")
-      -proxy_host string
-    	host of socksd proxy server (default "127.0.0.1")
-      -proxy_port int
-    	port of socksd proxy server (default 1080)
-      -secure
-    	enable httpsd server
-      -socksd
-    	enable socksd proxy server
-    EXAMPLE
-      diode httpd -httpd_port 8080 -httpsd_port 443 -secure -certpath ./cert.pem -privpath ./priv.pem
 ```
 
 ## Tunnel to ssh using your diode socks proxy

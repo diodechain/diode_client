@@ -45,7 +45,7 @@ func main() {
 	// Initialize db
 	clidb, err := db.OpenFile(cfg.DBPath)
 	if err != nil {
-		panic(err)
+		printError("Couldn't open database", err, 129)
 	}
 	db.DB = clidb
 

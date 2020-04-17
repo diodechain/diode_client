@@ -67,7 +67,6 @@ type Config struct {
 	RemoteRPCTimeout        time.Duration    `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	RetryTimes              int              `yaml:"retrytimes,omitempty" json:"retrytimes,omitempty"`
 	RetryWait               time.Duration    `yaml:"retrywait,omitempty" json:"retrywait,omitempty"`
-	SkipHostValidation      bool             `yaml:"skiphostvalidation,omitempty" json:"skiphostvalidation,omitempty"`
 	RlimitNofile            int              `yaml:"rlimit_nofile,omitempty" json:"rlimit_nofile,omitempty"`
 	LogFilePath             string           `yaml:"logfilepath,omitempty" json:"logfilepath,omitempty"`
 	SBlacklists             stringValues     `yaml:"blacklists,omitempty" json:"blacklists,omitempty"`
@@ -382,7 +381,6 @@ func ParseFlag() {
 	flag.Var(&cfg.SWhitelists, "whitelists", "addresses are allowed to connect to published resource (worked when blacklists is empty)")
 	flag.Var(&cfg.SBinds, "bind", "bind a remote port to a local port. -bind <local_port>:<to_address>:<to_port>:(udp|tcp)")
 
-	flag.BoolVar(&cfg.SkipHostValidation, "skiphostvalidation", false, "skip host validation")
 	flag.Parse()
 
 	if len(cfg.ConfigFilePath) > 0 {

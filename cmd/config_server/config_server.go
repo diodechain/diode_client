@@ -47,25 +47,24 @@ type configAPIHandler struct{}
 
 // Config for poc-client
 type Config struct {
-	DBPath             string        `yaml:"dbpath,omitempty" json:"dbpath,omitempty"`
-	Debug              bool          `yaml:"debug,omitempty" json:"debug,omitempty"`
-	EnableMetrics      bool          `yaml:"metrics,omitempty" json:"metrics,omitempty"`
-	EnableKeepAlive    bool          `yaml:"keepalive,omitempty" json:"keepalive,omitempty"`
-	KeepAliveCount     int           `yaml:"keepalivecount,omitempty" json:"keepalivecount,omitempty"`
-	KeepAliveIdle      time.Duration `yaml:"keepaliveidle,omitempty" json:"keepaliveidle,omitempty"`
-	KeepAliveInterval  time.Duration `yaml:"keepaliveinterval,omitempty" json:"keepaliveinterval,omitempty"`
-	FleetAddr          string        `yaml:"fleet,omitempty" json:"fleet,omitempty"`
-	RegistryAddr       string        `yaml:"registry,omitempty" json:"registry,omitempty"`
-	RemoteRPCAddrs     []string      `yaml:"diodeaddrs,omitempty" json:"diodeaddrs,omitempty"`
-	RemoteRPCTimeout   time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
-	RetryTimes         int           `yaml:"retrytimes,omitempty" json:"retrytimes,omitempty"`
-	RetryWait          time.Duration `yaml:"retrywait,omitempty" json:"retrywait,omitempty"`
-	SkipHostValidation bool          `yaml:"skiphostvalidation,omitempty" json:"skiphostvalidation,omitempty"`
-	RlimitNofile       int           `yaml:"rlimit_nofile,omitempty" json:"rlimit_nofile,omitempty"`
-	LogFilePath        string        `yaml:"logfilepath,omitempty" json:"logfilepath,omitempty"`
-	SBlacklists        []string      `yaml:"blacklists,omitempty" json:"blacklists,omitempty"`
-	SWhitelists        []string      `yaml:"whitelists,omitempty" json:"whitelists,omitempty"`
-	SBinds             []string      `yaml:"bind,omitempty" json:"bind,omitempty"`
+	DBPath            string        `yaml:"dbpath,omitempty" json:"dbpath,omitempty"`
+	Debug             bool          `yaml:"debug,omitempty" json:"debug,omitempty"`
+	EnableMetrics     bool          `yaml:"metrics,omitempty" json:"metrics,omitempty"`
+	EnableKeepAlive   bool          `yaml:"keepalive,omitempty" json:"keepalive,omitempty"`
+	KeepAliveCount    int           `yaml:"keepalivecount,omitempty" json:"keepalivecount,omitempty"`
+	KeepAliveIdle     time.Duration `yaml:"keepaliveidle,omitempty" json:"keepaliveidle,omitempty"`
+	KeepAliveInterval time.Duration `yaml:"keepaliveinterval,omitempty" json:"keepaliveinterval,omitempty"`
+	FleetAddr         string        `yaml:"fleet,omitempty" json:"fleet,omitempty"`
+	RegistryAddr      string        `yaml:"registry,omitempty" json:"registry,omitempty"`
+	RemoteRPCAddrs    []string      `yaml:"diodeaddrs,omitempty" json:"diodeaddrs,omitempty"`
+	RemoteRPCTimeout  time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	RetryTimes        int           `yaml:"retrytimes,omitempty" json:"retrytimes,omitempty"`
+	RetryWait         time.Duration `yaml:"retrywait,omitempty" json:"retrywait,omitempty"`
+	RlimitNofile      int           `yaml:"rlimit_nofile,omitempty" json:"rlimit_nofile,omitempty"`
+	LogFilePath       string        `yaml:"logfilepath,omitempty" json:"logfilepath,omitempty"`
+	SBlacklists       []string      `yaml:"blacklists,omitempty" json:"blacklists,omitempty"`
+	SWhitelists       []string      `yaml:"whitelists,omitempty" json:"whitelists,omitempty"`
+	SBinds            []string      `yaml:"bind,omitempty" json:"bind,omitempty"`
 }
 
 func isHexBytes(src []byte) bool {

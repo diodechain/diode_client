@@ -8,7 +8,6 @@ diodeaddrs:
 timeout: 10s
 retrytimes: 0
 retrywait: 10s
-skiphostvalidation: true
 # rlimit_nofile: 300
 # metrics: true
 # registry:
