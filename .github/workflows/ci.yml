@@ -2,8 +2,8 @@ name: "CI"
 on: ["push", "pull_request"]
 
 jobs:
-  test:
-    name: "Run unit tests"
+  build_and_test:
+    name: "Run tests and build artifacts"
     strategy:
       matrix:
         os: ["windows-latest", "ubuntu-latest", "macOS-latest"]
@@ -17,12 +17,22 @@ jobs:
         echo "::add-path::C:\\tools\\msys64\\mingw64\\bin"
         echo "::set-env name=PKG_CONFIG_PATH::/mingw64/lib/pkgconfig"
     - if: runner.os == 'Windows'
-      run: pacman -S --noconfirm --needed base-devel mingw-w64-i686-toolchain mingw-w64-x86_64-toolchain mingw-w64-x86_64-openssl
+      run: pacman -S --noconfirm --needed base-devel mingw-w64-i686-toolchain mingw-w64-x86_64-toolchain mingw-w64-x86_64-openssl upx
+    - if: runner.os == 'macOS'
+      run: |
+        brew install upx binutils
+        echo "::add-path::/usr/local/opt/binutils/bin"
     - uses: actions/checkout@v2
     - uses: actions/setup-go@v1
       with:
         go-version: ${{ matrix.go }}
     - run: make test
+    - run: make dist
+    - name: Archive production artifacts
+      uses: actions/upload-artifact@v1
+      with:
+        name: ${{ matrix.os }}
+        path: dist
   lint:
     name: "Run static analysis"
     runs-on: "ubuntu-latest"

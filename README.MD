@@ -3,6 +3,7 @@
 This is Go client for connecting device through diodechain. You can found more detail about how diodechain/client works in our previous presentations https://github.com/diodechain/presentations.
 
 [![Build Status](https://travis-ci.com/diodechain/diode_go_client.svg?branch=master)](https://travis-ci.com/diodechain/diode_go_client)
+![CI](https://github.com/diodechain/diode_go_client/workflows/CI/badge.svg)
 
 # Development
 
