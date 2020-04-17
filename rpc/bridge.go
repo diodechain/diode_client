@@ -229,15 +229,15 @@ func (rpcClient *RPCClient) recvMessage() {
 						// 	rpcClient.notifyCalls(RECONNECTED)
 						// }()
 						// Resetting buffers to not mix old messages with new messages
-						// rpcClient.messageQueue = make(chan Message, 1024)
 						rpcClient.recall()
 						notifySignal(rpcClient.signal, RECONNECTED, enqueueTimeout)
 						continue
 					}
 				}
 			}
-			// TODO: should connect to another rpc bridge
+			// should close the connection and restart client if client did start in diode.go
 			if !rpcClient.Closed() {
+				// cancel all calls to prevent rpc timeout
 				go func() {
 					rpcClient.notifyCalls(CANCELLED)
 				}()

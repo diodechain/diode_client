@@ -169,20 +169,7 @@ func main() {
 		sig := <-sigChan
 		switch sig {
 		case syscall.SIGINT:
-			if client.Started() {
-				client.Close()
-			}
-			if socksServer.Started() {
-				socksServer.Close()
-			}
-			if proxyServer != nil && proxyServer.Started() {
-				proxyServer.Close()
-			}
-			handler := cfg.Logger.GetHandler()
-			if closingHandler, ok := handler.(log15.ClosingHandler); ok {
-				closingHandler.WriteCloser.Close()
-			}
-			os.Exit(0)
+			closeDiode(client, socksServer, proxyServer, cfg)
 		}
 	}()
 
@@ -234,6 +221,7 @@ func main() {
 
 	// start
 	client.Wait()
+	closeDiode(client, socksServer, proxyServer, cfg)
 }
 
 func printLabel(label string, value string) {
@@ -254,4 +242,21 @@ func connect(c chan *rpc.RPCClient, host string, cfg *config.Config, wg *sync.Wa
 	} else {
 		c <- client
 	}
+}
+
+func closeDiode(client *rpc.RPCClient, socksServer *rpc.Server, proxyServer *rpc.ProxyServer, cfg *config.Config) {
+	if client.Started() {
+		client.Close()
+	}
+	if socksServer.Started() {
+		socksServer.Close()
+	}
+	if proxyServer != nil && proxyServer.Started() {
+		proxyServer.Close()
+	}
+	handler := cfg.Logger.GetHandler()
+	if closingHandler, ok := handler.(log15.ClosingHandler); ok {
+		closingHandler.WriteCloser.Close()
+	}
+	os.Exit(0)
 }
