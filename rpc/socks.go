@@ -610,11 +610,13 @@ func (socksServer *Server) Start() error {
 }
 
 func (socksServer *Server) handleUDP(packet []byte) {
-	_, addr, err := socksServer.udpconn.ReadFrom(packet)
+	n, addr, err := socksServer.udpconn.ReadFrom(packet)
 	if err != nil {
 		socksServer.Client.Error("handleUDP error: %v", err)
 		return
 	}
+
+	packet = packet[:n]
 
 	// Compare reference at: https://tools.ietf.org/html/rfc1928
 	// Chapter: 7. Procedure for UDP-based clients
@@ -730,12 +732,12 @@ func (socksServer *Server) StartBind(bind config.Bind) error {
 		packet := make([]byte, 2048)
 		go func() {
 			for {
-				_, addr, err := udp.ReadFrom(packet)
+				n, addr, err := udp.ReadFrom(packet)
 				if err != nil {
 					socksServer.Client.Error("StartBind(udp): %v", err)
 					continue
 				}
-				socksServer.forwardUDP(addr, bind.To, bind.ToPort, "rw", packet)
+				socksServer.forwardUDP(addr, bind.To, bind.ToPort, "rw", packet[:n])
 			}
 		}()
 
