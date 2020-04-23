@@ -33,6 +33,10 @@ func main() {
 	var err error
 	var pool *rpc.DataPool
 
+	if version != "development" {
+		doUpdate()
+	}
+
 	cfg := config.AppConfig
 	if len(cfg.PublishedPorts) > 0 {
 		pool = rpc.NewPoolWithPublishedPorts(cfg.PublishedPorts)
@@ -232,6 +236,10 @@ func printLabel(label string, value string) {
 func printError(msg string, err error, status int) {
 	config.AppConfig.Logger.Error(msg, "module", "main", "error", err)
 	os.Exit(status)
+}
+
+func printInfo(msg string) {
+	config.AppConfig.Logger.Info(msg, "module", "main")
 }
 
 func connect(c chan *rpc.RPCClient, host string, cfg *config.Config, wg *sync.WaitGroup, pool *rpc.DataPool) {
