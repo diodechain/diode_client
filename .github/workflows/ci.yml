@@ -31,7 +31,7 @@ jobs:
     - if: runner.os == 'macOS'
       run: |
         mkdir darwin_package_build
-        DIODE_DARWIN_SRC=dist DIODE_BUILD_DST=darwin_package_build DIODE_BINARY_DIRECTORY=dist sh darwin_package.sh
+        DIODE_OPENSSL_DIRECTORY=dist DIODE_BUILD_DST=darwin_package_build DIODE_BINARY_DIRECTORY=dist sh darwin_package.sh
         cp -R darwin_package_build/ dist/
     - name: Archive production artifacts
       uses: actions/upload-artifact@v1
