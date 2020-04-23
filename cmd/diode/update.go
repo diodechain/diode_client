@@ -5,8 +5,10 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"runtime"
+	"syscall"
 
 	"github.com/kierdavis/ansi"
 
@@ -73,5 +75,9 @@ func doUpdate() {
 		log.Fatalf("error installing: %s", err)
 	}
 
-	fmt.Printf("Updated to %s\n", latest.Version)
+	fmt.Printf("Updated to %s restarting...\n", latest.Version)
+	err = syscall.Exec(path.Join(dir, m.Command), os.Args, os.Environ())
+	if err != nil {
+		log.Fatalf("error restarting: %s", path.Join(dir, m.Command))
+	}
 }
