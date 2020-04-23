@@ -69,7 +69,7 @@ diode:
 .PHONY: diode_static
 diode_static:
 	go get -a -tags openssl_static github.com/diodechain/openssl
-	$(GOBUILD) -tags netgo,openssl_static -ldflags '-extldflags "-static"' -o diode_static$(EXE) cmd/diode/diode.go
+	$(GOBUILD) -tags netgo,openssl_static -ldflags '-extldflags "-static"' -o diode_static$(EXE) cmd/diode/*.go
 
 .PHONY: config_server
 config_server:
