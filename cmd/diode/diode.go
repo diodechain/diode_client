@@ -33,6 +33,8 @@ func main() {
 	var err error
 	var pool *rpc.DataPool
 
+	doUpdate()
+
 	cfg := config.AppConfig
 	if len(cfg.PublishedPorts) > 0 {
 		pool = rpc.NewPoolWithPublishedPorts(cfg.PublishedPorts)

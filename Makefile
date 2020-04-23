@@ -64,7 +64,7 @@ gateway: diode
 
 .PHONY: diode
 diode:
-	$(GOBUILD) -o diode$(EXE) cmd/diode/diode.go
+	$(GOBUILD) -o diode$(EXE) cmd/diode/*.go
 
 .PHONY: diode_static
 diode_static:
