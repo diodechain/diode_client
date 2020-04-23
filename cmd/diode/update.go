@@ -3,6 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
 
 	"github.com/kierdavis/ansi"
@@ -25,6 +28,8 @@ func doUpdate() {
 		},
 	}
 
+	log.Printf("Checking for updates...")
+
 	// fetch the new releases
 	releases, err := m.LatestReleases()
 	if err != nil {
@@ -39,13 +44,11 @@ func doUpdate() {
 
 	// latest release
 	latest := releases[0]
-
-	// find the tarball for this system
-	log.Printf("Looking for %s %s in %+v\n", runtime.GOOS, runtime.GOARCH, latest)
+	log.Printf("found version %s > %s\n", latest.Version, version)
 
 	a := latest.FindZip(runtime.GOOS, runtime.GOARCH)
 	if a == nil {
-		log.Print("no binary for your system")
+		log.Printf("no binary for your system (%s_%s)", runtime.GOOS, runtime.GOARCH)
 		return
 	}
 
@@ -58,8 +61,15 @@ func doUpdate() {
 		log.Fatalf("error downloading: %s", err)
 	}
 
-	// install it
-	if err := m.Install(tarball); err != nil {
+	// searching for binary in path
+	bin, err := exec.LookPath(m.Command)
+	if err != nil {
+		// just update local file
+		bin = os.Args[0]
+	}
+
+	dir := filepath.Dir(bin)
+	if err := m.InstallTo(tarball, dir); err != nil {
 		log.Fatalf("error installing: %s", err)
 	}
 
