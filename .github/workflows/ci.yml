@@ -40,7 +40,7 @@ jobs:
       with:
         name: ${{ matrix.os }}
         path: dist
-    - name: Archive production artifacts
+    - name: Archive macos package production artifacts
       uses: actions/upload-artifact@v1
       if: runner.os == 'macOS'
       with:
