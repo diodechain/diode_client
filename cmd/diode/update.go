@@ -8,7 +8,6 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
-	"syscall"
 
 	"github.com/kierdavis/ansi"
 
@@ -18,9 +17,6 @@ import (
 )
 
 func doUpdate() {
-	ansi.HideCursor()
-	defer ansi.ShowCursor()
-
 	m := &update.Manager{
 		Command: "diode",
 		Store: &github.Store{
@@ -30,37 +26,13 @@ func doUpdate() {
 		},
 	}
 
-	log.Printf("Checking for updates...")
-
-	// fetch the new releases
-	releases, err := m.LatestReleases()
-	if err != nil {
-		log.Fatalf("error fetching releases: %s", err)
+	if runtime.GOOS == "windows" {
+		m.Command += ".exe"
 	}
 
-	// no updates
-	if len(releases) == 0 {
-		log.Print("no updates")
+	tarball, ok := download(m)
+	if !ok {
 		return
-	}
-
-	// latest release
-	latest := releases[0]
-	log.Printf("found version %s > %s\n", latest.Version, version)
-
-	a := latest.FindZip(runtime.GOOS, runtime.GOARCH)
-	if a == nil {
-		log.Printf("no binary for your system (%s_%s)", runtime.GOOS, runtime.GOARCH)
-		return
-	}
-
-	// whitespace
-	fmt.Println()
-
-	// download tarball to a tmp dir
-	tarball, err := a.DownloadProxy(progress.Reader)
-	if err != nil {
-		log.Fatalf("error downloading: %s", err)
 	}
 
 	// searching for binary in path
@@ -75,9 +47,52 @@ func doUpdate() {
 		log.Fatalf("error installing: %s", err)
 	}
 
-	fmt.Printf("Updated to %s restarting...\n", latest.Version)
-	err = syscall.Exec(path.Join(dir, m.Command), os.Args, os.Environ())
+	cmd := path.Join(dir, m.Command)
+	fmt.Printf("Updated, restarting %s...\n", cmd)
+
+	err = update.Restart(cmd)
 	if err != nil {
-		log.Fatalf("error restarting: %s", path.Join(dir, m.Command))
+		log.Fatalf("error restarting %s: %v", cmd, err)
 	}
+}
+
+func download(m *update.Manager) (string, bool) {
+	ansi.HideCursor()
+	defer ansi.ShowCursor()
+
+	log.Printf("Checking for updates...")
+
+	// fetch the new releases
+	releases, err := m.LatestReleases()
+	if err != nil {
+		log.Printf("error fetching releases: %s", err)
+		return "", false
+	}
+
+	// no updates
+	if len(releases) == 0 {
+		log.Print("no updates")
+		return "", false
+	}
+
+	// latest release
+	latest := releases[0]
+	log.Printf("found version %s > %s\n", latest.Version, version)
+
+	a := latest.FindZip(runtime.GOOS, runtime.GOARCH)
+	if a == nil {
+		log.Printf("no binary for your system (%s_%s)", runtime.GOOS, runtime.GOARCH)
+		return "", false
+	}
+
+	// whitespace
+	fmt.Println()
+
+	// download tarball to a tmp dir
+	tarball, err := a.DownloadProxy(progress.Reader)
+	if err != nil {
+		log.Fatalf("error downloading: %s", err)
+	}
+
+	return tarball, true
 }

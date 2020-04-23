@@ -7,7 +7,7 @@ require (
 	github.com/buger/jsonparser v0.0.0-20191204142016-1a29609e0929
 	github.com/c4milo/unpackit v0.0.0-20170704181138-4ed373e9ef1c // indirect
 	github.com/diodechain/go-cache v2.1.0+incompatible
-	github.com/diodechain/go-update v2.2.7+incompatible
+	github.com/diodechain/go-update v2.2.8+incompatible
 	github.com/diodechain/gobert v1.0.0
 	github.com/diodechain/log15 v0.0.0-20200410080737-5718e6d20f99
 	github.com/diodechain/openssl v1.0.3
