@@ -9,9 +9,6 @@ jobs:
         os: ["windows-latest", "ubuntu-latest", "macOS-latest"]
         go: ["1.14.x"]
     runs-on: ${{ matrix.os }}
-    include:
-      - os: macOS-latest
-      - experimental: true
     steps:
     - if: runner.os == 'Windows'
       run: |
