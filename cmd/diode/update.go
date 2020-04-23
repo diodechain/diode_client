@@ -3,15 +3,13 @@ package main
 import (
 	"fmt"
 	"log"
-	"path/filepath"
 	"runtime"
-	"strings"
 
 	"github.com/kierdavis/ansi"
 
-	"github.com/tj/go-update"
-	"github.com/tj/go-update/progress"
-	"github.com/tj/go-update/stores/github"
+	"github.com/diodechain/go-update"
+	"github.com/diodechain/go-update/progress"
+	"github.com/diodechain/go-update/stores/github"
 )
 
 func doUpdate() {
@@ -45,17 +43,7 @@ func doUpdate() {
 	// find the tarball for this system
 	log.Printf("Looking for %s %s in %+v\n", runtime.GOOS, runtime.GOARCH, latest)
 
-	var a *update.Asset
-	for _, b := range latest.Assets {
-		ext := filepath.Ext(b.Name)
-		log.Printf("Found: %s\n", b.Name)
-		if strings.Contains(b.Name, runtime.GOOS) && ext == ".zip" {
-			a = b
-			break
-		}
-	}
-
-	// a := latest.FindTarball(runtime.GOOS, runtime.GOARCH)
+	a := latest.FindZip(runtime.GOOS, runtime.GOARCH)
 	if a == nil {
 		log.Print("no binary for your system")
 		return
