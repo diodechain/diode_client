@@ -63,8 +63,8 @@ type Config struct {
 	KeepAliveCount          int              `yaml:"keepalivecount,omitempty" json:"keepalivecount,omitempty"`
 	KeepAliveIdle           time.Duration    `yaml:"keepaliveidle,omitempty" json:"keepaliveidle,omitempty"`
 	KeepAliveInterval       time.Duration    `yaml:"keepaliveinterval,omitempty" json:"keepaliveinterval,omitempty"`
-	FleetAddr               string           `yaml:"fleet,omitempty" json:"fleet,omitempty"`
-	RegistryAddr            string           `yaml:"registry,omitempty" json:"registry,omitempty"`
+	HexFleetAddr            string           `yaml:"fleet,omitempty" json:"fleet,omitempty"`
+	HexRegistryAddr         string           `yaml:"registry,omitempty" json:"registry,omitempty"`
 	RemoteRPCAddrs          stringValues     `yaml:"diodeaddrs,omitempty" json:"diodeaddrs,omitempty"`
 	RemoteRPCTimeout        time.Duration    `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	RetryTimes              int              `yaml:"retrytimes,omitempty" json:"retrytimes,omitempty"`
@@ -75,8 +75,8 @@ type Config struct {
 	SWhitelists             stringValues     `yaml:"whitelists,omitempty" json:"whitelists,omitempty"`
 	SBinds                  stringValues     `yaml:"bind,omitempty" json:"bind,omitempty"`
 	Command                 string           `yaml:"-" json:"-"`
-	DecFleetAddr            [20]byte         `yaml:"-" json:"-"`
-	DecRegistryAddr         [20]byte         `yaml:"-" json:"-"`
+	FleetAddr               Address          `yaml:"-" json:"-"`
+	RegistryAddr            Address          `yaml:"-" json:"-"`
 	ProxyServerAddr         string           `yaml:"-" json:"-"`
 	ProxyServerHost         string           `yaml:"-" json:"-"`
 	ProxyServerPort         int              `yaml:"-" json:"-"`
@@ -350,8 +350,8 @@ func ParseFlag() {
 		fmt.Print(finalText)
 	}
 	flag.StringVar(&cfg.DBPath, "dbpath", path.Join(".", "db", "private.db"), "file path to db file")
-	flag.StringVar(&cfg.RegistryAddr, "registry", "0x5000000000000000000000000000000000000000", "registry contract address")
-	flag.StringVar(&cfg.FleetAddr, "fleet", "0x6000000000000000000000000000000000000000", "fleet contract address")
+	flag.StringVar(&cfg.HexRegistryAddr, "registry", "0x5000000000000000000000000000000000000000", "registry contract address")
+	flag.StringVar(&cfg.HexFleetAddr, "fleet", "0x6000000000000000000000000000000000000000", "fleet contract address")
 	flag.IntVar(&cfg.RetryTimes, "retrytimes", 3, "retry times to connect the remote rpc server")
 	flag.BoolVar(&cfg.EnableMetrics, "metrics", false, "enable metrics stats")
 	flag.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
@@ -473,13 +473,11 @@ func ParseFlag() {
 	if err != nil {
 		wrongCommandLineFlag(err)
 	}
-	decRegistryAddr, err := util.DecodeString(cfg.RegistryAddr)
-	copy(cfg.DecRegistryAddr[:], decRegistryAddr)
+	cfg.RegistryAddr, err = util.DecodeAddress(cfg.HexRegistryAddr)
 	if err != nil {
 		wrongCommandLineFlag(err)
 	}
-	decFleetAddr, err := util.DecodeString(cfg.FleetAddr)
-	copy(cfg.DecFleetAddr[:], decFleetAddr)
+	cfg.FleetAddr, err = util.DecodeAddress(cfg.HexFleetAddr)
 	if err != nil {
 		wrongCommandLineFlag(err)
 	}

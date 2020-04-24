@@ -70,13 +70,15 @@ func main() {
 					var err error
 					value := []byte(list[1])
 					if util.IsHex(value) {
-						_, err = util.DecodeString(list[1])
+						value, err = util.DecodeString(list[1])
 						if err != nil {
 							printError("Couldn't decode hex string", err, 1)
 						}
 					}
-					db.DB.Put(list[0], []byte(list[1]))
+					db.DB.Put(list[0], value)
 					printLabel("Set:", list[0])
+				} else {
+					printError("Couldn't set value", fmt.Errorf("Expected -set name=value format"), 1)
 				}
 			}
 		}
@@ -101,16 +103,22 @@ func main() {
 
 		addr := crypto.PubkeyToAddress(rpc.LoadClientPubKey())
 		printLabel("Client address", util.EncodeToString(addr[:]))
-		fleetAddr, err := db.DB.Get("fleet_id")
-		if err == nil {
-			printLabel("Fleet address", string(fleetAddr))
-			// call cfg set fleet_id to update the fleet id
-			cfg.FleetAddr = string(fleetAddr)
-			decFleetID := util.DecodeForce(fleetAddr)
-			copy(cfg.DecFleetAddr[:], decFleetID)
+
+		fleetAddr, err := db.DB.Get("fleet")
+		if err != nil {
+			// Migration if existing
+			fleetAddr, err = db.DB.Get("fleet_id")
+			if err == nil {
+				cfg.FleetAddr, err = util.DecodeAddress(string(fleetAddr))
+				if err == nil {
+					db.DB.Put("fleet", cfg.FleetAddr[:])
+					db.DB.Del("fleet_id")
+				}
+			}
 		} else {
-			db.DB.Put("fleet_id", []byte(cfg.FleetAddr))
+			copy(cfg.FleetAddr[:], fleetAddr)
 		}
+		printLabel("Fleet address", util.EncodeToString(cfg.FleetAddr[:]))
 	}
 
 	// Connect to first server to respond
@@ -188,7 +196,7 @@ func main() {
 
 	socksConfig := &rpc.Config{
 		Addr:            cfg.SocksServerAddr,
-		FleetAddr:       cfg.DecFleetAddr,
+		FleetAddr:       cfg.FleetAddr,
 		Blacklists:      cfg.Blacklists,
 		Whitelists:      cfg.Whitelists,
 		EnableProxy:     cfg.EnableProxyServer,

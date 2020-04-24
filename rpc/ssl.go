@@ -448,8 +448,8 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 	}
 
 	rpcConfig := &RPCConfig{
-		RegistryAddr: config.DecRegistryAddr,
-		FleetAddr:    config.DecFleetAddr,
+		RegistryAddr: config.RegistryAddr,
+		FleetAddr:    config.FleetAddr,
 		Blacklists:   config.Blacklists,
 		Whitelists:   config.Whitelists,
 	}
