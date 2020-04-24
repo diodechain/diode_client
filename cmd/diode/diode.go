@@ -53,19 +53,17 @@ func main() {
 	}
 	db.DB = clidb
 
-	if cfg.Command == "cfg" {
+	if cfg.Command == "config" {
+		activity := false
 		if len(cfg.ConfigDelete) > 0 {
+			activity = true
 			for _, deleteKey := range cfg.ConfigDelete {
 				db.DB.Del(deleteKey)
-				cfg.Logger.Info(fmt.Sprintf("delete: %s", deleteKey), "module", "main")
-			}
-		}
-		if cfg.ConfigList {
-			for _, name := range db.DB.List() {
-				cfg.Logger.Info(name, "module", "main")
+				printLabel("Deleted:", deleteKey)
 			}
 		}
 		if len(cfg.ConfigSet) > 0 {
+			activity = true
 			for _, configSet := range cfg.ConfigSet {
 				list := strings.Split(configSet, "=")
 				if len(list) == 2 {
@@ -78,8 +76,19 @@ func main() {
 						}
 					}
 					db.DB.Put(list[0], []byte(list[1]))
-					cfg.Logger.Info(fmt.Sprintf("set: %s", list[0]), "module", "main")
+					printLabel("Set:", list[0])
 				}
+			}
+		}
+		if cfg.ConfigList || activity == false {
+			printLabel("<KEY>", "<VALUE>")
+			for _, name := range db.DB.List() {
+				label := "<************************>"
+				value, err := db.DB.Get(name)
+				if err == nil && name != "private" {
+					label = util.EncodeToString(value)
+				}
+				printLabel(name, label)
 			}
 		}
 
