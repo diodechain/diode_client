@@ -22,7 +22,7 @@ before_script: make lint
 script:
   - make test
   # test build on pi
-  - docker container run -v  "${PWD}:/build" crosscompile:0.1 go build -tags openssl_static_pi cmd/diode/diode.go
+  - docker container run -v  "${PWD}:/build" crosscompile:0.1 go build -tags openssl_static_pi cmd/diode/*.go
 
 env:
   - GO111MODULE=on
