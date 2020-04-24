@@ -13,7 +13,6 @@ require (
 	github.com/diodechain/openssl v1.0.3
 	github.com/dsnet/compress v0.0.1 // indirect
 	github.com/ethereum/go-ethereum v1.9.11
-	github.com/exosite/gobert v0.0.0-20191127232240-ee599973c1c6
 	github.com/felixge/tcpkeepalive v0.0.0-20160804073959-5bb0b2dea91e
 	github.com/google/go-github v17.0.0+incompatible // indirect
 	github.com/google/go-querystring v1.0.0 // indirect
