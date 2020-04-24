@@ -49,10 +49,7 @@ func doUpdate() {
 	cmd := path.Join(dir, m.Command)
 	fmt.Printf("Updated, restarting %s...\n", cmd)
 
-	err = update.Restart(cmd)
-	if err != nil {
-		printError(fmt.Sprintf("Error restarting %s", cmd), err, 129)
-	}
+	update.Restart(cmd)
 }
 
 func download(m *update.Manager) (string, bool) {

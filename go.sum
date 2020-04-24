@@ -48,8 +48,8 @@ github.com/dgrijalva/jwt-go v3.2.0+incompatible/go.mod h1:E3ru+11k8xSBh+hMPgOLZm
 github.com/dgryski/go-sip13 v0.0.0-20181026042036-e10d5fee7954/go.mod h1:vAd38F8PWV+bWy6jNmig1y/TA+kYO4g3RSRF0IAv0no=
 github.com/diodechain/go-cache v2.1.0+incompatible h1:hwwJSO9NA0iG40CxCWYF80lJOEcX6BsisfPQ3S11/0o=
 github.com/diodechain/go-cache v2.1.0+incompatible/go.mod h1:yG22NI4DfcPMlZ6vtzCCdx9PRBULGG8YKN/yeBn9UUQ=
-github.com/diodechain/go-update v2.2.8+incompatible h1:NdowhNmownEOEPsuXAxPeKZFFfHcJsZo+A6CwwhkgrI=
-github.com/diodechain/go-update v2.2.8+incompatible/go.mod h1:CDLeFDVYEZiIq526c0grXHX1avgSUUp0sYIjWDeuxV0=
+github.com/diodechain/go-update v2.2.9+incompatible h1:+bTZZpsr904MOxLURgbNlp4dzDcEqnUuDXvuBrO86eY=
+github.com/diodechain/go-update v2.2.9+incompatible/go.mod h1:CDLeFDVYEZiIq526c0grXHX1avgSUUp0sYIjWDeuxV0=
 github.com/diodechain/gobert v1.0.0 h1:tdmPG++bY8JcjeAbQp0IkiXPYIbaPAfbctFfwf3W724=
 github.com/diodechain/gobert v1.0.0/go.mod h1:X9tC96925Yf6P16ii8Uo4nGdqDH7mLfxD9FDpKxEyrU=
 github.com/diodechain/log15 v0.0.0-20200410080737-5718e6d20f99 h1:Ebn1vaYgurifpanvNAzlBvPvhtU+6sz3T5NUfemJB7s=
