@@ -2,6 +2,8 @@ TESTS= $(shell go list ./... | grep -v -e gowasm_test -e cmd)
 GOPATH= $(shell go env GOPATH)
 GOBUILD=go build -ldflags "-X main.version=`git describe --tags --dirty`"
 BINS=diode config_server
+ARCHIVE= $(shell ./deployment/zipname.sh)
+
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
@@ -47,20 +49,25 @@ install:
 uninstall:
 	rm -rf /usr/local/bin/diode
 
-.PHONY: dist
-dist: all
+dist: $(BINS)
 	mkdir -p dist
 	cp $(BINS) dist/
 	$(STRIP)
 	upx dist/*
 	$(COPY_DEPS)
 
+.PHONY: archive
+archive: $(ARCHIVE)
+$(ARCHIVE): dist
+	zip -1 -j $(ARCHIVE) dist/*
+
+
+.PHONY: gateway
 gateway: diode
 	strip -s diode
 	upx diode
 	scp -C diode root@diode.ws:diode_go_client
 	ssh root@diode.ws 'svc -k .'
-	touch gateway
 
 .PHONY: diode
 diode:
