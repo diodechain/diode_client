@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"path"
 	"runtime"
 	"strconv"
 	"strings"
@@ -349,7 +348,8 @@ func ParseFlag() {
 		}
 		fmt.Print(finalText)
 	}
-	flag.StringVar(&cfg.DBPath, "dbpath", path.Join(".", "db", "private.db"), "file path to db file")
+
+	flag.StringVar(&cfg.DBPath, "dbpath", util.DefaultDBPath(), "file path to db file")
 	flag.StringVar(&cfg.HexRegistryAddr, "registry", "0x5000000000000000000000000000000000000000", "registry contract address")
 	flag.StringVar(&cfg.HexFleetAddr, "fleet", "0x6000000000000000000000000000000000000000", "fleet contract address")
 	flag.IntVar(&cfg.RetryTimes, "retrytimes", 3, "retry times to connect the remote rpc server")

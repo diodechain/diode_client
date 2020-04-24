@@ -78,11 +78,12 @@ func main() {
 					db.DB.Put(list[0], value)
 					printLabel("Set:", list[0])
 				} else {
-					printError("Couldn't set value", fmt.Errorf("Expected -set name=value format"), 1)
+					printError("Couldn't set value", fmt.Errorf("expected -set name=value format"), 1)
 				}
 			}
 		}
-		if cfg.ConfigList || activity == false {
+
+		if cfg.ConfigList || !activity {
 			printLabel("<KEY>", "<VALUE>")
 			for _, name := range db.DB.List() {
 				label := "<************************>"

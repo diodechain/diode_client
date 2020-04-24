@@ -7,8 +7,12 @@ import (
 	"bufio"
 	"encoding/binary"
 	"fmt"
+	"log"
 	"os"
+	"path"
 	"sync"
+
+	"github.com/diodechain/diode_go_client/util"
 )
 
 const (
@@ -30,8 +34,24 @@ type Database struct {
 	buffer []byte
 }
 
-func OpenFile(path string) (*Database, error) {
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDONLY, 0644)
+func OpenFile(filepath string) (*Database, error) {
+	os.MkdirAll(path.Dir(filepath), 0700)
+
+	// Migration code from version 0.3.1
+	if filepath == util.DefaultDBPath() {
+		oldDefault := path.Join(".", "db", "private.db")
+		if _, err := os.Stat(filepath); err != nil {
+			if _, err := os.Stat(oldDefault); err == nil {
+				log.Printf("Migrating database from %s to %s\n", oldDefault, filepath)
+				err = os.Rename(oldDefault, filepath)
+				if err != nil {
+					return nil, err
+				}
+			}
+		}
+	}
+
+	f, err := os.OpenFile(filepath, os.O_CREATE|os.O_RDONLY, 0600)
 	if err != nil {
 		return nil, err
 	}
@@ -61,7 +81,7 @@ func OpenFile(path string) (*Database, error) {
 		}
 	}
 	db := &Database{
-		path:   path,
+		path:   filepath,
 		values: values,
 		buffer: make([]byte, 1024),
 	}
