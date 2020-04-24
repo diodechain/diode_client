@@ -1,7 +1,7 @@
 TESTS= $(shell go list ./... | grep -v -e gowasm_test -e cmd)
 GOPATH= $(shell go env GOPATH)
 GOBUILD=go build -ldflags "-X main.version=`git describe --tags --dirty`"
-BINS=diode config_server client_debug
+BINS=diode config_server
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
