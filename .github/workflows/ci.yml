@@ -20,7 +20,8 @@ jobs:
       run: pacman -S --noconfirm --needed base-devel mingw-w64-i686-toolchain mingw-w64-x86_64-toolchain mingw-w64-x86_64-openssl upx
     - if: runner.os == 'macOS'
       run: |
-        brew install upx binutils
+        brew install binutils
+        brew install https://raw.githubusercontent.com/Homebrew/homebrew-core/b1f92701367028062abb3518426aa5d8dacc224b/Formula/upx.rb
         echo "::add-path::/usr/local/opt/binutils/bin"
     - uses: actions/checkout@v2
     - uses: actions/setup-go@v1
