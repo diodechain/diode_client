@@ -1,8 +1,9 @@
 #!/bin/bash
 
-# TODO: remove local db
+# TODO: remove local db, remove openssl directory (/usr/local/Cellar/openssl, /usr/local/opt/openssl)
 
 VERSION=__VERSION__
+OPENSSL_DIRECTORY=/usr/local/opt/openssl/lib
 
 #Check running user
 if (( $EUID != 0 )); then
