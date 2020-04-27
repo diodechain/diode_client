@@ -42,7 +42,7 @@ jobs:
       uses: actions/upload-artifact@v1
       if: runner.os == 'macOS'
       with:
-        name: ${{ matrix.os }}-package
+        name: ${{ runner.os }}
         path: darwin_package_build
   lint:
     name: "Run static analysis"
