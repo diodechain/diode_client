@@ -5,7 +5,6 @@ package edge
 
 import (
 	"crypto/ecdsa"
-	"log"
 
 	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/crypto/secp256k1"
@@ -59,7 +58,6 @@ func NewTransaction(nonce uint64, gasPrice uint64, gasLimit uint64, to Address, 
 	if chainid <= 0 {
 		chainid = chainID
 	}
-	log.Println(chainid)
 	return &Transaction{
 		Nonce:    nonce,
 		GasPrice: gasPrice,
@@ -74,6 +72,9 @@ func NewTransaction(nonce uint64, gasPrice uint64, gasLimit uint64, to Address, 
 // From returns from address if transaction had been signed
 // Remember it takes some resources to recover address
 func (tx *Transaction) From() (crypto.Address, error) {
+	if tx.from != crypto.EmptyAddress {
+		return tx.from, nil
+	}
 	msgHash, err := tx.HashWithSig()
 	if err != nil {
 		return [20]byte{}, err
@@ -82,7 +83,8 @@ func (tx *Transaction) From() (crypto.Address, error) {
 	if err != nil {
 		return [20]byte{}, err
 	}
-	return crypto.PubkeyToAddress(pubKey), nil
+	tx.from = crypto.PubkeyToAddress(pubKey)
+	return tx.from, nil
 }
 
 // HashWithSig returns keccak256 of rlp encoded transaction
