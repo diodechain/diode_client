@@ -348,6 +348,16 @@ func (rlpV2 RLP_V2) parseStateRootsResponse(buffer []byte) (interface{}, error) 
 	return stateRoots, nil
 }
 
+func (rlpV2 RLP_V2) parseTransactionResponse(buffer []byte) (interface{}, error) {
+	var response transactionResponse
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	err := decodeStream.Decode(&response)
+	if err != nil {
+		return nil, err
+	}
+	return response.Payload.Result, nil
+}
+
 // parse inbound request
 func (rlpV2 RLP_V2) parseInboundPortOpenRequest(buffer []byte) (interface{}, error) {
 	var inboundRequest portOpenInboundRequest
@@ -494,42 +504,44 @@ func (rlpV2 RLP_V2) NewMessage(requestID uint64, method string, args ...interfac
 	for i, arg := range args {
 		request.Payload[i+1] = arg
 	}
-	decodedRlp, err := rlp.EncodeToBytes(request)
+	encodedRlp, err := rlp.EncodeToBytes(request)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	switch method {
 	case "hello":
-		return decodedRlp, nil, nil
+		return encodedRlp, nil, nil
 	case "portsend":
-		return decodedRlp, nil, nil
+		return encodedRlp, nil, nil
 	case "portclose":
-		return decodedRlp, nil, nil
+		return encodedRlp, nil, nil
 	case "getblock":
-		return decodedRlp, rlpV2.parseBlockResponse, nil
+		return encodedRlp, rlpV2.parseBlockResponse, nil
 	case "getblockpeak":
-		return decodedRlp, rlpV2.parseBlockPeakResponse, nil
+		return encodedRlp, rlpV2.parseBlockPeakResponse, nil
 	case "getblockheader2":
-		return decodedRlp, rlpV2.parseBlockHeaderResponse, nil
+		return encodedRlp, rlpV2.parseBlockHeaderResponse, nil
 	case "getblockquick2":
-		return decodedRlp, rlpV2.parseBlockquickResponse, nil
+		return encodedRlp, rlpV2.parseBlockquickResponse, nil
 	case "getaccount":
-		return decodedRlp, rlpV2.parseAccountResponse, nil
+		return encodedRlp, rlpV2.parseAccountResponse, nil
 	case "getaccountroots":
-		return decodedRlp, rlpV2.parseAccountRootsResponse, nil
+		return encodedRlp, rlpV2.parseAccountRootsResponse, nil
 	case "getaccountvalue":
-		return decodedRlp, rlpV2.parseAccountValueResponse, nil
+		return encodedRlp, rlpV2.parseAccountValueResponse, nil
 	case "ticket":
-		return decodedRlp, rlpV2.parseDeviceTicketResponse, nil
+		return encodedRlp, rlpV2.parseDeviceTicketResponse, nil
 	case "portopen":
-		return decodedRlp, rlpV2.parsePortOpenResponse, nil
+		return encodedRlp, rlpV2.parsePortOpenResponse, nil
 	case "getobject":
-		return decodedRlp, rlpV2.parseDeviceObjectResponse, nil
+		return encodedRlp, rlpV2.parseDeviceObjectResponse, nil
 	case "getnode":
-		return decodedRlp, rlpV2.parseServerObjResponse, nil
+		return encodedRlp, rlpV2.parseServerObjResponse, nil
 	case "getstateroots":
-		return decodedRlp, rlpV2.parseStateRootsResponse, nil
+		return encodedRlp, rlpV2.parseStateRootsResponse, nil
+	case "sendtransaction":
+		return encodedRlp, rlpV2.parseTransactionResponse, nil
 	default:
 		return nil, nil, ErrRPCNotSupport
 	}

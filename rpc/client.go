@@ -509,6 +509,15 @@ func (rpcClient *RPCClient) SubmitNewTicket() error {
 	return rpcClient.submitTicket(ticket)
 }
 
+// SignTransaction return signed transaction
+func (rpcClient *RPCClient) SignTransaction(tx *edge.Transaction) error {
+	privKey, err := rpcClient.s.GetClientPrivateKey()
+	if err != nil {
+		return err
+	}
+	return tx.Sign(privKey)
+}
+
 // NewTicket returns ticket
 func (rpcClient *RPCClient) newTicket() (*edge.DeviceTicket, error) {
 	serverID, err := rpcClient.s.GetServerID()
@@ -639,16 +648,25 @@ func (rpcClient *RPCClient) Ping() (interface{}, error) {
 	return rpcClient.CallContext("ping", nil)
 }
 
-// GetStateRoots returns state roots
-func (rpcClient *RPCClient) GetStateRoots(blockNumber int) (*edge.StateRoots, error) {
-	rawStateRoots, err := rpcClient.CallContext("getstateroots", nil, blockNumber)
+// SendTransaction send signed transaction to server
+func (rpcClient *RPCClient) SendTransaction(tx *edge.Transaction) (result bool, err error) {
+	var encodedRLPTx []byte
+	var res interface{}
+	var ok bool
+	err = rpcClient.SignTransaction(tx)
 	if err != nil {
-		return nil, err
+		return
 	}
-	if stateRoots, ok := rawStateRoots.(*edge.StateRoots); ok {
-		return stateRoots, nil
+	encodedRLPTx, err = tx.ToRLP()
+	if err != nil {
+		return
 	}
-	return nil, nil
+	res, err = rpcClient.CallContext("sendtransaction", nil, encodedRLPTx)
+	if res, ok = res.(string); ok {
+		result = res == "ok"
+		return
+	}
+	return
 }
 
 // GetAccount returns account information: nonce, balance, storage root, code
@@ -659,6 +677,38 @@ func (rpcClient *RPCClient) GetAccount(blockNumber uint64, account [20]byte) (*e
 	}
 	if account, ok := rawAccount.(*edge.Account); ok {
 		return account, nil
+	}
+	return nil, nil
+}
+
+// GetStateRoots returns state roots
+func (rpcClient *RPCClient) GetStateRoots(blockNumber uint64) (*edge.StateRoots, error) {
+	rawStateRoots, err := rpcClient.CallContext("getstateroots", nil, blockNumber)
+	if err != nil {
+		return nil, err
+	}
+	if stateRoots, ok := rawStateRoots.(*edge.StateRoots); ok {
+		return stateRoots, nil
+	}
+	return nil, nil
+}
+
+// GetValidAccount returns valid account information: nonce, balance, storage root, code
+func (rpcClient *RPCClient) GetValidAccount(blockNumber uint64, account [20]byte) (*edge.Account, error) {
+	if blockNumber <= 0 {
+		bn, _ := LastValid()
+		blockNumber = uint64(bn)
+	}
+	act, err := rpcClient.GetAccount(blockNumber, account)
+	if err != nil {
+		return nil, err
+	}
+	sts, err := rpcClient.GetStateRoots(blockNumber)
+	if err != nil {
+		return nil, err
+	}
+	if uint64(sts.Find(act.StateRoot())) == act.StateTree().Module {
+		return act, nil
 	}
 	return nil, nil
 }
@@ -683,20 +733,24 @@ func (rpcClient *RPCClient) GetAccountValue(blockNumber uint64, account [20]byte
 	return nil, nil
 }
 
-func (rpcClient *RPCClient) GetAccountValueRaw(addr [20]byte, key []byte) ([]byte, error) {
-	acv, err := rpcClient.GetAccountValue(0, addr, key)
+// GetAccountValueRaw returns account value
+func (rpcClient *RPCClient) GetAccountValueRaw(blockNumber uint64, addr [20]byte, key []byte) ([]byte, error) {
+	if blockNumber <= 0 {
+		bn, _ := LastValid()
+		blockNumber = uint64(bn)
+	}
+	acv, err := rpcClient.GetAccountValue(blockNumber, addr, key)
 	if err != nil {
 		return NullData, err
 	}
 	// get account roots
-	acr, err := rpcClient.GetAccountRoots(0, addr)
+	acr, err := rpcClient.GetAccountRoots(blockNumber, addr)
 	if err != nil {
 		return NullData, err
 	}
 	acvTree := acv.AccountTree()
-	acvInd := acr.Find(acv.AccountRoot())
 	// check account root existed, empty key
-	if acvInd == -1 {
+	if uint64(acr.Find(acv.AccountRoot())) != acvTree.Module {
 		return NullData, nil
 	}
 	raw, err := acvTree.Get(key)
@@ -725,7 +779,7 @@ func (rpcClient *RPCClient) GetAccountRoots(blockNumber uint64, account [20]byte
 func (rpcClient *RPCClient) ResolveDNS(name string) (addr Address, err error) {
 	rpcClient.Info("resolving DN: %s", name)
 	key := contract.DNSMetaKey(name)
-	raw, err := rpcClient.GetAccountValueRaw(contract.DNSAddr, key)
+	raw, err := rpcClient.GetAccountValueRaw(0, contract.DNSAddr, key)
 	if err != nil {
 		return [20]byte{}, err
 	}
@@ -767,7 +821,7 @@ func (rpcClient *RPCClient) ResolveBlockHash(blockNumber int) (blockHash []byte,
 // IsDeviceWhitelisted returns is given address whitelisted
 func (rpcClient *RPCClient) IsDeviceWhitelisted(addr [20]byte) (bool, error) {
 	key := contract.DeviceWhitelistKey(addr)
-	raw, err := rpcClient.GetAccountValueRaw(rpcClient.Config.FleetAddr, key)
+	raw, err := rpcClient.GetAccountValueRaw(0, rpcClient.Config.FleetAddr, key)
 	if err != nil {
 		return false, err
 	}
@@ -781,7 +835,7 @@ func (rpcClient *RPCClient) IsAccessWhitelisted(fleetAddr Address, clientAddr Ad
 		return false, err
 	}
 	key := contract.AccessWhitelistKey(deviceAddr, clientAddr)
-	raw, err := rpcClient.GetAccountValueRaw(fleetAddr, key)
+	raw, err := rpcClient.GetAccountValueRaw(0, fleetAddr, key)
 	if err != nil {
 		return false, err
 	}

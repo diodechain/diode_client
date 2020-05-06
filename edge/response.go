@@ -181,6 +181,14 @@ type stateRootsResponse struct {
 	}
 }
 
+type transactionResponse struct {
+	RequestID uint64
+	Payload   struct {
+		Type   string
+		Result string
+	}
+}
+
 // type portSendResponse struct {}
 // type portCloseResponse struct {}
 
