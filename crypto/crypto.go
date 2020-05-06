@@ -12,6 +12,7 @@ import (
 
 	"github.com/diodechain/diode_go_client/crypto/secp256k1"
 	"github.com/diodechain/diode_go_client/crypto/sha3"
+	"github.com/diodechain/diode_go_client/rlp"
 )
 
 const ecPrivKeyVersion = 1
@@ -183,5 +184,13 @@ func PubkeyToAddress(pubkey []byte) (addr Address) {
 	hasher.Write(pubkey[1:])
 	hashPubkey := hasher.Sum(nil)
 	copy(addr[:], hashPubkey[12:])
+	return
+}
+
+// CreateAddress creates an ethereum address given the bytes and the nonce
+func CreateAddress(b Address, nonce uint64) (addr Address) {
+	data, _ := rlp.EncodeToBytes([]interface{}{b, nonce})
+	hash := Sha3Hash(data)
+	copy(addr[:], hash[12:])
 	return
 }
