@@ -344,7 +344,6 @@ func ParseFlag() {
 		for _, commandFlag := range commandFlags {
 			fmt.Printf("  %s\n", commandFlag.Name)
 			fmt.Printf("  %s\n", commandFlag.HelpText)
-			printCommandDefaults(commandFlag, 4)
 		}
 		fmt.Print(finalText)
 	}
