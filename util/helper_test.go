@@ -33,6 +33,32 @@ type EmptyBytesTest struct {
 }
 
 var (
+	paddingBytesSuffixTests = []PaddingBytesTest{
+		PaddingBytesTest{
+			Src:    []byte{1},
+			Pad:    0,
+			Length: 5,
+			Res:    []byte{1, 0, 0, 0, 0},
+		},
+		PaddingBytesTest{
+			Src:    []byte{1},
+			Pad:    1,
+			Length: 6,
+			Res:    []byte{1, 1, 1, 1, 1, 1},
+		},
+		PaddingBytesTest{
+			Src:    []byte{1},
+			Pad:    1,
+			Length: 0,
+			Res:    []byte{1},
+		},
+		PaddingBytesTest{
+			Src:    []byte{1, 2, 3, 4},
+			Pad:    0,
+			Length: 10,
+			Res:    []byte{1, 2, 3, 4, 0, 0, 0, 0, 0, 0},
+		},
+	}
 	paddingBytesPrefixTests = []PaddingBytesTest{
 		PaddingBytesTest{
 			Src:    []byte{1},
@@ -123,10 +149,18 @@ var (
 	}
 )
 
+func TestPaddingBytesSuffix(t *testing.T) {
+	for _, v := range paddingBytesSuffixTests {
+		if !bytes.Equal(v.Res, PaddingBytesSuffix(v.Src, v.Pad, v.Length)) {
+			t.Errorf("Cannot padding bytes suffix with givin pad")
+		}
+	}
+}
+
 func TestPaddingBytesPrefix(t *testing.T) {
 	for _, v := range paddingBytesPrefixTests {
 		if !bytes.Equal(v.Res, PaddingBytesPrefix(v.Src, v.Pad, v.Length)) {
-			t.Errorf("Cannot padding bytes with givin pad")
+			t.Errorf("Cannot padding bytes prefix with givin pad")
 		}
 	}
 }

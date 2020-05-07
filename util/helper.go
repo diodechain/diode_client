@@ -17,7 +17,21 @@ func init() {
 	bigOne.SetInt64(1)
 }
 
-// PaddingBytesPrefix returns padding bytes
+// PaddingBytesSuffix added bytes after the given source
+func PaddingBytesSuffix(src []byte, pad uint8, totalLen int) []byte {
+	srcLen := len(src)
+	if srcLen >= totalLen {
+		return src
+	}
+	to := make([]byte, totalLen)
+	copy(to, src)
+	for i := srcLen; i < totalLen; i++ {
+		to[i] = pad
+	}
+	return to
+}
+
+// PaddingBytesPrefix added bytes before the given source
 func PaddingBytesPrefix(src []byte, pad uint8, totalLen int) []byte {
 	srcLen := len(src)
 	if srcLen >= totalLen {
