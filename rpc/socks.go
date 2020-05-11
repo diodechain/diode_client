@@ -355,7 +355,7 @@ func (socksServer *Server) checkAccess(deviceName string) (*edge.DeviceTicket, e
 	}
 	device, err := socksServer.Client.GetObject(deviceID)
 	if err != nil {
-		return nil, HttpError{500, err}
+		return nil, HttpError{404, err}
 	}
 	if device.BlockHash, err = socksServer.Client.ResolveBlockHash(device.BlockNumber); err != nil {
 		err = fmt.Errorf("failed to resolve() %v", err)
