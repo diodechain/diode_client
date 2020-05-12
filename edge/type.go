@@ -13,7 +13,7 @@ import (
 )
 
 // Address represents an Ethereum address
-type Address = crypto.Address
+type Address = util.Address
 
 type Response struct {
 	Raw     []byte
@@ -219,5 +219,5 @@ func (serverObj *ServerObj) ValidateSig(serverID [20]byte) bool {
 	if err != nil {
 		return false
 	}
-	return serverID == crypto.PubkeyToAddress(pubKey)
+	return serverID == util.PubkeyToAddress(pubKey)
 }

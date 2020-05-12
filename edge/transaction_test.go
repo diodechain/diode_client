@@ -16,7 +16,7 @@ func TestEIP155(t *testing.T) {
 	if err != nil {
 		t.Error(err)
 	}
-	var toAddr crypto.Address
+	var toAddr util.Address
 	copy(toAddr[:], to)
 	signingHash, err := util.DecodeString("0xdaf5a779ae972f972197303d7b574746c7ef83eadac0f2791ad23db92e4c8e53")
 	if err != nil {

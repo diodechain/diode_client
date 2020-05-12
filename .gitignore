@@ -12,4 +12,5 @@ darwin/build
 /diode_go_client
 /diode_static
 /diode
+*db.tmp
 

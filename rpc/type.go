@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/edge"
+	"github.com/diodechain/diode_go_client/util"
 )
 
 var (
@@ -16,7 +16,7 @@ var (
 )
 
 // Address represents an Ethereum address
-type Address = crypto.Address
+type Address = util.Address
 
 // RPCTimeoutError is struct for rpc timeout error
 type RPCTimeoutError struct {

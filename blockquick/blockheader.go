@@ -9,6 +9,7 @@ import (
 
 	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/crypto/secp256k1"
+	"github.com/diodechain/diode_go_client/util"
 	bert "github.com/diodechain/gobert"
 )
 
@@ -72,7 +73,7 @@ func (bh *BlockHeader) Hash() (hash Sha3) {
 
 // Miner returns the block miners hash
 func (bh *BlockHeader) Miner() Address {
-	return crypto.PubkeyToAddress(bh.minerPubkey)
+	return util.PubkeyToAddress(bh.minerPubkey)
 }
 
 // Parent returns the block parents hash (the previous block hash)

@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/util"
 	log "github.com/diodechain/log15"
 	"gopkg.in/yaml.v2"
@@ -48,10 +47,12 @@ Run 'diode COMMAND --help' for more information on a command.
 		"europe.testnet.diode.io:41046",
 		"usa.testnet.diode.io:41046",
 	}
+	DefaultRegistryAddr = [20]byte{80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	DefaultFleetAddr    = [20]byte{96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 )
 
 // Address represents an Ethereum address
-type Address = crypto.Address
+type Address = util.Address
 
 // Config for diode-go-client
 type Config struct {
@@ -163,6 +164,7 @@ func init() {
 	commandFlags["socksd"] = &socksdCommandFlag
 	commandFlags["httpd"] = &httpdCommandFlag
 	commandFlags["config"] = &configCommandFlag
+	commandFlags["init"] = &initCommandFlag
 }
 
 func newLogger(cfg *Config) log.Logger {
@@ -336,6 +338,7 @@ func ParseFlag() {
 	wrapSocksdCommandFlag(cfg)
 	wrapHttpdCommandFlag(cfg)
 	wrapConfigCommandFlag(cfg)
+	wrapInitCommandFlag(cfg)
 	flag.Usage = func() {
 		fmt.Print(brandText)
 		fmt.Printf(commandText, "COMMAND")
@@ -433,6 +436,8 @@ func ParseFlag() {
 			publishedPorts[port.To] = port
 		}
 		cfg.PublishedPorts = publishedPorts
+	case "init":
+		commandFlag.Parse(args[1:])
 	case "config":
 		commandFlag.Parse(args[1:])
 	default:

@@ -110,7 +110,7 @@ func (ct *DeviceTicket) DeviceAddress() (Address, error) {
 	if err != nil {
 		return [20]byte{}, err
 	}
-	return crypto.PubkeyToAddress(devicePubkey), nil
+	return util.PubkeyToAddress(devicePubkey), nil
 }
 
 // GetDeviceID returns the hex formatted address
@@ -119,7 +119,7 @@ func (ct *DeviceTicket) GetDeviceID() string {
 	if err != nil {
 		return ""
 	}
-	return util.EncodeToString(addr[:])
+	return addr.HexString()
 }
 
 // RecoverServerPubKey returns server public key
@@ -157,5 +157,5 @@ func (ct *DeviceTicket) ValidateServerSig() bool {
 		ct.Err = fmt.Errorf("failed to recover server public key: %s", err.Error())
 		return false
 	}
-	return crypto.PubkeyToAddress(pub) == ct.ServerID
+	return util.PubkeyToAddress(pub) == ct.ServerID
 }

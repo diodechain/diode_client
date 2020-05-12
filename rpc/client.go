@@ -518,6 +518,15 @@ func (rpcClient *RPCClient) SignTransaction(tx *edge.Transaction) error {
 	return tx.Sign(privKey)
 }
 
+// SignDeployTransaction return signed transaction
+func (rpcClient *RPCClient) SignDeployTransaction(tx *edge.DeployTransaction) error {
+	privKey, err := rpcClient.s.GetClientPrivateKey()
+	if err != nil {
+		return err
+	}
+	return tx.Sign(privKey)
+}
+
 // NewTicket returns ticket
 func (rpcClient *RPCClient) newTicket() (*edge.DeviceTicket, error) {
 	serverID, err := rpcClient.s.GetServerID()
@@ -563,7 +572,7 @@ func (rpcClient *RPCClient) newTicket() (*edge.DeviceTicket, error) {
 func (rpcClient *RPCClient) submitTicket(ticket *edge.DeviceTicket) error {
 	resp, err := rpcClient.CallContext("ticket", nil, uint64(ticket.BlockNumber), ticket.FleetAddr[:], uint64(ticket.TotalConnections), uint64(ticket.TotalBytes), ticket.LocalAddr, ticket.DeviceSig)
 	if err != nil {
-		rpcClient.Error("failed to submit ticket: %v", err)
+		rpcClient.Error("Failed to submit ticket: %v", err)
 		return err
 	}
 	if lastTicket, ok := resp.(edge.DeviceTicket); ok {
@@ -669,6 +678,27 @@ func (rpcClient *RPCClient) SendTransaction(tx *edge.Transaction) (result bool, 
 	return
 }
 
+// SendDeployTransaction send signed transaction to server
+func (rpcClient *RPCClient) SendDeployTransaction(tx *edge.DeployTransaction) (result bool, err error) {
+	var encodedRLPTx []byte
+	var res interface{}
+	var ok bool
+	err = rpcClient.SignDeployTransaction(tx)
+	if err != nil {
+		return
+	}
+	encodedRLPTx, err = tx.ToRLP()
+	if err != nil {
+		return
+	}
+	res, err = rpcClient.CallContext("sendtransaction", nil, encodedRLPTx)
+	if res, ok = res.(string); ok {
+		result = res == "ok"
+		return
+	}
+	return
+}
+
 // GetAccount returns account information: nonce, balance, storage root, code
 func (rpcClient *RPCClient) GetAccount(blockNumber uint64, account [20]byte) (*edge.Account, error) {
 	rawAccount, err := rpcClient.CallContext("getaccount", nil, blockNumber, account[:])
@@ -746,6 +776,7 @@ func (rpcClient *RPCClient) GetAccountValueRaw(blockNumber uint64, addr [20]byte
 	// get account roots
 	acr, err := rpcClient.GetAccountRoots(blockNumber, addr)
 	if err != nil {
+
 		return NullData, err
 	}
 	acvTree := acv.AccountTree()
@@ -815,7 +846,8 @@ func (rpcClient *RPCClient) ResolveBlockHash(blockNumber int) (blockHash []byte,
 
 /**
  * Contract api
- *
+ * Seems fleet contract with rpcclient providor cause include cycle issue.
+ * Maybe another middle struct?
  * TODO: should refactor this
  */
 // IsDeviceWhitelisted returns is given address whitelisted

@@ -40,6 +40,11 @@ var (
 		HelpText:    `  This command enables a public http server as is used by the "diode.link" website`,
 		ExampleText: `  diode httpd -httpd_port 8080 -httpsd_port 443 -secure -certpath ./cert.pem -privpath ./priv.pem`,
 	}
+	initCommandFlag = CommandFlag{
+		Name:        "init",
+		HelpText:    `  This command initialize every you need in Diode Network.`,
+		ExampleText: `  diode init`,
+	}
 )
 
 // Parse the args (flag.Args()[1:]) with the given command flag
@@ -111,6 +116,15 @@ func wrapHttpdCommandFlag(cfg *Config) {
 		fmt.Printf(commandText, httpdCommandFlag.Name)
 		flag.PrintDefaults()
 		printCommandDefaults(&httpdCommandFlag, 0)
+	}
+}
+
+func wrapInitCommandFlag(cfg *Config) {
+	initCommandFlag.Flag.Usage = func() {
+		fmt.Print(brandText)
+		fmt.Printf(commandText, initCommandFlag.Name)
+		flag.PrintDefaults()
+		printCommandDefaults(&initCommandFlag, 0)
 	}
 }
 

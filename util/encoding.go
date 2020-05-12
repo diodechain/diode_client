@@ -79,8 +79,6 @@ func IsAddress(src []byte) bool {
 	return false
 }
 
-type Address = crypto.Address
-
 func DecodeAddress(src string) (Address, error) {
 	var result Address
 	dst, err := DecodeString(src)
@@ -173,7 +171,7 @@ func RLPHash(src interface{}) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	hash := crypto.Sha256(encSrc)
+	hash := crypto.Sha3Hash(encSrc)
 	return hash, nil
 }
 
