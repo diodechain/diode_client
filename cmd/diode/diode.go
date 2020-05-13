@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/signal"
@@ -174,7 +175,7 @@ func main() {
 
 	if cfg.Command == "init" {
 		if cfg.FleetAddr != config.DefaultFleetAddr {
-			printInfo("Your client had been already initialized, try to publish or browser through Diode Network.")
+			printInfo("Your client had been already initialized, try to publish or browse through Diode Network.")
 			os.Exit(0)
 		}
 		// deploy fleet
@@ -185,12 +186,16 @@ func main() {
 
 		var nonce uint64
 		var fleetContract contract.FleetContract
-		fleetContract, _ = contract.NewFleetContract()
-		act, err := client.GetValidAccount(uint64(bn), clientAddr)
+		var err error
+		fleetContract, err = contract.NewFleetContract()
+		if err != nil {
+			printError("Cannot create fleet contract instance: ", err, 129)
+		}
+		var act *edge.Account
+		act, err = client.GetValidAccount(uint64(bn), clientAddr)
 		if act == nil {
 			nonce = 0
 		} else {
-			// TODO: check overflow
 			nonce = uint64(act.Nonce)
 		}
 		deployData, err := fleetContract.DeployFleetContract(cfg.RegistryAddr, clientAddr, clientAddr)
@@ -205,12 +210,16 @@ func main() {
 		if res != true {
 			printError("Cannot deploy fleet contract: ", fmt.Errorf("server return false"), 129)
 		}
+		var fleetAddr util.Address
+		fleetAddr = util.CreateAddress(clientAddr, nonce)
+		printLabel("New fleet address", fleetAddr.HexString())
+		printInfo("Wait utill block is confirmed")
+		watchAccount(client, bn, fleetAddr)
+		printInfo("Create fleet contract successfully")
 		// generate fleet address
-		nfleetAddr := util.CreateAddress(clientAddr, nonce)
-		printLabel("New fleet address: ", nfleetAddr.HexString())
 		// send device whitelist transaction
 		whitelistData, _ := fleetContract.SetDeviceWhitelist(clientAddr, true)
-		ntx := edge.NewTransaction(nonce+1, 0, 10000000, nfleetAddr, 0, whitelistData, 0)
+		ntx := edge.NewTransaction(nonce+1, 0, 10000000, fleetAddr, 0, whitelistData, 0)
 		res, err = client.SendTransaction(ntx)
 		if err != nil {
 			printError("Cannot whitelist device: ", err, 129)
@@ -218,34 +227,12 @@ func main() {
 		if res != true {
 			printError("Cannot whitelist device: ", fmt.Errorf("server return false"), 129)
 		}
-		// since account state will change after transaction
-		// we try to confirm the transactions by validate the account state
-		// to prevent from fork, maybe wait more blocks
-		getTimes := 0
-		for {
-			select {
-			case <-time.After(3 * time.Second):
-				nbn, _ := client.GetBlockPeak()
-				if nbn == bn {
-					printInfo("Same block, wait 3 seconds!")
-					continue
-				}
-				bn = nbn
-				nact, _ := client.GetValidAccount(uint64(bn), nfleetAddr)
-				if nact != nil {
-					if len(nact.Code) > 0 {
-						getTimes = 15
-						break
-					}
-				}
-			}
-			if getTimes == 15 {
-				break
-			}
-			getTimes++
-		}
-		cfg.FleetAddr = nfleetAddr
-		err = db.DB.Put("fleet", nfleetAddr[:])
+		printLabel("Whitelist device: ", clientAddr.HexString())
+		printInfo("Wait utill block is confirmed")
+		watchAccount(client, bn+1, fleetAddr)
+		printInfo("Whitelist device successfully")
+		cfg.FleetAddr = fleetAddr
+		err = db.DB.Put("fleet", fleetAddr[:])
 		if err != nil {
 			printError("Cannot save fleet address: ", err, 129)
 		}
@@ -368,4 +355,52 @@ func closeDiode(client *rpc.RPCClient, socksServer *rpc.Server, proxyServer *rpc
 		closingHandler.WriteCloser.Close()
 	}
 	os.Exit(0)
+}
+
+// ensure account state had been changed
+// since account state will change after transaction
+// we try to confirm the transactions by validate the account state
+// to prevent from fork, maybe wait more blocks
+func watchAccount(client *rpc.RPCClient, startBN int, to util.Address) (res bool) {
+	var bn int
+	var err error
+	var oact *edge.Account
+	var getTimes int
+	var isConfirmed bool
+	bn = startBN
+	oact, _ = client.GetValidAccount(uint64(bn), to)
+	for {
+		select {
+		case <-time.After(3 * time.Second):
+			var nbn int
+			nbn, err = client.GetBlockPeak()
+			if nbn == bn || err != nil {
+				printInfo("Cannot find new block, wait 3 seconds!")
+				continue
+			}
+			var nact *edge.Account
+			bn = nbn
+			nact, err = client.GetValidAccount(uint64(bn), to)
+			if err != nil {
+				printInfo("Cannot find account, wait 3 seconds!")
+				continue
+			}
+			if nact != nil {
+				if oact == nil {
+					isConfirmed = true
+					break
+				}
+				if !bytes.Equal(nact.StateRoot(), oact.StateRoot()) {
+					isConfirmed = true
+					break
+				}
+				// state didn't change, maybe zero transaction, or block didn't include transaction?!
+			}
+		}
+		if getTimes == 15 || isConfirmed == true {
+			break
+		}
+		getTimes++
+	}
+	return isConfirmed
 }

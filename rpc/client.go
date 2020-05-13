@@ -124,7 +124,7 @@ func (rpcClient *RPCClient) Host() string {
 }
 
 // GetClientAddress returns client address
-func (rpcClient *RPCClient) GetClientAddress() ([20]byte, error) {
+func (rpcClient *RPCClient) GetClientAddress() (util.Address, error) {
 	return rpcClient.s.GetClientAddress()
 }
 
