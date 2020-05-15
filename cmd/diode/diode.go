@@ -301,7 +301,7 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) {
 	}
 	fleetAddr := util.CreateAddress(clientAddr, nonce)
 	printLabel("New fleet address", fleetAddr.HexString())
-	printInfo("Wait utill block is confirmed")
+	printInfo("Waiting for block to be confirmed - this can take up to a minute")
 	watchAccount(client, bn, fleetAddr)
 	printInfo("Create fleet contract successfully")
 	// generate fleet address
@@ -315,10 +315,10 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) {
 	if !res {
 		printError("Cannot whitelist device: ", fmt.Errorf("server return false"), 129)
 	}
-	printLabel("Whitelist device: ", clientAddr.HexString())
-	printInfo("Wait utill block is confirmed")
+	printLabel("Whitelisting device: ", clientAddr.HexString())
+	printInfo("Waiting for block to be confirmed - this can take up to a minute")
 	watchAccount(client, bn+1, fleetAddr)
-	printInfo("Whitelist device successfully")
+	printInfo("Whitelisted device successfully")
 	cfg.FleetAddr = fleetAddr
 	err = db.DB.Put("fleet", fleetAddr[:])
 	if err != nil {
@@ -385,14 +385,14 @@ func watchAccount(client *rpc.RPCClient, startBN int, to util.Address) (res bool
 		var nbn int
 		nbn, err = client.GetBlockPeak()
 		if nbn == bn || err != nil {
-			printInfo("Cannot find new block, wait 3 seconds!")
+			printInfo("Waiting 3 seconds for new block...")
 			continue
 		}
 		var nact *edge.Account
 		bn = nbn
 		nact, err = client.GetValidAccount(uint64(bn), to)
 		if err != nil {
-			printInfo("Cannot find account, wait 3 seconds!")
+			printInfo("Waiting 3 seconds for new block...")
 			continue
 		}
 		if nact != nil {
