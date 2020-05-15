@@ -151,7 +151,6 @@ func (rpcClient *RPCClient) waitResponse(call Call, rpcTimeout time.Duration) (r
 	select {
 	case resp := <-call.response:
 		if rpcError, ok := resp.(edge.Error); ok {
-			rpcClient.Error("got error from server: %s", rpcError.Message)
 			err = RPCError{rpcError}
 			return
 		}
@@ -239,7 +238,6 @@ func (rpcClient *RPCClient) CallContext(method string, parse func(buffer []byte)
 		res, err = rpcClient.waitResponse(resCall, rpcTimeout)
 		if err != nil {
 			tsDiff = time.Since(ts)
-			rpcClient.Error("Failed to call: %s [%v]: %v", method, tsDiff, err)
 			if _, ok := err.(RPCTimeoutError); ok {
 				// TODO: handle rpc timeout
 				log.Panicf("RPC TIMEOUT ERROR %s", rpcClient.Host())
@@ -248,12 +246,6 @@ func (rpcClient *RPCClient) CallContext(method string, parse func(buffer []byte)
 				rpcClient.Warn("Call will resend after reconnect, keep waiting")
 				continue
 			}
-			// if _, ok := err.(CancelledError); ok {
-			// 	break
-			// }
-			// if _, ok := err.(RPCError); ok {
-			// 	break
-			// }
 			break
 		}
 		tsDiff = time.Since(ts)

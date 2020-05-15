@@ -260,7 +260,7 @@ func doConfig(cfg *config.Config) {
 func doInit(cfg *config.Config, client *rpc.RPCClient) {
 	if cfg.FleetAddr != config.DefaultFleetAddr {
 		printInfo("Your client has been already initialized, try to publish or browse through Diode Network.")
-		os.Exit(0)
+		return
 	}
 	// deploy fleet
 	bn, _ := client.GetBlockPeak()
