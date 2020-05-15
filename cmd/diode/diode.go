@@ -57,47 +57,7 @@ func main() {
 	db.DB = clidb
 
 	if cfg.Command == "config" {
-		activity := false
-		if len(cfg.ConfigDelete) > 0 {
-			activity = true
-			for _, deleteKey := range cfg.ConfigDelete {
-				db.DB.Del(deleteKey)
-				printLabel("Deleted:", deleteKey)
-			}
-		}
-		if len(cfg.ConfigSet) > 0 {
-			activity = true
-			for _, configSet := range cfg.ConfigSet {
-				list := strings.Split(configSet, "=")
-				if len(list) == 2 {
-					var err error
-					value := []byte(list[1])
-					if util.IsHex(value) {
-						value, err = util.DecodeString(list[1])
-						if err != nil {
-							printError("Couldn't decode hex string", err, 1)
-						}
-					}
-					db.DB.Put(list[0], value)
-					printLabel("Set:", list[0])
-				} else {
-					printError("Couldn't set value", fmt.Errorf("expected -set name=value format"), 1)
-				}
-			}
-		}
-
-		if cfg.ConfigList || !activity {
-			printLabel("<KEY>", "<VALUE>")
-			for _, name := range db.DB.List() {
-				label := "<************************>"
-				value, err := db.DB.Get(name)
-				if err == nil && name != "private" {
-					label = util.EncodeToString(value)
-				}
-				printLabel(name, label)
-			}
-		}
-
+		doConfig(cfg)
 		os.Exit(0)
 	}
 
@@ -174,69 +134,7 @@ func main() {
 	}
 
 	if cfg.Command == "init" {
-		if cfg.FleetAddr != config.DefaultFleetAddr {
-			printInfo("Your client had been already initialized, try to publish or browse through Diode Network.")
-			os.Exit(0)
-		}
-		// deploy fleet
-		bn, _ := client.GetBlockPeak()
-		if bn < 0 {
-			printError("Cannot find block peak: ", fmt.Errorf("not found"), 129)
-		}
-
-		var nonce uint64
-		var fleetContract contract.FleetContract
-		var err error
-		fleetContract, err = contract.NewFleetContract()
-		if err != nil {
-			printError("Cannot create fleet contract instance: ", err, 129)
-		}
-		var act *edge.Account
-		act, err = client.GetValidAccount(uint64(bn), clientAddr)
-		if act == nil {
-			nonce = 0
-		} else {
-			nonce = uint64(act.Nonce)
-		}
-		deployData, err := fleetContract.DeployFleetContract(cfg.RegistryAddr, clientAddr, clientAddr)
-		if err != nil {
-			printError("Cannot create deploy contract data: ", err, 129)
-		}
-		tx := edge.NewDeployTransaction(nonce, 0, 10000000, 0, deployData, 0)
-		res, err := client.SendDeployTransaction(tx)
-		if err != nil {
-			printError("Cannot deploy fleet contract: ", err, 129)
-		}
-		if res != true {
-			printError("Cannot deploy fleet contract: ", fmt.Errorf("server return false"), 129)
-		}
-		var fleetAddr util.Address
-		fleetAddr = util.CreateAddress(clientAddr, nonce)
-		printLabel("New fleet address", fleetAddr.HexString())
-		printInfo("Wait utill block is confirmed")
-		watchAccount(client, bn, fleetAddr)
-		printInfo("Create fleet contract successfully")
-		// generate fleet address
-		// send device whitelist transaction
-		whitelistData, _ := fleetContract.SetDeviceWhitelist(clientAddr, true)
-		ntx := edge.NewTransaction(nonce+1, 0, 10000000, fleetAddr, 0, whitelistData, 0)
-		res, err = client.SendTransaction(ntx)
-		if err != nil {
-			printError("Cannot whitelist device: ", err, 129)
-		}
-		if res != true {
-			printError("Cannot whitelist device: ", fmt.Errorf("server return false"), 129)
-		}
-		printLabel("Whitelist device: ", clientAddr.HexString())
-		printInfo("Wait utill block is confirmed")
-		watchAccount(client, bn+1, fleetAddr)
-		printInfo("Whitelist device successfully")
-		cfg.FleetAddr = fleetAddr
-		err = db.DB.Put("fleet", fleetAddr[:])
-		if err != nil {
-			printError("Cannot save fleet address: ", err, 129)
-		}
-		printInfo("Client had been initialized, try to publish or browser through Diode Network.")
+		doInit(cfg, client)
 		os.Exit(0)
 	}
 
@@ -316,6 +214,119 @@ func main() {
 	closeDiode(client, socksServer, proxyServer, cfg)
 }
 
+func doConfig(cfg *config.Config) {
+	activity := false
+	if len(cfg.ConfigDelete) > 0 {
+		activity = true
+		for _, deleteKey := range cfg.ConfigDelete {
+			db.DB.Del(deleteKey)
+			printLabel("Deleted:", deleteKey)
+		}
+	}
+	if len(cfg.ConfigSet) > 0 {
+		activity = true
+		for _, configSet := range cfg.ConfigSet {
+			list := strings.Split(configSet, "=")
+			if len(list) == 2 {
+				var err error
+				value := []byte(list[1])
+				if util.IsHex(value) {
+					value, err = util.DecodeString(list[1])
+					if err != nil {
+						printError("Couldn't decode hex string", err, 1)
+					}
+				}
+				db.DB.Put(list[0], value)
+				printLabel("Set:", list[0])
+			} else {
+				printError("Couldn't set value", fmt.Errorf("expected -set name=value format"), 1)
+			}
+		}
+	}
+
+	if cfg.ConfigList || !activity {
+		printLabel("<KEY>", "<VALUE>")
+		for _, name := range db.DB.List() {
+			label := "<************************>"
+			value, err := db.DB.Get(name)
+			if err == nil && name != "private" {
+				label = util.EncodeToString(value)
+			}
+			printLabel(name, label)
+		}
+	}
+}
+
+func doInit(cfg *config.Config, client *rpc.RPCClient) {
+	if cfg.FleetAddr != config.DefaultFleetAddr {
+		printInfo("Your client has been already initialized, try to publish or browse through Diode Network.")
+		os.Exit(0)
+	}
+	// deploy fleet
+	bn, _ := client.GetBlockPeak()
+	if bn < 0 {
+		printError("Cannot find block peak: ", fmt.Errorf("not found"), 129)
+	}
+
+	var nonce uint64
+	var fleetContract contract.FleetContract
+	var err error
+	fleetContract, err = contract.NewFleetContract()
+	if err != nil {
+		printError("Cannot create fleet contract instance: ", err, 129)
+	}
+	var act *edge.Account
+	clientAddr, err := client.GetClientAddress()
+	if err != nil {
+		printError("Couldn't load own address", err, 129)
+	}
+
+	act, _ = client.GetValidAccount(uint64(bn), clientAddr)
+	if act == nil {
+		nonce = 0
+	} else {
+		nonce = uint64(act.Nonce)
+	}
+	deployData, err := fleetContract.DeployFleetContract(cfg.RegistryAddr, clientAddr, clientAddr)
+	if err != nil {
+		printError("Cannot create deploy contract data: ", err, 129)
+	}
+	tx := edge.NewDeployTransaction(nonce, 0, 10000000, 0, deployData, 0)
+	res, err := client.SendDeployTransaction(tx)
+	if err != nil {
+		printError("Cannot deploy fleet contract: ", err, 129)
+	}
+	if !res {
+		printError("Cannot deploy fleet contract: ", fmt.Errorf("server return false"), 129)
+	}
+	fleetAddr := util.CreateAddress(clientAddr, nonce)
+	printLabel("New fleet address", fleetAddr.HexString())
+	printInfo("Wait utill block is confirmed")
+	watchAccount(client, bn, fleetAddr)
+	printInfo("Create fleet contract successfully")
+	// generate fleet address
+	// send device whitelist transaction
+	whitelistData, _ := fleetContract.SetDeviceWhitelist(clientAddr, true)
+	ntx := edge.NewTransaction(nonce+1, 0, 10000000, fleetAddr, 0, whitelistData, 0)
+	res, err = client.SendTransaction(ntx)
+	if err != nil {
+		printError("Cannot whitelist device: ", err, 129)
+	}
+	if !res {
+		printError("Cannot whitelist device: ", fmt.Errorf("server return false"), 129)
+	}
+	printLabel("Whitelist device: ", clientAddr.HexString())
+	printInfo("Wait utill block is confirmed")
+	watchAccount(client, bn+1, fleetAddr)
+	printInfo("Whitelist device successfully")
+	cfg.FleetAddr = fleetAddr
+	err = db.DB.Put("fleet", fleetAddr[:])
+	if err != nil {
+		printError("Cannot save fleet address: ", err, 129)
+	}
+	printInfo("Client has been initialized, try to publish or browser through Diode Network.")
+}
+
 func printLabel(label string, value string) {
 	msg := fmt.Sprintf("%-20s : %-80s", label, value)
 	config.AppConfig.Logger.Info(msg, "module", "main")
@@ -357,7 +368,7 @@ func closeDiode(client *rpc.RPCClient, socksServer *rpc.Server, proxyServer *rpc
 	os.Exit(0)
 }
 
-// ensure account state had been changed
+// ensure account state has been changed
 // since account state will change after transaction
 // we try to confirm the transactions by validate the account state
 // to prevent from fork, maybe wait more blocks
@@ -370,34 +381,32 @@ func watchAccount(client *rpc.RPCClient, startBN int, to util.Address) (res bool
 	bn = startBN
 	oact, _ = client.GetValidAccount(uint64(bn), to)
 	for {
-		select {
-		case <-time.After(3 * time.Second):
-			var nbn int
-			nbn, err = client.GetBlockPeak()
-			if nbn == bn || err != nil {
-				printInfo("Cannot find new block, wait 3 seconds!")
-				continue
-			}
-			var nact *edge.Account
-			bn = nbn
-			nact, err = client.GetValidAccount(uint64(bn), to)
-			if err != nil {
-				printInfo("Cannot find account, wait 3 seconds!")
-				continue
-			}
-			if nact != nil {
-				if oact == nil {
-					isConfirmed = true
-					break
-				}
-				if !bytes.Equal(nact.StateRoot(), oact.StateRoot()) {
-					isConfirmed = true
-					break
-				}
-				// state didn't change, maybe zero transaction, or block didn't include transaction?!
-			}
+		<-time.After(3 * time.Second)
+		var nbn int
+		nbn, err = client.GetBlockPeak()
+		if nbn == bn || err != nil {
+			printInfo("Cannot find new block, wait 3 seconds!")
+			continue
 		}
-		if getTimes == 15 || isConfirmed == true {
+		var nact *edge.Account
+		bn = nbn
+		nact, err = client.GetValidAccount(uint64(bn), to)
+		if err != nil {
+			printInfo("Cannot find account, wait 3 seconds!")
+			continue
+		}
+		if nact != nil {
+			if oact == nil {
+				isConfirmed = true
+				break
+			}
+			if !bytes.Equal(nact.StateRoot(), oact.StateRoot()) {
+				isConfirmed = true
+				break
+			}
+			// state didn't change, maybe zero transaction, or block didn't include transaction?!
+		}
+		if getTimes == 15 || isConfirmed {
 			break
 		}
 		getTimes++

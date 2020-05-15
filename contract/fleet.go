@@ -34,8 +34,6 @@ type FleetContract struct {
 	ABI abi.ABI
 }
 
-var fleetABI abi.ABI
-
 // Address represents an Ethereum address
 type Address = util.Address
 

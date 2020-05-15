@@ -45,7 +45,7 @@ type CancelledError struct {
 }
 
 func (e CancelledError) Error() string {
-	return "rpc call had been cancelled"
+	return "rpc call has been cancelled"
 }
 
 // RPCError is struct for rpc error

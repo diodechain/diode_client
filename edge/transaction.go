@@ -123,7 +123,7 @@ func NewTransaction(nonce uint64, gasPrice uint64, gasLimit uint64, to Address, 
 	}
 }
 
-// From returns from address if transaction had been signed
+// From returns from address if transaction has been signed
 // Remember it takes some resources to recover address
 func (tx *Transaction) From() (util.Address, error) {
 	if tx.from != util.EmptyAddress {
@@ -230,7 +230,7 @@ func (tx *Transaction) TransactionHash() ([]byte, error) {
 	return hash, nil
 }
 
-// From returns from address if transaction had been signed
+// From returns from address if transaction has been signed
 // Remember it takes some resources to recover address
 func (tx *DeployTransaction) From() (util.Address, error) {
 	if tx.from != util.EmptyAddress {

@@ -30,15 +30,6 @@ const (
 
 var (
 	AppConfig *Config
-	brandText = `Name
-  diode - Diode network command line interfaces
-`
-	commandText = `SYNOPSIS
-  diode [OPTIONS] %s [ARG...]
-OPTIONS
-`
-	usageText = `COMMANDS
-`
 	finalText = `
 Run 'diode COMMAND --help' for more information on a command.
 `
@@ -340,13 +331,26 @@ func ParseFlag() {
 	wrapConfigCommandFlag(cfg)
 	wrapInitCommandFlag(cfg)
 	flag.Usage = func() {
-		fmt.Print(brandText)
-		fmt.Printf(commandText, "COMMAND")
-		flag.PrintDefaults()
-		fmt.Print(usageText)
+		fmt.Print("Name\n  diode - Diode network command line interface\n\n")
+		fmt.Print("SYNOPSYS\n  diode")
+		count := 0
+		flag.VisitAll(func(flag *flag.Flag) {
+			count++
+			if count > 3 {
+				count = 0
+				fmt.Print("\n       ")
+			}
+			if len(flag.DefValue) < 10 {
+				fmt.Printf(" [-%s=%s]", flag.Name, flag.DefValue)
+			} else {
+				fmt.Printf(" [-%s=%s...]", flag.Name, flag.DefValue[:7])
+			}
+		})
+		fmt.Print(" COMMAND <args>\n\n")
+
+		fmt.Print("COMMANDS\n")
 		for _, commandFlag := range commandFlags {
-			fmt.Printf("  %s\n", commandFlag.Name)
-			fmt.Printf("  %s\n", commandFlag.HelpText)
+			fmt.Printf("  %-10s %s\n", commandFlag.Name, commandFlag.HelpText)
 		}
 		fmt.Print(finalText)
 	}
