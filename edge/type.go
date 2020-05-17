@@ -28,9 +28,6 @@ type Request struct {
 }
 
 type Error struct {
-	// Raw     []byte
-	// RawMsg  []byte
-	Method  string
 	Message string
 }
 

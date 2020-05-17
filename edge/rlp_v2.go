@@ -90,9 +90,6 @@ func (rlpV2 RLP_V2) parseError(buffer []byte) (Error, error) {
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	_ = decodeStream.Decode(&response)
 	err := Error{
-		// TODO: method required?
-		// Method:  response.Payload[0],
-		// TODO: response.Payload[1] will be ? string
 		Message: response.Payload[len(response.Payload)-1],
 	}
 	return err, nil

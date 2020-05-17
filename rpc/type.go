@@ -54,5 +54,5 @@ type RPCError struct {
 }
 
 func (e RPCError) Error() string {
-	return fmt.Sprintf("remote procedure call error: %s %s", e.Err.Method, e.Err.Message)
+	return e.Err.Message
 }

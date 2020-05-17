@@ -140,8 +140,16 @@ func main() {
 
 	// check device whitelist
 	isDeviceWhitelisted, err := client.IsDeviceWhitelisted(clientAddr)
+	if err != nil {
+		if err.Error() == "account does not exist" {
+			cfg.Logger.Warn("Device was not whitelisted, if you did whitelist device, please wait for 6 block confirmation, this can take up to a minute.", "module", "main")
+		} else {
+			cfg.Logger.Error(fmt.Sprintf("Device was not whitelisted: %+v", err), "module", "main")
+		}
+		return
+	}
 	if !isDeviceWhitelisted {
-		cfg.Logger.Error(fmt.Sprintf("Device was not whitelisted: <%v>", err), "module", "main")
+		cfg.Logger.Error("Device was not whitelisted", "module", "main")
 		return
 	}
 
