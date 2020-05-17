@@ -96,6 +96,7 @@ type Config struct {
 	Logger                  log.Logger       `yaml:"-" json:"-"`
 	ConfigFilePath          string           `yaml:"-" json:"-"`
 	Binds                   []Bind           `yaml:"-" json:"-"`
+	BNSRegister             string           `yaml:"-" json:"-"`
 }
 
 // Bind struct for port forwarding
@@ -156,6 +157,7 @@ func init() {
 	commandFlags["httpd"] = &httpdCommandFlag
 	commandFlags["config"] = &configCommandFlag
 	commandFlags["init"] = &initCommandFlag
+	commandFlags["bns"] = &bnsCommandFlag
 }
 
 func newLogger(cfg *Config) log.Logger {
@@ -330,6 +332,7 @@ func ParseFlag() {
 	wrapHttpdCommandFlag(cfg)
 	wrapConfigCommandFlag(cfg)
 	wrapInitCommandFlag(cfg)
+	wrapBNSCommandFlag(cfg)
 	flag.Usage = func() {
 		fmt.Print("Name\n  diode - Diode network command line interface\n\n")
 		fmt.Print("SYNOPSYS\n  diode")
@@ -441,6 +444,8 @@ func ParseFlag() {
 		}
 		cfg.PublishedPorts = publishedPorts
 	case "init":
+		commandFlag.Parse(args[1:])
+	case "bns":
 		commandFlag.Parse(args[1:])
 	case "config":
 		commandFlag.Parse(args[1:])

@@ -45,6 +45,11 @@ var (
 		HelpText:    `  Initialize a new account and fleet in the network.`,
 		ExampleText: `  diode init`,
 	}
+	bnsCommandFlag = CommandFlag{
+		Name:        "bns",
+		HelpText:    `  Register/Update name on diode blockchain.`,
+		ExampleText: `  diode bns -register hello-world=0x......`,
+	}
 )
 
 // Parse the args (flag.Args()[1:]) with the given command flag
@@ -110,6 +115,13 @@ func wrapHttpdCommandFlag(cfg *Config) {
 func wrapInitCommandFlag(cfg *Config) {
 	initCommandFlag.Flag.Usage = func() {
 		printUsage(initCommandFlag)
+	}
+}
+
+func wrapBNSCommandFlag(cfg *Config) {
+	bnsCommandFlag.Flag.StringVar(&cfg.BNSRegister, "register", "", "Blockchain Name Service name and public address pair.")
+	bnsCommandFlag.Flag.Usage = func() {
+		printUsage(bnsCommandFlag)
 	}
 }
 

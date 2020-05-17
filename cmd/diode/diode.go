@@ -138,6 +138,11 @@ func main() {
 		os.Exit(0)
 	}
 
+	if cfg.Command == "bns" {
+		doBNS(cfg, client)
+		os.Exit(0)
+	}
+
 	// check device whitelist
 	isDeviceWhitelisted, err := client.IsDeviceWhitelisted(clientAddr)
 	if err != nil {
@@ -333,6 +338,65 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) {
 		printError("Cannot save fleet address: ", err, 129)
 	}
 	printInfo("Client has been initialized, try to publish or browser through Diode Network.")
+}
+
+func doBNS(cfg *config.Config, client *rpc.RPCClient) {
+	// deploy fleet
+	bn, _ := client.GetBlockPeak()
+	if bn < 0 {
+		printError("Cannot find block peak: ", fmt.Errorf("not found"), 129)
+	}
+
+	var nonce uint64
+	var dnsContract contract.DNSContract
+	var err error
+	dnsContract, err = contract.NewDNSContract()
+	if err != nil {
+		printError("Cannot create dns contract instance: ", err, 129)
+	}
+	bnsPair := strings.Split(cfg.BNSRegister, "=")
+	if len(bnsPair) == 2 {
+		var act *edge.Account
+		clientAddr, err := client.GetClientAddress()
+		if err != nil {
+			printError("Couldn't load own address", err, 129)
+		}
+
+		act, _ = client.GetValidAccount(uint64(bn), clientAddr)
+		if act == nil {
+			nonce = 0
+		} else {
+			nonce = uint64(act.Nonce)
+		}
+		bnsName := bnsPair[0]
+		bnsAddr, err := util.DecodeAddress(bnsPair[1])
+		if err != nil {
+			printError("Wrong diode address", err, 129)
+		}
+		// check bns
+		obnsAddr, err := client.ResolveDNS(bnsName)
+		if err == nil {
+			if obnsAddr == bnsAddr {
+				printError("Same diode address on blockchain", err, 129)
+			}
+		}
+		// send register transaction
+		registerData, _ := dnsContract.Register(bnsName, bnsAddr)
+		ntx := edge.NewTransaction(nonce, 0, 10000000, contract.DNSAddr, 0, registerData, 0)
+		res, err := client.SendTransaction(ntx)
+		if err != nil {
+			printError("Cannot register blockchain name service: ", err, 129)
+		}
+		if !res {
+			printError("Cannot register blockchain name service: ", fmt.Errorf("server return false"), 129)
+		}
+		printLabel("Register bns: ", bnsName)
+		printInfo("Waiting for block to be confirmed - this can take up to a minute")
+		watchAccount(client, bn, contract.DNSAddr)
+		printInfo("Register bns successfully")
+		return
+	}
+	printError("Couldn't register bns", fmt.Errorf("expected -register name=address format"), 1)
 }
 
 func printLabel(label string, value string) {
