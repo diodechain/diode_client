@@ -15,7 +15,7 @@ Name
 
 SYNOPSYS
   diode [-bind=] [-blacklists=] [-configpath=]
-        [-dbpath=/home/d...] [-debug=false] [-diodeaddrs=] [-fleet=0x60000...]
+        [-dbpath=/Users/...] [-debug=false] [-diodeaddrs=] [-fleet=0x60000...]
         [-keepalive=true] [-keepalivecount=4] [-keepaliveidle=30] [-keepaliveinterval=5]
         [-logfilepath=] [-metrics=false] [-registry=0x50000...] [-retrytimes=3]
         [-retrywait=1] [-rlimit_nofile=0] [-timeout=5] [-whitelists=] COMMAND <args>
@@ -26,6 +26,7 @@ COMMANDS
   httpd        Enable a public http server as is used by the "diode.link" website
   config       Manage variables in the local config store.
   init         Initialize a new account and fleet in the network.
+  bns          Register/Update name service on diode blockchain.
 
 Run 'diode COMMAND --help' for more information on a command.
 ```

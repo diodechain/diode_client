@@ -47,7 +47,7 @@ var (
 	}
 	bnsCommandFlag = CommandFlag{
 		Name:        "bns",
-		HelpText:    `  Register/Update name on diode blockchain.`,
+		HelpText:    `  Register/Update name service on diode blockchain.`,
 		ExampleText: `  diode bns -register hello-world=0x......`,
 	}
 )
