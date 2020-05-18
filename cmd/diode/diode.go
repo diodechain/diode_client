@@ -262,7 +262,7 @@ func doConfig(cfg *config.Config) {
 		for _, name := range db.DB.List() {
 			label := "<************************>"
 			value, err := db.DB.Get(name)
-			if err == nil && name != "private" {
+			if err == nil && (name != "private" || cfg.ConfigUnsafe) {
 				label = util.EncodeToString(value)
 			}
 			printLabel(name, label)

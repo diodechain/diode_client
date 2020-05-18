@@ -89,6 +89,7 @@ func wrapSocksdCommandFlag(cfg *Config) {
 func wrapConfigCommandFlag(cfg *Config) {
 	configCommandFlag.Flag.Var(&cfg.ConfigDelete, "delete", "deletes the given variable from the config")
 	configCommandFlag.Flag.BoolVar(&cfg.ConfigList, "list", false, "list all stored config keys")
+	configCommandFlag.Flag.BoolVar(&cfg.ConfigUnsafe, "unsafe", false, "display private keys (disabled by default)")
 	configCommandFlag.Flag.Var(&cfg.ConfigSet, "set", "sets the given variable in the config")
 	configCommandFlag.Flag.Usage = func() {
 		printUsage(configCommandFlag)

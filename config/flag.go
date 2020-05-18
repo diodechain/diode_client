@@ -83,6 +83,7 @@ type Config struct {
 	SocksServerAddr         string           `yaml:"-" json:"-"`
 	SocksServerHost         string           `yaml:"-" json:"-"`
 	SocksServerPort         int              `yaml:"-" json:"-"`
+	ConfigUnsafe            bool             `yaml:"-" json:"-"`
 	ConfigList              bool             `yaml:"-" json:"-"`
 	ConfigDelete            stringValues     `yaml:"-" json:"-"`
 	ConfigSet               stringValues     `yaml:"-" json:"-"`
