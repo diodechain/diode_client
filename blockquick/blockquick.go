@@ -8,10 +8,11 @@ import (
 	"sync"
 
 	"github.com/diodechain/diode_go_client/crypto"
+	"github.com/diodechain/diode_go_client/util"
 )
 
 // Address represents an Ethereum address of a miner
-type Address = crypto.Address
+type Address = util.Address
 
 // Hash is a Sha3 hash
 type Sha3 = crypto.Sha3

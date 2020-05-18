@@ -5,6 +5,7 @@ import (
 	"crypto/elliptic"
 	"crypto/sha256"
 	"encoding/asn1"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log"
@@ -19,9 +20,6 @@ const ecPrivKeyVersion = 1
 var (
 	secp256k1N, _ = new(big.Int).SetString("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141", 16)
 )
-
-// Address represents an Ethereum address
-type Address [20]byte
 
 // Sha3 hash
 type Sha3 [32]byte
@@ -171,17 +169,31 @@ func Sha3Hash(data []byte) []byte {
 	return hash.Sum(nil)
 }
 
-// PubkeyToAddress returns diode address
-func PubkeyToAddress(pubkey []byte) (addr Address) {
+// PubkeyFromCompressed returns public key generate from compressed public key
+func PubkeyFromCompressed(pubkey []byte) (dpubkey []byte) {
 	if len(pubkey) == 33 {
-		pubkey = secp256k1.DecompressPubkeyBytes(pubkey)
+		dpubkey = secp256k1.DecompressPubkeyBytes(pubkey)
+		return
 	}
+	// TODO: fix this
 	if len(pubkey) != 65 {
 		log.Panicf("This is not a pubkey %v", pubkey)
 	}
-	hasher := sha3.NewKeccak256()
-	hasher.Write(pubkey[1:])
-	hashPubkey := hasher.Sum(nil)
-	copy(addr[:], hashPubkey[12:])
+	dpubkey = pubkey[1:]
+	return
+}
+
+// HexToECDSA returns ecdsa private key for given hex string
+func HexToECDSA(hexKey string) (key *ecdsa.PrivateKey, err error) {
+	var binKey []byte
+	binKey, err = hex.DecodeString(hexKey)
+	if err != nil {
+		return
+	}
+	key = ToECDSAUnsafe(binKey)
+	if key == nil {
+		err = fmt.Errorf("key was not correct")
+		return
+	}
 	return
 }

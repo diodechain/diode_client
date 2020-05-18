@@ -40,7 +40,7 @@ import (
 	"math/big"
 	"testing"
 
-	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/diodechain/diode_go_client/crypto"
 )
 
 // Ensure the KDF generates appropriately sized keys.

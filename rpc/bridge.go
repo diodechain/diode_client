@@ -190,7 +190,7 @@ func (rpcClient *RPCClient) handleInboundMessage(msg edge.Message) {
 		}
 		res, err := call.Parse(msg.Buffer)
 		if err != nil {
-			rpcClient.Error("cannot decode response: %s", err.Error())
+			rpcClient.Debug("cannot decode response: %s", err.Error())
 			rpcError := edge.Error{
 				Message: err.Error(),
 			}

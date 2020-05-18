@@ -12,7 +12,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/util"
 	log "github.com/diodechain/log15"
 	"gopkg.in/yaml.v2"
@@ -31,15 +30,6 @@ const (
 
 var (
 	AppConfig *Config
-	brandText = `Name
-  diode - Diode network command line interfaces
-`
-	commandText = `SYNOPSIS
-  diode [OPTIONS] %s [ARG...]
-OPTIONS
-`
-	usageText = `COMMANDS
-`
 	finalText = `
 Run 'diode COMMAND --help' for more information on a command.
 `
@@ -48,10 +38,12 @@ Run 'diode COMMAND --help' for more information on a command.
 		"europe.testnet.diode.io:41046",
 		"usa.testnet.diode.io:41046",
 	}
+	DefaultRegistryAddr = [20]byte{80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	DefaultFleetAddr    = [20]byte{96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 )
 
 // Address represents an Ethereum address
-type Address = crypto.Address
+type Address = util.Address
 
 // Config for diode-go-client
 type Config struct {
@@ -104,6 +96,7 @@ type Config struct {
 	Logger                  log.Logger       `yaml:"-" json:"-"`
 	ConfigFilePath          string           `yaml:"-" json:"-"`
 	Binds                   []Bind           `yaml:"-" json:"-"`
+	BNSRegister             string           `yaml:"-" json:"-"`
 }
 
 // Bind struct for port forwarding
@@ -163,6 +156,8 @@ func init() {
 	commandFlags["socksd"] = &socksdCommandFlag
 	commandFlags["httpd"] = &httpdCommandFlag
 	commandFlags["config"] = &configCommandFlag
+	commandFlags["init"] = &initCommandFlag
+	commandFlags["bns"] = &bnsCommandFlag
 }
 
 func newLogger(cfg *Config) log.Logger {
@@ -336,15 +331,29 @@ func ParseFlag() {
 	wrapSocksdCommandFlag(cfg)
 	wrapHttpdCommandFlag(cfg)
 	wrapConfigCommandFlag(cfg)
+	wrapInitCommandFlag(cfg)
+	wrapBNSCommandFlag(cfg)
 	flag.Usage = func() {
-		fmt.Print(brandText)
-		fmt.Printf(commandText, "COMMAND")
-		flag.PrintDefaults()
-		fmt.Print(usageText)
+		fmt.Print("Name\n  diode - Diode network command line interface\n\n")
+		fmt.Print("SYNOPSYS\n  diode")
+		count := 0
+		flag.VisitAll(func(flag *flag.Flag) {
+			count++
+			if count > 3 {
+				count = 0
+				fmt.Print("\n       ")
+			}
+			if len(flag.DefValue) < 10 {
+				fmt.Printf(" [-%s=%s]", flag.Name, flag.DefValue)
+			} else {
+				fmt.Printf(" [-%s=%s...]", flag.Name, flag.DefValue[:7])
+			}
+		})
+		fmt.Print(" COMMAND <args>\n\n")
+
+		fmt.Print("COMMANDS\n")
 		for _, commandFlag := range commandFlags {
-			fmt.Printf("  %s\n", commandFlag.Name)
-			fmt.Printf("  %s\n", commandFlag.HelpText)
-			printCommandDefaults(commandFlag, 4)
+			fmt.Printf("  %-10s %s\n", commandFlag.Name, commandFlag.HelpText)
 		}
 		fmt.Print(finalText)
 	}
@@ -434,6 +443,10 @@ func ParseFlag() {
 			publishedPorts[port.To] = port
 		}
 		cfg.PublishedPorts = publishedPorts
+	case "init":
+		commandFlag.Parse(args[1:])
+	case "bns":
+		commandFlag.Parse(args[1:])
 	case "config":
 		commandFlag.Parse(args[1:])
 	default:

@@ -197,7 +197,7 @@ func (s *SSL) GetServerID() ([20]byte, error) {
 	if err != nil {
 		return [20]byte{}, err
 	}
-	hashPubKey := crypto.PubkeyToAddress(pubKey)
+	hashPubKey := util.PubkeyToAddress(pubKey)
 	return hashPubKey, nil
 }
 
@@ -262,12 +262,12 @@ func LoadClientPubKey() []byte {
 }
 
 // GetClientAddress returns client address
-func (s *SSL) GetClientAddress() ([20]byte, error) {
+func (s *SSL) GetClientAddress() (util.Address, error) {
 	clientPubKey, err := s.GetClientPubKey()
 	if err != nil {
 		return [20]byte{}, err
 	}
-	return crypto.PubkeyToAddress(clientPubKey), nil
+	return util.PubkeyToAddress(clientPubKey), nil
 }
 
 func (s *SSL) incrementTotalConnections(n int) {

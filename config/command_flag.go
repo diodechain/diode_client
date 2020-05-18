@@ -22,23 +22,33 @@ var (
 	commandFlags       = map[string]*CommandFlag{}
 	publishCommandFlag = CommandFlag{
 		Name:        "publish",
-		HelpText:    `  This command publishes ports of the local device to the Diode Network.`,
+		HelpText:    `  Publish ports of the local device to the Diode Network.`,
 		ExampleText: `  diode publish -public 80:80 -public 8080:8080 -protected 3000:3000 -protected 3001:3001 -private 22:22,0x......,0x...... -private 33:33,0x......,0x......`,
 	}
 	configCommandFlag = CommandFlag{
 		Name:        "config",
-		HelpText:    `  This command manages variables in the local config store.`,
+		HelpText:    `  Manage variables in the local config store.`,
 		ExampleText: `  diode config -delete lvbn2 -delete lvbn`,
 	}
 	socksdCommandFlag = CommandFlag{
 		Name:        "socksd",
-		HelpText:    `  This command enables a socks proxy on the local host for use with Browsers (Firefox), SSH, Java and other applications to communicate via the Diode Network.`,
+		HelpText:    `  Enable a socks proxy for use with browsers and other apps.`,
 		ExampleText: `  diode socksd -socksd_port 8082 -socksd_host 127.0.0.1`,
 	}
 	httpdCommandFlag = CommandFlag{
 		Name:        "httpd",
-		HelpText:    `  This command enables a public http server as is used by the "diode.link" website`,
+		HelpText:    `  Enable a public http server as is used by the "diode.link" website`,
 		ExampleText: `  diode httpd -httpd_port 8080 -httpsd_port 443 -secure -certpath ./cert.pem -privpath ./priv.pem`,
+	}
+	initCommandFlag = CommandFlag{
+		Name:        "init",
+		HelpText:    `  Initialize a new account and fleet in the network.`,
+		ExampleText: `  diode init`,
+	}
+	bnsCommandFlag = CommandFlag{
+		Name:        "bns",
+		HelpText:    `  Register/Update name service on diode blockchain.`,
+		ExampleText: `  diode bns -register hello-world=0x......`,
 	}
 )
 
@@ -64,10 +74,7 @@ func wrapPublishCommandFlag(cfg *Config) {
 	publishCommandFlag.Flag.Var(&cfg.ProtectedPublishedPorts, "protected", "expose ports to protected users (in fleet contract), so that user could connect to")
 	publishCommandFlag.Flag.Var(&cfg.PrivatePublishedPorts, "private", "expose ports to private users, so that user could connect to")
 	publishCommandFlag.Flag.Usage = func() {
-		fmt.Print(brandText)
-		fmt.Printf(commandText, socksdCommandFlag.Name)
-		flag.PrintDefaults()
-		printCommandDefaults(&publishCommandFlag, 0)
+		printUsage(publishCommandFlag)
 	}
 }
 
@@ -75,10 +82,7 @@ func wrapSocksdCommandFlag(cfg *Config) {
 	socksdCommandFlag.Flag.StringVar(&cfg.SocksServerHost, "socksd_host", "127.0.0.1", "host of socks server listening to")
 	socksdCommandFlag.Flag.IntVar(&cfg.SocksServerPort, "socksd_port", 1080, "port of socks server listening to")
 	socksdCommandFlag.Flag.Usage = func() {
-		fmt.Print(brandText)
-		fmt.Printf(commandText, socksdCommandFlag.Name)
-		flag.PrintDefaults()
-		printCommandDefaults(&socksdCommandFlag, 0)
+		printUsage(socksdCommandFlag)
 	}
 }
 
@@ -87,10 +91,7 @@ func wrapConfigCommandFlag(cfg *Config) {
 	configCommandFlag.Flag.BoolVar(&cfg.ConfigList, "list", false, "list all stored config keys")
 	configCommandFlag.Flag.Var(&cfg.ConfigSet, "set", "sets the given variable in the config")
 	configCommandFlag.Flag.Usage = func() {
-		fmt.Print(brandText)
-		fmt.Printf(commandText, configCommandFlag.Name)
-		flag.PrintDefaults()
-		printCommandDefaults(&configCommandFlag, 0)
+		printUsage(configCommandFlag)
 	}
 }
 
@@ -107,10 +108,20 @@ func wrapHttpdCommandFlag(cfg *Config) {
 	httpdCommandFlag.Flag.BoolVar(&cfg.EnableSProxyServer, "secure", false, "enable httpsd server")
 	httpdCommandFlag.Flag.BoolVar(&cfg.AllowRedirectToSProxy, "allow_redirect", false, "allow redirect all http transmission to httpsd")
 	httpdCommandFlag.Flag.Usage = func() {
-		fmt.Print(brandText)
-		fmt.Printf(commandText, httpdCommandFlag.Name)
-		flag.PrintDefaults()
-		printCommandDefaults(&httpdCommandFlag, 0)
+		printUsage(httpdCommandFlag)
+	}
+}
+
+func wrapInitCommandFlag(cfg *Config) {
+	initCommandFlag.Flag.Usage = func() {
+		printUsage(initCommandFlag)
+	}
+}
+
+func wrapBNSCommandFlag(cfg *Config) {
+	bnsCommandFlag.Flag.StringVar(&cfg.BNSRegister, "register", "", "Blockchain Name Service name and public address pair.")
+	bnsCommandFlag.Flag.Usage = func() {
+		printUsage(bnsCommandFlag)
 	}
 }
 
@@ -139,8 +150,14 @@ func isStringValue(f *flag.Flag) bool {
 	return typ.Elem().String() == "flag.stringValue"
 }
 
+func printUsage(command CommandFlag) {
+	fmt.Printf("Name\n  diode %s -%s\n\n", command.Name, command.HelpText)
+	fmt.Printf("SYNOPSYS\n  diode %s <args>\n\n", command.Name)
+	printCommandDefaults(&command, 0)
+}
+
 func printCommandDefaults(commandFlag *CommandFlag, indent int) {
-	s := fmt.Sprintf("%*sARG\n", indent, "")
+	s := fmt.Sprintf("%*sARGS\n", indent, "")
 	commandFlag.Flag.VisitAll(func(f *flag.Flag) {
 		s += fmt.Sprintf("%*s-%s", indent+2, "", f.Name) // Two spaces before -; see next two comments.
 		name, usage := flag.UnquoteUsage(f)
