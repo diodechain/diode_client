@@ -5,7 +5,7 @@ DARWIN_DIRECTORY="darwin"
 BUILD_DIRECTORY="darwin/build"
 BINARY_DIRECTORY="./"
 OPENSSL_DIRECTORY="/usr/local/opt/openssl/lib"
-VERSION="0.2.2"
+VERSION=`git describe --tags --dirty | awk '{ print substr(\$0, 2) }'`
 
 if [ ! -z $DIODE_DARWIN_SRC ] && [ -d $DIODE_DARWIN_SRC ]; then
     DARWIN_DIRECTORY=$DIODE_DARWIN_SRC

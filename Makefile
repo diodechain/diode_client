@@ -1,17 +1,16 @@
 TESTS= $(shell go list ./... | grep -v -e gowasm_test -e cmd)
 GOPATH= $(shell go env GOPATH)
-GOBUILD=go build -ldflags "-X main.version=`git describe --tags --dirty`"
-BINS=diode config_server
+GOBUILD=go build -ldflags "-s -r ./:$$ORIGIN/:@loader_path/ -X main.version=`git describe --tags --dirty`"
 ARCHIVE= $(shell ./deployment/zipname.sh)
 
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
-	COPY_DEPS= otool -L diode | awk '/libssl|libcrypto/ {system("cp " $$1 " dist/")}'
-	STRIP =
+	COPY_DEPS = otool -L diode | awk '/libssl|libcrypto/ {system("cp " $$1 " dist/")}'
+	STRIP = ./deployment/darwin_rpath.sh
 else
 	COPY_DEPS = ldd diode | awk '/libssl|libcrypto/ {system("cp " $$3 " dist/")}'
-	STRIP = strip --strip-all dist/*
+	STRIP = strip --strip-all
 endif
 
 EXE = 
@@ -19,8 +18,10 @@ ifdef OS
 	EXE = .exe
 endif
 
+BINS=diode$(EXE) config_server$(EXE)
+
 .PHONY: default
-default: diode
+default: diode$(EXE)
 
 .PHONY: all
 all: $(BINS)
@@ -52,15 +53,16 @@ uninstall:
 dist: $(BINS)
 	mkdir -p dist
 	cp $(BINS) dist/
-	$(STRIP)
-	upx dist/*
 	$(COPY_DEPS)
+	for d in dist/*; do \
+		$(STRIP) $$d ; \
+	done
+	upx $(addprefix dist/,$(BINS))
 
 .PHONY: archive
 archive: $(ARCHIVE)
 $(ARCHIVE): dist
 	zip -1 -j $(ARCHIVE) dist/*
-
 
 .PHONY: gateway
 gateway: diode
@@ -69,19 +71,19 @@ gateway: diode
 	scp -C diode root@diode.ws:diode_go_client
 	ssh root@diode.ws 'svc -k .'
 
-.PHONY: diode
-diode:
+.PHONY: diode$(EXE)
+diode$(EXE):
 	$(GOBUILD) -o diode$(EXE) cmd/diode/*.go
 
-.PHONY: diode_static
-diode_static:
+.PHONY: diode_static$(EXE)
+diode_static$(EXE):
 	go get -a -tags openssl_static github.com/diodechain/openssl
 	$(GOBUILD) -tags netgo,openssl_static -ldflags '-extldflags "-static"' -o diode_static$(EXE) cmd/diode/*.go
 
-.PHONY: config_server
-config_server:
+.PHONY: config_server$(EXE)
+config_server$(EXE):
 	GODEBUG=netdns=go CGO_ENABLED=0 $(GOBUILD) -ldflags "-X main.serverAddress=localhost:1081 -X main.configPath=./.diode.yml" -o config_server$(EXE) cmd/config_server/config_server.go
 
-.PHONY: client_debug
-client_debug:
+.PHONY: client_debug$(EXE)
+client_debug$(EXE):
 	$(GOBUILD) -o client_debug$(EXE) cmd/client_debug/*.go

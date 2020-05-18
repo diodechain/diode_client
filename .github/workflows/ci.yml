@@ -24,20 +24,22 @@ jobs:
         brew install binutils
         brew install https://raw.githubusercontent.com/Homebrew/homebrew-core/b1f92701367028062abb3518426aa5d8dacc224b/Formula/upx.rb
         echo "::add-path::/usr/local/opt/binutils/bin"
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v1
     - uses: actions/setup-go@v1
       with:
         go-version: ${{ matrix.go }}
     - run: make test
     - run: make dist
+    - run: echo "::set-env name=ZIPNAME::`./deployment/zipname.sh`"
+      shell: bash
     - if: runner.os == 'macOS'
       run: |
         mkdir darwin_package_build
         DIODE_OPENSSL_DIRECTORY=dist DIODE_BUILD_DST=darwin_package_build DIODE_BINARY_DIRECTORY=dist sh darwin_package.sh
     - name: Archive production artifacts
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v2
       with:
-        name: ${{ runner.os }}_amd64
+        name: ${{ env.ZIPNAME }}
         path: dist
     - name: Archive macos package production artifacts
       uses: actions/upload-artifact@v1
@@ -45,6 +47,27 @@ jobs:
       with:
         name: ${{ runner.os }}
         path: darwin_package_build
+
+  simple_run_test:
+    needs: build_and_test
+    name: "Run app"
+    strategy:
+      matrix:
+        os: ["windows-latest", "ubuntu-latest", "macOS-latest"]
+        go: ["1.14.x"]
+    runs-on: ${{ matrix.os }}
+    steps:
+    - uses: actions/checkout@v2
+    - run: echo "::set-env name=ZIPNAME::`./deployment/zipname.sh`"
+    - uses: actions/download-artifact@v2
+      with:
+        name: ${{ env.ZIPNAME }}
+    - if: runner.os == 'macOS'
+      run: brew remove openssl
+    - run: |
+        chmod +x ./diode 
+        ./diode config -list
+
   lint:
     name: "Run static analysis"
     runs-on: "ubuntu-latest"
