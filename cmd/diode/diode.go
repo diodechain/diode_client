@@ -316,7 +316,7 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) {
 	printLabel("New fleet address", fleetAddr.HexString())
 	printInfo("Waiting for block to be confirmed - this can take up to a minute")
 	watchAccount(client, bn, fleetAddr)
-	printInfo("Create fleet contract successfully")
+	printInfo("Created fleet contract successfully")
 	// generate fleet address
 	// send device whitelist transaction
 	whitelistData, _ := fleetContract.SetDeviceWhitelist(clientAddr, true)
