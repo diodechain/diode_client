@@ -10,7 +10,7 @@ jobs:
         go: ["1.14.x"]
     runs-on: ${{ matrix.os }}
     steps:
-    - if: runner.os == 'Windows'
+    - if: runner.os == 'Dontdoit'
       run: |
         choco install msys2
         echo "::add-path::C:\\tools\\msys64\\usr\\bin"
