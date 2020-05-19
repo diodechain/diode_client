@@ -10,14 +10,17 @@ jobs:
         go: ["1.14.x"]
     runs-on: ${{ matrix.os }}
     steps:
-    - if: runner.os == 'Dontdoit'
+    - if: runner.os == 'Windows'
       run: |
-        choco install msys2
+        choco install msys2 --params "/NoUpdate"
         echo "::add-path::C:\\tools\\msys64\\usr\\bin"
         echo "::add-path::C:\\tools\\msys64\\mingw64\\bin"
         echo "::set-env name=PKG_CONFIG_PATH::/mingw64/lib/pkgconfig"
     - if: runner.os == 'Windows'
-      run: pacman -S --noconfirm --needed base-devel mingw-w64-i686-toolchain mingw-w64-x86_64-toolchain mingw-w64-x86_64-openssl upx
+      run: |
+        pacman -Sy --noconfirm pacman-mirrors
+        update-core 
+        pacman -S --noconfirm --needed base-devel mingw-w64-i686-toolchain mingw-w64-x86_64-toolchain mingw-w64-x86_64-openssl upx
     - if: runner.os == 'macOS'
       run: |
         brew install binutils
