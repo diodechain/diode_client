@@ -18,6 +18,7 @@ jobs:
         echo "::set-env name=PKG_CONFIG_PATH::/mingw64/lib/pkgconfig"
     - if: runner.os == 'Windows'
       run: |
+        pacman -Su --noconfirm pacman
         pacman -Sy --noconfirm pacman-mirrors pkg-config
         pacman -S --noconfirm --needed base-devel mingw-w64-i686-toolchain mingw-w64-x86_64-toolchain mingw-w64-x86_64-openssl upx
     - if: runner.os == 'macOS'
