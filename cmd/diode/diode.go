@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/pem"
 	"fmt"
 	"os"
 	"os/signal"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/contract"
+	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/db"
 	"github.com/diodechain/diode_go_client/edge"
 	"github.com/diodechain/diode_go_client/rpc"
@@ -260,10 +262,24 @@ func doConfig(cfg *config.Config) {
 	if cfg.ConfigList || !activity {
 		printLabel("<KEY>", "<VALUE>")
 		for _, name := range db.DB.List() {
-			label := "<************************>"
+			label := "<********************************>"
 			value, err := db.DB.Get(name)
-			if err == nil && (name != "private" || cfg.ConfigUnsafe) {
-				label = util.EncodeToString(value)
+			if err == nil {
+				if name == "private" {
+					if cfg.ConfigUnsafe {
+						block, _ := pem.Decode(value)
+						if block == nil {
+							printError("Invalid pem private key format ", err, 129)
+						}
+						privKey, err := crypto.DerToECDSA(block.Bytes)
+						if err != nil {
+							printError("Invalid der private key format ", err, 129)
+						}
+						label = util.EncodeToString(privKey.D.Bytes())
+					}
+				} else {
+					label = util.EncodeToString(value)
+				}
 			}
 			printLabel(name, label)
 		}

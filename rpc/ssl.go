@@ -230,6 +230,9 @@ func (s *SSL) GetClientPrivateKey() (*ecdsa.PrivateKey, error) {
 	}
 	kd := EnsurePrivatePEM()
 	block, _ := pem.Decode(kd)
+	if block == nil {
+		return nil, fmt.Errorf("invalid pem private key format")
+	}
 	clientPrivKey, err := crypto.DerToECDSA(block.Bytes)
 	if err != nil {
 		return nil, err
