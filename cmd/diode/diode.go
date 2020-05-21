@@ -270,6 +270,7 @@ func doConfig(cfg *config.Config) {
 						block, _ := pem.Decode(value)
 						if block == nil {
 							printError("Invalid pem private key format ", err, 129)
+							return
 						}
 						privKey, err := crypto.DerToECDSA(block.Bytes)
 						if err != nil {
