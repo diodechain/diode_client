@@ -5,7 +5,6 @@ package rpc
 
 import (
 	"crypto/ecdsa"
-	"crypto/elliptic"
 	"encoding/binary"
 	"encoding/pem"
 	"fmt"
@@ -18,7 +17,6 @@ import (
 	"github.com/diodechain/diode_go_client/blockquick"
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/crypto"
-	"github.com/diodechain/diode_go_client/crypto/secp256k1"
 	"github.com/diodechain/diode_go_client/db"
 	"github.com/diodechain/diode_go_client/edge"
 	"github.com/diodechain/diode_go_client/util"
@@ -248,7 +246,7 @@ func (s *SSL) GetClientPubKey() ([]byte, error) {
 		return nil, err
 	}
 	// uncompressed
-	clientPubKey := elliptic.Marshal(secp256k1.S256(), privKey.PublicKey.X, privKey.PublicKey.Y)
+	clientPubKey := crypto.MarshalPubkey(&privKey.PublicKey)
 	return clientPubKey, nil
 }
 
@@ -260,7 +258,7 @@ func LoadClientPubKey() []byte {
 	if err != nil {
 		return []byte{}
 	}
-	clientPubKey := elliptic.Marshal(secp256k1.S256(), privKey.PublicKey.X, privKey.PublicKey.Y)
+	clientPubKey := crypto.MarshalPubkey(&privKey.PublicKey)
 	return clientPubKey
 }
 

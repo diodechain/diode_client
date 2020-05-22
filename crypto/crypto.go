@@ -148,7 +148,8 @@ func UnmarshalPubkey(pub []byte) (*ecdsa.PublicKey, error) {
 	return &ecdsa.PublicKey{Curve: S256(), X: x, Y: y}, nil
 }
 
-func FromECDSAPub(pub *ecdsa.PublicKey) []byte {
+// MarshalPubkey converts secp256k1 public key to uncompressed bytes
+func MarshalPubkey(pub *ecdsa.PublicKey) []byte {
 	if pub == nil || pub.X == nil || pub.Y == nil {
 		return nil
 	}
