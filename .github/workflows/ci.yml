@@ -68,6 +68,7 @@ jobs:
     - run: |
         chmod +x ./diode 
         ./diode config -list
+      shell: bash
 
   lint:
     name: "Run static analysis"
