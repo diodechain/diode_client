@@ -12,13 +12,11 @@ jobs:
     steps:
     - if: runner.os == 'Windows'
       run: |
-        choco install msys2 --params "/NoUpdate"
-        echo "::add-path::C:\\tools\\msys64\\usr\\bin"
-        echo "::add-path::C:\\tools\\msys64\\mingw64\\bin"
+        echo "::add-path::C:\\msys64\\usr\\bin"
+        echo "::add-path::C:\\msys64\\mingw64\\bin"
         echo "::set-env name=PKG_CONFIG_PATH::/mingw64/lib/pkgconfig"
     - if: runner.os == 'Windows'
       run: |
-        pacman -Sy --noconfirm pacman
         pacman -S --noconfirm pacman-mirrors pkg-config
         pacman -S --noconfirm --needed base-devel mingw-w64-i686-toolchain mingw-w64-x86_64-toolchain mingw-w64-x86_64-openssl upx
     - if: runner.os == 'macOS'
