@@ -117,6 +117,7 @@ func wrapInitCommandFlag(cfg *Config) {
 	initCommandFlag.Flag.Usage = func() {
 		printUsage(initCommandFlag)
 	}
+	initCommandFlag.Flag.BoolVar(&cfg.Experimental, "experimental", false, "send transactions of fleet deployment and device whitelist at seme time")
 }
 
 func wrapBNSCommandFlag(cfg *Config) {

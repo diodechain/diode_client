@@ -76,7 +76,7 @@ func NewRPCClient(s *SSL, config *RPCConfig, pool *DataPool) RPCClient {
 		started:               false,
 		ticketTickerDuration:  1 * time.Millisecond,
 		finishBlockTickerChan: make(chan bool, 1),
-		blockTickerDuration:   1 * time.Minute,
+		blockTickerDuration:   15 * time.Second,
 		timeout:               5 * time.Second,
 		pool:                  pool,
 		signal:                make(chan Signal),

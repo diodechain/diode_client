@@ -136,7 +136,11 @@ func main() {
 	}
 
 	if cfg.Command == "init" {
-		doInit(cfg, client)
+		if cfg.Experimental {
+			doInitExp(cfg, client)
+		} else {
+			doInit(cfg, client)
+		}
 		os.Exit(0)
 	}
 
@@ -332,7 +336,7 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) {
 	fleetAddr := util.CreateAddress(clientAddr, nonce)
 	printLabel("New fleet address", fleetAddr.HexString())
 	printInfo("Waiting for block to be confirmed - this can take up to a minute")
-	watchAccount(client, bn, fleetAddr)
+	watchAccount(client, fleetAddr)
 	printInfo("Created fleet contract successfully")
 	// generate fleet address
 	// send device whitelist transaction
@@ -347,7 +351,7 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) {
 	}
 	printLabel("Whitelisting device: ", clientAddr.HexString())
 	printInfo("Waiting for block to be confirmed - this can take up to a minute")
-	watchAccount(client, bn+1, fleetAddr)
+	watchAccount(client, fleetAddr)
 	printInfo("Whitelisted device successfully")
 	cfg.FleetAddr = fleetAddr
 	err = db.DB.Put("fleet", fleetAddr[:])
@@ -357,8 +361,75 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) {
 	printInfo("Client has been initialized, try to publish or browser through Diode Network.")
 }
 
-func doBNS(cfg *config.Config, client *rpc.RPCClient) {
+func doInitExp(cfg *config.Config, client *rpc.RPCClient) {
+	if cfg.FleetAddr != config.DefaultFleetAddr {
+		printInfo("Your client has been already initialized, try to publish or browse through Diode Network.")
+		return
+	}
 	// deploy fleet
+	bn, _ := client.GetBlockPeak()
+	if bn < 0 {
+		printError("Cannot find block peak: ", fmt.Errorf("not found"), 129)
+	}
+
+	var nonce uint64
+	var fleetContract contract.FleetContract
+	var err error
+	fleetContract, err = contract.NewFleetContract()
+	if err != nil {
+		printError("Cannot create fleet contract instance: ", err, 129)
+	}
+	var act *edge.Account
+	clientAddr, err := client.GetClientAddress()
+	if err != nil {
+		printError("Couldn't load own address", err, 129)
+	}
+
+	act, _ = client.GetValidAccount(uint64(bn), clientAddr)
+	if act == nil {
+		nonce = 0
+	} else {
+		nonce = uint64(act.Nonce)
+	}
+	deployData, err := fleetContract.DeployFleetContract(cfg.RegistryAddr, clientAddr, clientAddr)
+	if err != nil {
+		printError("Cannot create deploy contract data: ", err, 129)
+	}
+	tx := edge.NewDeployTransaction(nonce, 0, 10000000, 0, deployData, 0)
+	res, err := client.SendDeployTransaction(tx)
+	if err != nil {
+		printError("Cannot deploy fleet contract: ", err, 129)
+	}
+	if !res {
+		printError("Cannot deploy fleet contract: ", fmt.Errorf("server return false"), 129)
+	}
+	fleetAddr := util.CreateAddress(clientAddr, nonce)
+	printLabel("New fleet address", fleetAddr.HexString())
+	// generate fleet address
+	// send device whitelist transaction
+	whitelistData, _ := fleetContract.SetDeviceWhitelist(clientAddr, true)
+	ntx := edge.NewTransaction(nonce+1, 0, 10000000, fleetAddr, 0, whitelistData, 0)
+	res, err = client.SendTransaction(ntx)
+	if err != nil {
+		printError("Cannot whitelist device: ", err, 129)
+	}
+	if !res {
+		printError("Cannot whitelist device: ", fmt.Errorf("server return false"), 129)
+	}
+	printLabel("Whitelisting device: ", clientAddr.HexString())
+	printInfo("Waiting for block to be confirmed - this can take up to a minute")
+	watchAccount(client, fleetAddr)
+	printInfo("Created fleet contract and whitelisted device successfully")
+	cfg.FleetAddr = fleetAddr
+	err = db.DB.Put("fleet", fleetAddr[:])
+	if err != nil {
+		printError("Cannot save fleet address: ", err, 129)
+	}
+	printInfo("Client has been initialized, try to publish or browser through Diode Network.")
+}
+
+func doBNS(cfg *config.Config, client *rpc.RPCClient) {
+	// register bns record
 	bn, _ := client.GetBlockPeak()
 	if bn < 0 {
 		printError("Cannot find block peak: ", fmt.Errorf("not found"), 129)
@@ -409,7 +480,7 @@ func doBNS(cfg *config.Config, client *rpc.RPCClient) {
 		}
 		printLabel("Register bns: ", bnsName)
 		printInfo("Waiting for block to be confirmed - this can take up to a minute")
-		watchAccount(client, bn, contract.DNSAddr)
+		watchAccount(client, contract.DNSAddr)
 		printInfo("Register bns successfully")
 		return
 	}
@@ -461,27 +532,29 @@ func closeDiode(client *rpc.RPCClient, socksServer *rpc.Server, proxyServer *rpc
 // since account state will change after transaction
 // we try to confirm the transactions by validate the account state
 // to prevent from fork, maybe wait more blocks
-func watchAccount(client *rpc.RPCClient, startBN int, to util.Address) (res bool) {
+func watchAccount(client *rpc.RPCClient, to util.Address) (res bool) {
 	var bn int
+	var startBN int
 	var err error
 	var oact *edge.Account
 	var getTimes int
 	var isConfirmed bool
+	startBN, _ = rpc.LastValid()
 	bn = startBN
 	oact, _ = client.GetValidAccount(uint64(bn), to)
 	for {
-		<-time.After(3 * time.Second)
+		<-time.After(15 * time.Second)
 		var nbn int
-		nbn, err = client.GetBlockPeak()
-		if nbn == bn || err != nil {
-			printInfo("Waiting 3 seconds for new block...")
+		nbn, _ = rpc.LastValid()
+		if nbn == bn {
+			printInfo("Waiting for next valid block...")
 			continue
 		}
 		var nact *edge.Account
 		bn = nbn
 		nact, err = client.GetValidAccount(uint64(bn), to)
 		if err != nil {
-			printInfo("Waiting 3 seconds for new block...")
+			printInfo("Waiting for next valid block...")
 			continue
 		}
 		if nact != nil {
