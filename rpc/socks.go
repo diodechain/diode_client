@@ -320,7 +320,7 @@ func (socksServer *Server) checkAccess(deviceName string) (*edge.DeviceTicket, e
 		var ok bool
 		deviceID, ok = socksServer.datapool.GetCacheDNS(dnsKey)
 		if !ok {
-			deviceID, err = socksServer.Client.ResolveDNS(deviceName)
+			deviceID, err = socksServer.Client.ResolveBNS(deviceName)
 			if err != nil {
 				return nil, HttpError{404, err}
 			}

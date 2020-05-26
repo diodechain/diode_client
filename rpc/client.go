@@ -798,7 +798,7 @@ func (rpcClient *RPCClient) GetAccountRoots(blockNumber uint64, account [20]byte
 	return nil, nil
 }
 
-func (rpcClient *RPCClient) ResolveDNS(name string) (addr Address, err error) {
+func (rpcClient *RPCClient) ResolveBNS(name string) (addr Address, err error) {
 	rpcClient.Info("resolving DN: %s", name)
 	key := contract.DNSMetaKey(name)
 	raw, err := rpcClient.GetAccountValueRaw(0, contract.DNSAddr, key)

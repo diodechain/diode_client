@@ -462,7 +462,7 @@ func doBNS(cfg *config.Config, client *rpc.RPCClient) {
 			printError("Wrong diode address", err, 129)
 		}
 		// check bns
-		obnsAddr, err := client.ResolveDNS(bnsName)
+		obnsAddr, err := client.ResolveBNS(bnsName)
 		if err == nil {
 			if obnsAddr == bnsAddr {
 				printError("Same diode address on blockchain", err, 129)
