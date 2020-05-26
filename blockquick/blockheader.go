@@ -82,9 +82,9 @@ func (bh *BlockHeader) Parent() (hash Sha3) {
 	return
 }
 
-// Parent returns the block parents hash (the previous block hash)
-func (bh *BlockHeader) Number() int {
-	return int(bh.number)
+// Number returns the block number
+func (bh *BlockHeader) Number() uint64 {
+	return bh.number
 }
 
 // HashWithoutSig returns sha3 of bert encoded block header without miner signature

@@ -351,15 +351,15 @@ func (rpcClient *RPCClient) ValidateNetwork() (bool, error) {
  */
 
 // GetBlockPeak returns block peak
-func (rpcClient *RPCClient) GetBlockPeak() (int, error) {
+func (rpcClient *RPCClient) GetBlockPeak() (uint64, error) {
 	rawBlockPeak, err := rpcClient.CallContext("getblockpeak", nil)
 	if err != nil {
-		return -1, err
+		return 0, err
 	}
 	if blockPeak, ok := rawBlockPeak.(uint64); ok {
-		return int(blockPeak), nil
+		return blockPeak, nil
 	}
-	return -1, nil
+	return 0, nil
 }
 
 // GetBlockquick returns block headers used for blockquick algorithm
@@ -411,7 +411,7 @@ func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]*bl
 	// copy responses to headers
 	for _, i := range blockNumbers {
 		if responses[i] != nil {
-			if int(i) != responses[i].Number() {
+			if i != responses[i].Number() {
 				return nil, fmt.Errorf("received blocks out of order")
 			}
 			headers = append(headers, responses[i])
@@ -422,12 +422,12 @@ func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]*bl
 
 // GetBlockHeaderValid returns a validated recent block header
 // (only available for the last windowsSize blocks)
-func (rpcClient *RPCClient) GetBlockHeaderValid(blockNum int) *blockquick.BlockHeader {
+func (rpcClient *RPCClient) GetBlockHeaderValid(blockNum uint64) *blockquick.BlockHeader {
 	return bq.GetBlockHeader(blockNum)
 }
 
 // GetBlockHeadersUnsafe returns a consecutive range of block headers
-func (rpcClient *RPCClient) GetBlockHeadersUnsafe(blockNumMin int, blockNumMax int) ([]*blockquick.BlockHeader, error) {
+func (rpcClient *RPCClient) GetBlockHeadersUnsafe(blockNumMin uint64, blockNumMax uint64) ([]*blockquick.BlockHeader, error) {
 	if blockNumMin > blockNumMax {
 		return nil, fmt.Errorf("GetBlockHeadersUnsafe(): blockNumMin needs to be <= max")
 	}
@@ -817,15 +817,15 @@ func (rpcClient *RPCClient) ResolveBNS(name string) (addr Address, err error) {
 }
 
 // ResolveBlockHash resolves a missing blockhash by blocknumber
-func (rpcClient *RPCClient) ResolveBlockHash(blockNumber int) (blockHash []byte, err error) {
-	if blockNumber < 0 {
+func (rpcClient *RPCClient) ResolveBlockHash(blockNumber uint64) (blockHash []byte, err error) {
+	if blockNumber == 0 {
 		return
 	}
 	blockHeader := bq.GetBlockHeader(blockNumber)
 	if blockHeader == nil {
 		lvbn, _ := bq.Last()
 		rpcClient.Info("Validating ticket based on non-checked block %v %v", blockNumber, lvbn)
-		blockHeader, err = rpcClient.GetBlockHeaderUnsafe(uint64(blockNumber))
+		blockHeader, err = rpcClient.GetBlockHeaderUnsafe(blockNumber)
 		if err != nil {
 			return
 		}

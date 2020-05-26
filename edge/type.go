@@ -68,14 +68,12 @@ type ServerObj struct {
 }
 
 type StateRoots struct {
-	// BlockNumber int
 	StateRoots   [][]byte
 	rawStateRoot []byte
 	stateRoot    []byte
 }
 
 type AccountRoots struct {
-	// BlockNumber int
 	AccountRoots   [][]byte
 	rawStorageRoot []byte
 	storageRoot    []byte

@@ -21,7 +21,7 @@ var (
 // DeviceTicket struct for connection and transmission
 type DeviceTicket struct {
 	ServerID         Address
-	BlockNumber      int
+	BlockNumber      uint64
 	BlockHash        []byte
 	FleetAddr        Address
 	TotalConnections uint64

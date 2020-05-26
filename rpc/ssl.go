@@ -352,18 +352,18 @@ func (s *SSL) reconnect() error {
 }
 
 // LastValid returns the last valid block number and block header
-func LastValid() (int, crypto.Sha3) {
+func LastValid() (uint64, crypto.Sha3) {
 	if bq == nil {
 		return restoreLastValid()
 	}
 	return bq.Last()
 }
 
-func restoreLastValid() (int, crypto.Sha3) {
+func restoreLastValid() (uint64, crypto.Sha3) {
 	lvbn, err := db.DB.Get(lvbnKey)
 	var lvbh []byte
 	if err == nil {
-		lvbnNum := util.DecodeBytesToInt(lvbn)
+		lvbnNum := util.DecodeBytesToUint(lvbn)
 		lvbh, err = db.DB.Get(lvbhKey)
 		if err == nil {
 			var hash [32]byte
@@ -376,7 +376,7 @@ func restoreLastValid() (int, crypto.Sha3) {
 
 func storeLastValid() {
 	lvbn, lvbh := LastValid()
-	db.DB.Put(lvbnKey, util.DecodeIntToBytes(lvbn))
+	db.DB.Put(lvbnKey, util.DecodeUintToBytes(lvbn))
 	db.DB.Put(lvbhKey, lvbh[:])
 }
 

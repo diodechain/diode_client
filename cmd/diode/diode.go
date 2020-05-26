@@ -298,7 +298,7 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) {
 	}
 	// deploy fleet
 	bn, _ := client.GetBlockPeak()
-	if bn < 0 {
+	if bn == 0 {
 		printError("Cannot find block peak: ", fmt.Errorf("not found"), 129)
 	}
 
@@ -368,7 +368,7 @@ func doInitExp(cfg *config.Config, client *rpc.RPCClient) {
 	}
 	// deploy fleet
 	bn, _ := client.GetBlockPeak()
-	if bn < 0 {
+	if bn == 0 {
 		printError("Cannot find block peak: ", fmt.Errorf("not found"), 129)
 	}
 
@@ -431,7 +431,7 @@ func doInitExp(cfg *config.Config, client *rpc.RPCClient) {
 func doBNS(cfg *config.Config, client *rpc.RPCClient) {
 	// register bns record
 	bn, _ := client.GetBlockPeak()
-	if bn < 0 {
+	if bn == 0 {
 		printError("Cannot find block peak: ", fmt.Errorf("not found"), 129)
 	}
 
@@ -533,8 +533,8 @@ func closeDiode(client *rpc.RPCClient, socksServer *rpc.Server, proxyServer *rpc
 // we try to confirm the transactions by validate the account state
 // to prevent from fork, maybe wait more blocks
 func watchAccount(client *rpc.RPCClient, to util.Address) (res bool) {
-	var bn int
-	var startBN int
+	var bn uint64
+	var startBN uint64
 	var err error
 	var oact *edge.Account
 	var getTimes int
@@ -544,7 +544,7 @@ func watchAccount(client *rpc.RPCClient, to util.Address) (res bool) {
 	oact, _ = client.GetValidAccount(uint64(bn), to)
 	for {
 		<-time.After(15 * time.Second)
-		var nbn int
+		var nbn uint64
 		nbn, _ = rpc.LastValid()
 		if nbn == bn {
 			printInfo("Waiting for next valid block...")

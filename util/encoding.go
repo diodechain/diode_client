@@ -195,3 +195,16 @@ func DecodeIntToBytes(src int) []byte {
 	outBig.SetInt64(int64(src))
 	return outBig.Bytes()
 }
+
+// DecodeUintToBytes returns bytes of the given uint64
+func DecodeUintToBytes(src uint64) []byte {
+	outBig := &big.Int{}
+	outBig.SetUint64(src)
+	return outBig.Bytes()
+}
+
+// IntToBig returns big int for given src
+// func IntToBig(src int) (out big.Int) {
+// 	out.SetInt64(int64(src))
+// 	return
+// }

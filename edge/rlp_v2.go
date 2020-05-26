@@ -230,7 +230,7 @@ func (rlpV2 RLP_V2) parseDeviceObjectResponse(buffer []byte) (interface{}, error
 	copy(fleetAddr[:], response.Payload.Ticket.FleetAddr)
 	deviceObj := &DeviceTicket{
 		ServerID:         serverID,
-		BlockNumber:      int(response.Payload.Ticket.PeakBlock),
+		BlockNumber:      response.Payload.Ticket.PeakBlock,
 		BlockHash:        nil,
 		FleetAddr:        fleetAddr,
 		TotalConnections: response.Payload.Ticket.TotalConnections,

@@ -74,29 +74,29 @@ func New(bhs []*BlockHeader, windowSize int) (*Window, error) {
 
 // GetBlockHeader returns valid BlockHeaders from the window
 // this only allows storing 'window_size' block headers
-func (win *Window) GetBlockHeader(num int) *BlockHeader {
+func (win *Window) GetBlockHeader(num uint64) *BlockHeader {
 	win.mx.Lock()
 	defer win.mx.Unlock()
 
-	if num == int(win.lastValid.bh.number) {
+	if num == win.lastValid.bh.number {
 		return win.lastValid.bh
 	}
 
-	base := int(win.finals[0].bh.number)
+	base := win.finals[0].bh.number
 	offset := num - base
-	if offset < 0 || offset >= len(win.finals) {
+	if offset >= uint64(len(win.finals)) {
 		return nil
 	}
 	return win.finals[offset].bh
 }
 
 // Last is the peak of the finalized blocks and can be behind lastValid
-// if a new lastValid has been validated using a couple of gapped blocks
-func (win *Window) Last() (int, Sha3) {
+// if a new lastValid has been validpbridgeated using a couple of gapped blocks
+func (win *Window) Last() (uint64, Sha3) {
 	win.mx.Lock()
 	defer win.mx.Unlock()
 
-	return int(win.lastFinal().bh.number), win.lastFinal().hash
+	return win.lastFinal().bh.number, win.lastFinal().hash
 }
 
 // lastFinal is the peak of the finalized blocks and can be behind lastValid

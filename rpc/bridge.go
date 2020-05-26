@@ -293,8 +293,8 @@ func (rpcClient *RPCClient) sendMessage() {
 }
 
 func (rpcClient *RPCClient) watchLatestBlock() {
+	var lastblock uint64
 	rpcClient.blockTicker = time.NewTicker(rpcClient.blockTickerDuration)
-	lastblock := 0
 	for {
 		select {
 		case <-rpcClient.finishBlockTickerChan:
