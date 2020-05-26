@@ -59,7 +59,9 @@ dist: $(BINS)
 	for d in $(addprefix dist/,$(BINS)); do \
 		$(STRIP) $$d ; \
 	done
-	$(PATCH_RPATH) dist/*
+	for d in dist/*; do \
+		$(PATCH_RPATH) $$d ; \
+	done
 	upx $(addprefix dist/,$(BINS))
 
 .PHONY: archive
