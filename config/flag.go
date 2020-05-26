@@ -6,6 +6,7 @@ package config
 import (
 	"flag"
 	"fmt"
+	"net"
 	"os"
 	"runtime"
 	"strconv"
@@ -40,6 +41,7 @@ Run 'diode COMMAND --help' for more information on a command.
 	}
 	DefaultRegistryAddr = [20]byte{80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 	DefaultFleetAddr    = [20]byte{96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	errWrongDiodeAddrs  = fmt.Errorf("wrong remote diode addresses")
 )
 
 // Address represents an Ethereum address
@@ -325,6 +327,14 @@ func LoadConfigFromFile(filePath string) (configBytes []byte, err error) {
 	return
 }
 
+func isValidRPCAddress(address string) (isValid bool) {
+	_, _, err := net.SplitHostPort(address)
+	if err == nil {
+		isValid = true
+	}
+	return
+}
+
 // ParseFlag parse command line flags and return Config
 // TODO: refactor flag usage and commandFlag usage text
 func ParseFlag() {
@@ -470,14 +480,17 @@ func ParseFlag() {
 		cfg.RemoteRPCAddrs = bootDiodeAddrs[:]
 	} else {
 		remoteRPCAddrs := []string{}
-		// TODO: check domain is valid
 		for _, RPCAddr := range cfg.RemoteRPCAddrs {
-			if len(RPCAddr) > 0 && !stringsContain(remoteRPCAddrs, &RPCAddr) {
+			if isValidRPCAddress(RPCAddr) && !stringsContain(remoteRPCAddrs, &RPCAddr) {
 				remoteRPCAddrs = append(remoteRPCAddrs, RPCAddr)
 			}
 		}
+		if len(remoteRPCAddrs) == 0 {
+			wrongCommandLineFlag(errWrongDiodeAddrs)
+		}
 		cfg.RemoteRPCAddrs = remoteRPCAddrs
 	}
+
 	retryWaitTime, err := time.ParseDuration(strconv.Itoa(*retryWait) + "s")
 	cfg.RetryWait = retryWaitTime
 	if err != nil {
