@@ -1,7 +1,7 @@
 TESTS= $(shell go list ./... | grep -v -e gowasm_test -e cmd)
 GOPATH= $(shell go env GOPATH)
 # GOBUILD=go build -ldflags "-X main.version=`git describe --tags --dirty`"
-GOBUILD=go build -ldflags "-s -r ./ -X main.version=`git describe --tags --dirty`"
+GOBUILD=go build -ldflags "-s -X main.version=`git describe --tags --dirty`"
 ARCHIVE= $(shell ./deployment/zipname.sh)
 
 
