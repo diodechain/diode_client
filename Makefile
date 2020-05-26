@@ -7,10 +7,12 @@ ARCHIVE= $(shell ./deployment/zipname.sh)
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
 	COPY_DEPS = otool -L diode | awk '/libssl|libcrypto/ {system("cp " $$1 " dist/")}'
-	STRIP = ./deployment/darwin_rpath.sh
+	STRIP = echo nostrip
+	PATCH_RPATH = ./deployment/darwin_rpath.sh
 else
 	COPY_DEPS = ldd diode | awk '/libssl|libcrypto/ {system("cp " $$3 " dist/")}'
 	STRIP = strip --strip-all
+	PATH_RPATH = echo nopatch
 endif
 
 EXE = 
@@ -57,6 +59,7 @@ dist: $(BINS)
 	for d in $(addprefix dist/,$(BINS)); do \
 		$(STRIP) $$d ; \
 	done
+	$(PATCH_RPATH) dist/*
 	upx $(addprefix dist/,$(BINS))
 
 .PHONY: archive
