@@ -12,7 +12,7 @@ ifeq ($(UNAME_S),Darwin)
 else
 	COPY_DEPS = ldd diode | awk '/libssl|libcrypto/ {system("cp " $$3 " dist/")}'
 	STRIP = strip --strip-all
-	PATH_RPATH = echo nopatch
+	PATCH_RPATH = echo nopatch
 endif
 
 EXE = 
