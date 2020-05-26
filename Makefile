@@ -55,7 +55,7 @@ dist: $(BINS)
 	mkdir -p dist
 	cp $(BINS) dist/
 	$(COPY_DEPS)
-	for d in dist/*; do \
+	for d in $(addprefix dist/,$(BINS)); do \
 		$(STRIP) $$d ; \
 	done
 	upx $(addprefix dist/,$(BINS))
