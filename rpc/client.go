@@ -509,15 +509,6 @@ func (rpcClient *RPCClient) SignTransaction(tx *edge.Transaction) error {
 	return tx.Sign(privKey)
 }
 
-// SignDeployTransaction return signed transaction
-func (rpcClient *RPCClient) SignDeployTransaction(tx *edge.DeployTransaction) error {
-	privKey, err := rpcClient.s.GetClientPrivateKey()
-	if err != nil {
-		return err
-	}
-	return tx.Sign(privKey)
-}
-
 // NewTicket returns ticket
 func (rpcClient *RPCClient) newTicket() (*edge.DeviceTicket, error) {
 	serverID, err := rpcClient.s.GetServerID()
@@ -654,27 +645,6 @@ func (rpcClient *RPCClient) SendTransaction(tx *edge.Transaction) (result bool, 
 	var res interface{}
 	var ok bool
 	err = rpcClient.SignTransaction(tx)
-	if err != nil {
-		return
-	}
-	encodedRLPTx, err = tx.ToRLP()
-	if err != nil {
-		return
-	}
-	res, err = rpcClient.CallContext("sendtransaction", nil, encodedRLPTx)
-	if res, ok = res.(string); ok {
-		result = res == "ok"
-		return
-	}
-	return
-}
-
-// SendDeployTransaction send signed transaction to server
-func (rpcClient *RPCClient) SendDeployTransaction(tx *edge.DeployTransaction) (result bool, err error) {
-	var encodedRLPTx []byte
-	var res interface{}
-	var ok bool
-	err = rpcClient.SignDeployTransaction(tx)
 	if err != nil {
 		return
 	}

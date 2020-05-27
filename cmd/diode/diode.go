@@ -326,7 +326,7 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) {
 		printError("Cannot create deploy contract data: ", err, 129)
 	}
 	tx := edge.NewDeployTransaction(nonce, 0, 10000000, 0, deployData, 0)
-	res, err := client.SendDeployTransaction(tx)
+	res, err := client.SendTransaction(tx)
 	if err != nil {
 		printError("Cannot deploy fleet contract: ", err, 129)
 	}
@@ -396,7 +396,7 @@ func doInitExp(cfg *config.Config, client *rpc.RPCClient) {
 		printError("Cannot create deploy contract data: ", err, 129)
 	}
 	tx := edge.NewDeployTransaction(nonce, 0, 10000000, 0, deployData, 0)
-	res, err := client.SendDeployTransaction(tx)
+	res, err := client.SendTransaction(tx)
 	if err != nil {
 		printError("Cannot deploy fleet contract: ", err, 129)
 	}

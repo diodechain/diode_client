@@ -4,10 +4,13 @@
 package util
 
 import (
+	"bytes"
 	"crypto/ecdsa"
+	"math/rand"
 	"testing"
 
 	"github.com/diodechain/diode_go_client/crypto"
+	"github.com/diodechain/diode_go_client/crypto/secp256k1"
 )
 
 var (
@@ -15,6 +18,13 @@ var (
 	pubAddrHex      = "0x9d8a62f656a8d1615c1294fd71e9cfb3e4855a4f"
 	contractAddrHex = "0x20bb3edd03cdb25b85f5e7e5f107c801869cc3ae"
 )
+
+func randomHash(len int) (h []byte) {
+	msg := make([]byte, 32)
+	rand.Read(msg)
+	h = crypto.Sha3Hash(msg)
+	return
+}
 
 func getPrivKey() (privKey *ecdsa.PrivateKey) {
 	var err error
@@ -61,5 +71,30 @@ func TestCreateAddress(t *testing.T) {
 	contractAddr := CreateAddress(pubAddr, 1)
 	if contractAddr.HexString() != contractAddrHex {
 		t.Errorf("Failed to create address")
+	}
+}
+
+func TestSignature(t *testing.T) {
+	privKey := getPrivKey()
+	if privKey == nil {
+		t.Fatalf("Couldn't recover private key")
+	}
+	msgHash := randomHash(32)
+	rawSig, err := secp256k1.Sign(msgHash, privKey.D.Bytes())
+	if err != nil {
+		t.Fatalf("Couldn't sign message with given private key")
+	}
+	var sig Signature
+	copy(sig[:], rawSig)
+	if (sig.V() - rawSig[0]) != 35 {
+		t.Fatalf("Signature v should be recid + 35")
+	}
+	r := sig.R()
+	if !bytes.Equal(r[:], rawSig[1:33]) {
+		t.Fatalf("Signature r should be the same")
+	}
+	s := sig.S()
+	if !bytes.Equal(s[:], rawSig[33:65]) {
+		t.Fatalf("Signature s should be the same")
 	}
 }
