@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"regexp"
 	"runtime"
 	"strconv"
 	"strings"
@@ -41,6 +42,7 @@ Run 'diode COMMAND --help' for more information on a command.
 	}
 	DefaultRegistryAddr = [20]byte{80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 	DefaultFleetAddr    = [20]byte{96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	subDomainpattern    = regexp.MustCompile(`(0x[A-Fa-f0-9]{40}|[A-Za-z0-9][A-Za-z0-9-]{5,30}?)(-[^0][\d]+)?$`)
 	errWrongDiodeAddrs  = fmt.Errorf("wrong remote diode addresses")
 )
 
@@ -206,6 +208,10 @@ func parseBind(bind string) (*Bind, error) {
 	ret.LocalPort, err = strconv.Atoi(elements[0])
 	if err != nil {
 		return nil, fmt.Errorf("Bind local_port should be a number but is: %v in: %v", elements[0], bind)
+	}
+
+	if !subDomainpattern.MatchString(ret.To) {
+		return nil, fmt.Errorf("Bind format to_address should be valid diode domain but got: %v", ret.To)
 	}
 
 	ret.ToPort, err = strconv.Atoi(elements[2])
