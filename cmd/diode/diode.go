@@ -220,6 +220,9 @@ func processConfig(cfg *config.Config) {
 		Fallback:        cfg.SocksFallback,
 	})
 
+	if isProvider {
+		socksServer.StartSecureServer()
+	}
 	if cfg.EnableSocksServer {
 		// start socks server
 		if err := socksServer.Start(); err != nil {
