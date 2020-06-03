@@ -73,6 +73,9 @@ func wrapPublishCommandFlag(cfg *Config) {
 	publishCommandFlag.Flag.Var(&cfg.PublicPublishedPorts, "public", "expose ports to public users, so that user could connect to")
 	publishCommandFlag.Flag.Var(&cfg.ProtectedPublishedPorts, "protected", "expose ports to protected users (in fleet contract), so that user could connect to")
 	publishCommandFlag.Flag.Var(&cfg.PrivatePublishedPorts, "private", "expose ports to private users, so that user could connect to")
+	publishCommandFlag.Flag.StringVar(&cfg.SocksServerHost, "proxy_host", "127.0.0.1", "host of socksd proxy server")
+	publishCommandFlag.Flag.IntVar(&cfg.SocksServerPort, "proxy_port", 1080, "port of socksd proxy server")
+	publishCommandFlag.Flag.BoolVar(&cfg.EnableSocksServer, "socksd", false, "enable socksd proxy server")
 	publishCommandFlag.Flag.Usage = func() {
 		printUsage(publishCommandFlag)
 	}
@@ -81,6 +84,7 @@ func wrapPublishCommandFlag(cfg *Config) {
 func wrapSocksdCommandFlag(cfg *Config) {
 	socksdCommandFlag.Flag.StringVar(&cfg.SocksServerHost, "socksd_host", "127.0.0.1", "host of socks server listening to")
 	socksdCommandFlag.Flag.IntVar(&cfg.SocksServerPort, "socksd_port", 1080, "port of socks server listening to")
+	socksdCommandFlag.Flag.StringVar(&cfg.SocksFallback, "fallback", "localhost", "how to resolve web2 addresses")
 	socksdCommandFlag.Flag.Usage = func() {
 		printUsage(socksdCommandFlag)
 	}

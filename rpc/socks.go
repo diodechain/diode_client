@@ -56,10 +56,18 @@ const (
 type Config struct {
 	Addr            string
 	ProxyServerAddr string
+	Fallback        string
 	EnableProxy     bool
 	FleetAddr       Address
 	Blacklists      map[Address]bool
 	Whitelists      map[Address]bool
+}
+
+// Bind keeps track if existing binds
+type Bind struct {
+	def config.Bind
+	tcp net.Listener
+	udp net.PacketConn
 }
 
 // Server is the only instances of the Socks Server
@@ -73,6 +81,7 @@ type Server struct {
 	wg       *sync.WaitGroup
 	rm       sync.Mutex
 	started  bool
+	binds    []Bind
 }
 
 type DeviceError struct {
@@ -272,6 +281,11 @@ func handShake5(conn net.Conn, buf []byte) (url string, err error) {
 	port := binary.BigEndian.Uint16(buf[idDm0+buf[idDmLen] : idDm0+buf[idDmLen]+2])
 	url = fmt.Sprintf("%s:%d", host, port)
 	return
+}
+
+func isDiodeHost(host string) bool {
+	subDomainPort := domainPattern.FindStringSubmatch(host)
+	return len(subDomainPort) == 4
 }
 
 func parseHost(host string) (isWS bool, deviceID string, mode string, port int, err error) {
@@ -477,6 +491,27 @@ func writeSocksReturn(conn net.Conn, ver int, addr net.Addr, port int) {
 
 }
 
+func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
+	remote, err := net.Dial("tcp", host)
+	if err != nil {
+		socksServer.Client.Error("failed to connect host: %v", host)
+		writeSocksError(conn, ver, socksRepNetworkUnreachable)
+		return
+	}
+
+	port := remote.RemoteAddr().(*net.TCPAddr).Port
+
+	socksServer.Client.Debug("host connect success @ %s", host)
+	writeSocksReturn(conn, ver, socksServer.Client.s.LocalAddr(), port)
+
+	// Copy local to remote
+	go netCopy(conn, remote)
+
+	// Copy remote to local
+	netCopy(remote, conn)
+	remote.Close()
+}
+
 func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *edge.DeviceTicket, port int, mode string) {
 	deviceID := device.GetDeviceID()
 	socksServer.Client.Debug("connect remote %s mode %s...", deviceID, mode)
@@ -554,14 +589,26 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 		// UDP associate request returns an empty host
 		return
 	}
+	if !isDiodeHost(host) {
+		if socksServer.Config.Fallback == "localhost" {
+			socksServer.pipeFallback(conn, ver, host)
+		} else {
+			socksServer.Client.Error("target not a diode host %v", host)
+			writeSocksError(conn, ver, socksRepRefused)
+		}
+		return
+	}
+
 	isWS, deviceID, mode, port, err := parseHost(host)
 	if err != nil {
 		socksServer.Client.Error("failed to parseTarget %v", err)
+		writeSocksError(conn, ver, socksRepNetworkUnreachable)
 		return
 	}
 	device, httpErr := socksServer.checkAccess(deviceID)
 	if device == nil {
 		socksServer.Client.Error("failed to checkAccess %v", httpErr.Error())
+		writeSocksError(conn, ver, socksRepNotAllowed)
 		return
 	}
 	if !isWS {
@@ -571,15 +618,32 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 	}
 }
 
+// Stop socks server
+func (socksServer *Server) Stop() {
+	if socksServer.listener != nil {
+		socksServer.listener.Close()
+		socksServer.listener = nil
+	}
+	if socksServer.udpconn != nil {
+		socksServer.udpconn.Close()
+		socksServer.udpconn = nil
+	}
+	socksServer.started = false
+}
+
 // Start socks server
 func (socksServer *Server) Start() error {
+	if socksServer.started {
+		return nil
+	}
+
 	socksServer.Client.Info("Start socks server %s", socksServer.Config.Addr)
 	tcp, err := net.Listen("tcp", socksServer.Config.Addr)
 	if err != nil {
 		return err
 	}
-	socksServer.listener = tcp
 	socksServer.started = true
+	socksServer.listener = tcp
 
 	go func() {
 		for {
@@ -719,45 +783,95 @@ func (socksServer *Server) forwardUDP(addr net.Addr, deviceName string, port int
 	}
 }
 
-func (socksServer *Server) StartBind(bind config.Bind) error {
-	address := fmt.Sprintf("127.0.0.1:%d", bind.LocalPort)
-	socksServer.Client.Info("Starting port bind %s", address)
-	switch bind.Protocol {
-	case config.UDPProtocol:
-		udp, err := net.ListenPacket("udp", address)
+func (socksServer *Server) SetBinds(bindDefs []config.Bind) {
+	newBinds := make([]Bind, 0)
+	for _, def := range bindDefs {
+		newBind := &Bind{def: def}
+		for _, b := range socksServer.binds {
+			if b.def == def {
+				newBind = &b
+				break
+			}
+		}
+		newBinds = append(newBinds, *newBind)
+		err := socksServer.startBind(newBind)
 		if err != nil {
-			return fmt.Errorf("StartBind() failed for: %+v because %v", bind, err)
+			socksServer.Client.Error(err.Error())
+		}
+	}
+
+	for _, bind := range socksServer.binds {
+		stop := true
+		for _, b := range newBinds {
+			if b == bind {
+				stop = false
+				break
+			}
+		}
+		if stop {
+			socksServer.stopBind(&bind)
+		}
+	}
+	socksServer.binds = newBinds
+}
+
+func (socksServer *Server) stopBind(bind *Bind) {
+	if bind.udp != nil {
+		bind.udp.Close()
+		bind.udp = nil
+	}
+	if bind.tcp != nil {
+		bind.tcp.Close()
+		bind.tcp = nil
+	}
+}
+
+func (socksServer *Server) startBind(bind *Bind) error {
+	var err error
+	address := fmt.Sprintf("127.0.0.1:%d", bind.def.LocalPort)
+	socksServer.Client.Info("Starting port bind %s", address)
+	switch bind.def.Protocol {
+	case config.UDPProtocol:
+		if bind.udp != nil {
+			return nil
+		}
+		bind.udp, err = net.ListenPacket("udp", address)
+		if err != nil {
+			return fmt.Errorf("StartBind() failed for: %+v because %v", bind.def, err)
 		}
 
 		packet := make([]byte, 2048)
 		go func() {
 			for {
-				n, addr, err := udp.ReadFrom(packet)
+				n, addr, err := bind.udp.ReadFrom(packet)
 				if err != nil {
 					socksServer.Client.Error("StartBind(udp): %v", err)
 					continue
 				}
-				socksServer.forwardUDP(addr, bind.To, bind.ToPort, "rw", packet[:n])
+				socksServer.forwardUDP(addr, bind.def.To, bind.def.ToPort, "rw", packet[:n])
 			}
 		}()
 
 	case config.TCPProtocol:
-		listener, err := net.Listen("tcp", address)
+		if bind.tcp != nil {
+			return nil
+		}
+		bind.tcp, err = net.Listen("tcp", address)
 		if err != nil {
-			return fmt.Errorf("StartBind() failed for: %+v because %v", bind, err)
+			return fmt.Errorf("StartBind() failed for: %+v because %v", bind.def, err)
 		}
 
 		go func() {
 			for {
-				conn, err := listener.Accept()
+				conn, err := bind.tcp.Accept()
 				if err != nil {
 					socksServer.Client.Error(err.Error(), "module", "main")
 				}
-				go socksServer.handleBind(conn, bind)
+				go socksServer.handleBind(conn, bind.def)
 			}
 		}()
 	default:
-		return fmt.Errorf("StartBind() Unknown protocol: %+v", bind)
+		return fmt.Errorf("StartBind() Unknown protocol: %+v", bind.def)
 	}
 	return nil
 }
@@ -782,18 +896,25 @@ func (socksServer *Server) handleBind(conn net.Conn, bind config.Bind) {
 }
 
 // NewSocksServer generate socksserver struct
-func (client *RPCClient) NewSocksServer(config *Config, pool *DataPool) *Server {
+func (client *RPCClient) NewSocksServer(pool *DataPool) *Server {
 	return &Server{
-		Config:   config,
+		Config:   &Config{},
 		wg:       &sync.WaitGroup{},
 		pool:     make(map[Address]*RPCClient),
 		datapool: pool,
 		started:  false,
 		Client:   client,
+		binds:    make([]Bind, 0),
 	}
 }
 
-// GetServer gets or creates a new SSL connectio to the given server
+func (socksServer *Server) SetConfig(config *Config) {
+	socksServer.rm.Lock()
+	defer socksServer.rm.Unlock()
+	socksServer.Config = config
+}
+
+// GetServer gets or creates a new SSL connection to the given server
 func (socksServer *Server) GetServer(nodeID Address) (client *RPCClient, err error) {
 	socksServer.rm.Lock()
 	defer socksServer.rm.Unlock()

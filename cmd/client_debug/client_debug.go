@@ -45,7 +45,7 @@ func main() {
 	}
 	var wg sync.WaitGroup
 	config = parseFlag()
-	prox, _ := url.Parse(fmt.Sprintf("socks5://%s", config.SocksServerAddr))
+	prox, _ := url.Parse(fmt.Sprintf("socks5://%s", config.SocksServerAddr()))
 	proxyTransport.Proxy = http.ProxyURL(prox)
 	log.Printf("Start to connect %d times", config.Conn)
 	wg.Add(config.Conn)

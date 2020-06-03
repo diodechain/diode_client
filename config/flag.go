@@ -72,10 +72,8 @@ type Config struct {
 	Command                 string           `yaml:"-" json:"-"`
 	FleetAddr               Address          `yaml:"-" json:"-"`
 	RegistryAddr            Address          `yaml:"-" json:"-"`
-	ProxyServerAddr         string           `yaml:"-" json:"-"`
 	ProxyServerHost         string           `yaml:"-" json:"-"`
 	ProxyServerPort         int              `yaml:"-" json:"-"`
-	SProxyServerAddr        string           `yaml:"-" json:"-"`
 	SProxyServerHost        string           `yaml:"-" json:"-"`
 	SProxyServerPort        int              `yaml:"-" json:"-"`
 	SProxyServerCertPath    string           `yaml:"-" json:"-"`
@@ -84,9 +82,9 @@ type Config struct {
 	EnableProxyServer       bool             `yaml:"-" json:"-"`
 	EnableSProxyServer      bool             `yaml:"-" json:"-"`
 	EnableSocksServer       bool             `yaml:"-" json:"-"`
-	SocksServerAddr         string           `yaml:"-" json:"-"`
 	SocksServerHost         string           `yaml:"-" json:"-"`
 	SocksServerPort         int              `yaml:"-" json:"-"`
+	SocksFallback           string           `yaml:"-" json:"-"`
 	ConfigUnsafe            bool             `yaml:"-" json:"-"`
 	ConfigList              bool             `yaml:"-" json:"-"`
 	ConfigDelete            stringValues     `yaml:"-" json:"-"`
@@ -429,15 +427,9 @@ func ParseFlag() {
 	case "socksd":
 		commandFlag.Parse(args[1:])
 		cfg.EnableSocksServer = true
-		cfg.SocksServerAddr = fmt.Sprintf("%s:%d", cfg.SocksServerHost, cfg.SocksServerPort)
 	case "httpd":
 		commandFlag.Parse(args[1:])
 		cfg.EnableProxyServer = true
-		cfg.SocksServerAddr = fmt.Sprintf("%s:%d", cfg.SocksServerHost, cfg.SocksServerPort)
-		cfg.ProxyServerAddr = fmt.Sprintf("%s:%d", cfg.ProxyServerHost, cfg.ProxyServerPort)
-		if cfg.EnableSProxyServer {
-			cfg.SProxyServerAddr = fmt.Sprintf("%s:%d", cfg.SProxyServerHost, cfg.SProxyServerPort)
-		}
 	case "publish":
 		commandFlag.Parse(args[1:])
 		publishedPorts := make(map[int]*Port)
@@ -551,4 +543,16 @@ func ParseFlag() {
 	}
 	AppConfig = cfg
 	// return cfg
+}
+
+func (cfg *Config) SocksServerAddr() string {
+	return fmt.Sprintf("%s:%d", cfg.SocksServerHost, cfg.SocksServerPort)
+}
+
+func (cfg *Config) ProxyServerAddr() string {
+	return fmt.Sprintf("%s:%d", cfg.ProxyServerHost, cfg.ProxyServerPort)
+}
+
+func (cfg *Config) SProxyServerAddr() string {
+	return fmt.Sprintf("%s:%d", cfg.SProxyServerHost, cfg.SProxyServerPort)
 }

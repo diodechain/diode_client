@@ -13,7 +13,6 @@ type Config struct {
 	Target          string
 	Conn            int
 	EnableTransport bool
-	SocksServerAddr string
 	SocksServerHost string
 	SocksServerPort int
 }
@@ -29,6 +28,9 @@ func parseFlag() *Config {
 	flag.IntVar(&cfg.Conn, "conn", 100, "total connection concurrently")
 
 	flag.Parse()
-	cfg.SocksServerAddr = fmt.Sprintf("%s:%d", cfg.SocksServerHost, cfg.SocksServerPort)
 	return cfg
+}
+
+func (cfg *Config) SocksServerAddr() string {
+	return fmt.Sprintf("%s:%d", cfg.SocksServerHost, cfg.SocksServerPort)
 }

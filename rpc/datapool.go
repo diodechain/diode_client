@@ -27,14 +27,6 @@ func NewPool() *DataPool {
 	}
 }
 
-func NewPoolWithPublishedPorts(publishedPorts map[int]*config.Port) *DataPool {
-	return &DataPool{
-		memoryCache:    cache.New(5*time.Minute, 10*time.Minute),
-		devices:        make(map[string]*ConnectedDevice),
-		publishedPorts: publishedPorts,
-	}
-}
-
 func (p *DataPool) GetCacheDNS(key string) (dns Address, ok bool) {
 	p.rm.RLock()
 	defer p.rm.RUnlock()
@@ -123,12 +115,8 @@ func (p *DataPool) GetPublishedPort(port int) *config.Port {
 	return p.publishedPorts[port]
 }
 
-func (p *DataPool) SetPublishedPort(port int, publishedPort *config.Port) {
+func (p *DataPool) SetPublishedPorts(ports map[int]*config.Port) {
 	p.rm.Lock()
 	defer p.rm.Unlock()
-	if publishedPort == nil {
-		delete(p.publishedPorts, port)
-	} else {
-		p.publishedPorts[port] = publishedPort
-	}
+	p.publishedPorts = ports
 }

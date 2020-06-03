@@ -25,7 +25,10 @@ import (
 )
 
 var (
-	version string = "development"
+	version     string = "development"
+	socksServer *rpc.Server
+	proxyServer *rpc.ProxyServer
+	pool        *rpc.DataPool
 )
 
 func init() {
@@ -33,21 +36,14 @@ func init() {
 }
 
 func main() {
-	var socksServer *rpc.Server
-	var proxyServer *rpc.ProxyServer
 	var err error
-	var pool *rpc.DataPool
 
 	if version != "development" {
 		doUpdate()
 	}
 
 	cfg := config.AppConfig
-	if len(cfg.PublishedPorts) > 0 {
-		pool = rpc.NewPoolWithPublishedPorts(cfg.PublishedPorts)
-	} else {
-		pool = rpc.NewPool()
-	}
+	pool = rpc.NewPool()
 
 	printLabel("Diode Client version", version)
 
@@ -178,59 +174,62 @@ func main() {
 		sig := <-sigChan
 		switch sig {
 		case syscall.SIGINT:
-			closeDiode(client, socksServer, proxyServer, cfg)
+			os.Exit(0)
 		}
 	}()
 
-	socksConfig := &rpc.Config{
-		Addr:            cfg.SocksServerAddr,
+	socksServer = client.NewSocksServer(pool)
+	proxyServer = rpc.NewProxyServer(socksServer)
+
+	processConfig(cfg)
+	// start
+	client.Wait()
+	closeDiode(client, cfg)
+}
+
+func processConfig(cfg *config.Config) {
+	if len(cfg.PublishedPorts) > 0 {
+		pool.SetPublishedPorts(cfg.PublishedPorts)
+	}
+
+	socksServer.SetConfig(&rpc.Config{
+		Addr:            cfg.SocksServerAddr(),
 		FleetAddr:       cfg.FleetAddr,
 		Blacklists:      cfg.Blacklists,
 		Whitelists:      cfg.Whitelists,
 		EnableProxy:     cfg.EnableProxyServer,
-		ProxyServerAddr: cfg.ProxyServerAddr,
-	}
-	socksServer = client.NewSocksServer(socksConfig, pool)
+		ProxyServerAddr: cfg.ProxyServerAddr(),
+		Fallback:        cfg.SocksFallback,
+	})
 
 	if cfg.EnableSocksServer {
 		// start socks server
 		if err := socksServer.Start(); err != nil {
 			cfg.Logger.Error(err.Error(), "module", "main")
-			return
 		}
+	} else {
+		socksServer.Stop()
 	}
+
 	if cfg.EnableProxyServer {
-		proxyConfig := rpc.ProxyConfig{
+		proxyServer.SetConfig(rpc.ProxyConfig{
 			EnableProxy:      cfg.EnableProxyServer,
 			EnableSProxy:     cfg.EnableSProxyServer,
-			ProxyServerAddr:  cfg.ProxyServerAddr,
-			SProxyServerAddr: cfg.SProxyServerAddr,
+			ProxyServerAddr:  cfg.ProxyServerAddr(),
+			SProxyServerAddr: cfg.SProxyServerAddr(),
 			CertPath:         cfg.SProxyServerCertPath,
 			PrivPath:         cfg.SProxyServerPrivPath,
 			AllowRedirect:    cfg.AllowRedirectToSProxy,
-		}
+		})
 		// Start proxy server
-		if proxyServer, err = rpc.NewProxyServer(socksServer, proxyConfig); err != nil {
-			cfg.Logger.Error(err.Error(), "module", "main")
-			return
-		}
 		if err := proxyServer.Start(); err != nil {
 			cfg.Logger.Error(err.Error(), "module", "main")
-			return
 		}
+	} else {
+		proxyServer.Stop()
 	}
 
-	for _, bind := range cfg.Binds {
-		err = socksServer.StartBind(bind)
-		if err != nil {
-			cfg.Logger.Error(err.Error(), "module", "main")
-			return
-		}
-	}
-
-	// start
-	client.Wait()
-	closeDiode(client, socksServer, proxyServer, cfg)
+	socksServer.SetBinds(cfg.Binds)
 }
 
 func doConfig(cfg *config.Config) {
@@ -511,7 +510,7 @@ func connect(c chan *rpc.RPCClient, host string, cfg *config.Config, wg *sync.Wa
 	}
 }
 
-func closeDiode(client *rpc.RPCClient, socksServer *rpc.Server, proxyServer *rpc.ProxyServer, cfg *config.Config) {
+func closeDiode(client *rpc.RPCClient, cfg *config.Config) {
 	if client.Started() {
 		client.Close()
 	}
