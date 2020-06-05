@@ -33,6 +33,7 @@ var (
 	errAddrType = errors.New("socks addr type not supported")
 	errVer      = errors.New("socks version not supported")
 	errCmd      = errors.New("socks only support connect command")
+	localhost   = "localhost"
 )
 
 const (
@@ -290,7 +291,7 @@ func isDiodeHost(host string) bool {
 	return len(subDomainPort) == 4
 }
 
-func parseHost(host string) (isWS bool, deviceID string, mode string, port int, err error) {
+func parseHost(host string) (isWS bool, isE2E bool, mode string, deviceID string, port int, err error) {
 	mode = defaultMode
 	strPort := ":80"
 
@@ -308,18 +309,21 @@ func parseHost(host string) (isWS bool, deviceID string, mode string, port int, 
 	}
 
 	isWS = domain == "diode.ws"
-	modeHostPort := subDomainpattern.FindStringSubmatch(sub)
-	if len(modeHostPort) != 4 {
+	e2eModeHostPort := subDomainpattern.FindStringSubmatch(sub)
+	if len(e2eModeHostPort) != 5 {
 		err = fmt.Errorf("subdomain pattern not supported %v", sub)
 		return
 	}
-	if len(modeHostPort[1]) > 0 {
-		mode = modeHostPort[1]
+	if len(e2eModeHostPort[1]) > 0 {
+		isE2E = true
+	}
+	if len(e2eModeHostPort[2]) > 0 {
+		mode = e2eModeHostPort[2]
 		mode = mode[:len(mode)-1]
 	}
-	deviceID = modeHostPort[2]
-	if len(modeHostPort[3]) > 0 {
-		strPort = modeHostPort[3]
+	deviceID = e2eModeHostPort[3]
+	if len(e2eModeHostPort[4]) > 0 {
+		strPort = e2eModeHostPort[4]
 	}
 
 	port, err = strconv.Atoi(strPort[1:])
@@ -412,9 +416,10 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 	}
 
 	var portName string
-	// Requests UDP vs. TCP connections
 	if protocol == config.UDPProtocol {
 		portName = fmt.Sprintf("udp:%d", port)
+	} else if protocol == config.TLSProtocol {
+		portName = fmt.Sprintf("tls:%d", port)
 	} else {
 		portName = fmt.Sprintf("tcp:%d", port)
 	}
@@ -435,7 +440,6 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 	if portOpen != nil && portOpen.Err != nil {
 		return nil, HttpError{500, fmt.Errorf("PortOpen() failed(2): %v", portOpen.Err)}
 	}
-
 	return &ConnectedDevice{
 		Ref:      portOpen.Ref,
 		DeviceID: deviceID,
@@ -445,6 +449,60 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 
 func (socksServer *Server) connectDevice(deviceName string, port int, protocol int, mode string) (*ConnectedDevice, error) {
 	return socksServer.doConnectDevice(deviceName, port, protocol, mode, 1)
+}
+
+func (socksServer *Server) doConnectE2EDevice(deviceName string, port int, protocol int, mode string, retry int) (*ConnectedDevice, error) {
+	// This is double checked in some cases, but it does not hurt since
+	// checkAccess internally caches
+	device, httpErr := socksServer.checkAccess(deviceName)
+	if httpErr != nil {
+		return nil, httpErr
+	}
+
+	// decode device id
+	deviceID, err := device.DeviceAddress()
+	if err != nil {
+		return nil, HttpError{500, fmt.Errorf("DeviceAddress() failed: %v", err)}
+	}
+
+	client, err := socksServer.GetServer(device.ServerID)
+	if err != nil {
+		return nil, HttpError{500, fmt.Errorf("GetServer() failed: %v", err)}
+	}
+
+	if protocol != config.TLSProtocol {
+		return nil, HttpError{500, fmt.Errorf("protocol should be TLSProtocol")}
+	}
+	bind := config.Bind{
+		To:       deviceName,
+		ToPort:   port,
+		Protocol: protocol,
+	}
+	bindPort := socksServer.getBindPort()
+	var l net.Listener
+	l, err = socksServer.StartEdgeClient(bindPort, bind)
+	if err != nil {
+		return nil, HttpError{500, fmt.Errorf("StartEdgeClient() failed: %v", err)}
+	}
+	host := net.JoinHostPort(localhost, strconv.Itoa(bindPort))
+	sclient, err := dialSSL(host, config.AppConfig, socksServer.datapool)
+	if err != nil {
+		return nil, HttpError{500, fmt.Errorf("DoConnect() failed: %v", err)}
+	}
+	return &ConnectedDevice{
+		DeviceID: deviceID,
+		Client:   client,
+		S:        sclient,
+		Conn: E2EDeviceConn{
+			Listener:  l,
+			PortInUse: port,
+			CopyRaw:   true,
+		},
+	}, nil
+}
+
+func (socksServer *Server) connectE2EDevice(deviceName string, port int, protocol int, mode string) (*ConnectedDevice, error) {
+	return socksServer.doConnectE2EDevice(deviceName, port, protocol, mode, 1)
 }
 
 func writeSocksError(conn net.Conn, ver int, err byte) {
@@ -490,7 +548,6 @@ func writeSocksReturn(conn net.Conn, ver int, addr net.Addr, port int) {
 	rep[pindex] = byte((port >> 8) & 0xff)
 	rep[pindex+1] = byte(port & 0xff)
 	conn.Write(rep[0 : pindex+2])
-
 }
 
 func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
@@ -514,45 +571,6 @@ func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
 	remote.Close()
 }
 
-// TODO: refactor getBindPort function
-func (socksServer *Server) getBindPort() (port int){
-	port = 12174
-	return
-}
-
-func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *edge.DeviceTicket, port int, mode string) {
-	// bind request to remote tls server
-	deviceID := device.GetDeviceID()
-	socksServer.Client.Debug("connect remote %s mode %s...", deviceID, mode)
-	bind := config.Bind{
-		To: deviceID,
-		ToPort: 12173,
-	}
-	bindPort := socksServer.getBindPort()
-	l, err := socksServer.StartEdge(bindPort, bind)
-	if err != nil {
-		socksServer.Client.Error("Failed to StartEdge(), reason:", err.Error())
-		writeSocksError(conn, ver, socksRepNetworkUnreachable)
-		return
-	}
-	host := fmt.Sprintf("127.0.0.1:%d", bindPort)
-	sclient, err := DialContext(socksServer.Client.s.ctx, host, openssl.InsecureSkipHostVerification, nil)
-	if err != nil {
-		socksServer.Client.Error("Failed to connect to %s, reason:", host, err.Error())
-		writeSocksError(conn, ver, socksRepNetworkUnreachable)
-		return
-	}
-	sconn := sclient.getOpensslConn()
-	defer sconn.Close()
-	defer conn.Close()
-	defer l.Close()
-	writeSocksReturn(conn, ver, socksServer.Client.s.LocalAddr(), port)
-	// to close listener and ssl connectionm should copy socks connection later
-	go netCopy(sconn, conn)
-	netCopy(conn, sconn)
-	return
-}
-
 func netCopy(input, output net.Conn) (err error) {
 	buf := make([]byte, readBufferSize)
 	for {
@@ -573,8 +591,64 @@ func netCopy(input, output net.Conn) (err error) {
 	return
 }
 
-func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, device *edge.DeviceTicket, port int, mode string) {
-	socksServer.Client.Debug("connect remote %s mode %s...", socksServer.Config.ProxyServerAddr, mode)
+// TODO: refactor getBindPort function
+func (socksServer *Server) getBindPort() (port int) {
+	port = socksServer.Client.portService.Available()
+	return
+}
+
+func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *edge.DeviceTicket, port int, mode string, isE2E bool) {
+	// bind request to remote tls server
+	deviceID := device.GetDeviceID()
+	socksServer.Client.Debug("connect remote %s mode %s e2e %v...", deviceID, mode, isE2E)
+	protocol := config.TCPProtocol
+	clientIP := conn.RemoteAddr().String()
+	var connDevice *ConnectedDevice
+	var httpErr error
+	if isE2E {
+		protocol = config.TLSProtocol
+		connDevice, httpErr = socksServer.connectE2EDevice(deviceID, port, protocol, mode)
+		if e2eDeviceConn, ok := connDevice.Conn.(E2EDeviceConn); ok {
+			e2eDeviceConn.Conn = conn
+			connDevice.Conn = e2eDeviceConn
+		}
+	} else {
+		connDevice, httpErr = socksServer.connectDevice(deviceID, port, protocol, mode)
+		connDevice.Conn = DeviceConn{
+			Conn: conn,
+		}
+	}
+
+	if httpErr != nil {
+		socksServer.Client.Error("failed to connectDevice(): %v", httpErr.Error())
+		writeSocksError(conn, ver, socksRepNetworkUnreachable)
+		return
+	}
+
+	deviceKey := connDevice.Client.GetDeviceKey(connDevice.Ref)
+
+	connDevice.ClientID = clientIP
+	socksServer.datapool.SetDevice(deviceKey, connDevice)
+
+	// send data or receive data from ref
+	socksServer.Client.Debug("connect remote success @ %s %s %v %v", clientIP, deviceID, port, connDevice.Ref)
+	writeSocksReturn(conn, ver, socksServer.Client.s.LocalAddr(), port)
+
+	// write request data to device
+	if isE2E {
+		go netCopy(connDevice.S.getOpensslConn(), conn)
+		connDevice.copyToSSL()
+		connDevice.Close()
+	} else {
+
+		connDevice.copyToSSL()
+		connDevice.Close()
+	}
+	socksServer.Client.Debug("close socks connection @ %s %s %v %v", clientIP, deviceID, port, connDevice.Ref)
+}
+
+func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, device *edge.DeviceTicket, port int, mode string, isE2E bool) {
+	socksServer.Client.Debug("connect remote %s mode %s e2e %v...", socksServer.Config.ProxyServerAddr, mode, isE2E)
 
 	remoteConn, err := net.DialTimeout("tcp", socksServer.Config.ProxyServerAddr, time.Duration(time.Second*15))
 	if err != nil {
@@ -611,10 +685,9 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 		return
 	}
 
-	isWS, deviceID, mode, port, err := parseHost(host)
+	isWS, isE2E, mode, deviceID, port, err := parseHost(host)
 	if err != nil {
-		socksServer.Client.Error("failed to parseTarget %v", err)
-		writeSocksError(conn, ver, socksRepNetworkUnreachable)
+		socksServer.Client.Error("failed to parse host %v", err)
 		return
 	}
 	device, httpErr := socksServer.checkAccess(deviceID)
@@ -624,9 +697,9 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 		return
 	}
 	if !isWS {
-		socksServer.pipeSocksThenClose(conn, ver, device, port, mode)
+		socksServer.pipeSocksThenClose(conn, ver, device, port, mode, isE2E)
 	} else if socksServer.Config.EnableProxy {
-		socksServer.pipeSocksWSThenClose(conn, ver, device, port, mode)
+		socksServer.pipeSocksWSThenClose(conn, ver, device, port, mode, isE2E)
 	}
 }
 
@@ -645,41 +718,20 @@ func (socksServer *Server) Stop() {
 
 func (socksServer * Server) StartSecureServer() {
 	address := "127.0.0.1:12173"
-	listener, err := openssl.Listen("tcp", address, socksServer.Client.s.ctx)
+	_, err := openssl.Listen("tcp", address, socksServer.Client.s.ctx)
 	if err != nil {
 		socksServer.Client.Error(err.Error(), "module", "main")
 		return
 	}
-
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				socksServer.Client.Error(err.Error(), "module", "main")
-			}
-			go func() {
-				remoteConn, err := net.DialTimeout("tcp", "localhost:8080", time.Duration(time.Second*15))
-				if err != nil {
-					socksServer.Client.Error("failed to connect to localhost:8080 %v", err.Error())
-					return
-				}
-				socksServer.Client.Error("start to copy tcp")
-				go netCopy(conn, remoteConn)
-				netCopy(remoteConn, conn)
-			}()
-			// go socksServer.handleBind(conn, bind)
-		}
-	}()
 }
 
-func (socksServer * Server) StartEdge(port int, bind config.Bind) (net.Listener, error) {
-	address := fmt.Sprintf("127.0.0.1:%d",  port)
-	listener, err := net.Listen("tcp", address)
-	// port should always be 12173
-	bind.ToPort= 12173
+func (socksServer *Server) StartEdgeClient(port int, bind config.Bind) (net.Listener, error) {
+	host := net.JoinHostPort(localhost, strconv.Itoa(port))
+	listener, err := net.Listen("tcp", host)
 	if err != nil {
 		return nil, err
 	}
+	socksServer.Client.Info("Start binding %s, remember to close the listener", host)
 
 	go func() {
 		for {
@@ -796,7 +848,7 @@ func (socksServer *Server) handleUDP(packet []byte) {
 	data := packet[idDm0+dmLen+2:]
 
 	// Finished parsing packet
-	isWS, deviceName, mode, _, err := parseHost(host)
+	isWS, _, mode, deviceID, _, err := parseHost(host)
 	if err != nil {
 		socksServer.Client.Error("handleUDP error: Failed to parse %s %v", host, err)
 		return
@@ -807,7 +859,7 @@ func (socksServer *Server) handleUDP(packet []byte) {
 		return
 	}
 
-	socksServer.forwardUDP(addr, deviceName, port, mode, data)
+	socksServer.forwardUDP(addr, deviceID, port, mode, data)
 }
 
 func (socksServer *Server) forwardUDP(addr net.Addr, deviceName string, port int, mode string, data []byte) {
@@ -834,7 +886,7 @@ func (socksServer *Server) forwardUDP(addr net.Addr, deviceName string, port int
 		deviceKey := connDevice.Client.GetDeviceKey(connDevice.Ref)
 
 		connDevice.ClientID = addr.String()
-		connDevice.Conn = ConnectedConn{
+		connDevice.Conn = DeviceConn{
 			Conn: conn,
 		}
 		socksServer.datapool.SetDevice(deviceKey, connDevice)
@@ -891,7 +943,7 @@ func (socksServer *Server) stopBind(bind *Bind) {
 
 func (socksServer *Server) startBind(bind *Bind) error {
 	var err error
-	address := fmt.Sprintf("127.0.0.1:%d", bind.def.LocalPort)
+	address := net.JoinHostPort(localhost, strconv.Itoa(bind.def.LocalPort))
 	socksServer.Client.Info("Starting port bind %s", address)
 	switch bind.def.Protocol {
 	case config.UDPProtocol:
@@ -948,7 +1000,7 @@ func (socksServer *Server) handleBind(conn net.Conn, bind config.Bind) {
 	deviceKey := connDevice.Client.GetDeviceKey(connDevice.Ref)
 
 	connDevice.ClientID = conn.RemoteAddr().String()
-	connDevice.Conn = ConnectedConn{
+	connDevice.Conn = DeviceConn{
 		Conn: conn,
 	}
 	socksServer.datapool.SetDevice(deviceKey, connDevice)

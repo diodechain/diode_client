@@ -404,7 +404,7 @@ func EnsurePrivatePEM() []byte {
 }
 
 func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, error) {
-	ctx := initSSL(config)
+	ctx := initSSLCtx(config)
 	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
 	if err != nil {
 		config.Logger.Crit(fmt.Sprintf("Failed to connect to host: %s", err.Error()), "module", "ssl", "server", host)
@@ -453,7 +453,8 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 		Blacklists:   config.Blacklists,
 		Whitelists:   config.Whitelists,
 	}
-	rpcClient := NewRPCClient(client, rpcConfig, pool)
+	portService := NewPortService()
+	rpcClient := NewRPCClient(client, rpcConfig, pool, portService)
 
 	rpcClient.Verbose = config.Debug
 	rpcClient.logger = config.Logger
@@ -467,7 +468,53 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 	return &rpcClient, nil
 }
 
-func initSSL(config *config.Config) *openssl.Ctx {
+func dialSSL(host string, config *config.Config, pool *DataPool) (*SSL, error) {
+	ctx := initSSLCtx(config)
+	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
+	if err != nil {
+		config.Logger.Crit(fmt.Sprintf("Failed to connect to host: %s", err.Error()), "module", "ssl", "server", host)
+		// Retry to connect
+		isOk := false
+		for i := 1; i <= config.RetryTimes; i++ {
+			config.Logger.Info(fmt.Sprintf("Retry to connect to host: %s, wait %s", host, config.RetryWait.String()), "module", "ssl", "server", host)
+			time.Sleep(config.RetryWait)
+			client, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
+			if err == nil {
+				isOk = true
+				break
+			}
+			if config.Debug {
+				config.Logger.Debug(fmt.Sprintf("Failed to connect to host: %s", err.Error()), "module", "ssl", "server", host)
+			}
+		}
+		if !isOk {
+			return nil, fmt.Errorf("failed to connect to host: %s", host)
+		}
+	}
+	// enable keepalive
+	if config.EnableKeepAlive {
+		err = client.EnableKeepAlive()
+		if err != nil {
+			client.Close()
+			return nil, err
+		}
+		err = client.SetKeepAliveCount(config.KeepAliveCount)
+		if err != nil {
+			return nil, err
+		}
+		err = client.SetKeepAliveIdle(config.KeepAliveIdle)
+		if err != nil {
+			return nil, err
+		}
+		err = client.SetKeepAliveInterval(config.KeepAliveInterval)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return client, nil
+}
+
+func initSSLCtx(config *config.Config) *openssl.Ctx {
 
 	serial := new(big.Int)
 	_, err := fmt.Sscan("18446744073709551617", serial)

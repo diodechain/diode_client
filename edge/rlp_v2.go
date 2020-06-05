@@ -390,6 +390,13 @@ func (rlpV2 RLP_V2) parseInboundPortOpenRequest(buffer []byte) (interface{}, err
 		return portOpen, nil
 	}
 
+	// Version 2 TLS
+	n, err = fmt.Sscanf(port, "tls:%d", &portOpen.PortNumber)
+	if err == nil && n == 1 {
+		portOpen.Protocol = config.TLSProtocol
+		return portOpen, nil
+	}
+
 	// Version 2 UDP
 	n, err = fmt.Sscanf(port, "udp:%d", &portOpen.PortNumber)
 	if err == nil && n == 1 {

@@ -6,6 +6,7 @@ package rpc
 import (
 	"math/rand"
 	"sync"
+	"time"
 )
 
 const (
@@ -22,6 +23,7 @@ type PortService struct {
 
 // NewPortService initialize PortService
 func NewPortService() (p *PortService) {
+	rand.Seed(time.Now().UTC().UnixNano())
 	return &PortService{
 		used: make(map[int]bool),
 	}
@@ -50,7 +52,6 @@ func (p *PortService) Release(port int) {
 	if p.used[port] {
 		delete(p.used, port)
 	}
-	return
 }
 
 // IsAvailable returns true if port wasn't used

@@ -13,6 +13,7 @@ import (
 
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/edge"
+	"github.com/diodechain/openssl"
 )
 
 var (
@@ -106,13 +107,12 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			connDevice := &ConnectedDevice{}
 
 			// connect to stream service
-			host := net.JoinHostPort("localhost", strconv.Itoa(int(publishedPort.Src)))
+			host := net.JoinHostPort(localhost, strconv.Itoa(int(publishedPort.Src)))
 
 			network := "tcp"
 			if portOpen.Protocol == config.UDPProtocol {
 				network = "udp"
 			}
-
 			remoteConn, err := net.DialTimeout(network, host, rpcClient.timeout)
 
 			if err != nil {
@@ -121,13 +121,43 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 				return
 			}
 			_ = rpcClient.ResponsePortOpen(portOpen, nil)
-			deviceKey := rpcClient.GetDeviceKey(portOpen.Ref)
+			var deviceKey string
+			if portOpen.Protocol == config.TLSProtocol {
+				tlsPort := rpcClient.portService.Available()
 
-			connDevice.Ref = portOpen.Ref
-			connDevice.ClientID = clientID
-			connDevice.DeviceID = portOpen.DeviceID
-			connDevice.Conn.Conn = remoteConn
-			connDevice.Client = rpcClient
+				listener, err := rpcClient.startE2EServer(tlsPort, remoteConn)
+				if err != nil {
+					rpcClient.Error("failed to start ssl local server: %v", err)
+				}
+
+				host = listener.Addr().String()
+				tlsConn, err := net.DialTimeout(network, host, rpcClient.timeout)
+				if err != nil {
+					rpcClient.Error("failed to connect ssl local: %v", err)
+				}
+				rpcClient.Info("Start ssl server: %s", host)
+
+				deviceKey = rpcClient.GetDeviceKey(portOpen.Ref)
+				connDevice.Ref = portOpen.Ref
+				connDevice.ClientID = clientID
+				connDevice.DeviceID = portOpen.DeviceID
+				connDevice.Conn = DeviceConn{
+					Conn: tlsConn,
+					// Listener:  listener,
+					// PortInUse: tlsPort,
+				}
+				connDevice.Client = rpcClient
+			} else {
+				deviceKey = rpcClient.GetDeviceKey(portOpen.Ref)
+
+				connDevice.Ref = portOpen.Ref
+				connDevice.ClientID = clientID
+				connDevice.DeviceID = portOpen.DeviceID
+				connDevice.Conn = DeviceConn{
+					Conn: remoteConn,
+				}
+				connDevice.Client = rpcClient
+			}
 			rpcClient.pool.SetDevice(deviceKey, connDevice)
 
 			connDevice.copyToSSL()
@@ -166,6 +196,29 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 	} else {
 		rpcClient.Warn("doesn't support rpc request: %+v ", inboundRequest)
 	}
+}
+
+func (rpcClient *RPCClient) startE2EServer(port int, remoteConn net.Conn) (listener net.Listener, err error) {
+	host := net.JoinHostPort(localhost, strconv.Itoa(port))
+	listener, err = openssl.Listen("tcp", host, rpcClient.s.ctx)
+	if err != nil {
+		rpcClient.Error(err.Error(), "module", "main")
+		return
+	}
+
+	go func() {
+		for {
+			conn, err := listener.Accept()
+			if err != nil {
+				rpcClient.Error(err.Error(), "module", "main")
+			}
+			go func() {
+				go netCopy(conn, remoteConn)
+				netCopy(remoteConn, conn)
+			}()
+		}
+	}()
+	return
 }
 
 // handle inbound message

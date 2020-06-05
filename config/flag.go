@@ -27,6 +27,7 @@ const (
 	LogToFile
 	TCPProtocol = 1 << iota
 	UDPProtocol
+	TLSProtocol
 	AnyProtocol
 )
 
