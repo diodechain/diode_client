@@ -479,12 +479,14 @@ func (socksServer *Server) doConnectE2EDevice(deviceName string, port int, proto
 		Protocol: protocol,
 	}
 	bindPort := socksServer.getBindPort()
+	socksServer.Client.Debug("Bind port data to server %d", bindPort)
 	var l net.Listener
 	l, err = socksServer.StartEdgeClient(bindPort, bind)
 	if err != nil {
 		return nil, HttpError{500, fmt.Errorf("StartEdgeClient() failed: %v", err)}
 	}
 	host := net.JoinHostPort(localhost, strconv.Itoa(bindPort))
+	socksServer.Client.Debug("Connect openssl client to binding port %d", bindPort)
 	sclient, err := dialSSL(host, config.AppConfig, socksServer.datapool)
 	if err != nil {
 		return nil, HttpError{500, fmt.Errorf("DoConnect() failed: %v", err)}

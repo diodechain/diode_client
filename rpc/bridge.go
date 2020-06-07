@@ -113,8 +113,8 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			if portOpen.Protocol == config.UDPProtocol {
 				network = "udp"
 			}
-			remoteConn, err := net.DialTimeout(network, host, rpcClient.timeout)
 
+			remoteConn, err := net.DialTimeout(network, host, rpcClient.timeout)
 			if err != nil {
 				_ = rpcClient.ResponsePortOpen(portOpen, err)
 				rpcClient.Error("failed to connect local: %v", err)
@@ -124,7 +124,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			var deviceKey string
 			if portOpen.Protocol == config.TLSProtocol {
 				tlsPort := rpcClient.portService.Available()
-
+				rpcClient.Debug("Enable openssl server and listen to %d", tlsPort)
 				listener, err := rpcClient.startE2EServer(tlsPort, remoteConn)
 				if err != nil {
 					rpcClient.Error("failed to start ssl local server: %v", err)
@@ -135,7 +135,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 				if err != nil {
 					rpcClient.Error("failed to connect ssl local: %v", err)
 				}
-				rpcClient.Info("Start ssl server: %s", host)
+				rpcClient.Debug("Enable net tcp client to %s", host)
 
 				deviceKey = rpcClient.GetDeviceKey(portOpen.Ref)
 				connDevice.Ref = portOpen.Ref
@@ -212,6 +212,7 @@ func (rpcClient *RPCClient) startE2EServer(port int, remoteConn net.Conn) (liste
 			if err != nil {
 				rpcClient.Error(err.Error(), "module", "main")
 			}
+			// copy ssl connection/local resource transportation
 			go func() {
 				go netCopy(conn, remoteConn)
 				netCopy(remoteConn, conn)
