@@ -6,6 +6,7 @@ BUILD_DIRECTORY="darwin/build"
 BINARY_DIRECTORY="./"
 OPENSSL_DIRECTORY="/usr/local/opt/openssl/lib"
 VERSION=`git describe --tags --dirty | awk '{ print substr(\$0, 2) }'`
+OPENSSL_LIB_DIRECTORY="\/usr\/local\/bin"
 
 if [ ! -z $DIODE_DARWIN_SRC ] && [ -d $DIODE_DARWIN_SRC ]; then
     DARWIN_DIRECTORY=$DIODE_DARWIN_SRC
@@ -77,8 +78,10 @@ cp -R $DARWIN_DIRECTORY/Distribution $BUILD_DIRECTORY/Distribution
 cp $DARWIN_DIRECTORY/Resources/uninstall.sh $BUILD_DIRECTORY/darwinpkg/Library/Diode/$VERSION
 sed -i '' -e "s/__VERSION__/$VERSION/g" $BUILD_DIRECTORY/Resources/*.html
 sed -i '' -e "s/__VERSION__/$VERSION/g" $BUILD_DIRECTORY/scripts/postinstall
+sed -i '' -e "s/__OPENSSL_LIB_DIRECTORY__/$OPENSSL_LIB_DIRECTORY/g" $BUILD_DIRECTORY/scripts/postinstall
 sed -i '' -e "s/__VERSION__/$VERSION/g" $BUILD_DIRECTORY/Distribution
 sed -i '' -e "s/__VERSION__/$VERSION/g" $BUILD_DIRECTORY/darwinpkg/Library/Diode/$VERSION/uninstall.sh
+sed -i '' -e "s/__OPENSSL_LIB_DIRECTORY__/$OPENSSL_LIB_DIRECTORY/g" $BUILD_DIRECTORY/darwinpkg/Library/Diode/$VERSION/uninstall.sh
 
 # build package
 pkgbuild --identifier org.diode.$VERSION \

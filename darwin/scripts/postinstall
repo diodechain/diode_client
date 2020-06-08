@@ -1,7 +1,6 @@
 #!/bin/bash
 
 PRODUCT_HOME=/Library/Diode/__VERSION__
-OPENSSL_DIRECTORY=/usr/local/opt/openssl/lib
 CELLAR_DIRECTORY=/usr/local/Cellar/openssl/1.0.2t/lib
 
 echo "Post installation process started"
@@ -13,8 +12,8 @@ if [ ! -d $OPENSSL_DIRECTORY ]; then
     mkdir -p $OPENSSL_DIRECTORY
 fi
 
-if [ ! -f $OPENSSL_DIRECTORY/libcrypto.1.0.0.dylib ]; then
-    mv $PRODUCT_HOME/libcrypto.1.0.0.dylib $OPENSSL_DIRECTORY/libcrypto.1.0.0.dylib
+if [ ! -f __OPENSSL_LIB_DIRECTORY__/libcrypto.1.0.0.dylib ]; then
+    mv $PRODUCT_HOME/libcrypto.1.0.0.dylib __OPENSSL_LIB_DIRECTORY__/libcrypto.1.0.0.dylib
 fi
 
 if [ ! -d $CELLAR_DIRECTORY ]; then
@@ -22,9 +21,9 @@ if [ ! -d $CELLAR_DIRECTORY ]; then
 fi
 
 if [ ! -f $CELLAR_DIRECTORY/libcrypto.1.0.0.dylib ]; then
-    cp $OPENSSL_DIRECTORY/libcrypto.1.0.0.dylib $CELLAR_DIRECTORY/libcrypto.1.0.0.dylib
+    cp __OPENSSL_LIB_DIRECTORY__/libcrypto.1.0.0.dylib $CELLAR_DIRECTORY/libcrypto.1.0.0.dylib
 fi
 
-if [ ! -f $OPENSSL_DIRECTORY/libssl.1.0.0.dylib ]; then
-    mv $PRODUCT_HOME/libssl.1.0.0.dylib $OPENSSL_DIRECTORY/libssl.1.0.0.dylib
+if [ ! -f __OPENSSL_LIB_DIRECTORY__/libssl.1.0.0.dylib ]; then
+    mv $PRODUCT_HOME/libssl.1.0.0.dylib __OPENSSL_LIB_DIRECTORY__/libssl.1.0.0.dylib
 fi
