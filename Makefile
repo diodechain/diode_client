@@ -6,13 +6,9 @@ ARCHIVE= $(shell ./deployment/zipname.sh)
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
-	COPY_DEPS = otool -L diode | awk '/libssl|libcrypto/ {system("cp " $$1 " dist/")}'
 	STRIP = echo nostrip
-	PATCH_RPATH = ./deployment/darwin_rpath.sh
 else
-	COPY_DEPS = ldd diode | awk '/libssl|libcrypto/ {system("cp " $$3 " dist/")}'
 	STRIP = strip --strip-all
-	PATCH_RPATH = echo nopatch
 endif
 
 EXE = 
@@ -52,17 +48,11 @@ install:
 uninstall:
 	rm -rf /usr/local/bin/diode
 
-dist: $(BINS)
+dist: diode_static
 	mkdir -p dist
-	cp $(BINS) dist/
-	$(COPY_DEPS)
-	for d in $(addprefix dist/,$(BINS)); do \
-		$(STRIP) $$d ; \
-	done
-	for d in dist/*; do \
-		$(PATCH_RPATH) $$d ; \
-	done
-	upx $(addprefix dist/,$(BINS))
+	cp diode$(EXE) dist/
+	$(STRIP) dist/diode$(EXE)
+	upx --force dist/diode$(EXE)
 
 .PHONY: archive
 archive: $(ARCHIVE)
@@ -80,10 +70,10 @@ gateway: diode
 diode$(EXE):
 	$(GOBUILD) -o diode$(EXE) cmd/diode/*.go
 
-.PHONY: diode_static$(EXE)
-diode_static$(EXE):
+.PHONY: diode_static
+diode_static:
 	go get -a -tags openssl_static github.com/diodechain/openssl
-	$(GOBUILD) -tags netgo,openssl_static -ldflags '-extldflags "-static"' -o diode_static$(EXE) cmd/diode/*.go
+	$(GOBUILD) -tags openssl_static -o diode$(EXE) cmd/diode/*.go
 
 .PHONY: config_server$(EXE)
 config_server$(EXE):

@@ -4,9 +4,7 @@
 DARWIN_DIRECTORY="darwin"
 BUILD_DIRECTORY="darwin/build"
 BINARY_DIRECTORY="./"
-OPENSSL_DIRECTORY="/usr/local/opt/openssl/lib"
 VERSION=`git describe --tags --dirty | awk '{ print substr(\$0, 2) }'`
-OPENSSL_LIB_DIRECTORY="\/usr\/local\/bin"
 
 if [ ! -z $DIODE_DARWIN_SRC ] && [ -d $DIODE_DARWIN_SRC ]; then
     DARWIN_DIRECTORY=$DIODE_DARWIN_SRC
@@ -26,22 +24,8 @@ if [ ! -z $DIODE_BINARY_DIRECTORY ] && [ -d $DIODE_BINARY_DIRECTORY ]; then
     BINARY_DIRECTORY=$DIODE_BINARY_DIRECTORY
 fi
 
-if [ ! -z $DIODE_OPENSSL_DIRECTORY ] && [ -d $DIODE_OPENSSL_DIRECTORY ]; then
-    OPENSSL_DIRECTORY=$DIODE_OPENSSL_DIRECTORY
-fi
-
 if [ ! -f $BINARY_DIRECTORY/diode ]; then
     echo "Please make diode first"
-    exit 1
-fi
-
-if [ ! -f $OPENSSL_DIRECTORY/libcrypto.1.0.0.dylib ]; then
-    echo "Please brew install openssl (1.0.2) first"
-    exit 1
-fi
-
-if [ ! -f $OPENSSL_DIRECTORY/libssl.1.0.0.dylib ]; then
-    echo "Please brew install openssl (1.0.2) first"
     exit 1
 fi
 
@@ -69,8 +53,6 @@ fi
 
 # update version
 cp $BINARY_DIRECTORY/diode $BUILD_DIRECTORY/darwinpkg/Library/Diode/$VERSION
-cp $OPENSSL_DIRECTORY/libcrypto.1.0.0.dylib $BUILD_DIRECTORY/darwinpkg/Library/Diode/$VERSION
-cp $OPENSSL_DIRECTORY/libssl.1.0.0.dylib $BUILD_DIRECTORY/darwinpkg/Library/Diode/$VERSION
 cp -R $DARWIN_DIRECTORY/Resources $BUILD_DIRECTORY/Resources
 chmod -R 755 $BUILD_DIRECTORY
 cp -R $DARWIN_DIRECTORY/scripts $BUILD_DIRECTORY/scripts
@@ -78,10 +60,8 @@ cp -R $DARWIN_DIRECTORY/Distribution $BUILD_DIRECTORY/Distribution
 cp $DARWIN_DIRECTORY/Resources/uninstall.sh $BUILD_DIRECTORY/darwinpkg/Library/Diode/$VERSION
 sed -i '' -e "s/__VERSION__/$VERSION/g" $BUILD_DIRECTORY/Resources/*.html
 sed -i '' -e "s/__VERSION__/$VERSION/g" $BUILD_DIRECTORY/scripts/postinstall
-sed -i '' -e "s/__OPENSSL_LIB_DIRECTORY__/$OPENSSL_LIB_DIRECTORY/g" $BUILD_DIRECTORY/scripts/postinstall
 sed -i '' -e "s/__VERSION__/$VERSION/g" $BUILD_DIRECTORY/Distribution
 sed -i '' -e "s/__VERSION__/$VERSION/g" $BUILD_DIRECTORY/darwinpkg/Library/Diode/$VERSION/uninstall.sh
-sed -i '' -e "s/__OPENSSL_LIB_DIRECTORY__/$OPENSSL_LIB_DIRECTORY/g" $BUILD_DIRECTORY/darwinpkg/Library/Diode/$VERSION/uninstall.sh
 
 # build package
 pkgbuild --identifier org.diode.$VERSION \
