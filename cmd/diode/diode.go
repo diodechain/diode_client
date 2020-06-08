@@ -37,7 +37,6 @@ func init() {
 
 func main() {
 	var err error
-	var pool *rpc.DataPool
 
 	cfg := config.AppConfig
 	pool = rpc.NewPool()
