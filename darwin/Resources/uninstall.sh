@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# TODO: remove local db, remove openssl directory (/usr/local/Cellar/openssl, /usr/local/opt/openssl, /usr/local/bin)
+# TODO: remove local db, /usr/local/bin)
 
 VERSION=__VERSION__
 
@@ -23,14 +23,6 @@ done
 find "/usr/local/bin/" -name "diode" | xargs rm
 pkgutil --forget "org.Diode.$VERSION" > /dev/null 2>&1
 [ -e "/Library/Diode/${VERSION}" ] && rm -rf "/Library/Diode/${VERSION}"
-
-if [ -f __OPENSSL_LIB_DIRECTORY__/libssl.1.0.0.dylib ]; then
-    rm -rf __OPENSSL_LIB_DIRECTORY__/libssl.1.0.0.dylib
-fi
-
-if [ -f __OPENSSL_LIB_DIRECTORY__/libcrypto.1.0.0.dylib ]; then
-    rm -rf __OPENSSL_LIB_DIRECTORY__/libcrypto.1.0.0.dylib
-fi
 
 echo "Diode __VERSION__ uninstalled"
 exit 0
