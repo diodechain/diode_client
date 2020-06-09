@@ -480,8 +480,8 @@ func (socksServer *Server) doConnectE2EDevice(deviceName string, port int, proto
 	}
 	bindPort := socksServer.getBindPort()
 	socksServer.Client.Debug("Bind port data to server %d", bindPort)
-	var l net.Listener
-	l, err = socksServer.StartE2EClient(bindPort, bind)
+	// var l net.Listener
+	_, err = socksServer.StartE2EClient(bindPort, bind)
 	if err != nil {
 		return nil, HttpError{500, fmt.Errorf("StartEdgeClient() failed: %v", err)}
 	}
@@ -497,8 +497,8 @@ func (socksServer *Server) doConnectE2EDevice(deviceName string, port int, proto
 		S:        sclient,
 		Conn: E2EDeviceConn{
 			closeCallback: func() {
-				socksServer.Client.Debug("Close binding server listener and release port")
-				l.Close()
+				socksServer.Client.Info("Close binding server listener and release port")
+				// l.Close()
 				socksServer.Client.portService.Release(port)
 			},
 			copyRaw: true,
@@ -613,21 +613,25 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *ed
 	if isE2E {
 		protocol = config.TLSProtocol
 		connDevice, httpErr = socksServer.connectE2EDevice(deviceID, port, protocol, mode)
+	} else {
+		connDevice, httpErr = socksServer.connectDevice(deviceID, port, protocol, mode)
+	}
+
+	if httpErr != nil {
+		socksServer.Client.Error("Failed to connectDevice(): %v", httpErr.Error())
+		writeSocksError(conn, ver, socksRepNetworkUnreachable)
+		return
+	}
+
+	if isE2E {
 		if e2eDeviceConn, ok := connDevice.Conn.(E2EDeviceConn); ok {
 			e2eDeviceConn.Conn = conn
 			connDevice.Conn = e2eDeviceConn
 		}
 	} else {
-		connDevice, httpErr = socksServer.connectDevice(deviceID, port, protocol, mode)
 		connDevice.Conn = DeviceConn{
 			Conn: conn,
 		}
-	}
-
-	if httpErr != nil {
-		socksServer.Client.Error("failed to connectDevice(): %v", httpErr.Error())
-		writeSocksError(conn, ver, socksRepNetworkUnreachable)
-		return
 	}
 
 	deviceKey := connDevice.Client.GetDeviceKey(connDevice.Ref)
