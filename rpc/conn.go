@@ -105,7 +105,7 @@ func (device *ConnectedDevice) copyToSSL() {
 		if conn.copyRaw {
 			err = conn.copyRawToSSL(device.S, device.Ref)
 		} else {
-			err = conn.copyToSSL(device.S, device.Ref)
+			err = conn.copyToSSL(device.Client, device.Ref)
 		}
 		if err != nil {
 			device.Client.Debug("copyToSSL failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
