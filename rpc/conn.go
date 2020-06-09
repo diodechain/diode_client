@@ -87,7 +87,6 @@ func (device *ConnectedDevice) Close() {
 				conn.Close()
 				return
 			}
-			device.Client.portService.Release(conn.PortInUse)
 		}
 	}
 }
@@ -103,7 +102,7 @@ func (device *ConnectedDevice) copyToSSL() {
 		}
 	} else if conn, ok := device.Conn.(E2EDeviceConn); ok {
 		var err error
-		if conn.CopyRaw {
+		if conn.copyRaw {
 			err = conn.copyRawToSSL(device.S, device.Ref)
 		} else {
 			err = conn.copyToSSL(device.S, device.Ref)
@@ -134,11 +133,12 @@ func (device *ConnectedDevice) writeToTCP(data []byte) {
 
 // DeviceConn connected net/websocket connection
 type DeviceConn struct {
-	readBuffer []byte
-	unread     []byte
-	Conn       net.Conn
-	WSConn     *websocket.Conn
-	closed     bool
+	readBuffer    []byte
+	unread        []byte
+	Conn          net.Conn
+	WSConn        *websocket.Conn
+	closed        bool
+	closeCallback func()
 }
 
 // Close the connection
@@ -150,6 +150,9 @@ func (deviceConn *DeviceConn) Close() {
 		deviceConn.WSConn.Close()
 	}
 	deviceConn.closed = true
+	if deviceConn.closeCallback != nil {
+		deviceConn.closeCallback()
+	}
 }
 
 // IsWS is this a WebSocket connection?
@@ -218,14 +221,13 @@ func (deviceConn *DeviceConn) writeToTCP(data []byte) error {
 
 // E2EDeviceConn connected net/websocket connection
 type E2EDeviceConn struct {
-	readBuffer []byte
-	unread     []byte
-	Conn       net.Conn
-	Listener   net.Listener
-	WSConn     *websocket.Conn
-	closed     bool
-	PortInUse  int
-	CopyRaw    bool
+	readBuffer    []byte
+	unread        []byte
+	Conn          net.Conn
+	WSConn        *websocket.Conn
+	closeCallback func()
+	closed        bool
+	copyRaw       bool
 }
 
 // Close the connection
@@ -236,10 +238,10 @@ func (deviceConn *E2EDeviceConn) Close() {
 	if deviceConn.WSConn != nil {
 		deviceConn.WSConn.Close()
 	}
-	if deviceConn.Listener != nil {
-		deviceConn.Listener.Close()
-	}
 	deviceConn.closed = true
+	if deviceConn.closeCallback != nil {
+		deviceConn.closeCallback()
+	}
 }
 
 // IsWS is this a WebSocket connection?

@@ -141,10 +141,13 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 				connDevice.Ref = portOpen.Ref
 				connDevice.ClientID = clientID
 				connDevice.DeviceID = portOpen.DeviceID
-				connDevice.Conn = DeviceConn{
+				connDevice.Conn = E2EDeviceConn{
 					Conn: tlsConn,
-					// Listener:  listener,
-					// PortInUse: tlsPort,
+					closeCallback: func() {
+						rpcClient.Debug("Close openssl server listener and release port")
+						listener.Close()
+						rpcClient.portService.Release(tlsPort)
+					},
 				}
 				connDevice.Client = rpcClient
 			} else {

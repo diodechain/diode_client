@@ -481,7 +481,7 @@ func (socksServer *Server) doConnectE2EDevice(deviceName string, port int, proto
 	bindPort := socksServer.getBindPort()
 	socksServer.Client.Debug("Bind port data to server %d", bindPort)
 	var l net.Listener
-	l, err = socksServer.StartEdgeClient(bindPort, bind)
+	l, err = socksServer.StartE2EClient(bindPort, bind)
 	if err != nil {
 		return nil, HttpError{500, fmt.Errorf("StartEdgeClient() failed: %v", err)}
 	}
@@ -496,9 +496,12 @@ func (socksServer *Server) doConnectE2EDevice(deviceName string, port int, proto
 		Client:   client,
 		S:        sclient,
 		Conn: E2EDeviceConn{
-			Listener:  l,
-			PortInUse: port,
-			CopyRaw:   true,
+			closeCallback: func() {
+				socksServer.Client.Debug("Close binding server listener and release port")
+				l.Close()
+				socksServer.Client.portService.Release(port)
+			},
+			copyRaw: true,
 		},
 	}, nil
 }
@@ -718,7 +721,7 @@ func (socksServer *Server) Stop() {
 	socksServer.started = false
 }
 
-func (socksServer * Server) StartSecureServer() {
+func (socksServer *Server) StartSecureServer() {
 	address := "127.0.0.1:12173"
 	_, err := openssl.Listen("tcp", address, socksServer.Client.s.ctx)
 	if err != nil {
@@ -727,13 +730,13 @@ func (socksServer * Server) StartSecureServer() {
 	}
 }
 
-func (socksServer *Server) StartEdgeClient(port int, bind config.Bind) (net.Listener, error) {
+func (socksServer *Server) StartE2EClient(port int, bind config.Bind) (net.Listener, error) {
 	host := net.JoinHostPort(localhost, strconv.Itoa(port))
 	listener, err := net.Listen("tcp", host)
 	if err != nil {
 		return nil, err
 	}
-	socksServer.Client.Info("Start binding %s, remember to close the listener", host)
+	socksServer.Client.Debug("Start binding %s to %s:%d", host, bind.To, bind.ToPort)
 
 	go func() {
 		for {
