@@ -120,21 +120,25 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 				rpcClient.Error("failed to connect local: %v", err)
 				return
 			}
-			_ = rpcClient.ResponsePortOpen(portOpen, nil)
 			var deviceKey string
 			if portOpen.Protocol == config.TLSProtocol {
 				tlsPort := rpcClient.portService.Available()
 				rpcClient.Debug("Enable openssl server and listen to %d", tlsPort)
 				listener, err := rpcClient.startE2EServer(tlsPort, remoteConn)
 				if err != nil {
+					_ = rpcClient.ResponsePortOpen(portOpen, err)
 					rpcClient.Error("failed to start ssl local server: %v", err)
+					return
 				}
 
 				host = listener.Addr().String()
 				tlsConn, err := net.DialTimeout(network, host, rpcClient.timeout)
 				if err != nil {
+					_ = rpcClient.ResponsePortOpen(portOpen, err)
 					rpcClient.Error("failed to connect ssl local: %v", err)
+					return
 				}
+				_ = rpcClient.ResponsePortOpen(portOpen, nil)
 				rpcClient.Debug("Enable net tcp client to %s", host)
 
 				deviceKey = rpcClient.GetDeviceKey(portOpen.Ref)
@@ -151,6 +155,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 				}
 				connDevice.Client = rpcClient
 			} else {
+				_ = rpcClient.ResponsePortOpen(portOpen, nil)
 				deviceKey = rpcClient.GetDeviceKey(portOpen.Ref)
 
 				connDevice.Ref = portOpen.Ref
