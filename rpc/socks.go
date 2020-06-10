@@ -491,13 +491,23 @@ func (socksServer *Server) doConnectE2EDevice(deviceName string, port int, proto
 	if err != nil {
 		return nil, HttpError{500, fmt.Errorf("DoConnect() failed: %v", err)}
 	}
+	sclientID, err := sclient.GetServerID()
+	if err != nil {
+		return nil, HttpError{500, fmt.Errorf("GetServerID() failed: %v", err)}
+	}
+	// make sure connect to correct device
+	if deviceID != sclientID {
+		listener.Close()
+		sclient.Close()
+		return nil, HttpError{400, fmt.Errorf("device ids are not equal")}
+	}
 	return &ConnectedDevice{
 		DeviceID: deviceID,
 		Client:   client,
 		S:        sclient,
 		Conn: E2EDeviceConn{
 			closeCallback: func() {
-				socksServer.Client.Info("Close binding server listener and release port")
+				socksServer.Client.Debug("Close binding server listener and release port")
 				listener.Close()
 				socksServer.Client.portService.Release(port)
 			},
