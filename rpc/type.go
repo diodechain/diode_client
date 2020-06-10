@@ -5,6 +5,7 @@ package rpc
 
 import (
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/diodechain/diode_go_client/edge"
@@ -55,4 +56,12 @@ type RPCError struct {
 
 func (e RPCError) Error() string {
 	return e.Err.Message
+}
+
+func isOpError(netErr error) (isOpError bool) {
+	switch netErr.(type) {
+	case *net.OpError:
+		isOpError = true
+	}
+	return
 }

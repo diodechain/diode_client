@@ -480,8 +480,8 @@ func (socksServer *Server) doConnectE2EDevice(deviceName string, port int, proto
 	}
 	bindPort := socksServer.getBindPort()
 	socksServer.Client.Debug("Bind port data to server %d", bindPort)
-	// var l net.Listener
-	_, err = socksServer.StartE2EClient(bindPort, bind)
+	var listener net.Listener
+	listener, err = socksServer.StartE2EClient(bindPort, bind)
 	if err != nil {
 		return nil, HttpError{500, fmt.Errorf("StartEdgeClient() failed: %v", err)}
 	}
@@ -498,7 +498,7 @@ func (socksServer *Server) doConnectE2EDevice(deviceName string, port int, proto
 		Conn: E2EDeviceConn{
 			closeCallback: func() {
 				socksServer.Client.Info("Close binding server listener and release port")
-				// l.Close()
+				listener.Close()
 				socksServer.Client.portService.Release(port)
 			},
 			copyRaw: true,
@@ -746,7 +746,10 @@ func (socksServer *Server) StartE2EClient(port int, bind config.Bind) (net.Liste
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
-				socksServer.Client.Error(err.Error(), "module", "main")
+				// Accept will return op close error/syscall.EINVAL
+				if !isOpError(err) {
+					socksServer.Client.Error(err.Error(), "module", "main")
+				}
 				break
 			}
 			go socksServer.handleBind(conn, bind)
@@ -773,7 +776,11 @@ func (socksServer *Server) Start() error {
 		for {
 			conn, err := tcp.Accept()
 			if err != nil {
-				return
+				// Accept will return op close error/syscall.EINVAL
+				if !isOpError(err) {
+					socksServer.Client.Error(err.Error(), "module", "main")
+				}
+				break
 			}
 			socksServer.Client.Debug("new socks client: %s", conn.RemoteAddr().String())
 			socksServer.wg.Add(1)
@@ -989,7 +996,11 @@ func (socksServer *Server) startBind(bind *Bind) error {
 			for {
 				conn, err := bind.tcp.Accept()
 				if err != nil {
-					socksServer.Client.Error(err.Error(), "module", "main")
+					// Accept will return op close error/syscall.EINVAL
+					if !isOpError(err) {
+						socksServer.Client.Error(err.Error(), "module", "main")
+					}
+					break
 				}
 				go socksServer.handleBind(conn, bind.def)
 			}

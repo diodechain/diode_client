@@ -145,7 +145,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 					Conn: tlsConn,
 					closeCallback: func() {
 						rpcClient.Debug("Close openssl server listener and release port")
-						// listener.Close()
+						listener.Close()
 						rpcClient.portService.Release(tlsPort)
 					},
 				}
@@ -213,7 +213,11 @@ func (rpcClient *RPCClient) startE2EServer(port int, remoteConn net.Conn) (liste
 		for {
 			conn, err := listener.Accept()
 			if err != nil {
-				rpcClient.Error(err.Error(), "module", "main")
+				// Accept will return op close error/syscall.EINVAL
+				if !isOpError(err) {
+					rpcClient.Error(err.Error(), "module", "main")
+				}
+				break
 			}
 			// copy ssl connection/local resource transportation
 			go func() {
