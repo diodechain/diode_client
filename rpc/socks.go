@@ -19,7 +19,6 @@ import (
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/edge"
 	"github.com/diodechain/diode_go_client/util"
-	"github.com/diodechain/openssl"
 )
 
 var (
@@ -48,11 +47,6 @@ const (
 	socksRepHostUnreachable    = 0x04
 	socksRepRefused            = 0x05
 	socksRepTTLExpired         = 0x06
-	// 00[“portsend”,”data”]
-	// fixed: 17 bytes
-	// see: https://www.igvita.com/2013/10/24/optimizing-tls-record-size-and-buffering-latency/
-	readBufferSize  = 8000
-	writeBufferSize = 8000
 )
 
 // Config is Socks Server configuration
@@ -733,15 +727,6 @@ func (socksServer *Server) Stop() {
 		socksServer.udpconn = nil
 	}
 	socksServer.started = false
-}
-
-func (socksServer *Server) StartSecureServer() {
-	address := "127.0.0.1:12173"
-	_, err := openssl.Listen("tcp", address, socksServer.Client.s.ctx)
-	if err != nil {
-		socksServer.Client.Error(err.Error(), "module", "main")
-		return
-	}
 }
 
 func (socksServer *Server) StartE2EClient(port int, bind config.Bind) (net.Listener, error) {

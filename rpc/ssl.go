@@ -23,6 +23,14 @@ import (
 	"github.com/ucirello/tcpkeepalive"
 )
 
+const (
+	// 00[“portsend”,”data”]
+	// fixed: 17 bytes
+	// see: https://www.igvita.com/2013/10/24/optimizing-tls-record-size-and-buffering-latency/
+	readBufferSize  = 8000
+	writeBufferSize = 8000
+)
+
 type SSL struct {
 	conn              *openssl.Conn
 	ctx               *openssl.Ctx

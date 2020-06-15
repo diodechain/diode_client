@@ -13,7 +13,6 @@ import (
 
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/edge"
-	"github.com/diodechain/openssl"
 )
 
 var (
@@ -124,14 +123,15 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			if portOpen.Protocol == config.TLSProtocol {
 				tlsPort := rpcClient.portService.Available()
 				rpcClient.Debug("Enable openssl server and listen to %d", tlsPort)
-				listener, err := rpcClient.startE2EServer(tlsPort, remoteConn)
+				e2eServer := rpcClient.NewE2EServer(tlsPort, remoteConn)
+				err := e2eServer.ListenAndServe()
 				if err != nil {
 					_ = rpcClient.ResponsePortOpen(portOpen, err)
 					rpcClient.Error("failed to start ssl local server: %v", err)
 					return
 				}
 
-				host = listener.Addr().String()
+				host = e2eServer.Addr().String()
 				tlsConn, err := net.DialTimeout(network, host, rpcClient.timeout)
 				if err != nil {
 					_ = rpcClient.ResponsePortOpen(portOpen, err)
@@ -149,7 +149,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 					Conn: tlsConn,
 					closeCallback: func() {
 						rpcClient.Debug("Close openssl server listener and release port")
-						listener.Close()
+						e2eServer.Close()
 						rpcClient.portService.Release(tlsPort)
 					},
 				}
@@ -204,35 +204,6 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 	} else {
 		rpcClient.Warn("doesn't support rpc request: %+v ", inboundRequest)
 	}
-}
-
-func (rpcClient *RPCClient) startE2EServer(port int, remoteConn net.Conn) (listener net.Listener, err error) {
-	host := net.JoinHostPort(localhost, strconv.Itoa(port))
-	listener, err = openssl.Listen("tcp", host, rpcClient.s.ctx)
-	if err != nil {
-		rpcClient.Error(err.Error(), "module", "main")
-		return
-	}
-
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				// Accept will return op close error/syscall.EINVAL
-				if !isOpError(err) {
-					rpcClient.Error(err.Error(), "module", "main")
-				}
-				break
-			}
-			// copy ssl connection/local resource transportation
-			go func() {
-				go netCopy(conn, remoteConn)
-				netCopy(remoteConn, conn)
-				conn.Close()
-			}()
-		}
-	}()
-	return
 }
 
 // handle inbound message
