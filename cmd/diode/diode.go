@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"runtime"
+	"runtime/pprof"
 	"strings"
 	"sync"
 	"syscall"
@@ -36,6 +38,11 @@ func init() {
 }
 
 func main() {
+	status := diode()
+	os.Exit(status)
+}
+
+func diode() (status int) {
 	var err error
 
 	cfg := config.AppConfig
@@ -46,7 +53,9 @@ func main() {
 	// Initialize db
 	clidb, err := db.OpenFile(cfg.DBPath)
 	if err != nil {
-		printError("Couldn't open database", err, 129)
+		printError("Couldn't open database", err)
+		status = 129
+		return
 	}
 	db.DB = clidb
 
@@ -72,9 +81,32 @@ func main() {
 		}
 	}
 
+	if cfg.CPUProfile != "" {
+		fd, err := os.Create(cfg.CPUProfile)
+		if err != nil {
+			printError("Couldn't open cpu profile file", err)
+			status = 129
+			return
+		}
+		pprof.StartCPUProfile(fd)
+		defer pprof.StopCPUProfile()
+	}
+
+	if cfg.MEMProfile != "" {
+		mfd, err := os.Create(cfg.MEMProfile)
+		if err != nil {
+			printError("Couldn't open memory profile file", err)
+			status = 129
+			return
+		}
+		runtime.GC()
+		pprof.WriteHeapProfile(mfd)
+		mfd.Close()
+	}
+
 	if cfg.Command == "config" {
-		doConfig(cfg)
-		os.Exit(0)
+		status = doConfig(cfg)
+		return
 	}
 
 	{
@@ -137,7 +169,9 @@ func main() {
 	close(c)
 
 	if client == nil {
-		printError("Couldn't connect to any server", fmt.Errorf("server are not validated"), 129)
+		printError("Couldn't connect to any server", fmt.Errorf("server are not validated"))
+		status = 129
+		return
 	}
 	lvbn, _ := rpc.LastValid()
 	cfg.Logger.Info(fmt.Sprintf("Network is validated, last valid block number: %d", lvbn), "module", "main")
@@ -146,21 +180,22 @@ func main() {
 	clientAddr, err := client.GetClientAddress()
 	if err != nil {
 		cfg.Logger.Error(err.Error())
+		status = 129
 		return
 	}
 
 	if cfg.Command == "init" {
 		if cfg.Experimental {
-			doInitExp(cfg, client)
+			status = doInitExp(cfg, client)
 		} else {
-			doInit(cfg, client)
+			status = doInit(cfg, client)
 		}
-		os.Exit(0)
+		return
 	}
 
 	if cfg.Command == "bns" {
-		doBNS(cfg, client)
-		os.Exit(0)
+		status = doBNS(cfg, client)
+		return
 	}
 
 	// check device whitelist
@@ -171,10 +206,12 @@ func main() {
 		} else {
 			cfg.Logger.Error(fmt.Sprintf("Device was not whitelisted: %+v", err), "module", "main")
 		}
+		status = 1
 		return
 	}
 	if !isDeviceWhitelisted {
 		cfg.Logger.Error("Device was not whitelisted", "module", "main")
+		status = 1
 		return
 	}
 
@@ -182,27 +219,26 @@ func main() {
 	err = client.Greet()
 	if err != nil {
 		cfg.Logger.Error(err.Error(), "module", "main")
+		status = 1
 		return
 	}
-
-	// listen to signal
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT)
-	go func() {
-		sig := <-sigChan
-		switch sig {
-		case syscall.SIGINT:
-			os.Exit(0)
-		}
-	}()
 
 	socksServer = client.NewSocksServer(pool)
 	proxyServer = rpc.NewProxyServer(socksServer)
 
 	processConfig(cfg)
 	// start
-	client.Wait()
+	// client.Wait()
+	// listen to signal
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT)
+	sig := <-sigChan
+	switch sig {
+	case syscall.SIGINT:
+		break
+	}
 	closeDiode(client, cfg)
+	return
 }
 
 func processConfig(cfg *config.Config) {
@@ -250,7 +286,7 @@ func processConfig(cfg *config.Config) {
 	socksServer.SetBinds(cfg.Binds)
 }
 
-func doConfig(cfg *config.Config) {
+func doConfig(cfg *config.Config) (status int) {
 	activity := false
 	if len(cfg.ConfigDelete) > 0 {
 		activity = true
@@ -269,13 +305,17 @@ func doConfig(cfg *config.Config) {
 				if util.IsHex(value) {
 					value, err = util.DecodeString(list[1])
 					if err != nil {
-						printError("Couldn't decode hex string", err, 1)
+						printError("Couldn't decode hex string", err)
+						status = 1
+						return
 					}
 				}
 				db.DB.Put(list[0], value)
 				printLabel("Set:", list[0])
 			} else {
-				printError("Couldn't set value", fmt.Errorf("expected -set name=value format"), 1)
+				printError("Couldn't set value", fmt.Errorf("expected -set name=value format"))
+				status = 1
+				return
 			}
 		}
 	}
@@ -290,12 +330,15 @@ func doConfig(cfg *config.Config) {
 					if cfg.ConfigUnsafe {
 						block, _ := pem.Decode(value)
 						if block == nil {
-							printError("Invalid pem private key format ", err, 129)
+							printError("Invalid pem private key format ", err)
+							status = 129
 							return
 						}
 						privKey, err := crypto.DerToECDSA(block.Bytes)
 						if err != nil {
-							printError("Invalid der private key format ", err, 129)
+							printError("Invalid der private key format ", err)
+							status = 129
+							return
 						}
 						label = util.EncodeToString(privKey.D.Bytes())
 					}
@@ -306,9 +349,10 @@ func doConfig(cfg *config.Config) {
 			printLabel(name, label)
 		}
 	}
+	return
 }
 
-func doInit(cfg *config.Config, client *rpc.RPCClient) {
+func doInit(cfg *config.Config, client *rpc.RPCClient) (status int) {
 	if cfg.FleetAddr != config.DefaultFleetAddr {
 		printInfo("Your client has been already initialized, try to publish or browse through Diode Network.")
 		return
@@ -316,7 +360,9 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) {
 	// deploy fleet
 	bn, _ := client.GetBlockPeak()
 	if bn == 0 {
-		printError("Cannot find block peak: ", fmt.Errorf("not found"), 129)
+		printError("Cannot find block peak: ", fmt.Errorf("not found"))
+		status = 129
+		return
 	}
 
 	var nonce uint64
@@ -324,12 +370,16 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) {
 	var err error
 	fleetContract, err = contract.NewFleetContract()
 	if err != nil {
-		printError("Cannot create fleet contract instance: ", err, 129)
+		printError("Cannot create fleet contract instance: ", err)
+		status = 129
+		return
 	}
 	var act *edge.Account
 	clientAddr, err := client.GetClientAddress()
 	if err != nil {
-		printError("Couldn't load own address", err, 129)
+		printError("Couldn't load own address", err)
+		status = 129
+		return
 	}
 
 	act, _ = client.GetValidAccount(uint64(bn), clientAddr)
@@ -340,15 +390,21 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) {
 	}
 	deployData, err := fleetContract.DeployFleetContract(cfg.RegistryAddr, clientAddr, clientAddr)
 	if err != nil {
-		printError("Cannot create deploy contract data: ", err, 129)
+		printError("Cannot create deploy contract data: ", err)
+		status = 129
+		return
 	}
 	tx := edge.NewDeployTransaction(nonce, 0, 10000000, 0, deployData, 0)
 	res, err := client.SendTransaction(tx)
 	if err != nil {
-		printError("Cannot deploy fleet contract: ", err, 129)
+		printError("Cannot deploy fleet contract: ", err)
+		status = 129
+		return
 	}
 	if !res {
-		printError("Cannot deploy fleet contract: ", fmt.Errorf("server return false"), 129)
+		printError("Cannot deploy fleet contract: ", fmt.Errorf("server return false"))
+		status = 129
+		return
 	}
 	fleetAddr := util.CreateAddress(clientAddr, nonce)
 	printLabel("New fleet address", fleetAddr.HexString())
@@ -361,10 +417,14 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) {
 	ntx := edge.NewTransaction(nonce+1, 0, 10000000, fleetAddr, 0, whitelistData, 0)
 	res, err = client.SendTransaction(ntx)
 	if err != nil {
-		printError("Cannot whitelist device: ", err, 129)
+		printError("Cannot whitelist device: ", err)
+		status = 129
+		return
 	}
 	if !res {
-		printError("Cannot whitelist device: ", fmt.Errorf("server return false"), 129)
+		printError("Cannot whitelist device: ", fmt.Errorf("server return false"))
+		status = 129
+		return
 	}
 	printLabel("Whitelisting device: ", clientAddr.HexString())
 	printInfo("Waiting for block to be confirmed - this can take up to a minute")
@@ -373,12 +433,15 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) {
 	cfg.FleetAddr = fleetAddr
 	err = db.DB.Put("fleet", fleetAddr[:])
 	if err != nil {
-		printError("Cannot save fleet address: ", err, 129)
+		printError("Cannot save fleet address: ", err)
+		status = 129
+		return
 	}
 	printInfo("Client has been initialized, try to publish or browser through Diode Network.")
+	return
 }
 
-func doInitExp(cfg *config.Config, client *rpc.RPCClient) {
+func doInitExp(cfg *config.Config, client *rpc.RPCClient) (status int) {
 	if cfg.FleetAddr != config.DefaultFleetAddr {
 		printInfo("Your client has been already initialized, try to publish or browse through Diode Network.")
 		return
@@ -386,7 +449,9 @@ func doInitExp(cfg *config.Config, client *rpc.RPCClient) {
 	// deploy fleet
 	bn, _ := client.GetBlockPeak()
 	if bn == 0 {
-		printError("Cannot find block peak: ", fmt.Errorf("not found"), 129)
+		printError("Cannot find block peak: ", fmt.Errorf("not found"))
+		status = 129
+		return
 	}
 
 	var nonce uint64
@@ -394,12 +459,16 @@ func doInitExp(cfg *config.Config, client *rpc.RPCClient) {
 	var err error
 	fleetContract, err = contract.NewFleetContract()
 	if err != nil {
-		printError("Cannot create fleet contract instance: ", err, 129)
+		printError("Cannot create fleet contract instance: ", err)
+		status = 129
+		return
 	}
 	var act *edge.Account
 	clientAddr, err := client.GetClientAddress()
 	if err != nil {
-		printError("Couldn't load own address", err, 129)
+		printError("Couldn't load own address", err)
+		status = 129
+		return
 	}
 
 	act, _ = client.GetValidAccount(uint64(bn), clientAddr)
@@ -410,15 +479,21 @@ func doInitExp(cfg *config.Config, client *rpc.RPCClient) {
 	}
 	deployData, err := fleetContract.DeployFleetContract(cfg.RegistryAddr, clientAddr, clientAddr)
 	if err != nil {
-		printError("Cannot create deploy contract data: ", err, 129)
+		printError("Cannot create deploy contract data: ", err)
+		status = 129
+		return
 	}
 	tx := edge.NewDeployTransaction(nonce, 0, 10000000, 0, deployData, 0)
 	res, err := client.SendTransaction(tx)
 	if err != nil {
-		printError("Cannot deploy fleet contract: ", err, 129)
+		printError("Cannot deploy fleet contract: ", err)
+		status = 129
+		return
 	}
 	if !res {
-		printError("Cannot deploy fleet contract: ", fmt.Errorf("server return false"), 129)
+		printError("Cannot deploy fleet contract: ", fmt.Errorf("server return false"))
+		status = 129
+		return
 	}
 	fleetAddr := util.CreateAddress(clientAddr, nonce)
 	printLabel("New fleet address", fleetAddr.HexString())
@@ -428,10 +503,14 @@ func doInitExp(cfg *config.Config, client *rpc.RPCClient) {
 	ntx := edge.NewTransaction(nonce+1, 0, 10000000, fleetAddr, 0, whitelistData, 0)
 	res, err = client.SendTransaction(ntx)
 	if err != nil {
-		printError("Cannot whitelist device: ", err, 129)
+		printError("Cannot whitelist device: ", err)
+		status = 129
+		return
 	}
 	if !res {
-		printError("Cannot whitelist device: ", fmt.Errorf("server return false"), 129)
+		printError("Cannot whitelist device: ", fmt.Errorf("server return false"))
+		status = 129
+		return
 	}
 	printLabel("Whitelisting device: ", clientAddr.HexString())
 	printInfo("Waiting for block to be confirmed - this can take up to a minute")
@@ -440,16 +519,21 @@ func doInitExp(cfg *config.Config, client *rpc.RPCClient) {
 	cfg.FleetAddr = fleetAddr
 	err = db.DB.Put("fleet", fleetAddr[:])
 	if err != nil {
-		printError("Cannot save fleet address: ", err, 129)
+		printError("Cannot save fleet address: ", err)
+		status = 129
+		return
 	}
 	printInfo("Client has been initialized, try to publish or browser through Diode Network.")
+	return
 }
 
-func doBNS(cfg *config.Config, client *rpc.RPCClient) {
+func doBNS(cfg *config.Config, client *rpc.RPCClient) (status int) {
 	// register bns record
 	bn, _ := client.GetBlockPeak()
 	if bn == 0 {
-		printError("Cannot find block peak: ", fmt.Errorf("not found"), 129)
+		printError("Cannot find block peak: ", fmt.Errorf("not found"))
+		status = 129
+		return
 	}
 
 	var nonce uint64
@@ -457,14 +541,18 @@ func doBNS(cfg *config.Config, client *rpc.RPCClient) {
 	var err error
 	dnsContract, err = contract.NewDNSContract()
 	if err != nil {
-		printError("Cannot create dns contract instance: ", err, 129)
+		printError("Cannot create dns contract instance: ", err)
+		status = 129
+		return
 	}
 	bnsPair := strings.Split(cfg.BNSRegister, "=")
 	if len(bnsPair) == 2 {
 		var act *edge.Account
 		clientAddr, err := client.GetClientAddress()
 		if err != nil {
-			printError("Couldn't load own address", err, 129)
+			printError("Couldn't load own address", err)
+			status = 129
+			return
 		}
 
 		act, _ = client.GetValidAccount(uint64(bn), clientAddr)
@@ -476,13 +564,17 @@ func doBNS(cfg *config.Config, client *rpc.RPCClient) {
 		bnsName := bnsPair[0]
 		bnsAddr, err := util.DecodeAddress(bnsPair[1])
 		if err != nil {
-			printError("Wrong diode address", err, 129)
+			printError("Wrong diode address", err)
+			status = 129
+			return
 		}
 		// check bns
 		obnsAddr, err := client.ResolveBNS(bnsName)
 		if err == nil {
 			if obnsAddr == bnsAddr {
-				printError("Same diode address on blockchain", err, 129)
+				printError("Same diode address on blockchain", err)
+				status = 129
+				return
 			}
 		}
 		// send register transaction
@@ -490,10 +582,14 @@ func doBNS(cfg *config.Config, client *rpc.RPCClient) {
 		ntx := edge.NewTransaction(nonce, 0, 10000000, contract.DNSAddr, 0, registerData, 0)
 		res, err := client.SendTransaction(ntx)
 		if err != nil {
-			printError("Cannot register blockchain name service: ", err, 129)
+			printError("Cannot register blockchain name service: ", err)
+			status = 129
+			return
 		}
 		if !res {
-			printError("Cannot register blockchain name service: ", fmt.Errorf("server return false"), 129)
+			printError("Cannot register blockchain name service: ", fmt.Errorf("server return false"))
+			status = 129
+			return
 		}
 		printLabel("Register bns: ", bnsName)
 		printInfo("Waiting for block to be confirmed - this can take up to a minute")
@@ -501,7 +597,9 @@ func doBNS(cfg *config.Config, client *rpc.RPCClient) {
 		printInfo("Register bns successfully")
 		return
 	}
-	printError("Couldn't register bns", fmt.Errorf("expected -register name=address format"), 1)
+	printError("Couldn't register bns", fmt.Errorf("expected -register name=address format"))
+	status = 1
+	return
 }
 
 func printLabel(label string, value string) {
@@ -509,9 +607,8 @@ func printLabel(label string, value string) {
 	config.AppConfig.Logger.Info(msg, "module", "main")
 }
 
-func printError(msg string, err error, status int) {
+func printError(msg string, err error) {
 	config.AppConfig.Logger.Error(msg, "module", "main", "error", err)
-	os.Exit(status)
 }
 
 func printInfo(msg string) {
@@ -542,7 +639,6 @@ func closeDiode(client *rpc.RPCClient, cfg *config.Config) {
 	if closingHandler, ok := handler.(log15.ClosingHandler); ok {
 		closingHandler.WriteCloser.Close()
 	}
-	os.Exit(0)
 }
 
 // ensure account state has been changed

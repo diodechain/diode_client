@@ -169,7 +169,6 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			rpcClient.Error("failed to decode portsend request: %v", portSend.Err.Error())
 			return
 		}
-		// TODO: E2E encryption
 		decData := portSend.Data
 		// start to write data
 		deviceKey := rpcClient.GetDeviceKey(portSend.Ref)

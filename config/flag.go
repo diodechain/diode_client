@@ -70,6 +70,8 @@ type Config struct {
 	SBlacklists             stringValues     `yaml:"blacklists,omitempty" json:"blacklists,omitempty"`
 	SWhitelists             stringValues     `yaml:"whitelists,omitempty" json:"whitelists,omitempty"`
 	SBinds                  stringValues     `yaml:"bind,omitempty" json:"bind,omitempty"`
+	CPUProfile              string           `yaml:"cpuprofile,omitempty" json:"cpuprofile,omitempty"`
+	MEMProfile              string           `yaml:"memprofile,omitempty" json:"memprofile,omitempty"`
 	Command                 string           `yaml:"-" json:"-"`
 	FleetAddr               Address          `yaml:"-" json:"-"`
 	RegistryAddr            Address          `yaml:"-" json:"-"`
@@ -384,6 +386,8 @@ func ParseFlag() {
 	flag.IntVar(&cfg.RlimitNofile, "rlimit_nofile", 0, "specify the file descriptor numbers that can be opened by this process")
 	flag.StringVar(&cfg.LogFilePath, "logfilepath", "", "file path to log file")
 	flag.StringVar(&cfg.ConfigFilePath, "configpath", "", "yaml file path to config file")
+	flag.StringVar(&cfg.CPUProfile, "cpuprofile", "", "file path for cpu profiling")
+	flag.StringVar(&cfg.MEMProfile, "memprofile", "", "file path for memory profiling")
 
 	// tcp keepalive for node connection
 	flag.BoolVar(&cfg.EnableKeepAlive, "keepalive", runtime.GOOS != "windows", "enable tcp keepalive (only Linux >= 2.4, DragonFly, FreeBSD, NetBSD and OS X >= 10.8 are supported)")
