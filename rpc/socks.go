@@ -474,35 +474,28 @@ func (socksServer *Server) doConnectE2EDevice(deviceName string, port int, proto
 	}
 	bindPort := socksServer.getBindPort()
 	socksServer.Client.Debug("Bind port data to server %d", bindPort)
-	var listener net.Listener
-	listener, err = socksServer.StartE2EClient(bindPort, bind)
+	e2eClient := socksServer.NewE2EClient(bindPort, bind)
+	err = e2eClient.ListenAndServe()
 	if err != nil {
-		return nil, HttpError{500, fmt.Errorf("StartEdgeClient() failed: %v", err)}
+		return nil, HttpError{500, fmt.Errorf("e2eClient ListenAndServe() failed: %v", err)}
 	}
-	host := net.JoinHostPort(localhost, strconv.Itoa(bindPort))
-	socksServer.Client.Debug("Connect openssl client to binding port %d", bindPort)
-	sclient, err := dialSSL(host, config.AppConfig, socksServer.datapool)
-	if err != nil {
-		return nil, HttpError{500, fmt.Errorf("DoConnect() failed: %v", err)}
-	}
-	sclientID, err := sclient.GetServerID()
+	sclientID, err := e2eClient.GetServerID()
 	if err != nil {
 		return nil, HttpError{500, fmt.Errorf("GetServerID() failed: %v", err)}
 	}
 	// make sure connect to correct device
 	if deviceID != sclientID {
-		listener.Close()
-		sclient.Close()
+		e2eClient.Close()
 		return nil, HttpError{400, fmt.Errorf("device ids are not equal")}
 	}
 	return &ConnectedDevice{
 		DeviceID: deviceID,
 		Client:   client,
-		S:        sclient,
+		S:        e2eClient.s,
 		Conn: E2EDeviceConn{
 			closeCallback: func() {
 				socksServer.Client.Debug("Close binding server listener and release port")
-				listener.Close()
+				e2eClient.Close()
 				socksServer.Client.portService.Release(port)
 			},
 			copyRaw: true,
@@ -727,30 +720,6 @@ func (socksServer *Server) Stop() {
 		socksServer.udpconn = nil
 	}
 	socksServer.started = false
-}
-
-func (socksServer *Server) StartE2EClient(port int, bind config.Bind) (net.Listener, error) {
-	host := net.JoinHostPort(localhost, strconv.Itoa(port))
-	listener, err := net.Listen("tcp", host)
-	if err != nil {
-		return nil, err
-	}
-	socksServer.Client.Debug("Start binding %s to %s:%d", host, bind.To, bind.ToPort)
-
-	go func() {
-		for {
-			conn, err := listener.Accept()
-			if err != nil {
-				// Accept will return op close error/syscall.EINVAL
-				if !isOpError(err) {
-					socksServer.Client.Error(err.Error(), "module", "main")
-				}
-				break
-			}
-			go socksServer.handleBind(conn, bind)
-		}
-	}()
-	return listener, nil
 }
 
 // Start socks server
