@@ -31,7 +31,7 @@ func doUpdate() int {
 
 	tarball, ok := download(m)
 	if !ok {
-		return 129
+		return 0
 	}
 
 	// searching for binary in path
