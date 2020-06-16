@@ -25,6 +25,8 @@ var (
 	mx                 sync.Mutex
 	errEmptyDNSresult  = fmt.Errorf("couldn't resolve name (null)")
 	errRPCClientClosed = fmt.Errorf("rpc client was closed")
+	DefaultRegistryAddr = [20]byte{80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	DefaultFleetAddr    = [20]byte{96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 )
 
 // RPCConfig struct for rpc client
@@ -828,11 +830,15 @@ func (rpcClient *RPCClient) ResolveBlockHash(blockNumber uint64) (blockHash []by
 /**
  * Contract api
  * Seems fleet contract with rpcclient providor cause include cycle issue.
+ * Note: always return true if client use developer fleet
  * Maybe another middle struct?
  * TODO: should refactor this
  */
 // IsDeviceWhitelisted returns is given address whitelisted
 func (rpcClient *RPCClient) IsDeviceWhitelisted(addr [20]byte) (bool, error) {
+	if rpcClient.Config.FleetAddr == DefaultFleetAddr {
+		return true, nil
+	}
 	key := contract.DeviceWhitelistKey(addr)
 	raw, err := rpcClient.GetAccountValueRaw(0, rpcClient.Config.FleetAddr, key)
 	if err != nil {
