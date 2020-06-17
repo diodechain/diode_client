@@ -22,11 +22,12 @@ import (
 )
 
 var (
-	Commands         = []string{"CONNECT", "BIND", "UDP ASSOCIATE"}
-	AddrType         = []string{"", "IPv4", "", "Domain", "IPv6"}
-	defaultMode      = "rw"
-	domainPattern    = regexp.MustCompile(`^(.+)\.(diode|diode\.link|diode\.ws)(:[\d]+)?$`)
-	subDomainpattern = regexp.MustCompile(`^([rws]{1,3}-)?(0x[A-Fa-f0-9]{40}|[A-Za-z0-9][A-Za-z0-9-]{5,30}?)(-[^0][\d]+)?$`)
+	Commands           = []string{"CONNECT", "BIND", "UDP ASSOCIATE"}
+	AddrType           = []string{"", "IPv4", "", "Domain", "IPv6"}
+	defaultMode        = "rw"
+	domainPattern      = regexp.MustCompile(`^(.+)\.(diode)(:[\d]+)?$`)
+	proxyDomainPattern = regexp.MustCompile(`^(.+)\.(diode|diode\.link|diode\.ws)(:[\d]+)?$`)
+	subDomainpattern   = regexp.MustCompile(`^([rws]{1,3}-)?(0x[A-Fa-f0-9]{40}|[A-Za-z0-9][A-Za-z0-9-]{5,30}?)(-[^0][\d]+)?$`)
 
 	errAddrType = errors.New("socks addr type not supported")
 	errVer      = errors.New("socks version not supported")
@@ -292,7 +293,7 @@ func parseHost(host string) (isWS bool, deviceID string, mode string, port int, 
 	mode = defaultMode
 	strPort := ":80"
 
-	subDomainPort := domainPattern.FindStringSubmatch(host)
+	subDomainPort := proxyDomainPattern.FindStringSubmatch(host)
 	var sub, domain string
 	if len(subDomainPort) != 4 {
 		err = fmt.Errorf("domain pattern not supported %v", host)
