@@ -22,7 +22,8 @@ const (
 var (
 	DB                 *Database
 	DBPath             string
-	errSizeDidNotMatch = fmt.Errorf("incorrect size of written bytes")
+	ErrSizeDidNotMatch = fmt.Errorf("incorrect size of written bytes")
+	ErrKeyNotFound     = fmt.Errorf("key not found")
 )
 
 type Database struct {
@@ -94,7 +95,7 @@ func (db *Database) Get(key string) ([]byte, error) {
 	defer db.rm.Unlock()
 	ret := db.values[key]
 	if ret == nil {
-		return nil, fmt.Errorf("key not found")
+		return nil, ErrKeyNotFound
 	}
 	return ret, nil
 }
@@ -173,7 +174,7 @@ func (db *Database) put(w *bufio.Writer, num uint64) error {
 		return err
 	}
 	if size != r {
-		return errSizeDidNotMatch
+		return ErrSizeDidNotMatch
 	}
 	return nil
 }

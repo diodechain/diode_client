@@ -206,6 +206,15 @@ func TestDecodeIntToBytes(t *testing.T) {
 	}
 }
 
+func TestDecodeInt64ToBytes(t *testing.T) {
+	for _, v := range decodeBytesIntTest {
+		res := DecodeInt64ToBytes(int64(v.Res))
+		if !bytes.Equal(v.Src, res) {
+			t.Errorf("Wrong result when call DecodeInt64ToBytes")
+		}
+	}
+}
+
 func TestEncodeToString(t *testing.T) {
 	for _, v := range decodeStringTest {
 		res := EncodeToString(v.Res)

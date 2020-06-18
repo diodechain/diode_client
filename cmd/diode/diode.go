@@ -38,10 +38,6 @@ func init() {
 func main() {
 	var err error
 
-	if version != "development" {
-		doUpdate()
-	}
-
 	cfg := config.AppConfig
 	pool = rpc.NewPool()
 
@@ -53,6 +49,28 @@ func main() {
 		printError("Couldn't open database", err, 129)
 	}
 	db.DB = clidb
+
+	if version != "development" {
+		var lastUpdateAtByt []byte
+		var lastUpdateAt time.Time
+		var shouldUpdateDiode bool
+		lastUpdateAtByt, err = db.DB.Get("last_update_at")
+		if err != nil {
+			lastUpdateAt = time.Now()
+			shouldUpdateDiode = true
+		} else {
+			lastUpdateAtInt := util.DecodeBytesToInt(lastUpdateAtByt)
+			lastUpdateAt = time.Unix(int64(lastUpdateAtInt), 0)
+			diff := time.Since(lastUpdateAt)
+			shouldUpdateDiode = diff.Hours() >= 24
+		}
+		if shouldUpdateDiode {
+			lastUpdateAt = time.Now()
+			lastUpdateAtByt = util.DecodeInt64ToBytes(lastUpdateAt.Unix())
+			db.DB.Put("last_update_at", lastUpdateAtByt)
+			doUpdate()
+		}
+	}
 
 	if cfg.Command == "config" {
 		doConfig(cfg)
