@@ -21,9 +21,10 @@ import (
 )
 
 var (
-	RequestID         uint64 = 0
-	mx                sync.Mutex
-	errEmptyDNSresult = fmt.Errorf("couldn't resolve name (null)")
+	RequestID          uint64 = 0
+	mx                 sync.Mutex
+	errEmptyDNSresult  = fmt.Errorf("couldn't resolve name (null)")
+	errRPCClientClosed = fmt.Errorf("rpc client was closed")
 )
 
 // RPCConfig struct for rpc client
@@ -171,6 +172,12 @@ func (rpcClient *RPCClient) waitResponse(call Call, rpcTimeout time.Duration) (r
 
 // RespondContext sends a message without expecting a response
 func (rpcClient *RPCClient) RespondContext(requestID uint64, responseType string, method string, args ...interface{}) (call Call, err error) {
+	rpcClient.rm.Lock()
+	defer rpcClient.rm.Unlock()
+	if !rpcClient.started {
+		err = errRPCClientClosed
+		return
+	}
 	var msg []byte
 	msg, _, err = rpcClient.edgeProtocol.NewResponseMessage(requestID, responseType, method, args...)
 	if err != nil {
@@ -185,16 +192,25 @@ func (rpcClient *RPCClient) RespondContext(requestID uint64, responseType string
 }
 
 // CastContext returns a response future after calling the rpc
-func (rpcClient *RPCClient) CastContext(requestID uint64, method string, args ...interface{}) (Call, error) {
-	msg, parse, err := rpcClient.edgeProtocol.NewMessage(requestID, method, args...)
-	if err != nil {
-		return Call{}, err
+func (rpcClient *RPCClient) CastContext(requestID uint64, method string, args ...interface{}) (call Call, err error) {
+	rpcClient.rm.Lock()
+	defer rpcClient.rm.Unlock()
+	if !rpcClient.started {
+		err = errRPCClientClosed
+		return
 	}
-	call, err := preparePayload(requestID, method, msg, parse, make(chan interface{}))
+	var msg []byte
+	var parseCallback func([]byte) (interface{}, error)
+	msg, parseCallback, err = rpcClient.edgeProtocol.NewMessage(requestID, method, args...)
 	if err != nil {
-		return Call{}, err
+		return
 	}
-	return call, rpcClient.enqueueCall(call)
+	call, err = preparePayload(requestID, method, msg, parseCallback, make(chan interface{}))
+	if err != nil {
+		return
+	}
+	err = rpcClient.enqueueCall(call)
+	return
 }
 
 func preparePayload(requestID uint64, method string, payload []byte, parse func(buffer []byte) (interface{}, error), message chan interface{}) (Call, error) {
