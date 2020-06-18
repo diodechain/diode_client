@@ -6,7 +6,6 @@ package rpc
 import (
 	"encoding/binary"
 	"fmt"
-	"log"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -159,13 +158,13 @@ func (rpcClient *RPCClient) waitResponse(call Call, rpcTimeout time.Duration) (r
 	case signal := <-call.signal:
 		switch signal {
 		case RECONNECTING:
-			err = ReconnectError{}
+			err = ReconnectError{rpcClient.Host()}
 		case CANCELLED:
-			err = CancelledError{}
+			err = CancelledError{rpcClient.Host()}
 		}
 		return
 	case <-time.After(rpcTimeout):
-		err = RPCTimeoutError{rpcTimeout}
+		err = TimeoutError{rpcTimeout}
 		return
 	}
 }
@@ -238,15 +237,18 @@ func (rpcClient *RPCClient) CallContext(method string, parse func(buffer []byte)
 		res, err = rpcClient.waitResponse(resCall, rpcTimeout)
 		if err != nil {
 			tsDiff = time.Since(ts)
-			if _, ok := err.(RPCTimeoutError); ok {
-				// TODO: handle rpc timeout
-				log.Panicf("RPC TIMEOUT ERROR %s", rpcClient.Host())
-			}
 			if _, ok := err.(ReconnectError); ok {
-				rpcClient.Warn("Call will resend after reconnect, keep waiting")
+				rpcClient.Warn("Call %s will resend after reconnect, keep waiting", method)
 				continue
 			}
-			break
+			if _, ok := err.(TimeoutError); ok {
+				rpcClient.Warn("Call %s timeout after %s, drop the call", method, tsDiff.String())
+				return
+			}
+			if _, ok := err.(CancelledError); ok {
+				// rpcClient.Warn("Call %s has been cancelled", method)
+				return
+			}
 		}
 		tsDiff = time.Since(ts)
 		if rpcClient.enableMetrics {
@@ -254,7 +256,7 @@ func (rpcClient *RPCClient) CallContext(method string, parse func(buffer []byte)
 		}
 		break
 	}
-	rpcClient.Debug("got response: %s [%v]", method, tsDiff)
+	rpcClient.Debug("Got response: %s [%v]", method, tsDiff)
 	return
 }
 

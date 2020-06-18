@@ -18,12 +18,12 @@ var (
 // Address represents an Ethereum address
 type Address = util.Address
 
-// RPCTimeoutError is struct for rpc timeout error
-type RPCTimeoutError struct {
+// TimeoutError is struct for rpc timeout error
+type TimeoutError struct {
 	Timeout time.Duration
 }
 
-func (e RPCTimeoutError) Error() string {
+func (e TimeoutError) Error() string {
 	return fmt.Sprintf("remote procedure call timeout: %s", e.Timeout)
 }
 
