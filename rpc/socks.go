@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,10 +23,9 @@ import (
 )
 
 var (
-	defaultMode        = "rw"
-	domainPattern      = regexp.MustCompile(`^(.+)\.(diode)(:[\d]+)?$`)
-	proxyDomainPattern = regexp.MustCompile(`^(.+)\.(diode|diode\.link|diode\.ws)(:[\d]+)?$`)
-	subDomainpattern   = regexp.MustCompile(`^([rws]{1,3}-)?(0x[A-Fa-f0-9]{40}|[A-Za-z0-9][A-Za-z0-9-]{5,30}?)(-[^0][\d]+)?$`)
+	defaultMode      = "rw"
+	domainPattern    = regexp.MustCompile(`^(.+)\.(diode|diode\.link|diode\.ws)(:[\d]+)?$`)
+	subDomainpattern = regexp.MustCompile(`^([rws]{1,3}-)?(0x[A-Fa-f0-9]{40}|[A-Za-z0-9][A-Za-z0-9-]{5,30}?)(-[^0][\d]+)?$`)
 
 	errAddrType = errors.New("socks addr type not supported")
 	errVer      = errors.New("socks version not supported")
@@ -37,7 +37,7 @@ const (
 	socksVer4                  = 0x04
 	socksVer5                  = 0x05
 	socksCmdConnect            = 0x01
-	socksCmdUdp                = 0x03
+	socksCmdUDP                = 0x03
 	socksRepSuccess            = 0x00
 	socksRepServerFailed       = 0x01
 	socksRepNotAllowed         = 0x02
@@ -253,7 +253,7 @@ func handShake5(conn net.Conn, buf []byte) (url string, err error) {
 		return
 	}
 
-	if buf[idCmd] == socksCmdUdp { // UDP associate requests
+	if buf[idCmd] == socksCmdUDP { // UDP associate requests
 		tcpAddr := conn.LocalAddr().(*net.TCPAddr)
 		writeSocksReturn(conn, socksVer5, conn.LocalAddr(), tcpAddr.Port)
 		return
@@ -287,7 +287,7 @@ func parseHost(host string) (isWS bool, mode string, deviceID string, port int, 
 	mode = defaultMode
 	strPort := ":80"
 
-	subDomainPort := proxyDomainPattern.FindStringSubmatch(host)
+	subDomainPort := domainPattern.FindStringSubmatch(host)
 	var sub, domain string
 	if len(subDomainPort) != 4 {
 		err = fmt.Errorf("domain pattern not supported %v", host)
@@ -529,7 +529,15 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *ed
 	// bind request to remote tls server
 	deviceID := device.GetDeviceID()
 	socksServer.Client.Debug("connect remote %s mode %s e2e...", deviceID, mode)
-	protocol := config.TLSProtocol
+
+	var protocol int
+	if strings.Contains(mode, "s") {
+		fmt.Printf("Using no encryption for shared connection")
+		protocol = config.TCPProtocol
+	} else {
+		protocol = config.TLSProtocol
+	}
+
 	clientIP := conn.RemoteAddr().String()
 	var connDevice *ConnectedDevice
 	var httpErr error
@@ -572,8 +580,6 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *ed
 }
 
 func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, device *edge.DeviceTicket, port int, mode string) {
-	socksServer.Client.Debug("connect remote %s mode %s e2e...", socksServer.Config.ProxyServerAddr, mode)
-
 	remoteConn, err := net.DialTimeout("tcp", socksServer.Config.ProxyServerAddr, time.Duration(time.Second*15))
 	if err != nil {
 		socksServer.Client.Error("failed to connect remote: %s", err.Error())
@@ -624,6 +630,9 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 		socksServer.pipeSocksThenClose(conn, ver, device, port, mode)
 	} else if socksServer.Config.EnableProxy {
 		socksServer.pipeSocksWSThenClose(conn, ver, device, port, mode)
+	} else {
+		socksServer.Client.Error("Proxy not enabled, can't forward websocket connection")
+		writeSocksError(conn, ver, socksRepNotAllowed)
 	}
 }
 
@@ -911,7 +920,7 @@ func (socksServer *Server) handleBind(conn net.Conn, bind config.Bind) {
 		e2eServer := socksServer.Client.NewE2EServer(conn, connDevice.DeviceID)
 		err := e2eServer.Connect()
 		if err != nil {
-			socksServer.Client.Error("Failed to e2e.ListenAndServer(): %v", err.Error())
+			socksServer.Client.Error("Failed to e2e.ListenAndServe(): %v", err.Error())
 			return
 		}
 

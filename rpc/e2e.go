@@ -36,7 +36,6 @@ func (rpcClient *RPCClient) NewE2EServer(remoteConn net.Conn, peer Address) (e2e
 
 // ListenAndServe start e2e server
 func (e2eServer *E2EServer) ListenAndServe() error {
-	fmt.Println("ListenAndServe()")
 	network := "tcp"
 	host := net.JoinHostPort(localhost, strconv.Itoa(e2eServer.port))
 	listener, err := openssl.Listen(network, host, e2eServer.ctx())
@@ -78,7 +77,6 @@ func (e2eServer *E2EServer) ListenAndServe() error {
 
 // Connect start e2e server
 func (e2eServer *E2EServer) Connect() error {
-	fmt.Printf("Connect()\n")
 	network := "tcp"
 	host := net.JoinHostPort(localhost, strconv.Itoa(e2eServer.port))
 	listener, err := net.Listen(network, host)

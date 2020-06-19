@@ -434,6 +434,8 @@ func ParseFlag() {
 	case "socksd":
 		commandFlag.Parse(args[1:])
 		cfg.EnableSocksServer = true
+		cfg.EnableProxyServer = true
+		cfg.ProxyServerPort = 8080
 	case "httpd":
 		commandFlag.Parse(args[1:])
 		cfg.EnableProxyServer = true
