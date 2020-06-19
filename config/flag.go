@@ -196,10 +196,10 @@ func stringsContain(src []string, pivot *string) bool {
 func parseBind(bind string) (*Bind, error) {
 	elements := strings.Split(bind, ":")
 	if len(elements) == 3 {
-		elements = append(elements, "tcp")
+		elements = append(elements, "tls")
 	}
 	if len(elements) != 4 {
-		return nil, fmt.Errorf("Bind format expected <local_port>:<to_address>:<to_port>:(udp|tcp) but got: %v", bind)
+		return nil, fmt.Errorf("Bind format expected <local_port>:<to_address>:<to_port>:(udp|tcp|tls) but got: %v", bind)
 	}
 
 	var err error
@@ -220,12 +220,14 @@ func parseBind(bind string) (*Bind, error) {
 		return nil, fmt.Errorf("Bind to_port should be a number but is: %v in: %v", elements[2], bind)
 	}
 
-	if elements[3] == "tcp" {
+	if elements[3] == "tls" {
+		ret.Protocol = TLSProtocol
+	} else if elements[3] == "tcp" {
 		ret.Protocol = TCPProtocol
 	} else if elements[3] == "udp" {
 		ret.Protocol = UDPProtocol
 	} else {
-		return nil, fmt.Errorf("Bind protocol should be 'tcp' or 'udp' but is: %v in: %v", elements[3], bind)
+		return nil, fmt.Errorf("Bind protocol should be 'tls', 'tcp', 'udp' but is: %v in: %v", elements[3], bind)
 	}
 
 	return ret, nil

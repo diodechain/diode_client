@@ -119,47 +119,34 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 				rpcClient.Error("failed to connect local: %v", err)
 				return
 			}
-			var deviceKey string
+
+			deviceKey := rpcClient.GetDeviceKey(portOpen.Ref)
+			connDevice.Ref = portOpen.Ref
+			connDevice.ClientID = clientID
+			connDevice.DeviceID = portOpen.DeviceID
+			connDevice.Client = rpcClient
+			connDevice.Conn = DeviceConn{
+				Conn: remoteConn,
+			}
+
+			// For the E2E encryption we're wrapping remoteConn in TLS
 			if portOpen.Protocol == config.TLSProtocol {
-				tlsPort := rpcClient.portService.Available()
-				rpcClient.Debug("Enable openssl server and listen to %d", tlsPort)
-				e2eServer := rpcClient.NewE2EServer(tlsPort, remoteConn)
+				e2eServer := rpcClient.NewE2EServer(remoteConn, portOpen.DeviceID)
 				err := e2eServer.ListenAndServe()
 				if err != nil {
 					_ = rpcClient.ResponsePortOpen(portOpen, err)
 					rpcClient.Error("failed to start ssl local server: %v", err)
 					return
 				}
-				host = e2eServer.Addr().String()
-				_ = rpcClient.ResponsePortOpen(portOpen, nil)
-				rpcClient.Debug("Enable net tcp client to %s", host)
 
-				deviceKey = rpcClient.GetDeviceKey(portOpen.Ref)
-				connDevice.Ref = portOpen.Ref
-				connDevice.ClientID = clientID
-				connDevice.DeviceID = portOpen.DeviceID
-				connDevice.Conn = E2EDeviceConn{
-					Conn: e2eServer.proxyConn,
-					closeCallback: func() {
-						rpcClient.Debug("Close openssl server listener and release port")
-						e2eServer.Close()
-						rpcClient.portService.Release(tlsPort)
-					},
-				}
-				connDevice.Client = rpcClient
-			} else {
-				_ = rpcClient.ResponsePortOpen(portOpen, nil)
-				deviceKey = rpcClient.GetDeviceKey(portOpen.Ref)
-
-				connDevice.Ref = portOpen.Ref
-				connDevice.ClientID = clientID
-				connDevice.DeviceID = portOpen.DeviceID
 				connDevice.Conn = DeviceConn{
-					Conn: remoteConn,
+					Conn:      e2eServer.localConn,
+					e2eServer: &e2eServer,
 				}
-				connDevice.Client = rpcClient
 			}
+
 			rpcClient.pool.SetDevice(deviceKey, connDevice)
+			_ = rpcClient.ResponsePortOpen(portOpen, nil)
 
 			connDevice.copyToSSL()
 			connDevice.Close()

@@ -86,7 +86,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	isWS, _, mode, deviceID, port, err := parseHost(host)
+	isWS, mode, deviceID, port, err := parseHost(host)
 
 	if err != nil {
 		msg := fmt.Sprintf("failed to parse host: %v", err)

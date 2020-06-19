@@ -626,19 +626,28 @@ func connect(c chan *rpc.RPCClient, host string, cfg *config.Config, wg *sync.Wa
 }
 
 func closeDiode(client *rpc.RPCClient, cfg *config.Config) {
+	fmt.Println("1/6 Stopping client")
 	if client.Started() {
 		client.Close()
 	}
+	fmt.Println("2/6 Stopping socksserver")
 	if socksServer.Started() {
 		socksServer.Close()
 	}
+	fmt.Println("3/6 Stopping proxyserver")
 	if proxyServer != nil && proxyServer.Started() {
 		proxyServer.Close()
 	}
+	fmt.Println("4/6 Cleaning pool")
+	if pool != nil {
+		pool.Close()
+	}
+	fmt.Println("5/6 Closing logs")
 	handler := cfg.Logger.GetHandler()
 	if closingHandler, ok := handler.(log15.ClosingHandler); ok {
 		closingHandler.WriteCloser.Close()
 	}
+	fmt.Println("6/6 Exiting")
 }
 
 // ensure account state has been changed

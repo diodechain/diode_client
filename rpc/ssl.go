@@ -173,7 +173,12 @@ func (s *SSL) SetKeepAliveInterval(d time.Duration) error {
 
 // GetServerID returns server address
 func (s *SSL) GetServerID() ([20]byte, error) {
-	pubKey, err := s.GetServerPubKey()
+	return GetConnectionID(s.conn)
+}
+
+// GetConnectionID returns address from an openssl connection
+func GetConnectionID(conn *openssl.Conn) ([20]byte, error) {
+	pubKey, err := getConnectionPubkey(conn)
 	if err != nil {
 		return [20]byte{}, err
 	}
@@ -181,9 +186,9 @@ func (s *SSL) GetServerID() ([20]byte, error) {
 	return hashPubKey, nil
 }
 
-// GetServerPubKey returns server uncompressed public key
-func (s *SSL) GetServerPubKey() ([]byte, error) {
-	cert, err := s.conn.PeerCertificate()
+// GetCertificatePubKey returns server uncompressed public key
+func getConnectionPubkey(conn *openssl.Conn) ([]byte, error) {
+	cert, err := conn.PeerCertificate()
 	if err != nil {
 		return nil, err
 	}
@@ -421,52 +426,6 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 	return &rpcClient, nil
 }
 
-func dialSSL(host string, config *config.Config, pool *DataPool) (*SSL, error) {
-	ctx := initSSLCtx(config)
-	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
-	if err != nil {
-		config.Logger.Crit(fmt.Sprintf("Failed to connect to host: %s", err.Error()), "module", "ssl", "server", host)
-		// Retry to connect
-		isOk := false
-		for i := 1; i <= config.RetryTimes; i++ {
-			config.Logger.Info(fmt.Sprintf("Retry to connect to host: %s, wait %s", host, config.RetryWait.String()), "module", "ssl", "server", host)
-			time.Sleep(config.RetryWait)
-			client, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
-			if err == nil {
-				isOk = true
-				break
-			}
-			if config.Debug {
-				config.Logger.Debug(fmt.Sprintf("Failed to connect to host: %s", err.Error()), "module", "ssl", "server", host)
-			}
-		}
-		if !isOk {
-			return nil, fmt.Errorf("failed to connect to host: %s", host)
-		}
-	}
-	// enable keepalive
-	if config.EnableKeepAlive {
-		err = client.EnableKeepAlive()
-		if err != nil {
-			client.Close()
-			return nil, err
-		}
-		err = client.SetKeepAliveCount(config.KeepAliveCount)
-		if err != nil {
-			return nil, err
-		}
-		err = client.SetKeepAliveIdle(config.KeepAliveIdle)
-		if err != nil {
-			return nil, err
-		}
-		err = client.SetKeepAliveInterval(config.KeepAliveInterval)
-		if err != nil {
-			return nil, err
-		}
-	}
-	return client, nil
-}
-
 func initSSLCtx(config *config.Config) *openssl.Ctx {
 
 	serial := new(big.Int)
@@ -481,9 +440,10 @@ func initSSLCtx(config *config.Config) *openssl.Ctx {
 		os.Exit(129)
 	}
 	info := &openssl.CertificateInfo{
-		Serial:       serial,
-		Issued:       time.Duration(time.Now().Unix()),
-		Expires:      2000000000,
+		Serial: serial,
+		// The go-openssl library converts these Issued and Expires relative to 'now'
+		Issued:       0,
+		Expires:      24 * time.Hour,
 		Country:      "US",
 		Organization: "Private",
 		CommonName:   name,
@@ -504,7 +464,7 @@ func initSSLCtx(config *config.Config) *openssl.Ctx {
 		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
 		os.Exit(129)
 	}
-	ctx, err := openssl.NewCtx()
+	ctx, err := openssl.NewCtxWithVersion(openssl.TLSv1_2)
 	if err != nil {
 		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
 		os.Exit(129)
@@ -521,15 +481,23 @@ func initSSLCtx(config *config.Config) *openssl.Ctx {
 	}
 
 	// We only use self-signed certificates.
-	verifyOption := openssl.VerifyNone
+	verifyOption := openssl.VerifyFailIfNoPeerCert | openssl.VerifyPeer
 	cb := func(ok bool, store *openssl.CertificateStoreCtx) bool {
 		if !ok {
 			err := store.Err()
-			return err.Error() == "openssl: self signed certificate"
+			if err.Error() == "openssl: self signed certificate" {
+				return true
+			}
+			fmt.Printf("Peer verification error: %v\n", err)
+			return false
 		}
 		return ok
 	}
 	ctx.SetVerify(verifyOption, cb)
+	ctx.SetTLSExtServernameCallback(func(ssl *openssl.SSL) openssl.SSLTLSExtErr {
+		return openssl.SSLTLSExtErrOK
+	})
+	// ctx.SetOptions(openssl.)
 	err = ctx.SetEllipticCurve(openssl.Secp256k1)
 	if err != nil {
 		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")

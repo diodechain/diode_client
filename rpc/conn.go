@@ -6,8 +6,6 @@ package rpc
 import (
 	"fmt"
 	"net"
-	// lock?
-	// "sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -18,43 +16,38 @@ type ConnectedDevice struct {
 	Ref      string
 	ClientID string
 	DeviceID Address
-	Conn     ConnectedConn
+	Conn     DeviceConn
 	Client   *RPCClient
-	// should set S when use e2e device connection
-	S *SSL
+}
+
+// DeviceConn connected net/websocket connection
+type DeviceConn struct {
+	readBuffer []byte
+	unread     []byte
+	Conn       net.Conn
+	closed     bool
+
+	// WSConn
+	WSConn *websocket.Conn
+
+	// E2E
+	e2eServer *E2EServer
 }
 
 // LocalAddr returns local network address of device
-func (device *ConnectedDevice) LocalAddr() (localAddr net.Addr) {
-	if conn, ok := device.Conn.(DeviceConn); ok {
-		if conn.IsWS() {
-			localAddr = conn.WSConn.LocalAddr()
-			return
-		}
-		localAddr = conn.Conn.LocalAddr()
-		return
+func (conn *DeviceConn) LocalAddr() net.Addr {
+	if conn.IsWS() {
+		return conn.WSConn.LocalAddr()
 	}
-	return
+	return conn.Conn.LocalAddr()
 }
 
 // RemoteAddr returns remote network address of device
-func (device *ConnectedDevice) RemoteAddr() (remoteAddr net.Addr) {
-	if conn, ok := device.Conn.(DeviceConn); ok {
-		if conn.IsWS() {
-			remoteAddr = conn.WSConn.RemoteAddr()
-			return
-		}
-		remoteAddr = conn.Conn.RemoteAddr()
-		return
-	} else if conn, ok := device.Conn.(E2EDeviceConn); ok {
-		if conn.IsWS() {
-			remoteAddr = conn.WSConn.RemoteAddr()
-			return
-		}
-		remoteAddr = conn.Conn.RemoteAddr()
-		return
+func (conn *DeviceConn) RemoteAddr() net.Addr {
+	if conn.IsWS() {
+		return conn.WSConn.RemoteAddr()
 	}
-	return
+	return conn.Conn.RemoteAddr()
 }
 
 // Close the connection of device
@@ -66,27 +59,14 @@ func (device *ConnectedDevice) Close() {
 		device.Client.CastPortClose(device.Ref)
 
 		// send portclose request and channel
-		if conn, ok := device.Conn.(DeviceConn); ok {
-			if conn.IsWS() {
-				conn.WSConn.Close()
-				return
-			}
-
-			if conn.Conn != nil {
-				conn.Close()
-				return
-			}
+		if device.Conn.IsWS() {
+			device.Conn.WSConn.Close()
+			return
 		}
-		if conn, ok := device.Conn.(E2EDeviceConn); ok {
-			if conn.IsWS() {
-				conn.WSConn.Close()
-				return
-			}
 
-			if conn.Conn != nil {
-				conn.Close()
-				return
-			}
+		if device.Conn.Conn != nil {
+			device.Conn.Close()
+			return
 		}
 	}
 }
@@ -94,248 +74,100 @@ func (device *ConnectedDevice) Close() {
 // The non-nil error almost be io.EOF or "use of closed network"
 // Any error means connection is dead, and we should send portclose and close the connection.
 func (device *ConnectedDevice) copyToSSL() {
-	if conn, ok := device.Conn.(DeviceConn); ok {
-		err := conn.copyToSSL(device.Client, device.Ref)
-		if err != nil {
-			device.Client.Debug("copyToSSL failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
-			device.Close()
-		}
-	} else if conn, ok := device.Conn.(E2EDeviceConn); ok {
-		var err error
-		if conn.copyRaw {
-			err = conn.copyRawToSSL(device.S, device.Ref)
-		} else {
-			err = conn.copyToSSL(device.Client, device.Ref)
-		}
-		if err != nil {
-			device.Client.Debug("copyToSSL failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
-			device.Close()
-		}
+	err := device.Conn.copyToSSL(device.Client, device.Ref)
+	if err != nil {
+		device.Client.Debug("copyToSSL failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
+		device.Close()
 	}
 }
 
 // Maybe we should return error
 func (device *ConnectedDevice) writeToTCP(data []byte) {
-	if conn, ok := device.Conn.(DeviceConn); ok {
-		err := conn.writeToTCP(data)
-		if err != nil {
-			device.Client.Debug("writeToTCP failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
-			device.Close()
-		}
-	} else if conn, ok := device.Conn.(E2EDeviceConn); ok {
-		err := conn.writeToTCP(data)
-		if err != nil {
-			device.Client.Debug("writeToTCP failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
-			device.Close()
-		}
+	conn := device.Conn
+	err := conn.writeToTCP(data)
+	if err != nil {
+		device.Client.Debug("writeToTCP failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
+		device.Close()
 	}
-}
-
-// DeviceConn connected net/websocket connection
-type DeviceConn struct {
-	readBuffer    []byte
-	unread        []byte
-	Conn          net.Conn
-	WSConn        *websocket.Conn
-	closed        bool
-	closeCallback func()
 }
 
 // Close the connection
-func (deviceConn *DeviceConn) Close() {
-	if deviceConn.Conn != nil {
-		deviceConn.Conn.Close()
+func (conn *DeviceConn) Close() {
+	if conn.Conn != nil {
+		conn.Conn.Close()
 	}
-	if deviceConn.WSConn != nil {
-		deviceConn.WSConn.Close()
+	if conn.WSConn != nil {
+		conn.WSConn.Close()
 	}
-	deviceConn.closed = true
-	if deviceConn.closeCallback != nil {
-		deviceConn.closeCallback()
+	if conn.e2eServer != nil {
+		conn.e2eServer.Close()
 	}
+
+	conn.closed = true
 }
 
 // IsWS is this a WebSocket connection?
-func (deviceConn *DeviceConn) IsWS() bool {
-	return deviceConn.WSConn != nil
+func (conn *DeviceConn) IsWS() bool {
+	return conn.WSConn != nil
 }
 
-func (deviceConn *DeviceConn) read() (buf []byte, err error) {
-	if len(deviceConn.unread) > 0 {
-		buf = deviceConn.unread
-		deviceConn.unread = []byte{}
+// IsE2E is this a E2E encrypted connection?
+func (conn *DeviceConn) IsE2E() bool {
+	return conn.e2eServer != nil
+}
+
+func (conn *DeviceConn) read() (buf []byte, err error) {
+	if len(conn.unread) > 0 {
+		buf = conn.unread
+		conn.unread = []byte{}
 		return
 	}
-	if deviceConn.IsWS() {
-		_, buf, err = deviceConn.WSConn.ReadMessage()
+	if conn.IsWS() {
+		_, buf, err = conn.WSConn.ReadMessage()
 		return
 	}
-	if deviceConn.Conn != nil {
-		if len(deviceConn.readBuffer) < readBufferSize {
-			deviceConn.readBuffer = make([]byte, readBufferSize)
+	if conn.Conn != nil {
+		if len(conn.readBuffer) < readBufferSize {
+			conn.readBuffer = make([]byte, readBufferSize)
 		}
 		var count int
-		count, err = deviceConn.Conn.Read(deviceConn.readBuffer)
-		buf = deviceConn.readBuffer[:count]
+		count, err = conn.Conn.Read(conn.readBuffer)
+		buf = conn.readBuffer[:count]
 		return
 	}
 	err = fmt.Errorf("read(): no connection open")
 	return
 }
 
-func (deviceConn DeviceConn) copyToSSL(client interface{}, ref string) (err error) {
-	if rpcClient, ok := client.(*RPCClient); ok {
-		var buf []byte
-		for {
-			buf, err = deviceConn.read()
+func (conn DeviceConn) copyToSSL(client *RPCClient, ref string) (err error) {
+	var buf []byte
+	for {
+		buf, err = conn.read()
+		if err != nil {
+			return
+		}
+		if conn.closed {
+			err = nil
+			return
+		}
+		if len(buf) > 0 {
+			err = client.PortSend(ref, buf)
 			if err != nil {
 				return
 			}
-			if deviceConn.closed {
-				err = nil
-				return
-			}
-			if len(buf) > 0 {
-				err = rpcClient.PortSend(ref, buf)
-				if err != nil {
-					return
-				}
-			} else {
-				time.Sleep(10 * time.Millisecond)
-			}
+		} else {
+			time.Sleep(10 * time.Millisecond)
 		}
 	}
-	return
 }
 
-func (deviceConn *DeviceConn) writeToTCP(data []byte) error {
-	if deviceConn.closed {
+func (conn *DeviceConn) writeToTCP(data []byte) error {
+	if conn.closed {
 		return nil
 	}
-	if deviceConn.IsWS() {
-		return deviceConn.WSConn.WriteMessage(websocket.BinaryMessage, data)
+	if conn.IsWS() {
+		return conn.WSConn.WriteMessage(websocket.BinaryMessage, data)
 	}
-	_, err := deviceConn.Conn.Write(data)
-	return err
-}
-
-// E2EDeviceConn connected net/websocket connection
-type E2EDeviceConn struct {
-	readBuffer    []byte
-	unread        []byte
-	Conn          net.Conn
-	WSConn        *websocket.Conn
-	closeCallback func()
-	closed        bool
-	copyRaw       bool
-}
-
-// Close the connection
-func (deviceConn *E2EDeviceConn) Close() {
-	if deviceConn.Conn != nil {
-		deviceConn.Conn.Close()
-	}
-	if deviceConn.WSConn != nil {
-		deviceConn.WSConn.Close()
-	}
-	deviceConn.closed = true
-	if deviceConn.closeCallback != nil {
-		deviceConn.closeCallback()
-	}
-}
-
-// IsWS is this a WebSocket connection?
-func (deviceConn *E2EDeviceConn) IsWS() bool {
-	return deviceConn.WSConn != nil
-}
-
-func (deviceConn *E2EDeviceConn) read() (buf []byte, err error) {
-	if len(deviceConn.unread) > 0 {
-		buf = deviceConn.unread
-		deviceConn.unread = []byte{}
-		return
-	}
-	if deviceConn.IsWS() {
-		_, buf, err = deviceConn.WSConn.ReadMessage()
-		return
-	}
-	if deviceConn.Conn != nil {
-		if len(deviceConn.readBuffer) < readBufferSize {
-			deviceConn.readBuffer = make([]byte, readBufferSize)
-		}
-		var count int
-		count, err = deviceConn.Conn.Read(deviceConn.readBuffer)
-		buf = deviceConn.readBuffer[:count]
-		return
-	}
-	err = fmt.Errorf("read(): no connection open")
-	return
-}
-
-func (deviceConn E2EDeviceConn) copyToSSL(client interface{}, ref string) (err error) {
-	if rpcClient, ok := client.(*RPCClient); ok {
-		var buf []byte
-		for {
-			buf, err = deviceConn.read()
-			if err != nil {
-				return
-			}
-			if deviceConn.closed {
-				err = nil
-				return
-			}
-			if len(buf) > 0 {
-				err = rpcClient.PortSend(ref, buf)
-				if err != nil {
-					return
-				}
-			} else {
-				time.Sleep(10 * time.Millisecond)
-			}
-		}
-	}
-	return
-}
-
-func (deviceConn E2EDeviceConn) copyRawToSSL(client interface{}, ref string) (err error) {
-	if s, ok := client.(*SSL); ok {
-		var buf []byte
-		var n int
-		var opensslConn net.Conn
-		for {
-			buf, err = deviceConn.read()
-			if err != nil {
-				return
-			}
-			if deviceConn.closed {
-				err = nil
-				return
-			}
-			if len(buf) > 0 {
-				opensslConn = s.getOpensslConn()
-				n, err = opensslConn.Write(buf)
-				if err != nil {
-					return
-				}
-				if n != len(buf) {
-					err = fmt.Errorf("couldn't send the full data")
-					return
-				}
-			} else {
-				time.Sleep(10 * time.Millisecond)
-			}
-		}
-	}
-	return
-}
-
-func (deviceConn *E2EDeviceConn) writeToTCP(data []byte) error {
-	if deviceConn.closed {
-		return nil
-	}
-	if deviceConn.IsWS() {
-		return deviceConn.WSConn.WriteMessage(websocket.BinaryMessage, data)
-	}
-	_, err := deviceConn.Conn.Write(data)
+	_, err := conn.Conn.Write(data)
 	return err
 }
