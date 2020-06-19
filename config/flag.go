@@ -27,6 +27,7 @@ const (
 	LogToFile
 	TCPProtocol = 1 << iota
 	UDPProtocol
+	TLSProtocol
 	AnyProtocol
 )
 
@@ -69,6 +70,8 @@ type Config struct {
 	SBlacklists             stringValues     `yaml:"blacklists,omitempty" json:"blacklists,omitempty"`
 	SWhitelists             stringValues     `yaml:"whitelists,omitempty" json:"whitelists,omitempty"`
 	SBinds                  stringValues     `yaml:"bind,omitempty" json:"bind,omitempty"`
+	CPUProfile              string           `yaml:"cpuprofile,omitempty" json:"cpuprofile,omitempty"`
+	MEMProfile              string           `yaml:"memprofile,omitempty" json:"memprofile,omitempty"`
 	Command                 string           `yaml:"-" json:"-"`
 	FleetAddr               Address          `yaml:"-" json:"-"`
 	RegistryAddr            Address          `yaml:"-" json:"-"`
@@ -193,10 +196,10 @@ func stringsContain(src []string, pivot *string) bool {
 func parseBind(bind string) (*Bind, error) {
 	elements := strings.Split(bind, ":")
 	if len(elements) == 3 {
-		elements = append(elements, "tcp")
+		elements = append(elements, "tls")
 	}
 	if len(elements) != 4 {
-		return nil, fmt.Errorf("Bind format expected <local_port>:<to_address>:<to_port>:(udp|tcp) but got: %v", bind)
+		return nil, fmt.Errorf("Bind format expected <local_port>:<to_address>:<to_port>:(udp|tcp|tls) but got: %v", bind)
 	}
 
 	var err error
@@ -217,12 +220,14 @@ func parseBind(bind string) (*Bind, error) {
 		return nil, fmt.Errorf("Bind to_port should be a number but is: %v in: %v", elements[2], bind)
 	}
 
-	if elements[3] == "tcp" {
+	if elements[3] == "tls" {
+		ret.Protocol = TLSProtocol
+	} else if elements[3] == "tcp" {
 		ret.Protocol = TCPProtocol
 	} else if elements[3] == "udp" {
 		ret.Protocol = UDPProtocol
 	} else {
-		return nil, fmt.Errorf("Bind protocol should be 'tcp' or 'udp' but is: %v in: %v", elements[3], bind)
+		return nil, fmt.Errorf("Bind protocol should be 'tls', 'tcp', 'udp' but is: %v in: %v", elements[3], bind)
 	}
 
 	return ret, nil
@@ -383,6 +388,8 @@ func ParseFlag() {
 	flag.IntVar(&cfg.RlimitNofile, "rlimit_nofile", 0, "specify the file descriptor numbers that can be opened by this process")
 	flag.StringVar(&cfg.LogFilePath, "logfilepath", "", "file path to log file")
 	flag.StringVar(&cfg.ConfigFilePath, "configpath", "", "yaml file path to config file")
+	flag.StringVar(&cfg.CPUProfile, "cpuprofile", "", "file path for cpu profiling")
+	flag.StringVar(&cfg.MEMProfile, "memprofile", "", "file path for memory profiling")
 
 	// tcp keepalive for node connection
 	flag.BoolVar(&cfg.EnableKeepAlive, "keepalive", runtime.GOOS != "windows", "enable tcp keepalive (only Linux >= 2.4, DragonFly, FreeBSD, NetBSD and OS X >= 10.8 are supported)")

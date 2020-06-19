@@ -15,7 +15,7 @@ import (
 	"github.com/diodechain/go-update/stores/github"
 )
 
-func doUpdate() {
+func doUpdate() int {
 	m := &update.Manager{
 		Command: "diode",
 		Store: &github.Store{
@@ -31,7 +31,7 @@ func doUpdate() {
 
 	tarball, ok := download(m)
 	if !ok {
-		return
+		return 0
 	}
 
 	// searching for binary in path
@@ -43,13 +43,15 @@ func doUpdate() {
 
 	dir := filepath.Dir(bin)
 	if err := m.InstallTo(tarball, dir); err != nil {
-		printError("Error installing", err, 129)
+		printError("Error installing", err)
+		return 129
 	}
 
 	cmd := path.Join(dir, m.Command)
 	fmt.Printf("Updated, restarting %s...\n", cmd)
 
 	update.Restart(cmd)
+	return 0
 }
 
 func download(m *update.Manager) (string, bool) {
@@ -87,7 +89,7 @@ func download(m *update.Manager) (string, bool) {
 	// download tarball to a tmp dir
 	tarball, err := a.DownloadProxy(progress.Reader)
 	if err != nil {
-		printError("Error downloading", err, 129)
+		printError("Error downloading", err)
 	}
 
 	return tarball, true

@@ -14,40 +14,22 @@ import (
 	"sync"
 	"time"
 
-	"github.com/diodechain/diode_go_client/blockquick"
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/db"
 	"github.com/diodechain/diode_go_client/edge"
 	"github.com/diodechain/diode_go_client/util"
-
 	"github.com/diodechain/openssl"
 	"github.com/ucirello/tcpkeepalive"
 )
 
 const (
-	confirmationSize  = 6
-	windowSize        = 100
-	rpcCallRetryTimes = 2
-
-	lvbnKey = "lvbn3"
-	lvbhKey = "lvbh3"
+	// 00[“portsend”,”data”]
+	// fixed: 17 bytes
+	// see: https://www.igvita.com/2013/10/24/optimizing-tls-record-size-and-buffering-latency/
+	readBufferSize  = 8000
+	writeBufferSize = 8000
 )
-
-var (
-	bq             *blockquick.Window
-	enqueueTimeout = 100 * time.Millisecond
-)
-
-type Call struct {
-	id         uint64
-	method     string
-	retryTimes int
-	response   chan interface{}
-	signal     chan Signal
-	data       []byte
-	Parse      func(buffer []byte) (interface{}, error)
-}
 
 type SSL struct {
 	conn              *openssl.Conn
@@ -191,7 +173,12 @@ func (s *SSL) SetKeepAliveInterval(d time.Duration) error {
 
 // GetServerID returns server address
 func (s *SSL) GetServerID() ([20]byte, error) {
-	pubKey, err := s.GetServerPubKey()
+	return GetConnectionID(s.conn)
+}
+
+// GetConnectionID returns address from an openssl connection
+func GetConnectionID(conn *openssl.Conn) ([20]byte, error) {
+	pubKey, err := getConnectionPubkey(conn)
 	if err != nil {
 		return [20]byte{}, err
 	}
@@ -199,9 +186,9 @@ func (s *SSL) GetServerID() ([20]byte, error) {
 	return hashPubKey, nil
 }
 
-// GetServerPubKey returns server uncompressed public key
-func (s *SSL) GetServerPubKey() ([]byte, error) {
-	cert, err := s.conn.PeerCertificate()
+// GetCertificatePubKey returns server uncompressed public key
+func getConnectionPubkey(conn *openssl.Conn) ([]byte, error) {
+	cert, err := conn.PeerCertificate()
 	if err != nil {
 		return nil, err
 	}
@@ -351,35 +338,6 @@ func (s *SSL) reconnect() error {
 	return nil
 }
 
-// LastValid returns the last valid block number and block header
-func LastValid() (uint64, crypto.Sha3) {
-	if bq == nil {
-		return restoreLastValid()
-	}
-	return bq.Last()
-}
-
-func restoreLastValid() (uint64, crypto.Sha3) {
-	lvbn, err := db.DB.Get(lvbnKey)
-	var lvbh []byte
-	if err == nil {
-		lvbnNum := util.DecodeBytesToUint(lvbn)
-		lvbh, err = db.DB.Get(lvbhKey)
-		if err == nil {
-			var hash [32]byte
-			copy(hash[:], lvbh)
-			return lvbnNum, hash
-		}
-	}
-	return 500, [32]byte{0, 0, 91, 137, 111, 20, 109, 80, 251, 76, 143, 80, 134, 152, 142, 201, 98, 250, 205, 7, 108, 135, 20, 235, 135, 65, 44, 186, 4, 161, 71, 238}
-}
-
-func storeLastValid() {
-	lvbn, lvbh := LastValid()
-	db.DB.Put(lvbnKey, util.DecodeUintToBytes(lvbn))
-	db.DB.Put(lvbhKey, lvbh[:])
-}
-
 func EnsurePrivatePEM() []byte {
 	key, _ := db.DB.Get("private")
 	if key == nil {
@@ -404,7 +362,7 @@ func EnsurePrivatePEM() []byte {
 }
 
 func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, error) {
-	ctx := initSSL(config)
+	ctx := initSSLCtx(config)
 	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
 	if err != nil {
 		config.Logger.Crit(fmt.Sprintf("Failed to connect to host: %s", err.Error()), "module", "ssl", "server", host)
@@ -453,7 +411,8 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 		Blacklists:   config.Blacklists,
 		Whitelists:   config.Whitelists,
 	}
-	rpcClient := NewRPCClient(client, rpcConfig, pool)
+	portService := NewPortService()
+	rpcClient := NewRPCClient(client, rpcConfig, pool, portService)
 
 	rpcClient.Verbose = config.Debug
 	rpcClient.logger = config.Logger
@@ -467,7 +426,7 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 	return &rpcClient, nil
 }
 
-func initSSL(config *config.Config) *openssl.Ctx {
+func initSSLCtx(config *config.Config) *openssl.Ctx {
 
 	serial := new(big.Int)
 	_, err := fmt.Sscan("18446744073709551617", serial)
@@ -481,9 +440,10 @@ func initSSL(config *config.Config) *openssl.Ctx {
 		os.Exit(129)
 	}
 	info := &openssl.CertificateInfo{
-		Serial:       serial,
-		Issued:       time.Duration(time.Now().Unix()),
-		Expires:      2000000000,
+		Serial: serial,
+		// The go-openssl library converts these Issued and Expires relative to 'now'
+		Issued:       0,
+		Expires:      24 * time.Hour,
 		Country:      "US",
 		Organization: "Private",
 		CommonName:   name,
@@ -504,7 +464,7 @@ func initSSL(config *config.Config) *openssl.Ctx {
 		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
 		os.Exit(129)
 	}
-	ctx, err := openssl.NewCtx()
+	ctx, err := openssl.NewCtxWithVersion(openssl.TLSv1_2)
 	if err != nil {
 		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
 		os.Exit(129)
@@ -521,15 +481,23 @@ func initSSL(config *config.Config) *openssl.Ctx {
 	}
 
 	// We only use self-signed certificates.
-	verifyOption := openssl.VerifyNone
+	verifyOption := openssl.VerifyFailIfNoPeerCert | openssl.VerifyPeer
 	cb := func(ok bool, store *openssl.CertificateStoreCtx) bool {
 		if !ok {
 			err := store.Err()
-			return err.Error() == "openssl: self signed certificate"
+			if err.Error() == "openssl: self signed certificate" {
+				return true
+			}
+			fmt.Printf("Peer verification error: %v\n", err)
+			return false
 		}
 		return ok
 	}
 	ctx.SetVerify(verifyOption, cb)
+	ctx.SetTLSExtServernameCallback(func(ssl *openssl.SSL) openssl.SSLTLSExtErr {
+		return openssl.SSLTLSExtErrOK
+	})
+	// ctx.SetOptions(openssl.)
 	err = ctx.SetEllipticCurve(openssl.Secp256k1)
 	if err != nil {
 		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")

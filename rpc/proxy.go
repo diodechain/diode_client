@@ -86,15 +86,15 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	isWS, deviceID, mode, port, err := parseHost(host)
+	isWS, mode, deviceID, port, err := parseHost(host)
 
-	if port == 0 {
-		badRequest(w, "Cannot find port from string to int")
+	if err != nil {
+		msg := fmt.Sprintf("failed to parse host: %v", err)
+		badRequest(w, msg)
 		return
 	}
-	if err != nil {
-		msg := fmt.Sprintf("parseHost error: %v", err)
-		badRequest(w, msg)
+	if port == 0 {
+		badRequest(w, "Cannot find port from string to int")
 		return
 	}
 
@@ -144,7 +144,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 		if err != nil {
 			return
 		}
-		connDevice.Conn = ConnectedConn{
+		connDevice.Conn = DeviceConn{
 			WSConn: conn,
 		}
 	} else {
@@ -169,7 +169,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 			conn.Close()
 			return
 		}
-		connDevice.Conn = ConnectedConn{
+		connDevice.Conn = DeviceConn{
 			Conn:   conn,
 			unread: header.Bytes(),
 		}

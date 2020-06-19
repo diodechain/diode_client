@@ -106,7 +106,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			connDevice := &ConnectedDevice{}
 
 			// connect to stream service
-			host := net.JoinHostPort("localhost", strconv.Itoa(int(publishedPort.Src)))
+			host := net.JoinHostPort(localhost, strconv.Itoa(int(publishedPort.Src)))
 
 			network := "tcp"
 			if portOpen.Protocol == config.UDPProtocol {
@@ -114,21 +114,39 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			}
 
 			remoteConn, err := net.DialTimeout(network, host, rpcClient.timeout)
-
 			if err != nil {
 				_ = rpcClient.ResponsePortOpen(portOpen, err)
 				rpcClient.Error("failed to connect local: %v", err)
 				return
 			}
-			_ = rpcClient.ResponsePortOpen(portOpen, nil)
-			deviceKey := rpcClient.GetDeviceKey(portOpen.Ref)
 
+			deviceKey := rpcClient.GetDeviceKey(portOpen.Ref)
 			connDevice.Ref = portOpen.Ref
 			connDevice.ClientID = clientID
 			connDevice.DeviceID = portOpen.DeviceID
-			connDevice.Conn.Conn = remoteConn
 			connDevice.Client = rpcClient
+			connDevice.Conn = DeviceConn{
+				Conn: remoteConn,
+			}
+
+			// For the E2E encryption we're wrapping remoteConn in TLS
+			if portOpen.Protocol == config.TLSProtocol {
+				e2eServer := rpcClient.NewE2EServer(remoteConn, portOpen.DeviceID)
+				err := e2eServer.ListenAndServe()
+				if err != nil {
+					_ = rpcClient.ResponsePortOpen(portOpen, err)
+					rpcClient.Error("failed to start ssl local server: %v", err)
+					return
+				}
+
+				connDevice.Conn = DeviceConn{
+					Conn:      e2eServer.localConn,
+					e2eServer: &e2eServer,
+				}
+			}
+
 			rpcClient.pool.SetDevice(deviceKey, connDevice)
+			_ = rpcClient.ResponsePortOpen(portOpen, nil)
 
 			connDevice.copyToSSL()
 			connDevice.Close()
@@ -138,7 +156,6 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			rpcClient.Error("failed to decode portsend request: %v", portSend.Err.Error())
 			return
 		}
-		// TODO: E2E encryption
 		decData := portSend.Data
 		// start to write data
 		deviceKey := rpcClient.GetDeviceKey(portSend.Ref)
