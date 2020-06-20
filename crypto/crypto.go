@@ -12,7 +12,7 @@ import (
 	"math/big"
 
 	"github.com/diodechain/diode_go_client/crypto/secp256k1"
-	"github.com/diodechain/diode_go_client/crypto/sha3"
+	"golang.org/x/crypto/sha3"
 )
 
 const ecPrivKeyVersion = 1
@@ -165,7 +165,7 @@ func Sha256(data []byte) []byte {
 
 // Sha3Hash the data
 func Sha3Hash(data []byte) []byte {
-	hash := sha3.NewKeccak256()
+	hash := sha3.NewLegacyKeccak256()
 	hash.Write(data)
 	return hash.Sum(nil)
 }

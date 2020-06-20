@@ -28,10 +28,11 @@ import (
 )
 
 var (
-	version     string = "development"
-	socksServer *rpc.Server
-	proxyServer *rpc.ProxyServer
-	pool        *rpc.DataPool
+	version         string = "development"
+	socksServer     *rpc.Server
+	proxyServer     *rpc.ProxyServer
+	configAPIServer *ConfigAPIServer
+	pool            *rpc.DataPool
 )
 
 func init() {
@@ -108,31 +109,32 @@ func diode() (status int) {
 	{
 		cfg.ClientAddr = util.PubkeyToAddress(rpc.LoadClientPubKey())
 
-		fleetAddr, err := db.DB.Get("fleet")
-		if err != nil {
-			// Migration if existing
-			fleetAddr, err = db.DB.Get("fleet_id")
-			if err == nil {
-				cfg.FleetAddr, err = util.DecodeAddress(string(fleetAddr))
+		if !cfg.LoadFromFile {
+			fleetAddr, err := db.DB.Get("fleet")
+			if err != nil {
+				// Migration if existing
+				fleetAddr, err = db.DB.Get("fleet_id")
 				if err == nil {
-					db.DB.Put("fleet", cfg.FleetAddr[:])
-					db.DB.Del("fleet_id")
+					cfg.FleetAddr, err = util.DecodeAddress(string(fleetAddr))
+					if err == nil {
+						db.DB.Put("fleet", cfg.FleetAddr[:])
+						db.DB.Del("fleet_id")
+					}
 				}
+			} else {
+				copy(cfg.FleetAddr[:], fleetAddr)
 			}
-		} else {
-			copy(cfg.FleetAddr[:], fleetAddr)
 		}
 	}
+	lvbn, lvbh := rpc.LastValid()
+	printLabel("Last valid block", fmt.Sprintf("%v %v", lvbn, util.EncodeToString(lvbh[:])))
+	printLabel("Client address", cfg.ClientAddr.HexString())
+	printLabel("Fleet address", cfg.FleetAddr.HexString())
 
 	if cfg.Command == "config" {
 		status = doConfig(cfg)
 		return
 	}
-
-	lvbn, lvbh := rpc.LastValid()
-	printLabel("Last valid block", fmt.Sprintf("%v %v", lvbn, util.EncodeToString(lvbh[:])))
-	printLabel("Client address", cfg.ClientAddr.HexString())
-	printLabel("Fleet address", cfg.FleetAddr.HexString())
 
 	// Connect to first server to respond
 	wg := &sync.WaitGroup{}
@@ -223,8 +225,8 @@ func diode() (status int) {
 
 	socksServer = client.NewSocksServer(pool)
 	proxyServer = rpc.NewProxyServer(socksServer)
-
 	processConfig(cfg)
+
 	// start
 	// client.Wait()
 	// listen to signal
@@ -292,6 +294,8 @@ func processConfig(cfg *config.Config) {
 	}
 
 	socksServer.SetBinds(cfg.Binds)
+	configAPIServer = NewConfigAPIServer(cfg, "127.0.0.1:1081")
+	configAPIServer.ListenAndServe()
 }
 
 func doConfig(cfg *config.Config) (status int) {
@@ -435,7 +439,12 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) (status int) {
 	watchAccount(client, fleetAddr)
 	printInfo("Whitelisted device successfully")
 	cfg.FleetAddr = fleetAddr
-	err = db.DB.Put("fleet", fleetAddr[:])
+	if cfg.LoadFromFile {
+		cfg.HexFleetAddr = fleetAddr.HexString()
+		err = cfg.SaveToFile()
+	} else {
+		err = db.DB.Put("fleet", fleetAddr[:])
+	}
 	if err != nil {
 		printError("Cannot save fleet address: ", err)
 		status = 129
@@ -513,7 +522,12 @@ func doInitExp(cfg *config.Config, client *rpc.RPCClient) (status int) {
 	watchAccount(client, fleetAddr)
 	printInfo("Created fleet contract and whitelisted device successfully")
 	cfg.FleetAddr = fleetAddr
-	err = db.DB.Put("fleet", fleetAddr[:])
+	if cfg.LoadFromFile {
+		cfg.HexFleetAddr = fleetAddr.HexString()
+		err = cfg.SaveToFile()
+	} else {
+		err = db.DB.Put("fleet", fleetAddr[:])
+	}
 	if err != nil {
 		printError("Cannot save fleet address: ", err)
 		status = 129
@@ -650,28 +664,32 @@ func connect(c chan *rpc.RPCClient, host string, cfg *config.Config, wg *sync.Wa
 }
 
 func closeDiode(client *rpc.RPCClient, cfg *config.Config) {
-	fmt.Println("1/6 Stopping client")
+	fmt.Println("1/7 Stopping client")
 	if client.Started() {
 		client.Close()
 	}
-	fmt.Println("2/6 Stopping socksserver")
+	fmt.Println("2/7 Stopping socksserver")
 	if socksServer.Started() {
 		socksServer.Close()
 	}
-	fmt.Println("3/6 Stopping proxyserver")
+	fmt.Println("3/7 Stopping proxyserver")
 	if proxyServer != nil && proxyServer.Started() {
 		proxyServer.Close()
 	}
-	fmt.Println("4/6 Cleaning pool")
+	fmt.Println("4/7 Stopping configserver")
+	if configAPIServer != nil {
+		configAPIServer.Close()
+	}
+	fmt.Println("5/7 Cleaning pool")
 	if pool != nil {
 		pool.Close()
 	}
-	fmt.Println("5/6 Closing logs")
+	fmt.Println("6/7 Closing logs")
 	handler := cfg.Logger.GetHandler()
 	if closingHandler, ok := handler.(log15.ClosingHandler); ok {
 		closingHandler.WriteCloser.Close()
 	}
-	fmt.Println("6/6 Exiting")
+	fmt.Println("7/7 Exiting")
 }
 
 // ensure account state has been changed

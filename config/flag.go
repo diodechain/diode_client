@@ -41,10 +41,11 @@ Run 'diode COMMAND --help' for more information on a command.
 		"europe.testnet.diode.io:41046",
 		"usa.testnet.diode.io:41046",
 	}
-	DefaultRegistryAddr = [20]byte{80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-	DefaultFleetAddr    = [20]byte{96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-	subDomainpattern    = regexp.MustCompile(`(0x[A-Fa-f0-9]{40}|[A-Za-z0-9][A-Za-z0-9-]{5,30}?)(-[^0][\d]+)?$`)
-	errWrongDiodeAddrs  = fmt.Errorf("wrong remote diode addresses")
+	DefaultRegistryAddr        = [20]byte{80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	DefaultFleetAddr           = [20]byte{96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	subDomainpattern           = regexp.MustCompile(`(0x[A-Fa-f0-9]{40}|[A-Za-z0-9][A-Za-z0-9-]{5,30}?)(-[^0][\d]+)?$`)
+	errWrongDiodeAddrs         = fmt.Errorf("wrong remote diode addresses")
+	errConfigNotLoadedFromFile = fmt.Errorf("config wasn't loaded from file")
 )
 
 // Address represents an Ethereum address
@@ -106,6 +107,31 @@ type Config struct {
 	BNSRegister             string           `yaml:"-" json:"-"`
 	BNSLookup               string           `yaml:"-" json:"-"`
 	Experimental            bool             `yaml:"-" json:"-"`
+	LoadFromFile            bool             `yaml:"-" json:"-"`
+}
+
+// SaveToFile store yaml config to ConfigFilePath
+func (cfg *Config) SaveToFile() (err error) {
+	if !cfg.LoadFromFile {
+		err = errConfigNotLoadedFromFile
+		return
+	}
+	var out []byte
+	var f *os.File
+	out, err = yaml.Marshal(cfg)
+	if err != nil {
+		return
+	}
+	f, err = os.OpenFile(cfg.ConfigFilePath, os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return
+	}
+	// this will break comment option in config file
+	_, err = f.Write(out)
+	if err != nil {
+		return
+	}
+	return
 }
 
 // Bind struct for port forwarding
@@ -203,16 +229,6 @@ func newLogger(cfg *Config) log.Logger {
 	}
 	logger.SetHandler(logHandler)
 	return logger
-}
-
-// stringsContain
-func stringsContain(src []string, pivot *string) bool {
-	for i := 0; i < len(src); i++ {
-		if *pivot == src[i] {
-			return true
-		}
-	}
-	return false
 }
 
 func parseBind(bind string) (*Bind, error) {
@@ -442,6 +458,7 @@ func ParseFlag() {
 		if err != nil {
 			panicWithError(err)
 		}
+		cfg.LoadFromFile = true
 	}
 
 	commandName := flag.Arg(0)
@@ -502,7 +519,7 @@ func ParseFlag() {
 	} else {
 		remoteRPCAddrs := []string{}
 		for _, RPCAddr := range cfg.RemoteRPCAddrs {
-			if isValidRPCAddress(RPCAddr) && !stringsContain(remoteRPCAddrs, &RPCAddr) {
+			if isValidRPCAddress(RPCAddr) && !util.StringsContain(remoteRPCAddrs, &RPCAddr) {
 				remoteRPCAddrs = append(remoteRPCAddrs, RPCAddr)
 			}
 		}
