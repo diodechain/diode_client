@@ -166,6 +166,7 @@ func init() {
 	commandFlags["config"] = &configCommandFlag
 	commandFlags["init"] = &initCommandFlag
 	commandFlags["bns"] = &bnsCommandFlag
+	commandFlags["time"] = &timeCommandFlag
 }
 
 func newLogger(cfg *Config) log.Logger {
@@ -355,6 +356,7 @@ func ParseFlag() {
 	wrapConfigCommandFlag(cfg)
 	wrapInitCommandFlag(cfg)
 	wrapBNSCommandFlag(cfg)
+	wrapTimeCommandFlag(cfg)
 	flag.Usage = func() {
 		fmt.Print("Name\n  diode - Diode network command line interface\n\n")
 		fmt.Print("SYNOPSYS\n  diode")
@@ -463,15 +465,12 @@ func ParseFlag() {
 			publishedPorts[port.To] = port
 		}
 		cfg.PublishedPorts = publishedPorts
-	case "init":
-		commandFlag.Parse(args[1:])
-	case "bns":
-		commandFlag.Parse(args[1:])
-	case "config":
-		commandFlag.Parse(args[1:])
 	default:
-		flag.Usage()
-		os.Exit(0)
+		if commandFlags[commandName] == nil {
+			flag.Usage()
+			os.Exit(0)
+		}
+		commandFlag.Parse(args[1:])
 	}
 
 	cfg.Command = commandName

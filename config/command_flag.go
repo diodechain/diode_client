@@ -50,6 +50,11 @@ var (
 		HelpText:    `  Register/Update name service on diode blockchain.`,
 		ExampleText: `  diode bns -register hello-world=0x......`,
 	}
+	timeCommandFlag = CommandFlag{
+		Name:        "time",
+		HelpText:    `  Lookup the current time from the blockchain consensus.`,
+		ExampleText: `  diode time`,
+	}
 )
 
 // Parse the args (flag.Args()[1:]) with the given command flag
@@ -129,6 +134,12 @@ func wrapBNSCommandFlag(cfg *Config) {
 	bnsCommandFlag.Flag.StringVar(&cfg.BNSLookup, "lookup", "", "Lookup a given BNS name.")
 	bnsCommandFlag.Flag.Usage = func() {
 		printUsage(bnsCommandFlag)
+	}
+}
+
+func wrapTimeCommandFlag(cfg *Config) {
+	timeCommandFlag.Flag.Usage = func() {
+		printUsage(timeCommandFlag)
 	}
 }
 

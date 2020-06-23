@@ -91,7 +91,7 @@ func (win *Window) GetBlockHeader(num uint64) *BlockHeader {
 }
 
 // Last is the peak of the finalized blocks and can be behind lastValid
-// if a new lastValid has been validpbridgeated using a couple of gapped blocks
+// if a new lastValid has been validated using a couple of gapped blocks
 func (win *Window) Last() (uint64, Sha3) {
 	win.mx.Lock()
 	defer win.mx.Unlock()

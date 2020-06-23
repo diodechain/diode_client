@@ -76,6 +76,11 @@ func (bh *BlockHeader) Miner() Address {
 	return util.PubkeyToAddress(bh.minerPubkey)
 }
 
+// Timestamp returns the block timestamp
+func (bh *BlockHeader) Timestamp() uint64 {
+	return bh.timestamp
+}
+
 // Parent returns the block parents hash (the previous block hash)
 func (bh *BlockHeader) Parent() (hash Sha3) {
 	copy(hash[:], bh.prevBlock)

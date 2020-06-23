@@ -82,6 +82,11 @@ func (e RPCError) Error() string {
 	return e.Err.Message
 }
 
+// WindowSize returns the current blockquick window size
+func WindowSize() int {
+	return windowSize
+}
+
 func isOpError(netErr error) (isOpError bool) {
 	switch netErr.(type) {
 	case *net.OpError:

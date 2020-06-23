@@ -198,6 +198,11 @@ func diode() (status int) {
 		return
 	}
 
+	if cfg.Command == "time" {
+		status = doTime(cfg, client)
+		return
+	}
+
 	// check device whitelist
 	isDeviceWhitelisted, err := client.IsDeviceWhitelisted(clientAddr)
 	if err != nil {
@@ -617,6 +622,25 @@ func doBNS(cfg *config.Config, client *rpc.RPCClient) (status int) {
 		printLabel("Lookup result: ", fmt.Sprintf("%s=0x%s", lookupName, obnsAddr.Hex()))
 	}
 	return
+}
+
+func doTime(cfg *config.Config, client *rpc.RPCClient) int {
+	blocknr, _ := rpc.LastValid()
+	header := client.GetBlockHeaderValid(blocknr)
+	if header == nil {
+		printError("Time retrieval error: ", fmt.Errorf("can't load last valid block %d", blocknr))
+		return 129
+	}
+
+	averageBlockTime := 15
+	t0 := int(header.Timestamp())
+	t1 := t0 + (rpc.WindowSize() * averageBlockTime)
+
+	tm0 := time.Unix(int64(t0), 0)
+	tm1 := time.Unix(int64(t1), 0)
+	printLabel("Minimum Time", fmt.Sprintf("%s (%d)", tm0.Format(time.UnixDate), t0))
+	printLabel("Maximum Time", fmt.Sprintf("%s (%d)", tm1.Format(time.UnixDate), t1))
+	return 0
 }
 
 func printLabel(label string, value string) {
