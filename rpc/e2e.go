@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/openssl"
 )
 
@@ -116,8 +117,8 @@ func (e2eServer *E2EServer) Connect() error {
 }
 
 func (e2eServer *E2EServer) ctx() *openssl.Ctx {
-	return e2eServer.client.s.ctx
-	// return initSSLCtx(config.AppConfig)
+	// This creates a new certificate each time of 48 hour validity.
+	return initSSLCtx(config.AppConfig)
 }
 
 func (e2eServer *E2EServer) flags() openssl.DialFlags {

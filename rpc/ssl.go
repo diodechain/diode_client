@@ -442,7 +442,7 @@ func initSSLCtx(config *config.Config) *openssl.Ctx {
 	info := &openssl.CertificateInfo{
 		Serial: serial,
 		// The go-openssl library converts these Issued and Expires relative to 'now'
-		Issued:       0,
+		Issued:       -24 * time.Hour,
 		Expires:      24 * time.Hour,
 		Country:      "US",
 		Organization: "Private",
