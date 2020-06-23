@@ -545,8 +545,17 @@ func doBNS(cfg *config.Config, client *rpc.RPCClient) (status int) {
 		status = 129
 		return
 	}
-	bnsPair := strings.Split(cfg.BNSRegister, "=")
-	if len(bnsPair) == 2 {
+
+	registerPair := strings.Split(cfg.BNSRegister, "=")
+	lookupName := cfg.BNSLookup
+
+	if len(registerPair) != 2 && len(lookupName) == 0 {
+		printError("Argument Error: ", fmt.Errorf("provide -register <name>:<address> or -lookup <name> argument"))
+		status = 129
+		return
+	}
+
+	if len(registerPair) == 2 {
 		var act *edge.Account
 		clientAddr, err := client.GetClientAddress()
 		if err != nil {
@@ -561,8 +570,8 @@ func doBNS(cfg *config.Config, client *rpc.RPCClient) (status int) {
 		} else {
 			nonce = uint64(act.Nonce)
 		}
-		bnsName := bnsPair[0]
-		bnsAddr, err := util.DecodeAddress(bnsPair[1])
+		bnsName := registerPair[0]
+		bnsAddr, err := util.DecodeAddress(registerPair[1])
 		if err != nil {
 			printError("Wrong diode address", err)
 			status = 129
@@ -595,10 +604,18 @@ func doBNS(cfg *config.Config, client *rpc.RPCClient) (status int) {
 		printInfo("Waiting for block to be confirmed - this can take up to a minute")
 		watchAccount(client, contract.DNSAddr)
 		printInfo("Register bns successfully")
-		return
 	}
-	printError("Couldn't register bns", fmt.Errorf("expected -register name=address format"))
-	status = 1
+
+	if len(lookupName) > 0 {
+		obnsAddr, err := client.ResolveBNS(lookupName)
+		if err != nil {
+			printError("Lookup error: ", err)
+			status = 129
+			return
+
+		}
+		printLabel("Lookup result: ", fmt.Sprintf("%s=0x%s", lookupName, obnsAddr.Hex()))
+	}
 	return
 }
 

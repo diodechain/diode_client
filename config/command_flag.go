@@ -125,7 +125,8 @@ func wrapInitCommandFlag(cfg *Config) {
 }
 
 func wrapBNSCommandFlag(cfg *Config) {
-	bnsCommandFlag.Flag.StringVar(&cfg.BNSRegister, "register", "", "Blockchain Name Service name and public address pair.")
+	bnsCommandFlag.Flag.StringVar(&cfg.BNSRegister, "register", "", "Register a new BNS name with <name>=<address>.")
+	bnsCommandFlag.Flag.StringVar(&cfg.BNSLookup, "lookup", "", "Lookup a given BNS name.")
 	bnsCommandFlag.Flag.Usage = func() {
 		printUsage(bnsCommandFlag)
 	}
