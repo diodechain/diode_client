@@ -436,7 +436,16 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 }
 
 func (socksServer *Server) connectDevice(deviceName string, port int, protocol int, mode string) (*ConnectedDevice, error) {
-	return socksServer.doConnectDevice(deviceName, port, protocol, mode, 1)
+	if protocol == config.TLSProtocol && strings.Contains(mode, "s") {
+		fmt.Printf("Using no encryption for shared connection %v\n", mode)
+		protocol = config.TCPProtocol
+	}
+
+	connDevice, err := socksServer.doConnectDevice(deviceName, port, protocol, mode, 1)
+	if err != nil {
+		return nil, err
+	}
+	return connDevice, nil
 }
 
 func writeSocksError(conn net.Conn, ver int, err byte) {
@@ -456,22 +465,14 @@ func writeSocksReturn(conn net.Conn, ver int, addr net.Addr, port int) {
 	rep[1] = socksRepSuccess // success
 	rep[2] = 0x00            //RSV
 
-	if tcpAddr.Zone == "" {
-		if tcpAddr.IP.Equal(tcpAddr.IP.To4()) {
-			tcpAddr.Zone = "ip4"
-		} else {
-			tcpAddr.Zone = "ip6"
-		}
-	}
-
 	// IP
 	var ip net.IP
-	if tcpAddr.Zone == "ip6" {
-		ip = tcpAddr.IP.To16()
-		rep[3] = 0x04
-	} else {
+	if tcpAddr.IP.Equal(tcpAddr.IP.To4()) {
 		ip = tcpAddr.IP.To4()
 		rep[3] = 0x01
+	} else {
+		ip = tcpAddr.IP.To16()
+		rep[3] = 0x04
 	}
 
 	pindex := 4
@@ -487,7 +488,7 @@ func writeSocksReturn(conn net.Conn, ver int, addr net.Addr, port int) {
 func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
 	remote, err := net.Dial("tcp", host)
 	if err != nil {
-		socksServer.Client.Error("failed to connect host: %v", host)
+		socksServer.Client.Error("Failed to connect host: %v", host)
 		writeSocksError(conn, ver, socksRepNetworkUnreachable)
 		return
 	}
@@ -528,21 +529,12 @@ func netCopy(input, output net.Conn) (err error) {
 func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *edge.DeviceTicket, port int, mode string) {
 	// bind request to remote tls server
 	deviceID := device.GetDeviceID()
-	socksServer.Client.Debug("connect remote %s mode %s e2e...", deviceID, mode)
-
-	var protocol int
-	if strings.Contains(mode, "s") {
-		fmt.Printf("Using no encryption for shared connection")
-		protocol = config.TCPProtocol
-	} else {
-		protocol = config.TLSProtocol
-	}
+	socksServer.Client.Debug("Connect remote %s mode %s e2e...", deviceID, mode)
 
 	clientIP := conn.RemoteAddr().String()
 	var connDevice *ConnectedDevice
 	var httpErr error
-
-	connDevice, httpErr = socksServer.connectDevice(deviceID, port, protocol, mode)
+	connDevice, httpErr = socksServer.connectDevice(deviceID, port, config.TLSProtocol, mode)
 
 	if httpErr != nil {
 		socksServer.Client.Error("Failed to connectDevice(%v): %v", deviceID, httpErr.Error())
@@ -550,9 +542,10 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *ed
 		return
 	}
 
+	// if protocol == config.TLSProtocol {
 	// For the E2E encryption we're wrapping remoteConn in TLS
 	e2e := socksServer.Client.NewE2EServer(conn, connDevice.DeviceID)
-	err := e2e.Connect()
+	err := e2e.InternalConnect()
 	if err != nil {
 		socksServer.Client.Error("Failed to e2e.ListenAndServe(): %v", err.Error())
 		return
@@ -569,20 +562,20 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *ed
 	socksServer.datapool.SetDevice(deviceKey, connDevice)
 
 	// send data or receive data from ref
-	socksServer.Client.Debug("connect remote success @ %s %s %v %v", clientIP, deviceID, port, connDevice.Ref)
+	socksServer.Client.Debug("Connect remote success @ %s %s %v %v", clientIP, deviceID, port, connDevice.Ref)
 	writeSocksReturn(conn, ver, socksServer.Client.s.LocalAddr(), port)
 
 	// write request data to device
 	connDevice.copyToSSL()
 	connDevice.Close()
 
-	socksServer.Client.Debug("close socks connection @ %s %s %v %v", clientIP, deviceID, port, connDevice.Ref)
+	socksServer.Client.Debug("Close socks connection @ %s %s %v %v", clientIP, deviceID, port, connDevice.Ref)
 }
 
 func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, device *edge.DeviceTicket, port int, mode string) {
 	remoteConn, err := net.DialTimeout("tcp", socksServer.Config.ProxyServerAddr, time.Duration(time.Second*15))
 	if err != nil {
-		socksServer.Client.Error("failed to connect remote: %s", err.Error())
+		socksServer.Client.Error("Failed to connect remote: %s", err.Error())
 		writeSocksError(conn, ver, socksRepNetworkUnreachable)
 		return
 	}
@@ -598,7 +591,7 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 	defer socksServer.wg.Done()
 	ver, host, err := handShake(conn)
 	if err != nil {
-		socksServer.Client.Error("failed to handshake %v", err)
+		socksServer.Client.Error("Dailed to handshake %v", err)
 		return
 	}
 	if host == "" {
@@ -609,7 +602,7 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 		if socksServer.Config.Fallback == "localhost" {
 			socksServer.pipeFallback(conn, ver, host)
 		} else {
-			socksServer.Client.Error("target not a diode host %v", host)
+			socksServer.Client.Error("Target not a diode host %v", host)
 			writeSocksError(conn, ver, socksRepRefused)
 		}
 		return
@@ -617,12 +610,12 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 
 	isWS, mode, deviceID, port, err := parseHost(host)
 	if err != nil {
-		socksServer.Client.Error("failed to parse host %v", err)
+		socksServer.Client.Error("Failed to parse host %v", err)
 		return
 	}
 	device, httpErr := socksServer.checkAccess(deviceID)
 	if device == nil {
-		socksServer.Client.Error("failed to checkAccess %v", httpErr.Error())
+		socksServer.Client.Error("Failed to checkAccess %v", httpErr.Error())
 		writeSocksError(conn, ver, socksRepNotAllowed)
 		return
 	}
@@ -634,19 +627,6 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 		socksServer.Client.Error("Proxy not enabled, can't forward websocket connection")
 		writeSocksError(conn, ver, socksRepNotAllowed)
 	}
-}
-
-// Stop socks server
-func (socksServer *Server) Stop() {
-	if socksServer.listener != nil {
-		socksServer.listener.Close()
-		socksServer.listener = nil
-	}
-	if socksServer.udpconn != nil {
-		socksServer.udpconn.Close()
-		socksServer.udpconn = nil
-	}
-	socksServer.started = false
 }
 
 // Start socks server
@@ -673,7 +653,7 @@ func (socksServer *Server) Start() error {
 				}
 				break
 			}
-			socksServer.Client.Debug("new socks client: %s", conn.RemoteAddr().String())
+			socksServer.Client.Debug("New socks client: %s", conn.RemoteAddr().String())
 			socksServer.wg.Add(1)
 			go socksServer.handleSocksConnection(conn)
 		}
@@ -918,7 +898,7 @@ func (socksServer *Server) handleBind(conn net.Conn, bind config.Bind) {
 
 	if bind.Protocol == config.TLSProtocol {
 		e2eServer := socksServer.Client.NewE2EServer(conn, connDevice.DeviceID)
-		err := e2eServer.Connect()
+		err := e2eServer.InternalConnect()
 		if err != nil {
 			socksServer.Client.Error("Failed to e2e.ListenAndServe(): %v", err.Error())
 			return
@@ -961,7 +941,7 @@ func (socksServer *Server) GetServer(nodeID Address) (client *RPCClient, err err
 	defer socksServer.rm.Unlock()
 	serverID, err := socksServer.Client.s.GetServerID()
 	if err != nil {
-		socksServer.Client.Warn("failed to get server id: %v", err)
+		socksServer.Client.Warn("Failed to get server id: %v", err)
 		return
 	}
 
@@ -986,7 +966,7 @@ func (socksServer *Server) GetServer(nodeID Address) (client *RPCClient, err err
 	}
 	serverObj, err := socksServer.Client.GetNode(nodeID)
 	if err != nil {
-		socksServer.Client.Error("failed to getnode: %v", err)
+		socksServer.Client.Error("Failed to getnode: %v", err)
 		return
 	}
 	if util.PubkeyToAddress(serverObj.ServerPubKey) != nodeID {
@@ -1017,7 +997,7 @@ func (socksServer *Server) GetServer(nodeID Address) (client *RPCClient, err err
 			}
 			switch signal {
 			case CLOSED:
-				delete(socksServer.pool, nodeID)
+				socksServer.setRPCClient(nodeID, nil)
 				return
 			case RECONNECTED:
 				continue
@@ -1027,21 +1007,44 @@ func (socksServer *Server) GetServer(nodeID Address) (client *RPCClient, err err
 	return
 }
 
+func (socksServer *Server) setRPCClient(nodeID util.Address, rpcClient *RPCClient) {
+	socksServer.rm.Lock()
+	defer socksServer.rm.Unlock()
+	if rpcClient == nil {
+		delete(socksServer.pool, nodeID)
+		return
+	}
+	socksServer.pool[nodeID] = rpcClient
+}
+
 // Started returns whether socks server had started
 func (socksServer *Server) Started() bool {
+	socksServer.rm.Lock()
+	defer socksServer.rm.Unlock()
 	return socksServer.started
 }
 
 // Close the socks server
 func (socksServer *Server) Close() {
-	socksServer.listener.Close()
+	socksServer.rm.Lock()
+	if !socksServer.started {
+		socksServer.rm.Unlock()
+		return
+	}
 	socksServer.started = false
+	socksServer.rm.Unlock()
+	if socksServer.listener != nil {
+		socksServer.listener.Close()
+		socksServer.listener = nil
+	}
+	// if socksServer.udpconn != nil {
+	// 	socksServer.udpconn.Close()
+	// 	socksServer.udpconn = nil
+	// }
 	// close all connections in the pool
 	for serverID, rpcClient := range socksServer.pool {
-		if rpcClient.Started() {
-			rpcClient.Close()
-		}
-		delete(socksServer.pool, serverID)
+		rpcClient.Close()
+		socksServer.setRPCClient(serverID, nil)
 	}
 	for _, bind := range socksServer.binds {
 		if bind.tcp != nil {

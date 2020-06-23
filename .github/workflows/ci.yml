@@ -30,6 +30,11 @@ jobs:
       with:
         go-version: ${{ matrix.go }}
     - run: make test
+    - run: make diode_race_test
+    - run: |
+        chmod +x ./diode_race_test 
+        ./diode_race_test config -list
+        ./diode_race_test time
     - run: make dist
     - run: echo "::set-env name=ZIPNAME::`./deployment/zipname.sh`"
       shell: bash
@@ -48,29 +53,6 @@ jobs:
       with:
         name: ${{ runner.os }}
         path: darwin_package_build
-
-  simple_run_test:
-    needs: build_and_test
-    name: "Run app"
-    strategy:
-      matrix:
-        os: ["windows-latest", "ubuntu-latest", "macOS-latest"]
-        go: ["1.14.x"]
-    runs-on: ${{ matrix.os }}
-    steps:
-    - uses: actions/checkout@v2
-    - run: echo "::set-env name=ZIPNAME::`./deployment/zipname.sh`"
-      shell: bash
-    - uses: actions/download-artifact@v2
-      with:
-        name: ${{ env.ZIPNAME }}
-    - if: runner.os == 'macOS'
-      run: brew remove openssl
-    - run: |
-        chmod +x ./diode 
-        ./diode config -list
-        ./diode time
-      shell: bash
 
   lint:
     name: "Run static analysis"

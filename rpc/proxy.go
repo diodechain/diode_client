@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sync"
 	"time"
 
 	"github.com/diodechain/diode_go_client/config"
@@ -43,6 +44,7 @@ type ProxyServer struct {
 	httpServer  *http.Server
 	httpsServer *http.Server
 	started     bool
+	mx          sync.Mutex
 }
 
 var proxyTransport http.Transport = http.Transport{
@@ -99,7 +101,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 	}
 
 	clientIP := r.RemoteAddr
-	connDevice, err := proxyServer.socksServer.connectDevice(deviceID, port, config.TCPProtocol, mode)
+	connDevice, err := proxyServer.socksServer.connectDevice(deviceID, port, config.TLSProtocol, mode)
 	if err != nil {
 		if httpErr, ok := err.(HttpError); ok {
 			var errMsg string
@@ -196,18 +198,9 @@ func (proxyServer *ProxyServer) SetConfig(config ProxyConfig) error {
 	return nil
 }
 
-func (proxyServer *ProxyServer) Stop() {
-	if proxyServer.httpServer != nil {
-		proxyServer.httpServer.Close()
-		proxyServer.httpServer = nil
-	}
-	if proxyServer.httpsServer != nil {
-		proxyServer.httpsServer.Close()
-		proxyServer.httpsServer = nil
-	}
-}
-
 func (proxyServer *ProxyServer) Start() error {
+	proxyServer.mx.Lock()
+	defer proxyServer.mx.Unlock()
 	// start httpd proxy server
 	if proxyServer.socksServer == nil || !proxyServer.socksServer.Started() {
 		return fmt.Errorf("should start socks server first")
@@ -232,9 +225,9 @@ func (proxyServer *ProxyServer) Start() error {
 				}
 			})
 		}
+		httpdAddr := proxyServer.Config.ProxyServerAddr
+		proxyServer.httpServer = &http.Server{Addr: httpdAddr, Handler: httpdHandler}
 		go func() {
-			httpdAddr := proxyServer.Config.ProxyServerAddr
-			proxyServer.httpServer = &http.Server{Addr: httpdAddr, Handler: httpdHandler}
 			if err := proxyServer.httpServer.ListenAndServe(); err != nil {
 				proxyServer.httpServer = nil
 				if err != http.ErrServerClosed {
@@ -253,11 +246,11 @@ func (proxyServer *ProxyServer) Start() error {
 	if proxyServer.Config.EnableSProxy {
 		proxyServer.socksServer.Client.Info("Start httpsd server %s", proxyServer.Config.SProxyServerAddr)
 		httpsdHandler := http.HandlerFunc(proxyServer.pipeProxy)
+		httpsdAddr := proxyServer.Config.SProxyServerAddr
+		protos := make(map[string]func(*http.Server, *tls.Conn, http.Handler))
+		proxyServer.httpsServer = &http.Server{Addr: httpsdAddr, Handler: httpsdHandler, TLSNextProto: protos}
 
 		go func() {
-			httpsdAddr := proxyServer.Config.SProxyServerAddr
-			protos := make(map[string]func(*http.Server, *tls.Conn, http.Handler))
-			proxyServer.httpsServer = &http.Server{Addr: httpsdAddr, Handler: httpsdHandler, TLSNextProto: protos}
 			if err := proxyServer.httpsServer.ListenAndServeTLS(proxyServer.Config.CertPath, proxyServer.Config.PrivPath); err != nil {
 				proxyServer.httpsServer = nil
 				if err != http.ErrServerClosed {
@@ -275,10 +268,17 @@ func (proxyServer *ProxyServer) Start() error {
 }
 
 func (proxyServer *ProxyServer) Started() bool {
+	proxyServer.mx.Lock()
+	defer proxyServer.mx.Unlock()
 	return proxyServer.started
 }
 
 func (proxyServer *ProxyServer) Close() {
+	proxyServer.mx.Lock()
+	defer proxyServer.mx.Unlock()
+	if !proxyServer.started {
+		return
+	}
 	if proxyServer.httpServer != nil {
 		proxyServer.httpServer.Close()
 	}

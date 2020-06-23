@@ -76,53 +76,52 @@ func (e2eServer *E2EServer) ListenAndServe() error {
 	return nil
 }
 
-// Connect start e2e server
-func (e2eServer *E2EServer) Connect() error {
-	network := "tcp"
-	host := net.JoinHostPort(localhost, strconv.Itoa(e2eServer.port))
-	listener, err := net.Listen(network, host)
+// InternalConnect create tunnels to bridge openssl connection to diode network
+func (e2eServer *E2EServer) InternalConnect() error {
+	ctx := e2eServer.ctx()
+	tunnelOpenssl := &tunnel{
+		input:  make(chan []byte, readBufferSize),
+		output: make(chan []byte, readBufferSize),
+	}
+	tunnelDiode := &tunnel{
+		input:  make(chan []byte, readBufferSize),
+		output: make(chan []byte, readBufferSize),
+	}
+	// copy tunnnel buffer
+	go tunnelCopy(tunnelOpenssl, tunnelDiode)
+	go tunnelCopy(tunnelDiode, tunnelOpenssl)
+
+	conn, err := openssl.Client(tunnelOpenssl, ctx)
 	if err != nil {
+		tunnelOpenssl.Close()
+		tunnelDiode.Close()
 		return err
 	}
-	e2eServer.listener = listener
-
+	e2eServer.localConn = tunnelDiode
 	go func() {
-		conn, err := openssl.Dial(network, host, e2eServer.ctx(), e2eServer.flags())
+		err = conn.Handshake()
 		if err != nil {
-			e2eServer.Error(err.Error())
+			conn.Close()
+			tunnelOpenssl.Close()
+			tunnelDiode.Close()
 			return
 		}
 		if err = e2eServer.checkPeer(conn); err != nil {
 			e2eServer.Error(err.Error())
-			conn.Close()
 			return
 		}
-		// copy ssl connection/local resource transportation
-		go func() {
-			go netCopy(conn, e2eServer.remoteConn)
-			netCopy(e2eServer.remoteConn, conn)
-			conn.Close()
-		}()
+		go netCopy(conn, e2eServer.remoteConn)
+		netCopy(e2eServer.remoteConn, conn)
+		conn.Close()
+		tunnelOpenssl.Close()
+		tunnelDiode.Close()
 	}()
-
-	conn, err := listener.Accept()
-	listener.Close()
-	if err != nil {
-		// Accept will return op close error/syscall.EINVAL
-		e2eServer.Error(err.Error())
-		return err
-	}
-	e2eServer.localConn = conn
 	return nil
 }
 
 func (e2eServer *E2EServer) ctx() *openssl.Ctx {
 	// This creates a new certificate each time of 48 hour validity.
 	return initSSLCtx(config.AppConfig)
-}
-
-func (e2eServer *E2EServer) flags() openssl.DialFlags {
-	return openssl.InsecureSkipHostVerification | openssl.DisableSNI
 }
 
 func (e2eServer *E2EServer) checkPeer(ssl *openssl.Conn) error {

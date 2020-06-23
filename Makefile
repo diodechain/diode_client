@@ -82,3 +82,7 @@ config_server$(EXE):
 .PHONY: client_debug$(EXE)
 client_debug$(EXE):
 	$(GOBUILD) -o client_debug$(EXE) cmd/client_debug/*.go
+
+.PHONY: diode_race_test
+diode_race_test:
+	$(GOBUILD) -race -o diode_race_test cmd/diode/*.go

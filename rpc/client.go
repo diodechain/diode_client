@@ -54,7 +54,7 @@ type RPCClient struct {
 	started               bool
 	ticketTickerDuration  time.Duration
 	timeout               time.Duration
-	wg                    *sync.WaitGroup
+	wg                    sync.WaitGroup
 	rm                    sync.Mutex
 	pool                  *DataPool
 	signal                chan Signal
@@ -76,7 +76,6 @@ func NewRPCClient(s *SSL, config *RPCConfig, pool *DataPool, portService *PortSe
 		s:                     s,
 		callQueue:             make(chan Call, 1024),
 		calls:                 make(map[uint64]Call),
-		wg:                    &sync.WaitGroup{},
 		started:               false,
 		ticketTickerDuration:  1 * time.Millisecond,
 		finishBlockTickerChan: make(chan bool, 1),
@@ -247,7 +246,7 @@ func (rpcClient *RPCClient) CallContext(method string, parse func(buffer []byte)
 	if err != nil {
 		return
 	}
-	rpcTimeout, _ := time.ParseDuration(fmt.Sprintf("%ds", (10 + len(rpcClient.calls))))
+	rpcTimeout, _ := time.ParseDuration(fmt.Sprintf("%ds", (10 + rpcClient.totalCallLength())))
 	for {
 		ts = time.Now()
 		res, err = rpcClient.waitResponse(resCall, rpcTimeout)
@@ -286,7 +285,7 @@ func (rpcClient *RPCClient) CheckTicket() error {
 }
 
 // ValidateNetwork validate blockchain network is secure and valid
-// Run blockquick algorithm, mor information see: https://eprint.iacr.org/2019/579.pdf
+// Run blockquick algorithm, more information see: https://eprint.iacr.org/2019/579.pdf
 func (rpcClient *RPCClient) ValidateNetwork() (bool, error) {
 
 	lvbn, lvbh := restoreLastValid()
@@ -359,7 +358,9 @@ func (rpcClient *RPCClient) ValidateNetwork() (bool, error) {
 		}
 	}
 
+	mx.Lock()
 	bq = win
+	mx.Unlock()
 	storeLastValid()
 	return true, nil
 }
@@ -411,7 +412,7 @@ func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]*bl
 	responses := make(map[uint64]*blockquick.BlockHeader)
 	headers := make([]*blockquick.BlockHeader, 0)
 	mx := sync.Mutex{}
-	wg := &sync.WaitGroup{}
+	wg := sync.WaitGroup{}
 	wg.Add(count)
 	for _, i := range blockNumbers {
 		go func(bn uint64) {
@@ -441,6 +442,8 @@ func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]*bl
 // GetBlockHeaderValid returns a validated recent block header
 // (only available for the last windowsSize blocks)
 func (rpcClient *RPCClient) GetBlockHeaderValid(blockNum uint64) *blockquick.BlockHeader {
+	mx.Lock()
+	defer mx.Unlock()
 	return bq.GetBlockHeader(blockNum)
 }
 
@@ -508,13 +511,17 @@ func (rpcClient *RPCClient) Greet() error {
 
 // SubmitNewTicket creates and submits a new ticket
 func (rpcClient *RPCClient) SubmitNewTicket() error {
+	mx.Lock()
 	if bq == nil {
+		mx.Unlock()
 		return nil
 	}
 	ticket, err := rpcClient.newTicket()
 	if err != nil {
+		mx.Unlock()
 		return err
 	}
+	mx.Unlock()
 	return rpcClient.submitTicket(ticket)
 }
 
@@ -533,7 +540,7 @@ func (rpcClient *RPCClient) newTicket() (*edge.DeviceTicket, error) {
 	if err != nil {
 		return nil, err
 	}
-	rpcClient.s.counter = rpcClient.s.totalBytes
+	rpcClient.s.UpdateCounter(rpcClient.s.TotalBytes())
 	lvbn, lvbh := LastValid()
 	rpcClient.Debug("New ticket: %d", lvbn)
 	ticket := &edge.DeviceTicket{
@@ -541,8 +548,8 @@ func (rpcClient *RPCClient) newTicket() (*edge.DeviceTicket, error) {
 		BlockNumber:      lvbn,
 		BlockHash:        lvbh[:],
 		FleetAddr:        rpcClient.Config.FleetAddr,
-		TotalConnections: rpcClient.s.totalConnections,
-		TotalBytes:       rpcClient.s.totalBytes,
+		TotalConnections: rpcClient.s.TotalConnections(),
+		TotalBytes:       rpcClient.s.TotalBytes(),
 		LocalAddr:        []byte(rpcClient.s.LocalAddr().String()),
 	}
 	if err := ticket.ValidateValues(); err != nil {
@@ -799,14 +806,18 @@ func (rpcClient *RPCClient) ResolveBlockHash(blockNumber uint64) (blockHash []by
 	if blockNumber == 0 {
 		return
 	}
+	mx.Lock()
 	blockHeader := bq.GetBlockHeader(blockNumber)
 	if blockHeader == nil {
 		lvbn, _ := bq.Last()
 		rpcClient.Info("Validating ticket based on non-checked block %v %v", blockNumber, lvbn)
+		mx.Unlock()
 		blockHeader, err = rpcClient.GetBlockHeaderUnsafe(blockNumber)
 		if err != nil {
 			return
 		}
+	} else {
+		mx.Unlock()
 	}
 	hash := blockHeader.Hash()
 	blockHash = hash[:]
@@ -865,6 +876,8 @@ func (rpcClient *RPCClient) Reconnecting() bool {
 
 // Started returns whether client had started
 func (rpcClient *RPCClient) Started() bool {
+	rpcClient.rm.Lock()
+	defer rpcClient.rm.Unlock()
 	return rpcClient.started && !rpcClient.s.Closed()
 }
 

@@ -282,7 +282,7 @@ func processConfig(cfg *config.Config) {
 			cfg.Logger.Error(err.Error())
 		}
 	} else {
-		socksServer.Stop()
+		socksServer.Close()
 	}
 
 	if cfg.EnableProxyServer {
@@ -300,7 +300,7 @@ func processConfig(cfg *config.Config) {
 			cfg.Logger.Error(err.Error())
 		}
 	} else {
-		proxyServer.Stop()
+		proxyServer.Close()
 	}
 
 	socksServer.SetBinds(cfg.Binds)
@@ -678,15 +678,11 @@ func connect(c chan *rpc.RPCClient, host string, cfg *config.Config, wg *sync.Wa
 
 func closeDiode(client *rpc.RPCClient, cfg *config.Config) {
 	fmt.Println("1/7 Stopping client")
-	if client.Started() {
-		client.Close()
-	}
+	client.Close()
 	fmt.Println("2/7 Stopping socksserver")
-	if socksServer.Started() {
-		socksServer.Close()
-	}
+	socksServer.Close()
 	fmt.Println("3/7 Stopping proxyserver")
-	if proxyServer != nil && proxyServer.Started() {
+	if proxyServer != nil {
 		proxyServer.Close()
 	}
 	fmt.Println("4/7 Stopping configserver")
