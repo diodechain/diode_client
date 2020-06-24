@@ -22,12 +22,12 @@ SYNOPSYS
         [-timeout=5] [-whitelists=] COMMAND <args>
 
 COMMANDS
-  publish      Publish ports of the local device to the Diode Network.
-  socksd       Enable a socks proxy for use with browsers and other apps.
-  httpd        Enable a public http server as is used by the "diode.link" website
-  config       Manage variables in the local config store.
-  init         Initialize a new account and fleet in the network.
   bns          Register/Update name service on diode blockchain.
+  config       Manage variables in the local config store.
+  httpd        Enable a public http server as is used by the "diode.link" website
+  publish      Publish ports of the local device to the Diode Network.
+  reset        Initialize a new account and a new fleet contract in the network. WARNING deletes current credentials!
+  socksd       Enable a socks proxy for use with browsers and other apps.
   time         Lookup the current time from the blockchain consensus.
 
 Run 'diode COMMAND --help' for more information on a command.

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"sort"
 	"strings"
 )
 
@@ -18,44 +19,14 @@ type CommandFlag struct {
 	Flag        flag.FlagSet
 }
 
-var (
-	commandFlags       = map[string]*CommandFlag{}
-	publishCommandFlag = CommandFlag{
-		Name:        "publish",
-		HelpText:    `  Publish ports of the local device to the Diode Network.`,
-		ExampleText: `  diode publish -public 80:80 -public 8080:8080 -protected 3000:3000 -protected 3001:3001 -private 22:22,0x......,0x...... -private 33:33,0x......,0x......`,
+func command(name string, commandFlags *[]CommandFlag) *CommandFlag {
+	for _, commandFlag := range *commandFlags {
+		if commandFlag.Name == name {
+			return &commandFlag
+		}
 	}
-	configCommandFlag = CommandFlag{
-		Name:        "config",
-		HelpText:    `  Manage variables in the local config store.`,
-		ExampleText: `  diode config -delete lvbn2 -delete lvbn`,
-	}
-	socksdCommandFlag = CommandFlag{
-		Name:        "socksd",
-		HelpText:    `  Enable a socks proxy for use with browsers and other apps.`,
-		ExampleText: `  diode socksd -socksd_port 8082 -socksd_host 127.0.0.1`,
-	}
-	httpdCommandFlag = CommandFlag{
-		Name:        "httpd",
-		HelpText:    `  Enable a public http server as is used by the "diode.link" website`,
-		ExampleText: `  diode httpd -httpd_port 8080 -httpsd_port 443 -secure -certpath ./cert.pem -privpath ./priv.pem`,
-	}
-	initCommandFlag = CommandFlag{
-		Name:        "init",
-		HelpText:    `  Initialize a new account and fleet in the network.`,
-		ExampleText: `  diode init`,
-	}
-	bnsCommandFlag = CommandFlag{
-		Name:        "bns",
-		HelpText:    `  Register/Update name service on diode blockchain.`,
-		ExampleText: `  diode bns -register hello-world=0x......`,
-	}
-	timeCommandFlag = CommandFlag{
-		Name:        "time",
-		HelpText:    `  Lookup the current time from the blockchain consensus.`,
-		ExampleText: `  diode time`,
-	}
-)
+	return nil
+}
 
 // Parse the args (flag.Args()[1:]) with the given command flag
 func (commandFlag *CommandFlag) Parse(args []string) {
@@ -74,38 +45,52 @@ func (commandFlag *CommandFlag) Parse(args []string) {
 	}
 }
 
-func wrapPublishCommandFlag(cfg *Config) {
+func makeCommandFlags(cfg *Config) *[]CommandFlag {
+	commandFlags := make([]CommandFlag, 0, 10)
+
+	// diode publish
+	publishCommandFlag := CommandFlag{
+		Name:        "publish",
+		HelpText:    `  Publish ports of the local device to the Diode Network.`,
+		ExampleText: `  diode publish -public 80:80 -public 8080:8080 -protected 3000:3000 -protected 3001:3001 -private 22:22,0x......,0x...... -private 33:33,0x......,0x......`,
+	}
 	publishCommandFlag.Flag.Var(&cfg.PublicPublishedPorts, "public", "expose ports to public users, so that user could connect to")
 	publishCommandFlag.Flag.Var(&cfg.ProtectedPublishedPorts, "protected", "expose ports to protected users (in fleet contract), so that user could connect to")
 	publishCommandFlag.Flag.Var(&cfg.PrivatePublishedPorts, "private", "expose ports to private users, so that user could connect to")
 	publishCommandFlag.Flag.StringVar(&cfg.SocksServerHost, "proxy_host", "127.0.0.1", "host of socksd proxy server")
 	publishCommandFlag.Flag.IntVar(&cfg.SocksServerPort, "proxy_port", 1080, "port of socksd proxy server")
 	publishCommandFlag.Flag.BoolVar(&cfg.EnableSocksServer, "socksd", false, "enable socksd proxy server")
-	publishCommandFlag.Flag.Usage = func() {
-		printUsage(publishCommandFlag)
-	}
-}
+	commandFlags = append(commandFlags, publishCommandFlag)
 
-func wrapSocksdCommandFlag(cfg *Config) {
-	socksdCommandFlag.Flag.StringVar(&cfg.SocksServerHost, "socksd_host", "127.0.0.1", "host of socks server listening to")
-	socksdCommandFlag.Flag.IntVar(&cfg.SocksServerPort, "socksd_port", 1080, "port of socks server listening to")
-	socksdCommandFlag.Flag.StringVar(&cfg.SocksFallback, "fallback", "localhost", "how to resolve web2 addresses")
-	socksdCommandFlag.Flag.Usage = func() {
-		printUsage(socksdCommandFlag)
+	// diode config
+	configCommandFlag := CommandFlag{
+		Name:        "config",
+		HelpText:    `  Manage variables in the local config store.`,
+		ExampleText: `  diode config -delete lvbn2 -delete lvbn`,
 	}
-}
-
-func wrapConfigCommandFlag(cfg *Config) {
 	configCommandFlag.Flag.Var(&cfg.ConfigDelete, "delete", "deletes the given variable from the config")
 	configCommandFlag.Flag.BoolVar(&cfg.ConfigList, "list", false, "list all stored config keys")
 	configCommandFlag.Flag.BoolVar(&cfg.ConfigUnsafe, "unsafe", false, "display private keys (disabled by default)")
 	configCommandFlag.Flag.Var(&cfg.ConfigSet, "set", "sets the given variable in the config")
-	configCommandFlag.Flag.Usage = func() {
-		printUsage(configCommandFlag)
-	}
-}
+	commandFlags = append(commandFlags, configCommandFlag)
 
-func wrapHttpdCommandFlag(cfg *Config) {
+	// diode socksd
+	socksdCommandFlag := CommandFlag{
+		Name:        "socksd",
+		HelpText:    `  Enable a socks proxy for use with browsers and other apps.`,
+		ExampleText: `  diode socksd -socksd_port 8082 -socksd_host 127.0.0.1`,
+	}
+	socksdCommandFlag.Flag.StringVar(&cfg.SocksServerHost, "socksd_host", "127.0.0.1", "host of socks server listening to")
+	socksdCommandFlag.Flag.IntVar(&cfg.SocksServerPort, "socksd_port", 1080, "port of socks server listening to")
+	socksdCommandFlag.Flag.StringVar(&cfg.SocksFallback, "fallback", "localhost", "how to resolve web2 addresses")
+	commandFlags = append(commandFlags, socksdCommandFlag)
+
+	// diode httpd
+	httpdCommandFlag := CommandFlag{
+		Name:        "httpd",
+		HelpText:    `  Enable a public http server as is used by the "diode.link" website`,
+		ExampleText: `  diode httpd -httpd_port 8080 -httpsd_port 443 -secure -certpath ./cert.pem -privpath ./priv.pem`,
+	}
 	httpdCommandFlag.Flag.StringVar(&cfg.SocksServerHost, "proxy_host", "127.0.0.1", "host of socksd proxy server")
 	httpdCommandFlag.Flag.IntVar(&cfg.SocksServerPort, "proxy_port", 1080, "port of socksd proxy server")
 	httpdCommandFlag.Flag.BoolVar(&cfg.EnableSocksServer, "socksd", false, "enable socksd proxy server")
@@ -117,30 +102,44 @@ func wrapHttpdCommandFlag(cfg *Config) {
 	httpdCommandFlag.Flag.StringVar(&cfg.SProxyServerPrivPath, "privpath", "./priv/priv.pem", "Pem format of private key file path of httpsd secure server")
 	httpdCommandFlag.Flag.BoolVar(&cfg.EnableSProxyServer, "secure", false, "enable httpsd server")
 	httpdCommandFlag.Flag.BoolVar(&cfg.AllowRedirectToSProxy, "allow_redirect", false, "allow redirect all http transmission to httpsd")
-	httpdCommandFlag.Flag.Usage = func() {
-		printUsage(httpdCommandFlag)
-	}
-}
+	commandFlags = append(commandFlags, httpdCommandFlag)
 
-func wrapInitCommandFlag(cfg *Config) {
-	initCommandFlag.Flag.Usage = func() {
-		printUsage(initCommandFlag)
+	// diode reset
+	initCommandFlag := CommandFlag{
+		Name:        "reset",
+		HelpText:    `  Initialize a new account and a new fleet contract in the network. WARNING deletes current credentials!`,
+		ExampleText: `  diode reset`,
 	}
 	initCommandFlag.Flag.BoolVar(&cfg.Experimental, "experimental", false, "send transactions of fleet deployment and device whitelist at seme time")
-}
+	commandFlags = append(commandFlags, initCommandFlag)
 
-func wrapBNSCommandFlag(cfg *Config) {
+	// diode bns
+	bnsCommandFlag := CommandFlag{
+		Name:        "bns",
+		HelpText:    `  Register/Update name service on diode blockchain.`,
+		ExampleText: `  diode bns -register hello-world=0x......`,
+	}
 	bnsCommandFlag.Flag.StringVar(&cfg.BNSRegister, "register", "", "Register a new BNS name with <name>=<address>.")
 	bnsCommandFlag.Flag.StringVar(&cfg.BNSLookup, "lookup", "", "Lookup a given BNS name.")
-	bnsCommandFlag.Flag.Usage = func() {
-		printUsage(bnsCommandFlag)
-	}
-}
+	commandFlags = append(commandFlags, bnsCommandFlag)
 
-func wrapTimeCommandFlag(cfg *Config) {
-	timeCommandFlag.Flag.Usage = func() {
-		printUsage(timeCommandFlag)
+	// diode time
+	timeCommandFlag := CommandFlag{
+		Name:        "time",
+		HelpText:    `  Lookup the current time from the blockchain consensus.`,
+		ExampleText: `  diode time`,
 	}
+	commandFlags = append(commandFlags, timeCommandFlag)
+
+	// Finishing up, and sorting.
+	for i, flags := range commandFlags {
+		name := flags.Name
+		commandFlags[i].Flag.Usage = func() {
+			printUsage(*command(name, &commandFlags))
+		}
+	}
+	sort.Slice(commandFlags, func(i, j int) bool { return commandFlags[i].Name < commandFlags[j].Name })
+	return &commandFlags
 }
 
 // isZeroValue determines whether the string represents the zero

@@ -159,16 +159,6 @@ func wrongCommandLineFlag(err error) {
 	os.Exit(2)
 }
 
-func init() {
-	commandFlags["publish"] = &publishCommandFlag
-	commandFlags["socksd"] = &socksdCommandFlag
-	commandFlags["httpd"] = &httpdCommandFlag
-	commandFlags["config"] = &configCommandFlag
-	commandFlags["init"] = &initCommandFlag
-	commandFlags["bns"] = &bnsCommandFlag
-	commandFlags["time"] = &timeCommandFlag
-}
-
 func newLogger(cfg *Config) log.Logger {
 	var logHandler log.Handler
 	logger := log.New()
@@ -350,13 +340,7 @@ func isValidRPCAddress(address string) (isValid bool) {
 // TODO: refactor flag usage and commandFlag usage text
 func ParseFlag() {
 	cfg := &Config{}
-	wrapPublishCommandFlag(cfg)
-	wrapSocksdCommandFlag(cfg)
-	wrapHttpdCommandFlag(cfg)
-	wrapConfigCommandFlag(cfg)
-	wrapInitCommandFlag(cfg)
-	wrapBNSCommandFlag(cfg)
-	wrapTimeCommandFlag(cfg)
+	commands := makeCommandFlags(cfg)
 	flag.Usage = func() {
 		fmt.Print("Name\n  diode - Diode network command line interface\n\n")
 		fmt.Print("SYNOPSYS\n  diode")
@@ -376,7 +360,7 @@ func ParseFlag() {
 		fmt.Print(" COMMAND <args>\n\n")
 
 		fmt.Print("COMMANDS\n")
-		for _, commandFlag := range commandFlags {
+		for _, commandFlag := range *commands {
 			fmt.Printf("  %-10s %s\n", commandFlag.Name, commandFlag.HelpText)
 		}
 		fmt.Print(finalText)
@@ -432,7 +416,7 @@ func ParseFlag() {
 
 	commandName := flag.Arg(0)
 	args := flag.Args()
-	commandFlag := commandFlags[commandName]
+	commandFlag := command(commandName, commands)
 	switch commandName {
 	case "socksd":
 		commandFlag.Parse(args[1:])
@@ -466,7 +450,7 @@ func ParseFlag() {
 		}
 		cfg.PublishedPorts = publishedPorts
 	default:
-		if commandFlags[commandName] == nil {
+		if commandFlag == nil {
 			flag.Usage()
 			os.Exit(0)
 		}

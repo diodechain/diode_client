@@ -184,7 +184,7 @@ func diode() (status int) {
 		return
 	}
 
-	if cfg.Command == "init" {
+	if cfg.Command == "reset" {
 		if cfg.Experimental {
 			status = doInitExp(cfg, client)
 		} else {
