@@ -11,7 +11,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/deckarep/golang-set v0.0.0-20180603214616-504e848d77ea
 	github.com/diodechain/go-cache v2.1.0+incompatible
-	github.com/diodechain/go-update v2.2.9+incompatible
+	github.com/diodechain/go-update v2.2.10+incompatible
 	github.com/diodechain/gobert v1.0.0
 	github.com/diodechain/log15 v0.0.0-20200410080737-5718e6d20f99
 	github.com/diodechain/openssl v1.0.12
