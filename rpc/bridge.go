@@ -352,7 +352,7 @@ func (rpcClient *RPCClient) watchLatestBlock() {
 				}
 
 				lastn, _ := bq.Last()
-				rpcClient.Info("Added block(s) %v-%v, last valid %v", lastblock, blockNumMax, lastn)
+				rpcClient.Debug("Added block(s) %v-%v, last valid %v", lastblock, blockNumMax, lastn)
 				lastblock = blockNumMax
 				storeLastValid()
 			}()

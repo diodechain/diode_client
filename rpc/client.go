@@ -21,10 +21,10 @@ import (
 )
 
 var (
-	RequestID          uint64 = 0
-	mx                 sync.Mutex
-	errEmptyDNSresult  = fmt.Errorf("couldn't resolve name (null)")
-	errRPCClientClosed = fmt.Errorf("rpc client was closed")
+	RequestID           uint64 = 0
+	mx                  sync.Mutex
+	errEmptyDNSresult   = fmt.Errorf("couldn't resolve name (null)")
+	errRPCClientClosed  = fmt.Errorf("rpc client was closed")
 	DefaultRegistryAddr = [20]byte{80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 	DefaultFleetAddr    = [20]byte{96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 )

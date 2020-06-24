@@ -113,8 +113,8 @@ func diode() (status int) {
 		lvbn, lvbh := rpc.LastValid()
 		printLabel("Last valid block", fmt.Sprintf("%v %v", lvbn, util.EncodeToString(lvbh[:])))
 
-		addr := util.PubkeyToAddress(rpc.LoadClientPubKey())
-		printLabel("Client address", addr.HexString())
+		cfg.ClientAddr = util.PubkeyToAddress(rpc.LoadClientPubKey())
+		printLabel("Client address", cfg.ClientAddr.HexString())
 
 		fleetAddr, err := db.DB.Get("fleet")
 		if err != nil {
@@ -248,7 +248,17 @@ func diode() (status int) {
 
 func processConfig(cfg *config.Config) {
 	if len(cfg.PublishedPorts) > 0 {
+		printLabel("", "")
 		pool.SetPublishedPorts(cfg.PublishedPorts)
+		for _, port := range cfg.PublishedPorts {
+			if port.To == 80 {
+				printLabel("Http Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", cfg.ClientAddr.HexString()))
+			}
+		}
+		printLabel("Port      <name>", "<extern>     <mode>    <protocol>")
+		for _, port := range cfg.PublishedPorts {
+			printLabel(fmt.Sprintf("Port      %5d", port.Src), fmt.Sprintf("%8d  %8s           %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol)))
+		}
 	}
 
 	socksServer.SetConfig(&rpc.Config{

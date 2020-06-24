@@ -74,6 +74,7 @@ type Config struct {
 	MEMProfile              string           `yaml:"memprofile,omitempty" json:"memprofile,omitempty"`
 	Command                 string           `yaml:"-" json:"-"`
 	FleetAddr               Address          `yaml:"-" json:"-"`
+	ClientAddr              Address          `yaml:"-" json:"-"`
 	RegistryAddr            Address          `yaml:"-" json:"-"`
 	ProxyServerHost         string           `yaml:"-" json:"-"`
 	ProxyServerPort         int              `yaml:"-" json:"-"`
@@ -136,6 +137,35 @@ func (port *Port) IsWhitelisted(addr Address) bool {
 	default:
 		return false
 	}
+}
+
+func ModeName(mode int) string {
+	if mode == PrivatePublishedMode {
+		return "private"
+	}
+	if mode == PublicPublishedMode {
+		return "public"
+	}
+	if mode == ProtectedPublishedMode {
+		return "protected"
+	}
+	return "?"
+}
+
+func ProtocolName(protocol int) string {
+	if protocol == AnyProtocol {
+		return "any"
+	}
+	if protocol == UDPProtocol {
+		return "udp"
+	}
+	if protocol == TCPProtocol {
+		return "tcp"
+	}
+	if protocol == TLSProtocol {
+		return "tls"
+	}
+	return "?"
 }
 
 type stringValues []string
