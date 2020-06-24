@@ -1,6 +1,6 @@
 # Diode go client
 
-This is Go client for connecting device through diodechain. You can found more detail about how diodechain/client works in our previous presentations https://github.com/diodechain/presentations.
+This is Go client for connecting device through the diodechain mesh network. You can find more details about how diode and its client works in our previous presentations https://github.com/diodechain/presentations and on https://diode.io
 
 [![Build Status](https://travis-ci.com/diodechain/diode_go_client.svg?branch=master)](https://travis-ci.com/diodechain/diode_go_client)
 ![CI](https://github.com/diodechain/diode_go_client/workflows/CI/badge.svg)
@@ -15,10 +15,11 @@ Name
 
 SYNOPSYS
   diode [-bind=] [-blacklists=] [-configpath=]
-        [-dbpath=/Users/...] [-debug=false] [-diodeaddrs=] [-fleet=0x60000...]
-        [-keepalive=true] [-keepalivecount=4] [-keepaliveidle=30] [-keepaliveinterval=5]
-        [-logfilepath=] [-metrics=false] [-registry=0x50000...] [-retrytimes=3]
-        [-retrywait=1] [-rlimit_nofile=0] [-timeout=5] [-whitelists=] COMMAND <args>
+        [-cpuprofile=] [-dbpath=/home/d...] [-debug=false] [-diodeaddrs=]
+        [-fleet=0x60000...] [-keepalive=true] [-keepalivecount=4] [-keepaliveidle=30]
+        [-keepaliveinterval=5] [-logfilepath=] [-memprofile=] [-metrics=false]
+        [-registry=0x50000...] [-retrytimes=3] [-retrywait=1] [-rlimit_nofile=0]
+        [-timeout=5] [-whitelists=] COMMAND <args>
 
 COMMANDS
   publish      Publish ports of the local device to the Diode Network.
@@ -27,6 +28,7 @@ COMMANDS
   config       Manage variables in the local config store.
   init         Initialize a new account and fleet in the network.
   bns          Register/Update name service on diode blockchain.
+  time         Lookup the current time from the blockchain consensus.
 
 Run 'diode COMMAND --help' for more information on a command.
 ```
