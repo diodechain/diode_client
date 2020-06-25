@@ -65,8 +65,8 @@ github.com/diodechain/gobert v1.0.0 h1:tdmPG++bY8JcjeAbQp0IkiXPYIbaPAfbctFfwf3W7
 github.com/diodechain/gobert v1.0.0/go.mod h1:X9tC96925Yf6P16ii8Uo4nGdqDH7mLfxD9FDpKxEyrU=
 github.com/diodechain/log15 v0.0.0-20200410080737-5718e6d20f99 h1:Ebn1vaYgurifpanvNAzlBvPvhtU+6sz3T5NUfemJB7s=
 github.com/diodechain/log15 v0.0.0-20200410080737-5718e6d20f99/go.mod h1:iuh58sjChYW9nXQQctHkH2ALXN+5cBk5805UosIdJW0=
-github.com/diodechain/openssl v1.0.12 h1:s025nahLEHPHuIWyh4xATuIfposV7OfdQzBoHt2VkoE=
-github.com/diodechain/openssl v1.0.12/go.mod h1:WVhOaZ63f6ugO8xEQzuOF1D7rvU4HvgqaPdFCg0/F8o=
+github.com/diodechain/openssl v1.0.13 h1:Dd903u00Vv86RKtm19TG9O6pEos1U6ZoVL8apgV1M94=
+github.com/diodechain/openssl v1.0.13/go.mod h1:WVhOaZ63f6ugO8xEQzuOF1D7rvU4HvgqaPdFCg0/F8o=
 github.com/dlclark/regexp2 v1.2.0/go.mod h1:2pZnwuY/m+8K6iRw6wQdMtk+rH5tNGR1i55kozfMjCc=
 github.com/docker/docker v1.4.2-0.20180625184442-8e610b2b55bf/go.mod h1:eEKB0N0r5NX/I1kEveEz05bcu8tLC/8azJZsviup8Sk=
 github.com/dop251/goja v0.0.0-20200106141417-aaec0e7bde29/go.mod h1:Mw6PkjjMXWbTj+nnj4s3QPXq1jaT0s5pC0iFD4+BOAA=

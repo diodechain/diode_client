@@ -427,17 +427,22 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 }
 
 func initSSLCtx(config *config.Config) *openssl.Ctx {
-
-	serial := new(big.Int)
-	_, err := fmt.Sscan("18446744073709551617", serial)
+	ctx, err := doInitSSLCtx(config)
 	if err != nil {
 		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
 		os.Exit(129)
 	}
+	return ctx
+}
+
+func doInitSSLCtx(config *config.Config) (*openssl.Ctx, error) {
+	serial := new(big.Int)
+	if _, err := fmt.Sscan("18446744073709551617", serial); err != nil {
+		return nil, err
+	}
 	name, err := os.Hostname()
 	if err != nil {
-		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
-		os.Exit(129)
+		return nil, err
 	}
 	info := &openssl.CertificateInfo{
 		Serial: serial,
@@ -451,33 +456,24 @@ func initSSLCtx(config *config.Config) *openssl.Ctx {
 	privPEM := EnsurePrivatePEM()
 	key, err := openssl.LoadPrivateKeyFromPEM(privPEM)
 	if err != nil {
-		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
-		os.Exit(129)
+		return nil, err
 	}
 	cert, err := openssl.NewCertificate(info, key)
 	if err != nil {
-		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
-		os.Exit(129)
+		return nil, err
 	}
-	err = cert.Sign(key, openssl.EVP_SHA256)
-	if err != nil {
-		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
-		os.Exit(129)
+	if err = cert.Sign(key, openssl.EVP_SHA256); err != nil {
+		return nil, err
 	}
 	ctx, err := openssl.NewCtxWithVersion(openssl.TLSv1_2)
 	if err != nil {
-		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
-		os.Exit(129)
+		return nil, err
 	}
-	err = ctx.UseCertificate(cert)
-	if err != nil {
-		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
-		os.Exit(129)
+	if err = ctx.UseCertificate(cert); err != nil {
+		return nil, err
 	}
-	err = ctx.UsePrivateKey(key)
-	if err != nil {
-		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
-		os.Exit(129)
+	if err = ctx.UsePrivateKey(key); err != nil {
+		return nil, err
 	}
 
 	// We only use self-signed certificates.
@@ -497,20 +493,15 @@ func initSSLCtx(config *config.Config) *openssl.Ctx {
 	ctx.SetTLSExtServernameCallback(func(ssl *openssl.SSL) openssl.SSLTLSExtErr {
 		return openssl.SSLTLSExtErrOK
 	})
-	// ctx.SetOptions(openssl.)
-	err = ctx.SetEllipticCurve(openssl.Secp256k1)
-	if err != nil {
-		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
-		os.Exit(129)
+	if err = ctx.SetEllipticCurve(openssl.Secp256k1); err != nil {
+		return nil, err
 	}
 	curves := []openssl.EllipticCurve{openssl.Secp256k1}
-	err = ctx.SetSupportedEllipticCurves(curves)
-	if err != nil {
-		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
-		os.Exit(129)
+	if err = ctx.SetSupportedEllipticCurves(curves); err != nil {
+		return nil, err
 	}
 
 	// sets the OpenSSL session lifetime
 	ctx.SetTimeout(config.RemoteRPCTimeout)
-	return ctx
+	return ctx, nil
 }
