@@ -147,15 +147,15 @@ func diode() (status int) {
 	go func() {
 		for rpcClient := range c {
 			if client == nil && rpcClient != nil {
-				cfg.Logger.Info(fmt.Sprintf("Connected to host: %s, validating...", rpcClient.Host()), "module", "main")
+				cfg.Logger.Info(fmt.Sprintf("Connected to host: %s, validating...", rpcClient.Host()))
 				isValid, err := rpcClient.ValidateNetwork()
 				if isValid {
 					client = rpcClient
 				} else {
 					if err != nil {
-						cfg.Logger.Error(fmt.Sprintf("Network is not valid (err: %s), trying next...", err.Error()), "module", "main")
+						cfg.Logger.Error(fmt.Sprintf("Network is not valid (err: %s), trying next...", err.Error()))
 					} else {
-						cfg.Logger.Error("Network is not valid for unknown reasons", "module", "main")
+						cfg.Logger.Error("Network is not valid for unknown reasons")
 					}
 					rpcClient.Close()
 				}
@@ -174,7 +174,7 @@ func diode() (status int) {
 		return
 	}
 	lvbn, _ := rpc.LastValid()
-	cfg.Logger.Info(fmt.Sprintf("Network is validated, last valid block number: %d", lvbn), "module", "main")
+	cfg.Logger.Info(fmt.Sprintf("Network is validated, last valid block number: %d", lvbn))
 
 	// check device access to fleet contract and registry
 	clientAddr, err := client.GetClientAddress()
@@ -207,15 +207,15 @@ func diode() (status int) {
 	isDeviceWhitelisted, err := client.IsDeviceWhitelisted(clientAddr)
 	if err != nil {
 		if err.Error() == "account does not exist" {
-			cfg.Logger.Warn("Device was not whitelisted, if you did whitelist device, please wait for 6 block confirmation, this can take up to a minute.", "module", "main")
+			cfg.Logger.Warn("Device was not whitelisted, if you did whitelist device, please wait for 6 block confirmation, this can take up to a minute.")
 		} else {
-			cfg.Logger.Error(fmt.Sprintf("Device was not whitelisted: %+v", err), "module", "main")
+			cfg.Logger.Error(fmt.Sprintf("Device was not whitelisted: %+v", err))
 		}
 		status = 1
 		return
 	}
 	if !isDeviceWhitelisted {
-		cfg.Logger.Error("Device was not whitelisted", "module", "main")
+		cfg.Logger.Error("Device was not whitelisted")
 		status = 1
 		return
 	}
@@ -223,7 +223,7 @@ func diode() (status int) {
 	// send ticket
 	err = client.Greet()
 	if err != nil {
-		cfg.Logger.Error(err.Error(), "module", "main")
+		cfg.Logger.Error(err.Error())
 		status = 1
 		return
 	}
@@ -274,7 +274,7 @@ func processConfig(cfg *config.Config) {
 	if cfg.EnableSocksServer {
 		// start socks server
 		if err := socksServer.Start(); err != nil {
-			cfg.Logger.Error(err.Error(), "module", "main")
+			cfg.Logger.Error(err.Error())
 		}
 	} else {
 		socksServer.Stop()
@@ -292,7 +292,7 @@ func processConfig(cfg *config.Config) {
 		})
 		// Start proxy server
 		if err := proxyServer.Start(); err != nil {
-			cfg.Logger.Error(err.Error(), "module", "main")
+			cfg.Logger.Error(err.Error())
 		}
 	} else {
 		proxyServer.Stop()
@@ -655,21 +655,21 @@ func doTime(cfg *config.Config, client *rpc.RPCClient) int {
 
 func printLabel(label string, value string) {
 	msg := fmt.Sprintf("%-20s : %-80s", label, value)
-	config.AppConfig.Logger.Info(msg, "module", "main")
+	config.AppConfig.Logger.Info(msg)
 }
 
 func printError(msg string, err error) {
-	config.AppConfig.Logger.Error(msg, "module", "main", "error", err)
+	config.AppConfig.Logger.Error(msg, "error", err)
 }
 
 func printInfo(msg string) {
-	config.AppConfig.Logger.Info(msg, "module", "main")
+	config.AppConfig.Logger.Info(msg)
 }
 
 func connect(c chan *rpc.RPCClient, host string, cfg *config.Config, wg *sync.WaitGroup, pool *rpc.DataPool) {
 	client, err := rpc.DoConnect(host, cfg, pool)
 	if err != nil {
-		cfg.Logger.Error(fmt.Sprintf("Connection to host: %s failed: %+v", host, err), "module", "main")
+		cfg.Logger.Error(fmt.Sprintf("Connection to host: %s failed: %+v", host, err))
 		wg.Done()
 	} else {
 		c <- client

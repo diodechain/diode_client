@@ -97,29 +97,29 @@ func NewRPCClient(s *SSL, config *RPCConfig, pool *DataPool, portService *PortSe
 
 // Info logs to logger in Info level
 func (rpcClient *RPCClient) Info(msg string, args ...interface{}) {
-	rpcClient.logger.Info(fmt.Sprintf(msg, args...), "module", "ssl", "server", rpcClient.s.addr)
+	rpcClient.logger.Info(fmt.Sprintf(msg, args...), "server", rpcClient.s.addr)
 }
 
 // Debug logs to logger in Debug level
 func (rpcClient *RPCClient) Debug(msg string, args ...interface{}) {
 	if rpcClient.Verbose {
-		rpcClient.logger.Debug(fmt.Sprintf(msg, args...), "module", "ssl", "server", rpcClient.s.addr)
+		rpcClient.logger.Debug(fmt.Sprintf(msg, args...), "server", rpcClient.s.addr)
 	}
 }
 
 // Error logs to logger in Error level
 func (rpcClient *RPCClient) Error(msg string, args ...interface{}) {
-	rpcClient.logger.Error(fmt.Sprintf(msg, args...), "module", "ssl", "server", rpcClient.s.addr)
+	rpcClient.logger.Error(fmt.Sprintf(msg, args...), "server", rpcClient.s.addr)
 }
 
 // Warn logs to logger in Warn level
 func (rpcClient *RPCClient) Warn(msg string, args ...interface{}) {
-	rpcClient.logger.Warn(fmt.Sprintf(msg, args...), "module", "ssl", "server", rpcClient.s.addr)
+	rpcClient.logger.Warn(fmt.Sprintf(msg, args...), "server", rpcClient.s.addr)
 }
 
 // Crit logs to logger in Crit level
 func (rpcClient *RPCClient) Crit(msg string, args ...interface{}) {
-	rpcClient.logger.Crit(fmt.Sprintf(msg, args...), "module", "ssl", "server", rpcClient.s.addr)
+	rpcClient.logger.Crit(fmt.Sprintf(msg, args...), "server", rpcClient.s.addr)
 }
 
 // Host returns the non-resolved addr name of the host
@@ -587,7 +587,7 @@ func (rpcClient *RPCClient) submitTicket(ticket *edge.DeviceTicket) error {
 
 			addr, err := rpcClient.s.GetClientAddress()
 			if err != nil {
-				// rpcClient.s.Logger.Error(fmt.Sprintf("SubmitTicket can't identify self: %s", err.Error()), "module", "ssl")
+				// rpcClient.s.Logger.Error(fmt.Sprintf("SubmitTicket can't identify self: %s", err.Error()))
 				return err
 			}
 
@@ -599,7 +599,7 @@ func (rpcClient *RPCClient) submitTicket(ticket *edge.DeviceTicket) error {
 				rpcClient.s.totalConnections = lastTicket.TotalConnections + 1
 				err = rpcClient.SubmitNewTicket()
 				if err != nil {
-					// rpcClient.s.Logger.Error(fmt.Sprintf("failed to submit ticket: %s", err.Error()), "module", "ssl")
+					// rpcClient.s.Logger.Error(fmt.Sprintf("failed to submit ticket: %s", err.Error()))
 					return nil
 				}
 

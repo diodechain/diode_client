@@ -343,17 +343,17 @@ func EnsurePrivatePEM() []byte {
 	if key == nil {
 		privKey, err := openssl.GenerateECKey(openssl.Secp256k1)
 		if err != nil {
-			config.AppConfig.Logger.Error(fmt.Sprintf("Failed to generate ec key: %s", err.Error()), "module", "ssl")
+			config.AppConfig.Logger.Error(fmt.Sprintf("Failed to generate ec key: %s", err.Error()))
 			os.Exit(129)
 		}
 		bytes, err := privKey.MarshalPKCS1PrivateKeyPEM()
 		if err != nil {
-			config.AppConfig.Logger.Error(fmt.Sprintf("Failed to marshal ec key: %s", err.Error()), "module", "ssl")
+			config.AppConfig.Logger.Error(fmt.Sprintf("Failed to marshal ec key: %s", err.Error()))
 			os.Exit(129)
 		}
 		err = db.DB.Put("private", bytes)
 		if err != nil {
-			config.AppConfig.Logger.Error(fmt.Sprintf("Failed to save ec key to file: %s", err.Error()), "module", "ssl")
+			config.AppConfig.Logger.Error(fmt.Sprintf("Failed to save ec key to file: %s", err.Error()))
 			os.Exit(129)
 		}
 		return bytes
@@ -365,11 +365,11 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 	ctx := initSSLCtx(config)
 	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
 	if err != nil {
-		config.Logger.Crit(fmt.Sprintf("Failed to connect to host: %s", err.Error()), "module", "ssl", "server", host)
+		config.Logger.Crit(fmt.Sprintf("Failed to connect to host: %s", err.Error()), "server", host)
 		// Retry to connect
 		isOk := false
 		for i := 1; i <= config.RetryTimes; i++ {
-			config.Logger.Info(fmt.Sprintf("Retry to connect to host: %s, wait %s", host, config.RetryWait.String()), "module", "ssl", "server", host)
+			config.Logger.Info(fmt.Sprintf("Retry to connect to host: %s, wait %s", host, config.RetryWait.String()), "server", host)
 			time.Sleep(config.RetryWait)
 			client, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
 			if err == nil {
@@ -377,7 +377,7 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 				break
 			}
 			if config.Debug {
-				config.Logger.Debug(fmt.Sprintf("Failed to connect to host: %s", err.Error()), "module", "ssl", "server", host)
+				config.Logger.Debug(fmt.Sprintf("Failed to connect to host: %s", err.Error()), "server", host)
 			}
 		}
 		if !isOk {
@@ -429,7 +429,7 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 func initSSLCtx(config *config.Config) *openssl.Ctx {
 	ctx, err := doInitSSLCtx(config)
 	if err != nil {
-		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()), "module", "ssl")
+		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()))
 		os.Exit(129)
 	}
 	return ctx

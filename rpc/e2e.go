@@ -25,7 +25,7 @@ type E2EServer struct {
 	localConn  net.Conn
 }
 
-// NewE2EServer returns e2e server rpcClient.Error(err.Error(), "module", "main")
+// NewE2EServer returns e2e server rpcClient.Error(err.Error())
 func (rpcClient *RPCClient) NewE2EServer(remoteConn net.Conn, peer Address) (e2eServer E2EServer) {
 	e2eServer.remoteConn = remoteConn
 	e2eServer.peer = peer
@@ -142,7 +142,7 @@ func (e2eServer *E2EServer) checkPeer(ssl *openssl.Conn) error {
 
 // Error logs to logger in Error level
 func (e2eServer *E2EServer) Error(msg string, args ...interface{}) {
-	e2eServer.client.logger.Error(fmt.Sprintf(msg, args...), "module", "e2e")
+	e2eServer.client.logger.Error(fmt.Sprintf(msg, args...))
 }
 
 // Addr returns address that e2e server is listening to

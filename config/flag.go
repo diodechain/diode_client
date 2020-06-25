@@ -534,7 +534,7 @@ func ParseFlag() {
 	for _, blacklistedID := range cfg.SBlacklists {
 		addr, err := util.DecodeAddress(blacklistedID)
 		if err != nil {
-			cfg.Logger.Error(fmt.Sprintf("Blacklist entry '%s' is not an address: %v", blacklistedID, err), "module", "main")
+			cfg.Logger.Error(fmt.Sprintf("Blacklist entry '%s' is not an address: %v", blacklistedID, err))
 			continue
 		}
 		blacklistsIDs[addr] = true
@@ -544,7 +544,7 @@ func ParseFlag() {
 	for _, whitelistedID := range cfg.SWhitelists {
 		addr, err := util.DecodeAddress(whitelistedID)
 		if err != nil {
-			cfg.Logger.Error(fmt.Sprintf("Whitelist entry '%s' is not an address: %v", whitelistedID, err), "module", "main")
+			cfg.Logger.Error(fmt.Sprintf("Whitelist entry '%s' is not an address: %v", whitelistedID, err))
 			continue
 		}
 		whitelistsIDs[addr] = true
@@ -552,7 +552,7 @@ func ParseFlag() {
 	cfg.Whitelists = whitelistsIDs
 	if cfg.RlimitNofile > 0 {
 		if err := setRlimitNofile(cfg.RlimitNofile); err != nil {
-			cfg.Logger.Error(fmt.Sprintf("cannot set rlimit: %s", err.Error()), "module", "main")
+			cfg.Logger.Error(fmt.Sprintf("cannot set rlimit: %s", err.Error()))
 			os.Exit(2)
 		}
 	}

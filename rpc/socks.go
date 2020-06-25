@@ -669,7 +669,7 @@ func (socksServer *Server) Start() error {
 			if err != nil {
 				// Accept will return op close error/syscall.EINVAL
 				if !isOpError(err) {
-					socksServer.Client.Error(err.Error(), "module", "main")
+					socksServer.Client.Error(err.Error())
 				}
 				break
 			}
@@ -891,7 +891,7 @@ func (socksServer *Server) startBind(bind *Bind) error {
 				if err != nil {
 					// Accept will return op close error/syscall.EINVAL
 					if !isOpError(err) {
-						socksServer.Client.Error(err.Error(), "module", "main")
+						socksServer.Client.Error(err.Error())
 					}
 					break
 				}
