@@ -226,17 +226,6 @@ func (s *SSL) GetClientPrivateKey() (*ecdsa.PrivateKey, error) {
 	return clientPrivKey, nil
 }
 
-// GetClientPubKey returns client uncompressed public key
-func (s *SSL) GetClientPubKey() ([]byte, error) {
-	privKey, err := s.GetClientPrivateKey()
-	if err != nil {
-		return nil, err
-	}
-	// uncompressed
-	clientPubKey := crypto.MarshalPubkey(&privKey.PublicKey)
-	return clientPubKey, nil
-}
-
 // LoadClientPubKey loads the clients public key from the database
 func LoadClientPubKey() []byte {
 	kd := EnsurePrivatePEM()
@@ -247,15 +236,6 @@ func LoadClientPubKey() []byte {
 	}
 	clientPubKey := crypto.MarshalPubkey(&privKey.PublicKey)
 	return clientPubKey
-}
-
-// GetClientAddress returns client address
-func (s *SSL) GetClientAddress() (util.Address, error) {
-	clientPubKey, err := s.GetClientPubKey()
-	if err != nil {
-		return [20]byte{}, err
-	}
-	return util.PubkeyToAddress(clientPubKey), nil
 }
 
 func (s *SSL) incrementTotalConnections(n int) {
@@ -406,6 +386,7 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 	}
 
 	rpcConfig := &RPCConfig{
+		ClientAddr:   config.ClientAddr,
 		RegistryAddr: config.RegistryAddr,
 		FleetAddr:    config.FleetAddr,
 		Blacklists:   config.Blacklists,

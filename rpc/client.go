@@ -31,6 +31,7 @@ var (
 
 // RPCConfig struct for rpc client
 type RPCConfig struct {
+	ClientAddr   Address
 	RegistryAddr Address
 	FleetAddr    Address
 	Blacklists   map[Address]bool
@@ -125,11 +126,6 @@ func (rpcClient *RPCClient) Crit(msg string, args ...interface{}) {
 // Host returns the non-resolved addr name of the host
 func (rpcClient *RPCClient) Host() string {
 	return rpcClient.s.addr
-}
-
-// GetClientAddress returns client address
-func (rpcClient *RPCClient) GetClientAddress() (util.Address, error) {
-	return rpcClient.s.GetClientAddress()
 }
 
 // GetDeviceKey returns device key of given ref
@@ -560,11 +556,7 @@ func (rpcClient *RPCClient) newTicket() (*edge.DeviceTicket, error) {
 	if err != nil {
 		return nil, err
 	}
-	deviceID, err := rpcClient.s.GetClientAddress()
-	if err != nil {
-		return nil, err
-	}
-	if !ticket.ValidateDeviceSig(deviceID) {
+	if !ticket.ValidateDeviceSig(rpcClient.Config.ClientAddr) {
 		return nil, fmt.Errorf("ticket not verifyable")
 	}
 
@@ -585,16 +577,10 @@ func (rpcClient *RPCClient) submitTicket(ticket *edge.DeviceTicket) error {
 			lastTicket.ServerID = sid
 			lastTicket.FleetAddr = rpcClient.Config.FleetAddr
 
-			addr, err := rpcClient.s.GetClientAddress()
-			if err != nil {
-				// rpcClient.s.Logger.Error(fmt.Sprintf("SubmitTicket can't identify self: %s", err.Error()))
-				return err
-			}
-
-			if !lastTicket.ValidateDeviceSig(addr) {
+			if !lastTicket.ValidateDeviceSig(rpcClient.Config.ClientAddr) {
 				lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)
 			}
-			if lastTicket.ValidateDeviceSig(addr) {
+			if lastTicket.ValidateDeviceSig(rpcClient.Config.ClientAddr) {
 				rpcClient.s.totalBytes = lastTicket.TotalBytes + 1024
 				rpcClient.s.totalConnections = lastTicket.TotalConnections + 1
 				err = rpcClient.SubmitNewTicket()
@@ -827,33 +813,12 @@ func (rpcClient *RPCClient) ResolveBlockHash(blockNumber uint64) (blockHash []by
 	return
 }
 
-/**
- * Contract api
- * Seems fleet contract with rpcclient providor cause include cycle issue.
- * Note: always return true if client use developer fleet
- * Maybe another middle struct?
- * TODO: should refactor this
- */
 // IsDeviceWhitelisted returns is given address whitelisted
-func (rpcClient *RPCClient) IsDeviceWhitelisted(addr [20]byte) (bool, error) {
-	if rpcClient.Config.FleetAddr == DefaultFleetAddr {
+func (rpcClient *RPCClient) IsDeviceWhitelisted(fleetAddr Address, clientAddr Address) (bool, error) {
+	if fleetAddr == DefaultFleetAddr {
 		return true, nil
 	}
-	key := contract.DeviceWhitelistKey(addr)
-	raw, err := rpcClient.GetAccountValueRaw(0, rpcClient.Config.FleetAddr, key)
-	if err != nil {
-		return false, err
-	}
-	return (util.BytesToInt(raw) == 1), nil
-}
-
-// IsAccessWhitelisted returns is given address whitelisted
-func (rpcClient *RPCClient) IsAccessWhitelisted(fleetAddr Address, clientAddr Address) (bool, error) {
-	deviceAddr, err := rpcClient.s.GetClientAddress()
-	if err != nil {
-		return false, err
-	}
-	key := contract.AccessWhitelistKey(deviceAddr, clientAddr)
+	key := contract.DeviceWhitelistKey(clientAddr)
 	raw, err := rpcClient.GetAccountValueRaw(0, fleetAddr, key)
 	if err != nil {
 		return false, err

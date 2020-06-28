@@ -88,7 +88,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 
 			if !publishedPort.IsWhitelisted(portOpen.DeviceID) {
 				if publishedPort.Mode == config.ProtectedPublishedMode {
-					isAccessWhilisted, err := rpcClient.IsAccessWhitelisted(rpcClient.Config.FleetAddr, portOpen.DeviceID)
+					isAccessWhilisted, err := rpcClient.IsDeviceWhitelisted(rpcClient.Config.FleetAddr, portOpen.DeviceID)
 					if err != nil || !isAccessWhilisted {
 						err := fmt.Errorf("device %x is not in the whitelist (1)", portOpen.DeviceID)
 						rpcClient.ResponsePortOpen(portOpen, err)

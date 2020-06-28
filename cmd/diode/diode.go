@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/pprof"
+	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -104,17 +105,8 @@ func diode() (status int) {
 		mfd.Close()
 	}
 
-	if cfg.Command == "config" {
-		status = doConfig(cfg)
-		return
-	}
-
 	{
-		lvbn, lvbh := rpc.LastValid()
-		printLabel("Last valid block", fmt.Sprintf("%v %v", lvbn, util.EncodeToString(lvbh[:])))
-
 		cfg.ClientAddr = util.PubkeyToAddress(rpc.LoadClientPubKey())
-		printLabel("Client address", cfg.ClientAddr.HexString())
 
 		fleetAddr, err := db.DB.Get("fleet")
 		if err != nil {
@@ -130,8 +122,17 @@ func diode() (status int) {
 		} else {
 			copy(cfg.FleetAddr[:], fleetAddr)
 		}
-		printLabel("Fleet address", cfg.FleetAddr.HexString())
 	}
+
+	if cfg.Command == "config" {
+		status = doConfig(cfg)
+		return
+	}
+
+	lvbn, lvbh := rpc.LastValid()
+	printLabel("Last valid block", fmt.Sprintf("%v %v", lvbn, util.EncodeToString(lvbh[:])))
+	printLabel("Client address", cfg.ClientAddr.HexString())
+	printLabel("Fleet address", cfg.FleetAddr.HexString())
 
 	// Connect to first server to respond
 	wg := &sync.WaitGroup{}
@@ -173,16 +174,8 @@ func diode() (status int) {
 		status = 129
 		return
 	}
-	lvbn, _ := rpc.LastValid()
+	lvbn, lvbh = rpc.LastValid()
 	cfg.Logger.Info(fmt.Sprintf("Network is validated, last valid block number: %d", lvbn))
-
-	// check device access to fleet contract and registry
-	clientAddr, err := client.GetClientAddress()
-	if err != nil {
-		cfg.Logger.Error(err.Error())
-		status = 129
-		return
-	}
 
 	if cfg.Command == "reset" {
 		if cfg.Experimental {
@@ -204,7 +197,7 @@ func diode() (status int) {
 	}
 
 	// check device whitelist
-	isDeviceWhitelisted, err := client.IsDeviceWhitelisted(clientAddr)
+	isDeviceWhitelisted, err := client.IsDeviceWhitelisted(cfg.FleetAddr, cfg.ClientAddr)
 	if err != nil {
 		if err.Error() == "account does not exist" {
 			cfg.Logger.Warn("Device was not whitelisted, if you did whitelist device, please wait for 6 block confirmation, this can take up to a minute.")
@@ -337,11 +330,15 @@ func doConfig(cfg *config.Config) (status int) {
 
 	if cfg.ConfigList || !activity {
 		printLabel("<KEY>", "<VALUE>")
-		for _, name := range db.DB.List() {
+		list := db.DB.List()
+		sort.Strings(list)
+		for _, name := range list {
 			label := "<********************************>"
 			value, err := db.DB.Get(name)
 			if err == nil {
 				if name == "private" {
+					printLabel("<address>", cfg.ClientAddr.HexString())
+
 					if cfg.ConfigUnsafe {
 						block, _ := pem.Decode(value)
 						if block == nil {
@@ -389,21 +386,13 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) (status int) {
 		status = 129
 		return
 	}
-	var act *edge.Account
-	clientAddr, err := client.GetClientAddress()
-	if err != nil {
-		printError("Couldn't load own address", err)
-		status = 129
-		return
-	}
-
-	act, _ = client.GetValidAccount(uint64(bn), clientAddr)
+	act, _ := client.GetValidAccount(uint64(bn), cfg.ClientAddr)
 	if act == nil {
 		nonce = 0
 	} else {
 		nonce = uint64(act.Nonce)
 	}
-	deployData, err := fleetContract.DeployFleetContract(cfg.RegistryAddr, clientAddr, clientAddr)
+	deployData, err := fleetContract.DeployFleetContract(cfg.RegistryAddr, cfg.ClientAddr, cfg.ClientAddr)
 	if err != nil {
 		printError("Cannot create deploy contract data: ", err)
 		status = 129
@@ -421,14 +410,14 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) (status int) {
 		status = 129
 		return
 	}
-	fleetAddr := util.CreateAddress(clientAddr, nonce)
+	fleetAddr := util.CreateAddress(cfg.ClientAddr, nonce)
 	printLabel("New fleet address", fleetAddr.HexString())
 	printInfo("Waiting for block to be confirmed - this can take up to a minute")
 	watchAccount(client, fleetAddr)
 	printInfo("Created fleet contract successfully")
 	// generate fleet address
 	// send device whitelist transaction
-	whitelistData, _ := fleetContract.SetDeviceWhitelist(clientAddr, true)
+	whitelistData, _ := fleetContract.SetDeviceWhitelist(cfg.ClientAddr, true)
 	ntx := edge.NewTransaction(nonce+1, 0, 10000000, fleetAddr, 0, whitelistData, 0)
 	res, err = client.SendTransaction(ntx)
 	if err != nil {
@@ -441,7 +430,7 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) (status int) {
 		status = 129
 		return
 	}
-	printLabel("Whitelisting device: ", clientAddr.HexString())
+	printLabel("Whitelisting device: ", cfg.ClientAddr.HexString())
 	printInfo("Waiting for block to be confirmed - this can take up to a minute")
 	watchAccount(client, fleetAddr)
 	printInfo("Whitelisted device successfully")
@@ -478,21 +467,13 @@ func doInitExp(cfg *config.Config, client *rpc.RPCClient) (status int) {
 		status = 129
 		return
 	}
-	var act *edge.Account
-	clientAddr, err := client.GetClientAddress()
-	if err != nil {
-		printError("Couldn't load own address", err)
-		status = 129
-		return
-	}
-
-	act, _ = client.GetValidAccount(uint64(bn), clientAddr)
+	act, _ := client.GetValidAccount(uint64(bn), cfg.ClientAddr)
 	if act == nil {
 		nonce = 0
 	} else {
 		nonce = uint64(act.Nonce)
 	}
-	deployData, err := fleetContract.DeployFleetContract(cfg.RegistryAddr, clientAddr, clientAddr)
+	deployData, err := fleetContract.DeployFleetContract(cfg.RegistryAddr, cfg.ClientAddr, cfg.ClientAddr)
 	if err != nil {
 		printError("Cannot create deploy contract data: ", err)
 		status = 129
@@ -510,11 +491,11 @@ func doInitExp(cfg *config.Config, client *rpc.RPCClient) (status int) {
 		status = 129
 		return
 	}
-	fleetAddr := util.CreateAddress(clientAddr, nonce)
+	fleetAddr := util.CreateAddress(cfg.ClientAddr, nonce)
 	printLabel("New fleet address", fleetAddr.HexString())
 	// generate fleet address
 	// send device whitelist transaction
-	whitelistData, _ := fleetContract.SetDeviceWhitelist(clientAddr, true)
+	whitelistData, _ := fleetContract.SetDeviceWhitelist(cfg.ClientAddr, true)
 	ntx := edge.NewTransaction(nonce+1, 0, 10000000, fleetAddr, 0, whitelistData, 0)
 	res, err = client.SendTransaction(ntx)
 	if err != nil {
@@ -527,7 +508,7 @@ func doInitExp(cfg *config.Config, client *rpc.RPCClient) (status int) {
 		status = 129
 		return
 	}
-	printLabel("Whitelisting device: ", clientAddr.HexString())
+	printLabel("Whitelisting device: ", cfg.ClientAddr.HexString())
 	printInfo("Waiting for block to be confirmed - this can take up to a minute")
 	watchAccount(client, fleetAddr)
 	printInfo("Created fleet contract and whitelisted device successfully")
@@ -571,15 +552,7 @@ func doBNS(cfg *config.Config, client *rpc.RPCClient) (status int) {
 	}
 
 	if len(registerPair) == 2 {
-		var act *edge.Account
-		clientAddr, err := client.GetClientAddress()
-		if err != nil {
-			printError("Couldn't load own address", err)
-			status = 129
-			return
-		}
-
-		act, _ = client.GetValidAccount(uint64(bn), clientAddr)
+		act, _ := client.GetValidAccount(uint64(bn), cfg.ClientAddr)
 		if act == nil {
 			nonce = 0
 		} else {
