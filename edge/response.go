@@ -163,13 +163,7 @@ type serverObjectResponse struct {
 	RequestID uint64
 	Payload   struct {
 		Type         string
-		ServerObject struct {
-			Server     string // should be "server"
-			Host       []byte
-			EdgePort   uint64
-			ServerPort uint64
-			ServerSig  []byte
-		}
+		ServerObject []interface{}
 	}
 }
 

@@ -7,7 +7,6 @@ import (
 	"bytes"
 
 	"github.com/diodechain/diode_go_client/crypto"
-	"github.com/diodechain/diode_go_client/crypto/secp256k1"
 	"github.com/diodechain/diode_go_client/util"
 	bert "github.com/diodechain/gobert"
 )
@@ -185,34 +184,4 @@ func (acv *AccountValue) AccountRoot() []byte {
 // AccountTree returns merkle tree of account value
 func (acv *AccountValue) AccountTree() MerkleTree {
 	return acv.accountTree
-}
-
-// Hash returns hash of server object
-func (serverObj *ServerObj) Hash() ([]byte, error) {
-	msg, err := bert.Encode([3]bert.Term{serverObj.Host, serverObj.EdgePort, serverObj.ServerPort})
-	if err != nil {
-		return nil, err
-	}
-	return crypto.Sha256(msg), err
-}
-
-// RecoverServerPubKey returns server public key
-func (serverObj *ServerObj) RecoverServerPubKey() ([]byte, error) {
-	msgHash, err := serverObj.Hash()
-	if err != nil {
-		return nil, err
-	}
-	pubKey, err := secp256k1.RecoverPubkey(msgHash, serverObj.Sig)
-	if err != nil {
-		return nil, err
-	}
-	return pubKey, nil
-}
-
-func (serverObj *ServerObj) ValidateSig(serverID [20]byte) bool {
-	pubKey, err := serverObj.RecoverServerPubKey()
-	if err != nil {
-		return false
-	}
-	return serverID == util.PubkeyToAddress(pubKey)
 }

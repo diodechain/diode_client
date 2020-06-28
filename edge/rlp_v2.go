@@ -10,9 +10,11 @@ import (
 
 	"github.com/diodechain/diode_go_client/blockquick"
 	"github.com/diodechain/diode_go_client/config"
+	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/crypto/secp256k1"
 	"github.com/diodechain/diode_go_client/rlp"
 	"github.com/diodechain/diode_go_client/util"
+	bert "github.com/diodechain/gobert"
 )
 
 var (
@@ -316,19 +318,79 @@ func (rlpV2 RLP_V2) parsePortOpenResponse(buffer []byte) (interface{}, error) {
 }
 
 func (rlpV2 RLP_V2) parseServerObjResponse(buffer []byte) (interface{}, error) {
+	return doParseServerObjResponse(buffer)
+}
+
+func doParseServerObjResponse(buffer []byte) (obj *ServerObj, err error) {
 	var response serverObjectResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
-	err := decodeStream.Decode(&response)
+	if err = decodeStream.Decode(&response); err != nil {
+		return
+	}
+	data := response.Payload.ServerObject
+
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("failed to decode serverObj: %v", r)
+		}
+	}()
+
+	typename := string(data[0].([]byte))
+	if typename != "server" {
+		err = fmt.Errorf("wrong serverObj header %v expected 'server'", typename)
+		return
+	}
+
+	obj = &ServerObj{
+		Host:       data[1].([]byte),
+		EdgePort:   parseUint(data[2].([]byte)),
+		ServerPort: parseUint(data[3].([]byte)),
+		Sig:        data[len(data)-1].([]byte),
+	}
+
+	var bertdata []byte
+
+	if len(data) == 5 {
+		bertdata, err = bert.Encode([3]bert.Term{
+			obj.Host,
+			obj.EdgePort,
+			obj.ServerPort})
+	} else if len(data) == 7 {
+		version := data[4].([]byte)
+		extra := data[5].([]interface{})
+		tuples := make([]bert.Term, len(extra))
+		for i, elem := range extra {
+			slice := elem.([]interface{})
+			tuples[i] = [2]bert.Term{slice[0].([]byte), parseUint(slice[1].([]byte))}
+		}
+
+		bertdata, err = bert.Encode([5]bert.Term{
+			obj.Host,
+			obj.EdgePort,
+			obj.ServerPort,
+			version,
+			bert.List{Items: tuples}})
+	} else {
+		err = fmt.Errorf("wrong serverObj length: %d", len(data))
+		return
+	}
+
+	hash := crypto.Sha256(bertdata)
+
+	var pubkey []byte
+	pubkey, err = secp256k1.RecoverPubkey(hash, obj.Sig)
 	if err != nil {
-		return nil, err
+		return
 	}
-	serverObj := &ServerObj{
-		Host:       response.Payload.ServerObject.Host,
-		EdgePort:   response.Payload.ServerObject.EdgePort,
-		ServerPort: response.Payload.ServerObject.ServerPort,
-		Sig:        response.Payload.ServerObject.ServerSig,
+	obj.ServerPubKey = pubkey
+	return obj, nil
+}
+
+func parseUint(data []byte) (num uint64) {
+	for _, b := range data {
+		num = num*256 + uint64(b)
 	}
-	return serverObj, nil
+	return
 }
 
 // TODO: check error from jsonparser

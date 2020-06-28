@@ -989,7 +989,7 @@ func (socksServer *Server) GetServer(nodeID Address) (client *RPCClient, err err
 		socksServer.Client.Error("failed to getnode: %v", err)
 		return
 	}
-	if !serverObj.ValidateSig(nodeID) {
+	if util.PubkeyToAddress(serverObj.ServerPubKey) != nodeID {
 		err = fmt.Errorf("wrong signature in server object %+v", serverObj)
 		return
 	}
