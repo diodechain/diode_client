@@ -61,7 +61,6 @@ type ConfigAPIServer struct {
 	addr        string
 	corsOptions cors.Options
 	httpServer  *http.Server
-	started     bool
 }
 
 // NewConfigAPIServer return ConfigAPIServer
@@ -330,16 +329,12 @@ func (configAPIServer *ConfigAPIServer) ListenAndServe() {
 	go func() {
 		configAPIServer.httpServer = &http.Server{Addr: configAPIServer.addr, Handler: handler}
 		if err := configAPIServer.httpServer.ListenAndServe(); err != nil {
-			configAPIServer.appConfig.Logger.Info(fmt.Sprintf("Couldn't start config api: %s", err.Error()))
-		} else {
-			configAPIServer.started = true
+			configAPIServer.httpServer = nil
+			if err != http.ErrServerClosed {
+				configAPIServer.appConfig.Logger.Info(fmt.Sprintf("Couldn't start config api: %s", err.Error()))
+			}
 		}
 	}()
-}
-
-// Started returns true if config api server had been started
-func (configAPIServer *ConfigAPIServer) Started() bool {
-	return configAPIServer.started
 }
 
 // Close config api server

@@ -237,7 +237,9 @@ func (proxyServer *ProxyServer) Start() error {
 			proxyServer.httpServer = &http.Server{Addr: httpdAddr, Handler: httpdHandler}
 			if err := proxyServer.httpServer.ListenAndServe(); err != nil {
 				proxyServer.httpServer = nil
-				proxyServer.socksServer.Client.Error("cannot start http proxy: %v", err)
+				if err != http.ErrServerClosed {
+					proxyServer.socksServer.Client.Error("Couldn't start http proxy: %v", err)
+				}
 			}
 		}()
 	} else {
@@ -258,7 +260,9 @@ func (proxyServer *ProxyServer) Start() error {
 			proxyServer.httpsServer = &http.Server{Addr: httpsdAddr, Handler: httpsdHandler, TLSNextProto: protos}
 			if err := proxyServer.httpsServer.ListenAndServeTLS(proxyServer.Config.CertPath, proxyServer.Config.PrivPath); err != nil {
 				proxyServer.httpsServer = nil
-				proxyServer.socksServer.Client.Error("cannot start https proxy: %v", err)
+				if err != http.ErrServerClosed {
+					proxyServer.socksServer.Client.Error("Couldn't start https proxy: %v", err)
+				}
 			}
 		}()
 	} else {
