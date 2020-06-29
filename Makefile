@@ -26,7 +26,7 @@ all: $(BINS)
 
 .PHONY: test
 test:
-	go test $(TESTS)
+	go test -race $(TESTS)
 
 .PHONY: lint
 lint:

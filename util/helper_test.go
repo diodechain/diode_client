@@ -32,6 +32,11 @@ type EmptyBytesTest struct {
 	Bytes  []byte
 }
 
+type StringsContainTest struct {
+	Pivot string
+	Res   bool
+}
+
 var (
 	paddingBytesSuffixTests = []PaddingBytesTest{
 		PaddingBytesTest{
@@ -147,6 +152,25 @@ var (
 			Bytes:  []byte{0, 0, 0},
 		},
 	}
+	stringsContainSrc   = []string{"Lorem ipsum dolor sit amet", "consectetur adipiscing elit", "Cras pulvinar urna quam", "sit amet maximus nulla finibus id", "Vestibulum sit amet ante a lorem lobortis ullamcorper"}
+	stringsContainTests = []StringsContainTest{
+		StringsContainTest{
+			Pivot: "hello",
+			Res:   false,
+		},
+		StringsContainTest{
+			Pivot: "world",
+			Res:   false,
+		},
+		StringsContainTest{
+			Pivot: "Lorem ipsum dolor sit amet",
+			Res:   true,
+		},
+		StringsContainTest{
+			Pivot: "consectetur adipiscing elit",
+			Res:   true,
+		},
+	}
 )
 
 func TestPaddingBytesSuffix(t *testing.T) {
@@ -217,6 +241,14 @@ func TestEmptyBytes(t *testing.T) {
 	for _, v := range emptyBytesTests {
 		if !bytes.Equal(v.Bytes, EmptyBytes(v.Length)) {
 			t.Errorf("Cannot create empty bytes")
+		}
+	}
+}
+
+func TestStringsContain(t *testing.T) {
+	for _, v := range stringsContainTests {
+		if v.Res != StringsContain(stringsContainSrc, &v.Pivot) {
+			t.Errorf("Cannot find the string")
 		}
 	}
 }

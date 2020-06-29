@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/diodechain/diode_go_client/accounts/abi"
-	"github.com/diodechain/diode_go_client/crypto/sha3"
+	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/util"
 )
 
@@ -50,14 +50,9 @@ func (dnsContract *DNSContract) Register(_name string, _record Address) (data []
 
 // DNSMetaKey returns storage key of Meta entry (destination, owner, name)
 func DNSMetaKey(name string) []byte {
-	hash := sha3.NewKeccak256()
-	hash.Write([]byte(name))
-	key := hash.Sum(nil)
-
+	key := crypto.Sha3Hash([]byte(name))
 	index := util.IntToBytes(DNSNamesIndex)
 	padIndex := util.PaddingBytesPrefix(index, 0, 32)
 	padKey := util.PaddingBytesPrefix(key, 0, 32)
-	hash = sha3.NewKeccak256()
-	hash.Write(append(padKey, padIndex...))
-	return hash.Sum(nil)
+	return crypto.Sha3Hash(append(padKey, padIndex...))
 }

@@ -17,6 +17,8 @@ require (
 	github.com/diodechain/openssl v1.0.13
 	github.com/dsnet/compress v0.0.1 // indirect
 	github.com/ethereum/go-ethereum v1.9.11
+	github.com/go-playground/universal-translator v0.17.0 // indirect
+	github.com/go-playground/validator v9.31.0+incompatible
 	github.com/google/go-github v17.0.0+incompatible // indirect
 	github.com/google/go-querystring v1.0.0 // indirect
 	github.com/gorilla/websocket v1.4.1
@@ -25,9 +27,11 @@ require (
 	github.com/hooklift/assert v0.0.0-20170704181755-9d1defd6d214 // indirect
 	github.com/kierdavis/ansi v0.0.0-20180105022324-90d93b0fcae2
 	github.com/klauspost/pgzip v1.2.3 // indirect
+	github.com/leodido/go-urn v1.2.0 // indirect
 	github.com/pborman/uuid v0.0.0-20170112150404-1b00554d8222
 	github.com/rcrowley/go-metrics v0.0.0-20190826022208-cac0b30c2563
 	github.com/rjeczalik/notify v0.9.1
+	github.com/rs/cors v1.7.0
 	github.com/stretchr/testify v1.4.0
 	github.com/ucirello/tcpkeepalive v0.0.0-20180903163222-92daabaeadac
 	github.com/ulikunitz/xz v0.5.7 // indirect

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/diodechain/diode_go_client/accounts/abi"
-	"github.com/diodechain/diode_go_client/crypto/sha3"
+	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/util"
 )
 
@@ -79,9 +79,7 @@ func DeviceWhitelistKey(addr Address) []byte {
 	index := util.IntToBytes(DeviceWhitelistIndex)
 	padIndex := util.PaddingBytesPrefix(index, 0, 32)
 	padAddr := util.PaddingBytesPrefix(addr[:], 0, 32)
-	hash := sha3.NewKeccak256()
-	hash.Write(append(padAddr, padIndex...))
-	return hash.Sum(nil)
+	return crypto.Sha3Hash(append(padAddr, padIndex...))
 }
 
 // AccessWhitelistKey returns storage key of access whitelist of givin address
@@ -90,10 +88,6 @@ func AccessWhitelistKey(deviceAddr Address, clientAddr Address) []byte {
 	padIndex := util.PaddingBytesPrefix(index, 0, 32)
 	padDeviceAddr := util.PaddingBytesPrefix(deviceAddr[:], 0, 32)
 	padClientAddr := util.PaddingBytesPrefix(clientAddr[:], 0, 32)
-	hash := sha3.NewKeccak256()
-	hash.Write(append(padDeviceAddr, padIndex...))
-	baseKey := hash.Sum(nil)
-	hash = sha3.NewKeccak256()
-	hash.Write(append(padClientAddr, baseKey...))
-	return hash.Sum(nil)
+	baseKey := crypto.Sha3Hash(append(padDeviceAddr, padIndex...))
+	return crypto.Sha3Hash(append(padClientAddr, baseKey...))
 }
