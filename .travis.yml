@@ -11,7 +11,7 @@ sudo: required
 before_install:
     - git clone https://github.com/diodechain/cross-compile.git
     - cd cross-compile/pi-zero
-    - docker image build -t crosscompile:0.1 .
+    - docker image build --build-arg branch=master -t crosscompile:0.1 .
     - cd ../..
 
 install:
@@ -22,7 +22,7 @@ before_script: make lint
 script:
   - make test
   # test build on pi
-  - docker container run -v  "${PWD}:/build" crosscompile:0.1 go build -tags openssl_static_pi cmd/diode/*.go
+  - docker container run crosscompile:0.1 make
 
 env:
   - GO111MODULE=on
