@@ -34,8 +34,8 @@ type RPCConfig struct {
 	ClientAddr   Address
 	RegistryAddr Address
 	FleetAddr    Address
-	Blacklists   map[Address]bool
-	Whitelists   map[Address]bool
+	Blocklists   map[Address]bool
+	Allowlists   map[Address]bool
 }
 
 // RPCClient struct for rpc client
@@ -813,12 +813,12 @@ func (rpcClient *RPCClient) ResolveBlockHash(blockNumber uint64) (blockHash []by
 	return
 }
 
-// IsDeviceWhitelisted returns is given address whitelisted
-func (rpcClient *RPCClient) IsDeviceWhitelisted(fleetAddr Address, clientAddr Address) (bool, error) {
+// IsDeviceAllowlisted returns is given address allowlisted
+func (rpcClient *RPCClient) IsDeviceAllowlisted(fleetAddr Address, clientAddr Address) (bool, error) {
 	if fleetAddr == DefaultFleetAddr {
 		return true, nil
 	}
-	key := contract.DeviceWhitelistKey(clientAddr)
+	key := contract.DeviceAllowlistKey(clientAddr)
 	raw, err := rpcClient.GetAccountValueRaw(0, fleetAddr, key)
 	if err != nil {
 		return false, err

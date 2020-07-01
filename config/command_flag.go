@@ -110,7 +110,7 @@ func makeCommandFlags(cfg *Config) *[]CommandFlag {
 		HelpText:    `  Initialize a new account and a new fleet contract in the network. WARNING deletes current credentials!`,
 		ExampleText: `  diode reset`,
 	}
-	initCommandFlag.Flag.BoolVar(&cfg.Experimental, "experimental", false, "send transactions of fleet deployment and device whitelist at seme time")
+	initCommandFlag.Flag.BoolVar(&cfg.Experimental, "experimental", false, "send transactions of fleet deployment and device allowlist at seme time")
 	commandFlags = append(commandFlags, initCommandFlag)
 
 	// diode bns

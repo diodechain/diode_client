@@ -50,21 +50,21 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 				rpcClient.Error("Failed to decode portopen request: %v", portOpen.Err.Error())
 				return
 			}
-			// Checking blacklist and whitelist
-			if len(rpcClient.Config.Blacklists) > 0 {
-				if rpcClient.Config.Blacklists[portOpen.DeviceID] {
+			// Checking blocklist and allowlist
+			if len(rpcClient.Config.Blocklists) > 0 {
+				if rpcClient.Config.Blocklists[portOpen.DeviceID] {
 					err := fmt.Errorf(
-						"device %x is on the black list",
+						"device %x is on the block list",
 						portOpen.DeviceID,
 					)
 					rpcClient.ResponsePortOpen(portOpen, err)
 					return
 				}
 			} else {
-				if len(rpcClient.Config.Whitelists) > 0 {
-					if !rpcClient.Config.Whitelists[portOpen.DeviceID] {
+				if len(rpcClient.Config.Allowlists) > 0 {
+					if !rpcClient.Config.Allowlists[portOpen.DeviceID] {
 						err := fmt.Errorf(
-							"device %x is not in the white list",
+							"device %x is not in the allow list",
 							portOpen.DeviceID,
 						)
 						rpcClient.ResponsePortOpen(portOpen, err)
@@ -86,16 +86,16 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 				return
 			}
 
-			if !publishedPort.IsWhitelisted(portOpen.DeviceID) {
+			if !publishedPort.IsAllowlisted(portOpen.DeviceID) {
 				if publishedPort.Mode == config.ProtectedPublishedMode {
-					isAccessWhilisted, err := rpcClient.IsDeviceWhitelisted(rpcClient.Config.FleetAddr, portOpen.DeviceID)
+					isAccessWhilisted, err := rpcClient.IsDeviceAllowlisted(rpcClient.Config.FleetAddr, portOpen.DeviceID)
 					if err != nil || !isAccessWhilisted {
-						err := fmt.Errorf("device %x is not in the whitelist (1)", portOpen.DeviceID)
+						err := fmt.Errorf("device %x is not in the allowlist (1)", portOpen.DeviceID)
 						rpcClient.ResponsePortOpen(portOpen, err)
 						return
 					}
 				} else {
-					err := fmt.Errorf("device %x is not in the whitelist (2)", portOpen.DeviceID)
+					err := fmt.Errorf("device %x is not in the allowlist (2)", portOpen.DeviceID)
 					rpcClient.ResponsePortOpen(portOpen, err)
 					return
 				}

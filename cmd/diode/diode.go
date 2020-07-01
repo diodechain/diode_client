@@ -198,19 +198,19 @@ func diode() (status int) {
 		return
 	}
 
-	// check device whitelist
-	isDeviceWhitelisted, err := client.IsDeviceWhitelisted(cfg.FleetAddr, cfg.ClientAddr)
+	// check device allowlist
+	isDeviceAllowlisted, err := client.IsDeviceAllowlisted(cfg.FleetAddr, cfg.ClientAddr)
 	if err != nil {
 		if err.Error() == "account does not exist" {
-			cfg.Logger.Warn("Device was not whitelisted, if you did whitelist device, please wait for 6 block confirmation, this can take up to a minute.")
+			cfg.Logger.Warn("Device was not allowlisted, if you did allowlist device, please wait for 6 block confirmation, this can take up to a minute.")
 		} else {
-			cfg.Logger.Error(fmt.Sprintf("Device was not whitelisted: %+v", err))
+			cfg.Logger.Error(fmt.Sprintf("Device was not allowlisted: %+v", err))
 		}
 		status = 1
 		return
 	}
-	if !isDeviceWhitelisted {
-		cfg.Logger.Error("Device was not whitelisted")
+	if !isDeviceAllowlisted {
+		cfg.Logger.Error("Device was not allowlisted")
 		status = 1
 		return
 	}
@@ -260,8 +260,8 @@ func processConfig(cfg *config.Config) {
 	socksServer.SetConfig(&rpc.Config{
 		Addr:            cfg.SocksServerAddr(),
 		FleetAddr:       cfg.FleetAddr,
-		Blacklists:      cfg.Blacklists,
-		Whitelists:      cfg.Whitelists,
+		Blocklists:      cfg.Blocklists,
+		Allowlists:      cfg.Allowlists,
 		EnableProxy:     cfg.EnableProxyServer,
 		ProxyServerAddr: cfg.ProxyServerAddr(),
 		Fallback:        cfg.SocksFallback,
@@ -426,24 +426,24 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) (status int) {
 	watchAccount(client, fleetAddr)
 	printInfo("Created fleet contract successfully")
 	// generate fleet address
-	// send device whitelist transaction
-	whitelistData, _ := fleetContract.SetDeviceWhitelist(cfg.ClientAddr, true)
-	ntx := edge.NewTransaction(nonce+1, 0, 10000000, fleetAddr, 0, whitelistData, 0)
+	// send device allowlist transaction
+	allowlistData, _ := fleetContract.SetDeviceAllowlist(cfg.ClientAddr, true)
+	ntx := edge.NewTransaction(nonce+1, 0, 10000000, fleetAddr, 0, allowlistData, 0)
 	res, err = client.SendTransaction(ntx)
 	if err != nil {
-		printError("Cannot whitelist device: ", err)
+		printError("Cannot allowlist device: ", err)
 		status = 129
 		return
 	}
 	if !res {
-		printError("Cannot whitelist device: ", fmt.Errorf("server return false"))
+		printError("Cannot allowlist device: ", fmt.Errorf("server return false"))
 		status = 129
 		return
 	}
-	printLabel("Whitelisting device: ", cfg.ClientAddr.HexString())
+	printLabel("Allowlisting device: ", cfg.ClientAddr.HexString())
 	printInfo("Waiting for block to be confirmed - this can take up to a minute")
 	watchAccount(client, fleetAddr)
-	printInfo("Whitelisted device successfully")
+	printInfo("Allowlisted device successfully")
 	cfg.FleetAddr = fleetAddr
 	if cfg.LoadFromFile {
 		cfg.HexFleetAddr = fleetAddr.HexString()
@@ -509,24 +509,24 @@ func doInitExp(cfg *config.Config, client *rpc.RPCClient) (status int) {
 	fleetAddr := util.CreateAddress(cfg.ClientAddr, nonce)
 	printLabel("New fleet address", fleetAddr.HexString())
 	// generate fleet address
-	// send device whitelist transaction
-	whitelistData, _ := fleetContract.SetDeviceWhitelist(cfg.ClientAddr, true)
-	ntx := edge.NewTransaction(nonce+1, 0, 10000000, fleetAddr, 0, whitelistData, 0)
+	// send device allowlist transaction
+	allowlistData, _ := fleetContract.SetDeviceAllowlist(cfg.ClientAddr, true)
+	ntx := edge.NewTransaction(nonce+1, 0, 10000000, fleetAddr, 0, allowlistData, 0)
 	res, err = client.SendTransaction(ntx)
 	if err != nil {
-		printError("Cannot whitelist device: ", err)
+		printError("Cannot allowlist device: ", err)
 		status = 129
 		return
 	}
 	if !res {
-		printError("Cannot whitelist device: ", fmt.Errorf("server return false"))
+		printError("Cannot allowlist device: ", fmt.Errorf("server return false"))
 		status = 129
 		return
 	}
-	printLabel("Whitelisting device: ", cfg.ClientAddr.HexString())
+	printLabel("Allowlisting device: ", cfg.ClientAddr.HexString())
 	printInfo("Waiting for block to be confirmed - this can take up to a minute")
 	watchAccount(client, fleetAddr)
-	printInfo("Created fleet contract and whitelisted device successfully")
+	printInfo("Created fleet contract and allowlisted device successfully")
 	cfg.FleetAddr = fleetAddr
 	if cfg.LoadFromFile {
 		cfg.HexFleetAddr = fleetAddr.HexString()

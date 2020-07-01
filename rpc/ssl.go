@@ -389,8 +389,8 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 		ClientAddr:   config.ClientAddr,
 		RegistryAddr: config.RegistryAddr,
 		FleetAddr:    config.FleetAddr,
-		Blacklists:   config.Blacklists,
-		Whitelists:   config.Whitelists,
+		Blocklists:   config.Blocklists,
+		Allowlists:   config.Allowlists,
 	}
 	portService := NewPortService()
 	rpcClient := NewRPCClient(client, rpcConfig, pool, portService)

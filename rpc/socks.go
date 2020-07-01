@@ -54,8 +54,8 @@ type Config struct {
 	Fallback        string
 	EnableProxy     bool
 	FleetAddr       Address
-	Blacklists      map[Address]bool
-	Whitelists      map[Address]bool
+	Blocklists      map[Address]bool
+	Allowlists      map[Address]bool
 }
 
 // Bind keeps track if existing binds
@@ -342,16 +342,16 @@ func (socksServer *Server) checkAccess(deviceName string) (*edge.DeviceTicket, e
 		}
 	}
 
-	// Checking blacklist and whitelist
-	if len(socksServer.Config.Blacklists) > 0 {
-		if socksServer.Config.Blacklists[deviceID] {
-			err := fmt.Errorf("device %x is in the black list", deviceName)
+	// Checking blocklist and allowlist
+	if len(socksServer.Config.Blocklists) > 0 {
+		if socksServer.Config.Blocklists[deviceID] {
+			err := fmt.Errorf("device %x is in the block list", deviceName)
 			return nil, HttpError{403, err}
 		}
 	} else {
-		if len(socksServer.Config.Whitelists) > 0 {
-			if !socksServer.Config.Whitelists[deviceID] {
-				err := fmt.Errorf("device %x is not in the white list", deviceName)
+		if len(socksServer.Config.Allowlists) > 0 {
+			if !socksServer.Config.Allowlists[deviceID] {
+				err := fmt.Errorf("device %x is not in the allow list", deviceName)
 				return nil, HttpError{403, err}
 			}
 		}

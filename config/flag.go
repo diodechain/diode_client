@@ -68,8 +68,8 @@ type Config struct {
 	RetryWait               time.Duration    `yaml:"retrywait,omitempty" json:"retrywait,omitempty"`
 	RlimitNofile            int              `yaml:"rlimit_nofile,omitempty" json:"rlimit_nofile,omitempty"`
 	LogFilePath             string           `yaml:"logfilepath,omitempty" json:"logfilepath,omitempty"`
-	SBlacklists             stringValues     `yaml:"blacklists,omitempty" json:"blacklists,omitempty"`
-	SWhitelists             stringValues     `yaml:"whitelists,omitempty" json:"whitelists,omitempty"`
+	SBlocklists             stringValues     `yaml:"blocklists,omitempty" json:"blocklists,omitempty"`
+	SAllowlists             stringValues     `yaml:"allowlists,omitempty" json:"allowlists,omitempty"`
 	SBinds                  stringValues     `yaml:"bind,omitempty" json:"bind,omitempty"`
 	CPUProfile              string           `yaml:"cpuprofile,omitempty" json:"cpuprofile,omitempty"`
 	MEMProfile              string           `yaml:"memprofile,omitempty" json:"memprofile,omitempty"`
@@ -100,8 +100,8 @@ type Config struct {
 	PublicPublishedPorts    stringValues     `yaml:"-" json:"-"`
 	ProtectedPublishedPorts stringValues     `yaml:"-" json:"-"`
 	PrivatePublishedPorts   stringValues     `yaml:"-" json:"-"`
-	Blacklists              map[Address]bool `yaml:"-" json:"-"`
-	Whitelists              map[Address]bool `yaml:"-" json:"-"`
+	Blocklists              map[Address]bool `yaml:"-" json:"-"`
+	Allowlists              map[Address]bool `yaml:"-" json:"-"`
 	LogMode                 int              `yaml:"-" json:"-"`
 	Logger                  log.Logger       `yaml:"-" json:"-"`
 	ConfigFilePath          string           `yaml:"-" json:"-"`
@@ -150,18 +150,18 @@ type Port struct {
 	To        int
 	Mode      int
 	Protocol  int
-	whitelist map[Address]bool
+	allowlist map[Address]bool
 }
 
-// IsWhitelisted returns true if device is whitelisted
-func (port *Port) IsWhitelisted(addr Address) bool {
+// IsAllowlisted returns true if device is allowlisted
+func (port *Port) IsAllowlisted(addr Address) bool {
 	switch port.Mode {
 	case PublicPublishedMode:
 		return true
 	// case ProtectedPublishedMode:
 	// 	return true
 	case PrivatePublishedMode:
-		return port.whitelist[addr]
+		return port.allowlist[addr]
 	default:
 		return false
 	}
@@ -293,7 +293,7 @@ func parsePublishedPorts(publishedPortsArr []string, mode int) []*Port {
 					To:        toPort,
 					Mode:      mode,
 					Protocol:  AnyProtocol,
-					whitelist: make(map[Address]bool),
+					allowlist: make(map[Address]bool),
 				}
 				ports = append(ports, port)
 			} else {
@@ -326,7 +326,7 @@ func parsePrivatePublishedPorts(publishedPorts []string) []*Port {
 					To:        toPort,
 					Mode:      PrivatePublishedMode,
 					Protocol:  AnyProtocol,
-					whitelist: make(map[Address]bool),
+					allowlist: make(map[Address]bool),
 				}
 				for i := 1; i < parsedPublishedPortLen; i++ {
 					addr, err := util.DecodeAddress(parsedPublishedPort[i])
@@ -335,8 +335,8 @@ func parsePrivatePublishedPorts(publishedPorts []string) []*Port {
 						continue
 					}
 
-					if !port.whitelist[addr] {
-						port.whitelist[addr] = true
+					if !port.allowlist[addr] {
+						port.allowlist[addr] = true
 					}
 				}
 				ports = append(ports, port)
@@ -447,8 +447,8 @@ func ParseFlag() {
 	flag.Var(&cfg.RemoteRPCAddrs, "diodeaddrs", "addresses of Diode node server (default: asia.testnet.diode.io:41046, europe.testnet.diode.io:41046, usa.testnet.diode.io:41046)")
 	remoteRPCTimeout := flag.Int("timeout", 5, "timeout seconds to connect to the remote rpc server")
 	retryWait := flag.Int("retrywait", 1, "wait seconds before next retry")
-	flag.Var(&cfg.SBlacklists, "blacklists", "addresses are not allowed to connect to published resource (worked when whitelists is empty)")
-	flag.Var(&cfg.SWhitelists, "whitelists", "addresses are allowed to connect to published resource (worked when blacklists is empty)")
+	flag.Var(&cfg.SBlocklists, "blocklists", "addresses are not allowed to connect to published resource (worked when allowlists is empty)")
+	flag.Var(&cfg.SAllowlists, "allowlists", "addresses are allowed to connect to published resource (worked when blocklists is empty)")
 	flag.Var(&cfg.SBinds, "bind", "bind a remote port to a local port. -bind <local_port>:<to_address>:<to_port>:(udp|tcp)")
 
 	flag.Parse()
@@ -557,26 +557,26 @@ func ParseFlag() {
 	if err != nil {
 		wrongCommandLineFlag(err)
 	}
-	blacklistsIDs := make(map[Address]bool)
-	for _, blacklistedID := range cfg.SBlacklists {
-		addr, err := util.DecodeAddress(blacklistedID)
+	blocklistsIDs := make(map[Address]bool)
+	for _, blocklistedID := range cfg.SBlocklists {
+		addr, err := util.DecodeAddress(blocklistedID)
 		if err != nil {
-			cfg.Logger.Error(fmt.Sprintf("Blacklist entry '%s' is not an address: %v", blacklistedID, err))
+			cfg.Logger.Error(fmt.Sprintf("Blocklist entry '%s' is not an address: %v", blocklistedID, err))
 			continue
 		}
-		blacklistsIDs[addr] = true
+		blocklistsIDs[addr] = true
 	}
-	cfg.Blacklists = blacklistsIDs
-	whitelistsIDs := make(map[Address]bool)
-	for _, whitelistedID := range cfg.SWhitelists {
-		addr, err := util.DecodeAddress(whitelistedID)
+	cfg.Blocklists = blocklistsIDs
+	allowlistsIDs := make(map[Address]bool)
+	for _, allowlistedID := range cfg.SAllowlists {
+		addr, err := util.DecodeAddress(allowlistedID)
 		if err != nil {
-			cfg.Logger.Error(fmt.Sprintf("Whitelist entry '%s' is not an address: %v", whitelistedID, err))
+			cfg.Logger.Error(fmt.Sprintf("Allowlist entry '%s' is not an address: %v", allowlistedID, err))
 			continue
 		}
-		whitelistsIDs[addr] = true
+		allowlistsIDs[addr] = true
 	}
-	cfg.Whitelists = whitelistsIDs
+	cfg.Allowlists = allowlistsIDs
 	if cfg.RlimitNofile > 0 {
 		if err := setRlimitNofile(cfg.RlimitNofile); err != nil {
 			cfg.Logger.Error(fmt.Sprintf("cannot set rlimit: %s", err.Error()))

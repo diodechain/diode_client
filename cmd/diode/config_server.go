@@ -35,8 +35,8 @@ type putConfigRequest struct {
 	Fleet      string   `json:"fleet,omitempty" validate:"omitempty,address"`
 	Registry   string   `json:"registry,omitempty" validate:"omitempty,address"`
 	DiodeAddrs []string `json:"diodeaddrs,omitempty" validate:"dive,omitempty,url"`
-	Blacklists []string `json:"blacklists,omitempty" validate:"dive,omitempty,address"`
-	Whitelists []string `json:"whitelists,omitempty" validate:"dive,omitempty,address"`
+	Blocklists []string `json:"blocklists,omitempty" validate:"dive,omitempty,address"`
+	Allowlists []string `json:"allowlists,omitempty" validate:"dive,omitempty,address"`
 }
 
 func isAddress(fl validator.FieldLevel) bool {
@@ -223,34 +223,34 @@ func (configAPIServer ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrite
 					configAPIServer.appConfig.RemoteRPCAddrs = append(configAPIServer.appConfig.RemoteRPCAddrs, remoteRPCAddrs...)
 				}
 			}
-			if len(c.Blacklists) >= 0 {
-				blacklists := []string{}
-				for _, blacklist := range c.Blacklists {
-					if !util.StringsContain(blacklists, &blacklist) && !util.StringsContain(configAPIServer.appConfig.SBlacklists, &blacklist) {
-						blacklists = append(blacklists, blacklist)
+			if len(c.Blocklists) >= 0 {
+				blocklists := []string{}
+				for _, blocklist := range c.Blocklists {
+					if !util.StringsContain(blocklists, &blocklist) && !util.StringsContain(configAPIServer.appConfig.SBlocklists, &blocklist) {
+						blocklists = append(blocklists, blocklist)
 					}
 				}
-				if len(c.Blacklists) == 0 {
+				if len(c.Blocklists) == 0 {
 					isDirty = true
-					configAPIServer.appConfig.SBlacklists = blacklists
-				} else if len(blacklists) > 0 {
+					configAPIServer.appConfig.SBlocklists = blocklists
+				} else if len(blocklists) > 0 {
 					isDirty = true
-					configAPIServer.appConfig.SBlacklists = append(configAPIServer.appConfig.SBlacklists, blacklists...)
+					configAPIServer.appConfig.SBlocklists = append(configAPIServer.appConfig.SBlocklists, blocklists...)
 				}
 			}
-			if len(c.Whitelists) >= 0 {
-				whitelists := []string{}
-				for _, whitelist := range c.Whitelists {
-					if !util.StringsContain(whitelists, &whitelist) && !util.StringsContain(configAPIServer.appConfig.SWhitelists, &whitelist) {
-						whitelists = append(whitelists, whitelist)
+			if len(c.Allowlists) >= 0 {
+				allowlists := []string{}
+				for _, allowlist := range c.Allowlists {
+					if !util.StringsContain(allowlists, &allowlist) && !util.StringsContain(configAPIServer.appConfig.SAllowlists, &allowlist) {
+						allowlists = append(allowlists, allowlist)
 					}
 				}
-				if len(c.Whitelists) == 0 {
+				if len(c.Allowlists) == 0 {
 					isDirty = true
-					configAPIServer.appConfig.SWhitelists = whitelists
-				} else if len(whitelists) > 0 {
+					configAPIServer.appConfig.SAllowlists = allowlists
+				} else if len(allowlists) > 0 {
 					isDirty = true
-					configAPIServer.appConfig.SWhitelists = append(configAPIServer.appConfig.SWhitelists, whitelists...)
+					configAPIServer.appConfig.SAllowlists = append(configAPIServer.appConfig.SAllowlists, allowlists...)
 				}
 			}
 
