@@ -84,6 +84,8 @@ type Config struct {
 	SProxyServerCertPath    string           `yaml:"-" json:"-"`
 	SProxyServerPrivPath    string           `yaml:"-" json:"-"`
 	AllowRedirectToSProxy   bool             `yaml:"-" json:"-"`
+	APIServerAddr           string           `yaml:"-" json:"-"`
+	EnableAPIServer         bool             `yaml:"-" json:"-"`
 	EnableProxyServer       bool             `yaml:"-" json:"-"`
 	EnableSProxyServer      bool             `yaml:"-" json:"-"`
 	EnableSocksServer       bool             `yaml:"-" json:"-"`
@@ -418,6 +420,8 @@ func ParseFlag() {
 	flag.IntVar(&cfg.RetryTimes, "retrytimes", 3, "retry times to connect the remote rpc server")
 	flag.BoolVar(&cfg.EnableMetrics, "metrics", false, "enable metrics stats")
 	flag.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
+	flag.BoolVar(&cfg.EnableAPIServer, "api", false, "turn on the config api")
+	flag.StringVar(&cfg.APIServerAddr, "apiaddr", "localhost:1080", "define config api server address")
 	flag.IntVar(&cfg.RlimitNofile, "rlimit_nofile", 0, "specify the file descriptor numbers that can be opened by this process")
 	flag.StringVar(&cfg.LogFilePath, "logfilepath", "", "file path to log file")
 	flag.StringVar(&cfg.ConfigFilePath, "configpath", "", "yaml file path to config file")

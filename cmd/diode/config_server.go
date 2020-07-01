@@ -64,10 +64,10 @@ type ConfigAPIServer struct {
 }
 
 // NewConfigAPIServer return ConfigAPIServer
-func NewConfigAPIServer(appConfig *config.Config, addr string) *ConfigAPIServer {
+func NewConfigAPIServer(appConfig *config.Config) *ConfigAPIServer {
 	return &ConfigAPIServer{
 		appConfig: appConfig,
-		addr:      addr,
+		addr:      appConfig.APIServerAddr,
 		corsOptions: cors.Options{
 			AllowedOrigins: []string{"http://localhost"},
 			AllowedMethods: []string{
@@ -80,6 +80,11 @@ func NewConfigAPIServer(appConfig *config.Config, addr string) *ConfigAPIServer 
 			OptionsPassthrough: false,
 		},
 	}
+}
+
+// SetAddr allows to define the listening address of the server
+func (configAPIServer *ConfigAPIServer) SetAddr(addr string) {
+	configAPIServer.addr = addr
 }
 
 func (configAPIServer ConfigAPIServer) clientError(w http.ResponseWriter, validationError map[string]string) {
@@ -341,5 +346,6 @@ func (configAPIServer *ConfigAPIServer) ListenAndServe() {
 func (configAPIServer *ConfigAPIServer) Close() {
 	if configAPIServer.httpServer != nil {
 		configAPIServer.httpServer.Close()
+		configAPIServer.httpServer = nil
 	}
 }

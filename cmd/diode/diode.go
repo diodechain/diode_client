@@ -225,6 +225,7 @@ func diode() (status int) {
 
 	socksServer = client.NewSocksServer(pool)
 	proxyServer = rpc.NewProxyServer(socksServer)
+	configAPIServer = NewConfigAPIServer(cfg)
 	processConfig(cfg)
 
 	// start
@@ -294,8 +295,13 @@ func processConfig(cfg *config.Config) {
 	}
 
 	socksServer.SetBinds(cfg.Binds)
-	configAPIServer = NewConfigAPIServer(cfg, "127.0.0.1:1081")
-	configAPIServer.ListenAndServe()
+
+	if cfg.EnableAPIServer {
+		configAPIServer.SetAddr(cfg.APIServerAddr)
+		configAPIServer.ListenAndServe()
+	} else {
+		configAPIServer.Close()
+	}
 }
 
 func doConfig(cfg *config.Config) (status int) {
