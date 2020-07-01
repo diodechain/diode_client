@@ -145,7 +145,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 			return
 		}
 		connDevice.Conn = DeviceConn{
-			WSConn: conn,
+			Conn: NewWSConn(conn),
 		}
 	} else {
 		hj, ok := w.(http.Hijacker)

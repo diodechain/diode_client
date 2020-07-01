@@ -36,17 +36,11 @@ type DeviceConn struct {
 
 // LocalAddr returns local network address of device
 func (conn *DeviceConn) LocalAddr() net.Addr {
-	if conn.IsWS() {
-		return conn.WSConn.LocalAddr()
-	}
 	return conn.Conn.LocalAddr()
 }
 
 // RemoteAddr returns remote network address of device
 func (conn *DeviceConn) RemoteAddr() net.Addr {
-	if conn.IsWS() {
-		return conn.WSConn.RemoteAddr()
-	}
 	return conn.Conn.RemoteAddr()
 }
 
@@ -59,11 +53,6 @@ func (device *ConnectedDevice) Close() {
 		device.Client.CastPortClose(device.Ref)
 
 		// send portclose request and channel
-		if device.Conn.IsWS() {
-			device.Conn.WSConn.Close()
-			return
-		}
-
 		if device.Conn.Conn != nil {
 			device.Conn.Close()
 			return
@@ -106,11 +95,6 @@ func (conn *DeviceConn) Close() {
 	conn.closed = true
 }
 
-// IsWS is this a WebSocket connection?
-func (conn *DeviceConn) IsWS() bool {
-	return conn.WSConn != nil
-}
-
 // IsE2E is this a E2E encrypted connection?
 func (conn *DeviceConn) IsE2E() bool {
 	return conn.e2eServer != nil
@@ -120,10 +104,6 @@ func (conn *DeviceConn) read() (buf []byte, err error) {
 	if len(conn.unread) > 0 {
 		buf = conn.unread
 		conn.unread = []byte{}
-		return
-	}
-	if conn.IsWS() {
-		_, buf, err = conn.WSConn.ReadMessage()
 		return
 	}
 	if conn.Conn != nil {
@@ -164,9 +144,6 @@ func (conn DeviceConn) copyToSSL(client *RPCClient, ref string) (err error) {
 func (conn *DeviceConn) writeToTCP(data []byte) error {
 	if conn.closed {
 		return nil
-	}
-	if conn.IsWS() {
-		return conn.WSConn.WriteMessage(websocket.BinaryMessage, data)
 	}
 	_, err := conn.Conn.Write(data)
 	return err
