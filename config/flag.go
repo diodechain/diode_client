@@ -463,6 +463,12 @@ func ParseFlag() {
 
 	commandName := flag.Arg(0)
 	args := flag.Args()
+	if commandName == "" {
+		if len(cfg.SBinds) > 0 {
+			args = []string{"publish"}
+			commandName = "publish"
+		}
+	}
 	commandFlag := command(commandName, commands)
 	switch commandName {
 	case "socksd":
