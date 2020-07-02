@@ -446,7 +446,6 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) (status int) {
 	printInfo("Allowlisted device successfully")
 	cfg.FleetAddr = fleetAddr
 	if cfg.LoadFromFile {
-		cfg.HexFleetAddr = fleetAddr.HexString()
 		err = cfg.SaveToFile()
 	} else {
 		err = db.DB.Put("fleet", fleetAddr[:])
@@ -529,7 +528,6 @@ func doInitExp(cfg *config.Config, client *rpc.RPCClient) (status int) {
 	printInfo("Created fleet contract and allowlisted device successfully")
 	cfg.FleetAddr = fleetAddr
 	if cfg.LoadFromFile {
-		cfg.HexFleetAddr = fleetAddr.HexString()
 		err = cfg.SaveToFile()
 	} else {
 		err = db.DB.Put("fleet", fleetAddr[:])

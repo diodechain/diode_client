@@ -60,8 +60,6 @@ type Config struct {
 	KeepAliveCount          int              `yaml:"keepalivecount,omitempty" json:"keepalivecount,omitempty"`
 	KeepAliveIdle           time.Duration    `yaml:"keepaliveidle,omitempty" json:"keepaliveidle,omitempty"`
 	KeepAliveInterval       time.Duration    `yaml:"keepaliveinterval,omitempty" json:"keepaliveinterval,omitempty"`
-	HexFleetAddr            string           `yaml:"fleet,omitempty" json:"fleet,omitempty"`
-	HexRegistryAddr         string           `yaml:"registry,omitempty" json:"registry,omitempty"`
 	RemoteRPCAddrs          stringValues     `yaml:"diodeaddrs,omitempty" json:"diodeaddrs,omitempty"`
 	RemoteRPCTimeout        time.Duration    `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	RetryTimes              int              `yaml:"retrytimes,omitempty" json:"retrytimes,omitempty"`
@@ -415,13 +413,11 @@ func ParseFlag() {
 	}
 
 	flag.StringVar(&cfg.DBPath, "dbpath", util.DefaultDBPath(), "file path to db file")
-	flag.StringVar(&cfg.HexRegistryAddr, "registry", "0x5000000000000000000000000000000000000000", "registry contract address")
-	flag.StringVar(&cfg.HexFleetAddr, "fleet", "0x6000000000000000000000000000000000000000", "fleet contract address")
 	flag.IntVar(&cfg.RetryTimes, "retrytimes", 3, "retry times to connect the remote rpc server")
 	flag.BoolVar(&cfg.EnableMetrics, "metrics", false, "enable metrics stats")
 	flag.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
 	flag.BoolVar(&cfg.EnableAPIServer, "api", false, "turn on the config api")
-	flag.StringVar(&cfg.APIServerAddr, "apiaddr", "localhost:1080", "define config api server address")
+	flag.StringVar(&cfg.APIServerAddr, "apiaddr", "localhost:1081", "define config api server address")
 	flag.IntVar(&cfg.RlimitNofile, "rlimit_nofile", 0, "specify the file descriptor numbers that can be opened by this process")
 	flag.StringVar(&cfg.LogFilePath, "logfilepath", "", "file path to log file")
 	flag.StringVar(&cfg.ConfigFilePath, "configpath", "", "yaml file path to config file")
@@ -546,14 +542,6 @@ func ParseFlag() {
 	}
 	remoteRPCTimeoutTime, err := time.ParseDuration(strconv.Itoa(*remoteRPCTimeout) + "s")
 	cfg.RemoteRPCTimeout = remoteRPCTimeoutTime
-	if err != nil {
-		wrongCommandLineFlag(err)
-	}
-	cfg.RegistryAddr, err = util.DecodeAddress(cfg.HexRegistryAddr)
-	if err != nil {
-		wrongCommandLineFlag(err)
-	}
-	cfg.FleetAddr, err = util.DecodeAddress(cfg.HexFleetAddr)
 	if err != nil {
 		wrongCommandLineFlag(err)
 	}

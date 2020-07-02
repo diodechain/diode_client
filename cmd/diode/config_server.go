@@ -15,6 +15,7 @@ import (
 	"syscall"
 
 	"github.com/diodechain/diode_go_client/config"
+	"github.com/diodechain/diode_go_client/rpc"
 	"github.com/diodechain/diode_go_client/util"
 	"github.com/go-playground/validator"
 	"github.com/rs/cors"
@@ -28,7 +29,33 @@ type apiResponse struct {
 	Success bool              `json:"success"`
 	Message string            `json:"message"`
 	Error   map[string]string `json:"error,omitempty"`
-	Config  *config.Config    `json:"config,omitempty"`
+	Config  configEntry       `json:"config"`
+}
+
+type configEntry struct {
+	Address              string `json:"config"`
+	Fleet                string `json:"fleet"`
+	Version              string `json:"version"`
+	LastValidBlockNumber uint64 `json:"lastValidBlockNumber"`
+	LastValidBlockHash   string `json:"lastValidBlockHash"`
+	Binds                []bind `json:"binds"`
+	Ports                []port `json:"ports"`
+	EnableSocks          bool   `json:"enableSocks"`
+	EnableProxy          bool   `json:"enableProxy"`
+	EnableSecureProxy    bool   `json:"enableSecureProxy"`
+}
+
+type bind struct {
+	LocalPort  int    `json:"localPort"`
+	Remote     string `json:"remote"`
+	RemotePort int    `json:"remotePort"`
+}
+
+type port struct {
+	LocalPort  int    `json:"localPort"`
+	ExternPort int    `json:"externPort"`
+	Protocol   string `json:"protocol"`
+	Mode       string `json:"mode"`
 }
 
 type putConfigRequest struct {
@@ -144,12 +171,49 @@ func (configAPIServer ConfigAPIServer) successResponse(w http.ResponseWriter, me
 }
 
 func (configAPIServer ConfigAPIServer) configResponse(w http.ResponseWriter, message string) {
-	var response apiResponse
-	var res []byte
-	response.Success = true
-	response.Message = message
-	response.Config = config.AppConfig
-	res, _ = json.Marshal(response)
+	cfg := configAPIServer.appConfig
+	lvbn, lvbh := rpc.LastValid()
+	res, _ := json.Marshal(&apiResponse{
+		Success: true,
+		Message: message,
+		Config: configEntry{
+			Address:              cfg.ClientAddr.HexString(),
+			Fleet:                cfg.FleetAddr.HexString(),
+			Version:              version,
+			LastValidBlockNumber: lvbn,
+			LastValidBlockHash:   util.EncodeToString(lvbh[:]),
+			Binds: func(binds []config.Bind) []bind {
+				ret := make([]bind, len(binds))
+				for i, v := range binds {
+					ret[i] = bind{
+						LocalPort:  v.LocalPort,
+						RemotePort: v.ToPort,
+						Remote:     v.To,
+					}
+
+				}
+				return ret
+			}(cfg.Binds),
+			Ports: func(ports map[int]*config.Port) []port {
+				ret := make([]port, len(ports))
+				i := 0
+				for _, v := range ports {
+					ret[i] = port{
+						Protocol:   config.ProtocolName(v.Protocol),
+						Mode:       config.ModeName(v.Mode),
+						LocalPort:  v.Src,
+						ExternPort: v.To,
+					}
+					i++
+				}
+				return ret
+			}(cfg.PublishedPorts),
+
+			EnableSocks:       cfg.EnableSocksServer,
+			EnableProxy:       cfg.EnableProxyServer,
+			EnableSecureProxy: cfg.EnableSProxyServer,
+		},
+	})
 
 	w.WriteHeader(http.StatusOK)
 	w.Write(res)
@@ -199,18 +263,6 @@ func (configAPIServer ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrite
 				return
 			}
 
-			if len(c.Fleet) > 0 {
-				if configAPIServer.appConfig.HexFleetAddr != c.Fleet {
-					isDirty = true
-					configAPIServer.appConfig.HexFleetAddr = c.Fleet
-				}
-			}
-			if len(c.Registry) > 0 {
-				if configAPIServer.appConfig.HexRegistryAddr != c.Registry {
-					isDirty = true
-					configAPIServer.appConfig.HexRegistryAddr = c.Registry
-				}
-			}
 			if len(c.DiodeAddrs) > 0 {
 				remoteRPCAddrs := []string{}
 				for _, RPCAddr := range c.DiodeAddrs {
