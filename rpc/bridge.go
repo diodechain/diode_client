@@ -86,19 +86,10 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 				return
 			}
 
-			if !publishedPort.IsAllowlisted(portOpen.DeviceID) {
-				if publishedPort.Mode == config.ProtectedPublishedMode {
-					isAccessWhilisted, err := rpcClient.IsDeviceAllowlisted(rpcClient.Config.FleetAddr, portOpen.DeviceID)
-					if err != nil || !isAccessWhilisted {
-						err := fmt.Errorf("device %x is not in the allowlist (1)", portOpen.DeviceID)
-						rpcClient.ResponsePortOpen(portOpen, err)
-						return
-					}
-				} else {
-					err := fmt.Errorf("device %x is not in the allowlist (2)", portOpen.DeviceID)
-					rpcClient.ResponsePortOpen(portOpen, err)
-					return
-				}
+			if !rpcClient.isAllowlisted(publishedPort, portOpen.DeviceID) {
+				err := fmt.Errorf("device %x is not in the Allowlist (2)", portOpen.DeviceID)
+				rpcClient.ResponsePortOpen(portOpen, err)
+				return
 			}
 
 			// TODO check that this format %x%x conforms with the read side
@@ -182,6 +173,37 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 		}
 	} else {
 		rpcClient.Warn("doesn't support rpc request: %+v ", inboundRequest)
+	}
+}
+
+// isAllowlisted returns true if device is allowlisted
+func (rpcClient *RPCClient) isAllowlisted(port *config.Port, addr Address) bool {
+	switch port.Mode {
+	case config.PublicPublishedMode:
+		return true
+	case config.ProtectedPublishedMode:
+		allowFleets := []Address{rpcClient.Config.FleetAddr}
+		if len(port.Allowlist) > 0 {
+			allowFleets = make([]Address, len(port.Allowlist))
+			i := 0
+			for fleet := range port.Allowlist {
+				allowFleets[i] = fleet
+				i++
+			}
+		}
+
+		for _, fleetAddr := range allowFleets {
+			isAccessWhilisted, err := rpcClient.IsDeviceAllowlisted(fleetAddr, addr)
+			if err == nil && isAccessWhilisted {
+				return true
+			}
+		}
+
+		return false
+	case config.PrivatePublishedMode:
+		return port.Allowlist[addr]
+	default:
+		return false
 	}
 }
 

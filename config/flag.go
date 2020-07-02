@@ -149,23 +149,10 @@ type Port struct {
 	To        int
 	Mode      int
 	Protocol  int
-	allowlist map[Address]bool
+	Allowlist map[Address]bool
 }
 
-// IsAllowlisted returns true if device is allowlisted
-func (port *Port) IsAllowlisted(addr Address) bool {
-	switch port.Mode {
-	case PublicPublishedMode:
-		return true
-	// case ProtectedPublishedMode:
-	// 	return true
-	case PrivatePublishedMode:
-		return port.allowlist[addr]
-	default:
-		return false
-	}
-}
-
+// ModeName returns the human readable version of a mode code
 func ModeName(mode int) string {
 	if mode == PrivatePublishedMode {
 		return "private"
@@ -179,6 +166,7 @@ func ModeName(mode int) string {
 	return "?"
 }
 
+// ProtocolName returns the human readable version of a protocol code
 func ProtocolName(protocol int) string {
 	if protocol == AnyProtocol {
 		return "any"
@@ -272,80 +260,74 @@ func parseBind(bind string) (*Bind, error) {
 	return ret, nil
 }
 
-func parsePublishedPorts(publishedPortsArr []string, mode int) []*Port {
+var portPattern = regexp.MustCompile(`^(\d+):(\d+)(:(tcp|tls|udp))?$`)
+var accessPattern = regexp.MustCompile(`^0x[a-fA-F0-9]{40}$`)
+
+func parsePorts(portStrings []string, mode int) []*Port {
 	ports := []*Port{}
-	for _, publishedPorts := range publishedPortsArr {
-		parsedPublishedPorts := strings.Split(publishedPorts, ",")
-		for _, parsedPort := range parsedPublishedPorts {
-			portMap := strings.Split(parsedPort, ":")
-			if len(portMap) == 2 {
-				srcPort, err := strconv.Atoi(portMap[0])
+	for _, portString := range portStrings {
+		segments := strings.Split(portString, ",")
+		allowlist := make(map[Address]bool)
+		for _, segment := range segments {
+			portDef := portPattern.FindStringSubmatch(segment)
+
+			if len(portDef) >= 3 {
+				srcPort, err := strconv.Atoi(portDef[1])
 				if err != nil {
-					continue
+					wrongCommandLineFlag(fmt.Errorf("port number expected but got: %v in %v", portDef[1], segment))
 				}
-				toPort, err := strconv.Atoi(portMap[1])
+				toPort, err := strconv.Atoi(portDef[2])
 				if err != nil {
-					continue
+					wrongCommandLineFlag(fmt.Errorf("port number expected but got: %v in %v", portDef[2], segment))
 				}
+
 				port := &Port{
 					Src:       srcPort,
 					To:        toPort,
 					Mode:      mode,
 					Protocol:  AnyProtocol,
-					allowlist: make(map[Address]bool),
+					Allowlist: allowlist,
 				}
-				ports = append(ports, port)
-			} else {
-				wrongCommandLineFlag(fmt.Errorf("Port format expected <from>:<to> but got: %v", parsedPort))
-			}
-		}
-	}
-	return ports
-}
 
-func parsePrivatePublishedPorts(publishedPorts []string) []*Port {
-	ports := []*Port{}
-	for _, publishedPort := range publishedPorts {
-		parsedPublishedPort := strings.Split(publishedPort, ",")
-		parsedPublishedPortLen := len(parsedPublishedPort)
-		if parsedPublishedPortLen >= 2 {
-			parsedPort := parsedPublishedPort[0]
-			portMap := strings.Split(parsedPort, ":")
-			if len(portMap) == 2 {
-				srcPort, err := strconv.Atoi(portMap[0])
-				if err != nil {
-					continue
-				}
-				toPort, err := strconv.Atoi(portMap[1])
-				if err != nil {
-					continue
-				}
-				port := &Port{
-					Src:       srcPort,
-					To:        toPort,
-					Mode:      PrivatePublishedMode,
-					Protocol:  AnyProtocol,
-					allowlist: make(map[Address]bool),
-				}
-				for i := 1; i < parsedPublishedPortLen; i++ {
-					addr, err := util.DecodeAddress(parsedPublishedPort[i])
-					if err != nil {
-						wrongCommandLineFlag(fmt.Errorf("'%s' is not an address: %v", parsedPublishedPort[i], err))
-						continue
-					}
-
-					if !port.allowlist[addr] {
-						port.allowlist[addr] = true
+				if len(portDef) >= 5 {
+					if portDef[4] == "tls" {
+						port.Protocol = TLSProtocol
+					} else if portDef[4] == "tcp" {
+						port.Protocol = TCPProtocol
+					} else if portDef[4] == "udp" {
+						port.Protocol = UDPProtocol
+					} else if portDef[4] == "any" || portDef[4] == "" {
+						port.Protocol = AnyProtocol
+					} else {
+						wrongCommandLineFlag(fmt.Errorf("port unknown protocol %v in: %v", portDef[4], segment))
 					}
 				}
 				ports = append(ports, port)
 			} else {
-				wrongCommandLineFlag(fmt.Errorf("protected port mapping expected <from>:<to> but got: %v", parsedPort))
+				access := accessPattern.FindString(segment)
+				if access == "" {
+					wrongCommandLineFlag(fmt.Errorf("port format expected <from>:<to>(:<protocol>) or <address> but got: %v", segment))
+				}
+
+				addr, err := util.DecodeAddress(access)
+				if err != nil {
+					wrongCommandLineFlag(fmt.Errorf("port format couldn't parse port address: %v", segment))
+				}
+
+				allowlist[addr] = true
 			}
-		} else {
-			wrongCommandLineFlag(fmt.Errorf("protected port format expected <from>:<to>,[<who>] but got: %v", publishedPort))
 		}
 	}
+
+	for _, v := range ports {
+		if mode == PublicPublishedMode && len(v.Allowlist) > 0 {
+			wrongCommandLineFlag(fmt.Errorf("public port publishing does not support providing addresses"))
+		}
+		if mode == PrivatePublishedMode && len(v.Allowlist) == 0 {
+			wrongCommandLineFlag(fmt.Errorf("private port publishing reuquires providing at least one address"))
+		}
+	}
+
 	return ports
 }
 
@@ -485,27 +467,27 @@ func ParseFlag() {
 		cfg.EnableProxyServer = true
 	case "publish":
 		commandFlag.Parse(args[1:])
-		publishedPorts := make(map[int]*Port)
+		portString := make(map[int]*Port)
 		// copy to config
-		for _, port := range parsePublishedPorts(cfg.PublicPublishedPorts, PublicPublishedMode) {
-			if publishedPorts[port.To] != nil {
+		for _, port := range parsePorts(cfg.PublicPublishedPorts, PublicPublishedMode) {
+			if portString[port.To] != nil {
 				wrongCommandLineFlag(fmt.Errorf("public port specified twice: %v", port.To))
 			}
-			publishedPorts[port.To] = port
+			portString[port.To] = port
 		}
-		for _, port := range parsePublishedPorts(cfg.ProtectedPublishedPorts, ProtectedPublishedMode) {
-			if publishedPorts[port.To] != nil {
+		for _, port := range parsePorts(cfg.ProtectedPublishedPorts, ProtectedPublishedMode) {
+			if portString[port.To] != nil {
 				wrongCommandLineFlag(fmt.Errorf("port conflict between public and protected port: %v", port.To))
 			}
-			publishedPorts[port.To] = port
+			portString[port.To] = port
 		}
-		for _, port := range parsePrivatePublishedPorts(cfg.PrivatePublishedPorts) {
-			if publishedPorts[port.To] != nil {
+		for _, port := range parsePorts(cfg.PrivatePublishedPorts, PrivatePublishedMode) {
+			if portString[port.To] != nil {
 				wrongCommandLineFlag(fmt.Errorf("port conflict with private port: %v", port.To))
 			}
-			publishedPorts[port.To] = port
+			portString[port.To] = port
 		}
-		cfg.PublishedPorts = publishedPorts
+		cfg.PublishedPorts = portString
 	default:
 		if commandFlag == nil {
 			flag.Usage()

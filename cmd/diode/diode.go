@@ -255,9 +255,14 @@ func processConfig(cfg *config.Config) {
 				printLabel("Http Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", cfg.ClientAddr.HexString()))
 			}
 		}
-		printLabel("Port      <name>", "<extern>     <mode>    <protocol>")
+		printLabel("Port      <name>", "<extern>     <mode>    <protocol>     <allowlist>")
 		for _, port := range cfg.PublishedPorts {
-			printLabel(fmt.Sprintf("Port      %5d", port.Src), fmt.Sprintf("%8d  %8s           %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol)))
+			addrs := make([]string, 0, len(port.Allowlist))
+			for addr := range port.Allowlist {
+				addrs = append(addrs, addr.HexString())
+			}
+
+			printLabel(fmt.Sprintf("Port      %5d", port.Src), fmt.Sprintf("%8d  %10s       %s        %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol), strings.Join(addrs, ",")))
 		}
 	}
 
