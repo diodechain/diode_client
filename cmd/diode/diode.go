@@ -107,6 +107,10 @@ func diode() (status int) {
 	}
 
 	{
+		if cfg.FleetAddr == config.NullAddr {
+			cfg.FleetAddr = config.DefaultFleetAddr
+		}
+
 		cfg.ClientAddr = util.PubkeyToAddress(rpc.LoadClientPubKey())
 
 		if !cfg.LoadFromFile {
