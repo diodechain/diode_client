@@ -424,6 +424,9 @@ func ParseFlag() {
 	flag.StringVar(&cfg.CPUProfile, "cpuprofile", "", "file path for cpu profiling")
 	flag.StringVar(&cfg.MEMProfile, "memprofile", "", "file path for memory profiling")
 
+	var fleetFake string
+	flag.StringVar(&fleetFake, "fleet", "", "@deprecated. Use: 'diode config -set fleet=0x1234' instead")
+
 	// tcp keepalive for node connection
 	flag.BoolVar(&cfg.EnableKeepAlive, "keepalive", runtime.GOOS != "windows", "enable tcp keepalive (only Linux >= 2.4, DragonFly, FreeBSD, NetBSD and OS X >= 10.8 are supported)")
 	flag.IntVar(&cfg.KeepAliveCount, "keepalivecount", 4, "the maximum number of keepalive probes TCP should send before dropping the connection")
@@ -519,6 +522,10 @@ func ParseFlag() {
 		cfg.LogMode = LogToConsole
 	}
 	cfg.Logger = newLogger(cfg)
+
+	if fleetFake != "" {
+		cfg.Logger.Warn("-fleet parameter is deprecated")
+	}
 
 	if len(cfg.RemoteRPCAddrs) <= 0 {
 		cfg.RemoteRPCAddrs = bootDiodeAddrs[:]
