@@ -77,6 +77,26 @@ jobs:
         ./diode time
       shell: bash
 
+  build_linux_arm:
+    name: "Run build linux arm artifact"
+    runs-on: "ubuntu-latest"
+    steps:
+    - uses: actions/checkout@v1
+    - run: |
+        echo "Clone diodechain/cross-compile"
+        git clone https://github.com/diodechain/cross-compile.git
+    - run: |
+        echo "Build docker image......"
+        docker build --build-arg branch=master -t pi-zero cross-compile/pi-zero
+    - run: |
+        echo "Build diode linux arm......"
+        docker run -v ${{ github.workspace }}:/build/diode_go_client pi-zero make archive
+    - name: Archive production artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: "diode_linux_arm.zip"
+        path: ${{ github.workspace }}/diode_linux_amd64.zip
+
   lint:
     name: "Run static analysis"
     runs-on: "ubuntu-latest"
