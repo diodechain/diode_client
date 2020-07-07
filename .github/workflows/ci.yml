@@ -95,7 +95,8 @@ jobs:
     - name: Archive production artifacts
       uses: actions/upload-artifact@v2
       with:
-        path: "diode_linux_arm.zip"
+        name: "diode_linux_arm.zip"
+        path: ${{ github.workspace }}
     - name: Archive macos package production artifacts
       uses: actions/upload-artifact@v1
 
