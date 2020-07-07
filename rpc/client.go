@@ -64,10 +64,7 @@ type RPCClient struct {
 }
 
 func getRequestID() uint64 {
-	mx.Lock()
-	defer mx.Unlock()
-	atomic.AddUint64(&RequestID, 1)
-	return RequestID
+	return atomic.AddUint64(&RequestID, 1)
 }
 
 // NewRPCClient returns rpc client
