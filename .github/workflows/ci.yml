@@ -86,10 +86,9 @@ jobs:
     - run: |
         echo "Clone diodechain/cross-compile"
         git clone https://github.com/diodechain/cross-compile.git
-        cd cross-compile/pi-zero
     - run: |
         echo "Build docker image......"
-        docker build --build-arg branch=master -t pi-zero .
+        docker build --build-arg branch=master -t pi-zero cross-compile/pi-zero/Dockerfile
     - run: |
         echo "Copy diode linux arm......"
         docker run --rm --entrypoint cat pi-zero /build/diode_go_client/diode_linux_amd64.zip > diode_linux_arm.zip
