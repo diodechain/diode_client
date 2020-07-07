@@ -33,7 +33,7 @@ type apiResponse struct {
 }
 
 type configEntry struct {
-	Address              string `json:"config"`
+	Address              string `json:"client"`
 	Fleet                string `json:"fleet"`
 	Version              string `json:"version"`
 	LastValidBlockNumber uint64 `json:"lastValidBlockNumber"`
