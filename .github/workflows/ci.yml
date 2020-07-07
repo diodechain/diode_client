@@ -84,15 +84,15 @@ jobs:
     container: "debian:stretch"
     steps:
     - uses: actions/checkout@v1
+    - uses: actions/setup-go@v1
+      with:
+        go-version: "1.14.x"
     - run: |
         echo "Downlaod raspberrypi tools......"
         git clone --progress --verbose https://github.com/raspberrypi/tools.git --depth=1 pitools
         ENV PATH "/pitools/arm-bcm2708/gcc-linaro-arm-linux-gnueabihf-raspbian-x64/bin:$PATH"
         ln -s `which arm-linux-gnueabihf-strip` /pitools/arm-bcm2708/gcc-linaro-arm-linux-gnueabihf-raspbian-x64/bin/strip
-    - uses: actions/setup-go@v1
-      with:
-        go-version: "1.14.x"
-        - run: |
+    - run: |
         echo "Build and install openssl......"
         mkdir /usr/local/openssl
         wget -O openssl.tar.gz https://github.com/openssl/openssl/archive/OpenSSL_1_0_2u.tar.gz
