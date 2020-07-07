@@ -81,44 +81,22 @@ jobs:
   build_linux_arm:
     name: "Run tests and build artifacts"
     runs-on: "ubuntu-latest"
-    container: "debian:stretch"
     steps:
     - uses: actions/checkout@v1
-    - uses: actions/setup-go@v1
-      with:
-        go-version: "1.14.x"
     - run: |
-        echo "Install building tools"
-        apt-get update -y 
-        apt-get install -y git build-essential pkg-config upx zip wget
+        echo "Clone diodechain/cross-compile"
+        git clone https://github.com/diodechain/cross-compile.git
+        cd cross-compile/pi-zero
     - run: |
-        echo "Downlaod raspberrypi tools......"
-        git clone --progress --verbose https://github.com/raspberrypi/tools.git --depth=1 pitools
-        ENV PATH "/pitools/arm-bcm2708/gcc-linaro-arm-linux-gnueabihf-raspbian-x64/bin:$PATH"
-        ln -s `which arm-linux-gnueabihf-strip` /pitools/arm-bcm2708/gcc-linaro-arm-linux-gnueabihf-raspbian-x64/bin/strip
+        echo "Build docker image......"
+        docker build --build-arg branch=master -t pi-zero .
     - run: |
-        echo "Build and install openssl......"
-        mkdir /usr/local/openssl
-        wget -O openssl.tar.gz https://github.com/openssl/openssl/archive/OpenSSL_1_0_2u.tar.gz
-        [ "82fa58e3f273c53128c6fe7e3635ec8cda1319a10ce1ad50a987c3df0deeef05" = "$(sha256sum openssl.tar.gz | cut -d ' ' -f1)" ]
-        tar -xzf openssl.tar.gz
-        cd openssl-OpenSSL_1_0_2u
-        ./Configure no-ssl2 no-ssl3 no-dtls no-dtls1 --prefix=/usr/local/openssl os/compiler:arm-linux-gnueabihf
-        make CC="arm-linux-gnueabihf-gcc" AR="arm-linux-gnueabihf-ar r" RANLIB="arm-linux-gnueabihf-ranlib"
-        make install
-        PKG_CONFIG_PATH=/usr/local/openssl/lib/pkgconfig
-    - run: make test
-    - run: make diode_race_test
-    - run: |
-        chmod +x ./diode_race_test 
-        ./diode_race_test config -list
-        ./diode_race_test time
-    - run: make dist
+        echo "Copy diode linux arm......"
+        docker run --rm --entrypoint cat pi-zero /build/diode_go_client/diode_linux_amd64.zip > diode_linux_arm.zip
     - name: Archive production artifacts
       uses: actions/upload-artifact@v2
       with:
         name: "diode_linux_arm.zip"
-        path: dist
     - name: Archive macos package production artifacts
       uses: actions/upload-artifact@v1
 
