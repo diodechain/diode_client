@@ -3,6 +3,12 @@
 // Licensed under the Diode License, Version 1.0
 package rpc
 
+func (rpcClient *RPCClient) totalCallLength() int {
+	rpcClient.rm.Lock()
+	defer rpcClient.rm.Unlock()
+	return len(rpcClient.calls)
+}
+
 func (rpcClient *RPCClient) addCall(c Call) {
 	rpcClient.rm.Lock()
 	defer rpcClient.rm.Unlock()

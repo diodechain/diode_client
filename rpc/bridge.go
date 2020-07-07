@@ -46,7 +46,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 	if portOpen, ok := inboundRequest.(*edge.PortOpen); ok {
 		go func() {
 			if portOpen.Err != nil {
-				rpcClient.ResponsePortOpen(portOpen, fmt.Errorf(portOpen.Err.Error()))
+				rpcClient.ResponsePortOpen(portOpen, portOpen.Err)
 				rpcClient.Error("Failed to decode portopen request: %v", portOpen.Err.Error())
 				return
 			}
@@ -107,7 +107,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			remoteConn, err := net.DialTimeout(network, host, rpcClient.timeout)
 			if err != nil {
 				_ = rpcClient.ResponsePortOpen(portOpen, err)
-				rpcClient.Error("failed to connect local: %v", err)
+				rpcClient.Error("Failed to connect local: %v", err)
 				return
 			}
 
@@ -126,7 +126,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 				err := e2eServer.ListenAndServe()
 				if err != nil {
 					_ = rpcClient.ResponsePortOpen(portOpen, err)
-					rpcClient.Error("failed to start ssl local server: %v", err)
+					rpcClient.Error("Failed to start ssl local server: %v", err)
 					return
 				}
 
@@ -144,7 +144,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 		}()
 	} else if portSend, ok := inboundRequest.(*edge.PortSend); ok {
 		if portSend.Err != nil {
-			rpcClient.Error("failed to decode portsend request: %v", portSend.Err.Error())
+			rpcClient.Error("Failed to decode portsend request: %v", portSend.Err.Error())
 			return
 		}
 		decData := portSend.Data
@@ -333,51 +333,57 @@ func (rpcClient *RPCClient) sendMessage() {
 
 func (rpcClient *RPCClient) watchLatestBlock() {
 	var lastblock uint64
+	rpcClient.rm.Lock()
 	rpcClient.blockTicker = time.NewTicker(rpcClient.blockTickerDuration)
+	rpcClient.rm.Unlock()
 	for {
 		select {
 		case <-rpcClient.finishBlockTickerChan:
 			return
 		case <-rpcClient.blockTicker.C:
-			go func() {
-				if bq == nil {
-					return
-				}
-				if lastblock == 0 {
-					lastblock, _ = bq.Last()
-				}
-				blockPeak, err := rpcClient.GetBlockPeak()
+			// use go routine might cause data race issue
+			// go func() {
+			mx.Lock()
+			if bq == nil {
+				mx.Unlock()
+				return
+			}
+			if lastblock == 0 {
+				lastblock, _ = bq.Last()
+			}
+			mx.Unlock()
+			blockPeak, err := rpcClient.GetBlockPeak()
+			if err != nil {
+				rpcClient.Error("Cannot getblockheader: %v", err)
+				return
+			}
+			blockNumMax := blockPeak - confirmationSize
+			if lastblock >= blockNumMax {
+				// Nothing to do
+				return
+			}
+
+			for num := lastblock + 1; num <= blockNumMax; num++ {
+				blockHeader, err := rpcClient.GetBlockHeaderUnsafe(uint64(num))
 				if err != nil {
-					rpcClient.Error("Cannot getblockheader: %v", err)
+					rpcClient.Error("Couldn't download block header %v", err)
 					return
 				}
-				blockNumMax := blockPeak - confirmationSize
-				if lastblock >= blockNumMax {
-					// Nothing to do
+				err = bq.AddBlock(blockHeader, false)
+				if err != nil {
+					rpcClient.Error("Couldn't add block %v %v: %v", num, blockHeader.Hash(), err)
+					// This could happen on an uncle block, in that case we reset
+					// the counter the last finalized block
+					bq.Last()
 					return
 				}
+			}
 
-				for num := lastblock + 1; num <= blockNumMax; num++ {
-					blockHeader, err := rpcClient.GetBlockHeaderUnsafe(uint64(num))
-					if err != nil {
-						rpcClient.Error("Couldn't download block header %v", err)
-						return
-					}
-					err = bq.AddBlock(blockHeader, false)
-					if err != nil {
-						rpcClient.Error("Couldn't add block %v %v: %v", num, blockHeader.Hash(), err)
-						// This could happen on an uncle block, in that case we reset
-						// the counter the last finalized block
-						lastblock, _ = bq.Last()
-						return
-					}
-				}
-
-				lastn, _ := bq.Last()
-				rpcClient.Debug("Added block(s) %v-%v, last valid %v", lastblock, blockNumMax, lastn)
-				lastblock = blockNumMax
-				storeLastValid()
-			}()
+			lastn, _ := bq.Last()
+			rpcClient.Debug("Added block(s) %v-%v, last valid %v", lastblock, blockNumMax, lastn)
+			lastblock = blockNumMax
+			storeLastValid()
+			// }()
 		}
 	}
 }

@@ -93,6 +93,13 @@ func (s *SSL) TotalBytes() uint64 {
 }
 
 // Counter returns counter in ssl
+func (s *SSL) UpdateCounter(c uint64) {
+	s.rm.Lock()
+	defer s.rm.Unlock()
+	s.counter = c
+}
+
+// Counter returns counter in ssl
 func (s *SSL) Counter() uint64 {
 	s.rm.RLock()
 	defer s.rm.RUnlock()

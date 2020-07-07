@@ -30,6 +30,11 @@ jobs:
       with:
         go-version: ${{ matrix.go }}
     - run: make test
+    - run: make diode_race_test
+    - run: |
+        chmod +x ./diode_race_test 
+        ./diode_race_test config -list
+        ./diode_race_test time
     - run: make dist
     - run: echo "::set-env name=ZIPNAME::`./deployment/zipname.sh`"
       shell: bash
@@ -49,7 +54,7 @@ jobs:
         name: ${{ runner.os }}
         path: darwin_package_build
 
-  simple_run_test:
+  download_and_run_test:
     needs: build_and_test
     name: "Run app"
     strategy:

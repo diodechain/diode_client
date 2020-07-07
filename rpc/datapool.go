@@ -44,9 +44,6 @@ func (p *DataPool) GetCacheDNS(key string) (dns Address, ok bool) {
 }
 
 func (p *DataPool) Close() {
-	p.rm.Lock()
-	defer p.rm.Unlock()
-
 	for k, v := range p.devices {
 		v.Close()
 		delete(p.devices, k)
