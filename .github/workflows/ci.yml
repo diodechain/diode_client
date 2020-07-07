@@ -62,7 +62,6 @@ jobs:
         os: ["windows-latest", "ubuntu-latest", "macOS-latest"]
         go: ["1.14.x"]
     runs-on: ${{ matrix.os }}
-    container: "debian:stretch"
     steps:
     - uses: actions/checkout@v2
     - run: echo "::set-env name=ZIPNAME::`./deployment/zipname.sh`"
@@ -97,7 +96,6 @@ jobs:
       with:
         name: "diode_linux_arm.zip"
         path: ${{ github.workspace }}/diode_linux_amd64.zip
-
 
   lint:
     name: "Run static analysis"
