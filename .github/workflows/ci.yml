@@ -79,7 +79,7 @@ jobs:
       shell: bash
 
   build_linux_arm:
-    name: "Run tests and build artifacts"
+    name: "Run build linux arm artifact"
     runs-on: "ubuntu-latest"
     steps:
     - uses: actions/checkout@v1
@@ -97,8 +97,6 @@ jobs:
       with:
         name: "diode_linux_arm.zip"
         path: ${{ github.workspace }}
-    - name: Archive macos package production artifacts
-      uses: actions/upload-artifact@v1
 
 
   lint:
