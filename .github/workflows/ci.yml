@@ -95,7 +95,7 @@ jobs:
     - name: Archive production artifacts
       uses: actions/upload-artifact@v2
       with:
-        name: "diode_linux_arm.zip"
+        path: "diode_linux_arm.zip"
     - name: Archive macos package production artifacts
       uses: actions/upload-artifact@v1
 
