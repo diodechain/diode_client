@@ -96,7 +96,7 @@ jobs:
       uses: actions/upload-artifact@v2
       with:
         name: "diode_linux_arm.zip"
-        path: ${{ github.workspace }}
+        path: ${{ github.workspace }}/diode_linux_arm.zip
 
 
   lint:
