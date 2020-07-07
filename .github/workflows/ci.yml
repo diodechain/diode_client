@@ -80,22 +80,18 @@ jobs:
 
   build_linux_arm:
     name: "Run tests and build artifacts"
-    strategy:
-      matrix:
-        os: ["ubuntu-latest"]
-        go: ["1.14.x"]
-    runs-on: ${{ matrix.os }}
+    runs-on: "ubuntu-latest"
     container: "debian:stretch"
     steps:
+    - uses: actions/checkout@v1
     - run: |
         echo "Downlaod raspberrypi tools......"
         git clone --progress --verbose https://github.com/raspberrypi/tools.git --depth=1 pitools
         ENV PATH "/pitools/arm-bcm2708/gcc-linaro-arm-linux-gnueabihf-raspbian-x64/bin:$PATH"
         ln -s `which arm-linux-gnueabihf-strip` /pitools/arm-bcm2708/gcc-linaro-arm-linux-gnueabihf-raspbian-x64/bin/strip
-    - uses: actions/checkout@v1
     - uses: actions/setup-go@v1
       with:
-        go-version: ${{ matrix.go }}
+        go-version: "1.14.x"
         - run: |
         echo "Build and install openssl......"
         mkdir /usr/local/openssl
