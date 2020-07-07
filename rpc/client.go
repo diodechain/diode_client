@@ -517,11 +517,10 @@ func (rpcClient *RPCClient) SubmitNewTicket() error {
 		return nil
 	}
 	ticket, err := rpcClient.newTicket()
+	mx.Unlock()
 	if err != nil {
-		mx.Unlock()
 		return err
 	}
-	mx.Unlock()
 	return rpcClient.submitTicket(ticket)
 }
 
