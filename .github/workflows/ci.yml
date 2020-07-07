@@ -88,6 +88,10 @@ jobs:
       with:
         go-version: "1.14.x"
     - run: |
+        echo "Install building tools"
+        apt-get update -y 
+        apt-get install -y git build-essential pkg-config upx zip wget
+    - run: |
         echo "Downlaod raspberrypi tools......"
         git clone --progress --verbose https://github.com/raspberrypi/tools.git --depth=1 pitools
         ENV PATH "/pitools/arm-bcm2708/gcc-linaro-arm-linux-gnueabihf-raspbian-x64/bin:$PATH"
