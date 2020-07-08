@@ -382,9 +382,9 @@ func (configAPIServer *ConfigAPIServer) ListenAndServe() {
 	mux.HandleFunc("/", configAPIServer.rootHandleFunc())
 	handler := cors.New(configAPIServer.corsOptions).Handler(mux)
 	handler = configAPIServer.requireJSON(handler)
+	configAPIServer.httpServer = &http.Server{Addr: configAPIServer.addr, Handler: handler}
 	configAPIServer.appConfig.Logger.Info(fmt.Sprintf("Start config api server %s", configAPIServer.addr))
 	go func() {
-		configAPIServer.httpServer = &http.Server{Addr: configAPIServer.addr, Handler: handler}
 		if err := configAPIServer.httpServer.ListenAndServe(); err != nil {
 			configAPIServer.httpServer = nil
 			if err != http.ErrServerClosed {
@@ -398,6 +398,5 @@ func (configAPIServer *ConfigAPIServer) ListenAndServe() {
 func (configAPIServer *ConfigAPIServer) Close() {
 	if configAPIServer.httpServer != nil {
 		configAPIServer.httpServer.Close()
-		configAPIServer.httpServer = nil
 	}
 }
