@@ -16,7 +16,7 @@ retrywait: 10s
 # keepalivecount: 5
 # keepaliveinterval: 5s
 # keepaliveidle: 30s
-# blacklists:
+# blocklists:
 #     -
-# whitelists:
+# allowlists:
 #     -

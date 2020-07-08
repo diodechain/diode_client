@@ -14,12 +14,12 @@ Name
   diode - Diode network command line interface
 
 SYNOPSYS
-  diode [-bind=] [-blacklists=] [-configpath=]
-        [-cpuprofile=] [-dbpath=/home/d...] [-debug=false] [-diodeaddrs=]
-        [-fleet=0x60000...] [-keepalive=true] [-keepalivecount=4] [-keepaliveidle=30]
-        [-keepaliveinterval=5] [-logfilepath=] [-memprofile=] [-metrics=false]
-        [-registry=0x50000...] [-retrytimes=3] [-retrywait=1] [-rlimit_nofile=0]
-        [-timeout=5] [-whitelists=] COMMAND <args>
+  diode [-allowlists=] [-api=false] [-apiaddr=localho...]
+        [-bind=] [-blocklists=] [-configpath=] [-cpuprofile=]
+        [-dbpath=/Users/...] [-debug=false] [-diodeaddrs=] [-fleet=]
+        [-keepalive=true] [-keepalivecount=4] [-keepaliveidle=30] [-keepaliveinterval=5]
+        [-logfilepath=] [-memprofile=] [-metrics=false] [-retrytimes=3]
+        [-retrywait=1] [-rlimit_nofile=0] [-timeout=5] COMMAND <args>
 
 COMMANDS
   bns          Register/Update name service on diode blockchain.
