@@ -29,7 +29,7 @@ type apiResponse struct {
 	Success bool              `json:"success"`
 	Message string            `json:"message"`
 	Error   map[string]string `json:"error,omitempty"`
-	Config  configEntry       `json:"config"`
+	Config  *configEntry      `json:"config,omitempty"`
 }
 
 type configEntry struct {
@@ -46,9 +46,10 @@ type configEntry struct {
 }
 
 type bind struct {
-	LocalPort  int    `json:"localPort"`
-	Remote     string `json:"remote"`
-	RemotePort int    `json:"remotePort"`
+	LocalPort  int    `json:"localPort" validate:"required,port"`
+	Remote     string `json:"remote" validate:"required,subdomain"`
+	RemotePort int    `json:"remotePort" validate:"required,port"`
+	Protocol   string `json:"protocol" validate:"omitempty,protocol"`
 }
 
 type port struct {
@@ -64,11 +65,30 @@ type putConfigRequest struct {
 	DiodeAddrs []string `json:"diodeaddrs,omitempty" validate:"dive,omitempty,url"`
 	Blocklists []string `json:"blocklists,omitempty" validate:"dive,omitempty,address"`
 	Allowlists []string `json:"allowlists,omitempty" validate:"dive,omitempty,address"`
+	Binds      []bind   `json:"binds,omitempty" validate:"dive,omitempty"`
 }
 
 func isAddress(fl validator.FieldLevel) bool {
 	address := fl.Field().String()
 	return util.IsAddress([]byte(address))
+}
+
+func isSubdomain(fl validator.FieldLevel) bool {
+	address := fl.Field().String()
+	return util.IsSubdomain(address)
+}
+
+func isPort(fl validator.FieldLevel) bool {
+	portNum := fl.Field().Int()
+	if portNum > 65535 || portNum < 1 {
+		return false
+	}
+	return true
+}
+
+func isProtocol(fl validator.FieldLevel) bool {
+	protocol := fl.Field().String()
+	return config.ProtocolIdentifier(protocol) > 0
 }
 
 func isURL(fl validator.FieldLevel) bool {
@@ -79,6 +99,9 @@ func isURL(fl validator.FieldLevel) bool {
 func init() {
 	validate = validator.New()
 	validate.RegisterValidation("address", isAddress)
+	validate.RegisterValidation("subdomain", isSubdomain)
+	validate.RegisterValidation("port", isPort)
+	validate.RegisterValidation("protocol", isProtocol)
 	validate.RegisterValidation("url", isURL)
 }
 
@@ -176,7 +199,7 @@ func (configAPIServer ConfigAPIServer) configResponse(w http.ResponseWriter, mes
 	res, _ := json.Marshal(&apiResponse{
 		Success: true,
 		Message: message,
-		Config: configEntry{
+		Config: &configEntry{
 			Address:              cfg.ClientAddr.HexString(),
 			Fleet:                cfg.FleetAddr.HexString(),
 			Version:              version,
@@ -230,6 +253,7 @@ func (configAPIServer ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrite
 			return
 		} else if req.Method == "PUT" {
 			if !config.AppConfig.LoadFromFile {
+				configAPIServer.appConfig.Logger.Error("Didn't load config file")
 				configAPIServer.serverError(w)
 				return
 			}
@@ -240,6 +264,7 @@ func (configAPIServer ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrite
 			var err error
 			err = dec.Decode(&c)
 			if err != nil {
+				configAPIServer.appConfig.Logger.Error(fmt.Sprintf("Couldn't decode request: %s", err.Error()))
 				configAPIServer.serverError(w)
 				return
 			}
@@ -282,7 +307,7 @@ func (configAPIServer ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrite
 						blocklists = append(blocklists, blocklist)
 					}
 				}
-				if len(c.Blocklists) == 0 {
+				if len(c.Blocklists) == 0 && len(configAPIServer.appConfig.SBlocklists) > 0 {
 					isDirty = true
 					configAPIServer.appConfig.SBlocklists = blocklists
 				} else if len(blocklists) > 0 {
@@ -297,12 +322,69 @@ func (configAPIServer ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrite
 						allowlists = append(allowlists, allowlist)
 					}
 				}
-				if len(c.Allowlists) == 0 {
+				if len(c.Allowlists) == 0 && len(configAPIServer.appConfig.SAllowlists) > 0 {
 					isDirty = true
 					configAPIServer.appConfig.SAllowlists = allowlists
 				} else if len(allowlists) > 0 {
 					isDirty = true
 					configAPIServer.appConfig.SAllowlists = append(configAPIServer.appConfig.SAllowlists, allowlists...)
+				}
+			}
+			if len(c.Blocklists) >= 0 {
+				blocklists := []string{}
+				for _, blocklist := range c.Blocklists {
+					if !util.StringsContain(blocklists, &blocklist) && !util.StringsContain(configAPIServer.appConfig.SBlocklists, &blocklist) {
+						blocklists = append(blocklists, blocklist)
+					}
+				}
+				if len(c.Blocklists) == 0 && len(configAPIServer.appConfig.SBlocklists) > 0 {
+					isDirty = true
+					configAPIServer.appConfig.SBlocklists = blocklists
+				} else if len(blocklists) > 0 {
+					isDirty = true
+					configAPIServer.appConfig.SBlocklists = append(configAPIServer.appConfig.SBlocklists, blocklists...)
+				}
+			}
+			if len(c.Binds) >= 0 {
+				binds := []string{}
+				binded := make(map[int]string)
+				for _, b := range configAPIServer.appConfig.Binds {
+					binded[b.LocalPort] += config.ProtocolName(b.Protocol)
+				}
+				for _, b := range c.Binds {
+					var bindIden string
+					if len(b.Protocol) > 0 {
+						if b.Protocol == "any" {
+							continue
+						}
+						if len(binded[b.LocalPort]) > 0 {
+							if strings.Contains(binded[b.LocalPort], b.Protocol) {
+								continue
+							}
+							if b.Protocol == "tcp" && strings.Contains(binded[b.LocalPort], "tls") {
+								continue
+							}
+							if b.Protocol == "tls" && strings.Contains(binded[b.LocalPort], "tcp") {
+								continue
+							}
+						}
+						binded[b.LocalPort] += b.Protocol
+						bindIden = fmt.Sprintf("%d:%s:%d:%s", b.LocalPort, b.Remote, b.RemotePort, b.Protocol)
+					} else {
+						// default is tls
+						binded[b.LocalPort] += "tls"
+						bindIden = fmt.Sprintf("%d:%s:%d", b.LocalPort, b.Remote, b.RemotePort)
+					}
+					if !util.StringsContain(binds, &bindIden) {
+						binds = append(binds, bindIden)
+					}
+				}
+				if len(c.Binds) == 0 && len(configAPIServer.appConfig.SBinds) > 0 {
+					isDirty = true
+					configAPIServer.appConfig.SBinds = binds
+				} else if len(binds) > 0 {
+					isDirty = true
+					configAPIServer.appConfig.SBinds = binds
 				}
 			}
 

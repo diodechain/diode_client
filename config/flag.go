@@ -165,6 +165,23 @@ func ModeName(mode int) string {
 	return "?"
 }
 
+// ProtocolIdentifier returns a protocol code of the human readable version
+func ProtocolIdentifier(protocol string) int {
+	if protocol == "any" {
+		return AnyProtocol
+	}
+	if protocol == "udp" {
+		return UDPProtocol
+	}
+	if protocol == "tcp" {
+		return TCPProtocol
+	}
+	if protocol == "tls" {
+		return TLSProtocol
+	}
+	return 0
+}
+
 // ProtocolName returns the human readable version of a protocol code
 func ProtocolName(protocol int) string {
 	if protocol == AnyProtocol {
