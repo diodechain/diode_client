@@ -24,6 +24,11 @@ type IsAddressTest struct {
 	Res bool
 }
 
+type IsSubdomainTest struct {
+	Src string
+	Res bool
+}
+
 type DecodeStringTest struct {
 	Src string
 	Res []byte
@@ -144,6 +149,48 @@ var (
 			Res: 65792,
 		},
 	}
+	isSubdomainTest = []IsSubdomainTest{
+		IsSubdomainTest{
+			Src: "0x937c492a77ae90de971986d003ffbc5f8bb2232C",
+			Res: true,
+		},
+		IsSubdomainTest{
+			Src: "937c492a77ae90de971986d003ffbc5f8bb2232C",
+			Res: false,
+		},
+		IsSubdomainTest{
+			Src: "Helloworld",
+			Res: true,
+		},
+		IsSubdomainTest{
+			Src: "Hello-world",
+			Res: true,
+		},
+		IsSubdomainTest{
+			Src: "Hell/oworld",
+			Res: false,
+		},
+		IsSubdomainTest{
+			Src: "Hell&oworld",
+			Res: false,
+		},
+		IsSubdomainTest{
+			Src: "Hell%oworld",
+			Res: false,
+		},
+		IsSubdomainTest{
+			Src: "Hell&oworld",
+			Res: false,
+		},
+		IsSubdomainTest{
+			Src: "Hell_oworld",
+			Res: false,
+		},
+		IsSubdomainTest{
+			Src: "Hell=oworld",
+			Res: false,
+		},
+	}
 )
 
 func TestIsHex(t *testing.T) {
@@ -166,6 +213,14 @@ func TestIsAddress(t *testing.T) {
 	for _, v := range isAddressTest {
 		if v.Res != IsAddress(v.Src) {
 			t.Errorf("Wrong result when call IsAddress")
+		}
+	}
+}
+
+func TestIsSubdomain(t *testing.T) {
+	for _, v := range isSubdomainTest {
+		if v.Res != IsSubdomain(v.Src) {
+			t.Errorf("Wrong result when call IsSubdomain")
 		}
 	}
 }

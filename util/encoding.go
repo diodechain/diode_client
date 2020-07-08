@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math/big"
+	"regexp"
 	"strings"
 
 	"github.com/diodechain/diode_go_client/crypto"
@@ -26,6 +27,7 @@ var (
 	upperPrefixLength = len(upperPrefix)
 	hexStringBase     = []byte("0123456789abcdefABCDEF")
 	addressLength     = 40
+	subDomainpattern  = regexp.MustCompile(`^(0x[A-Fa-f0-9]{40}|[A-Za-z0-9]{1,20}-[A-Za-z0-9]{1,20}|[A-Za-z0-9]{1,30})$`)
 )
 
 func isHexBytes(src []byte) bool {
@@ -77,6 +79,11 @@ func IsAddress(src []byte) bool {
 		return true
 	}
 	return false
+}
+
+// IsBNS returns given string whether is a valid bns
+func IsSubdomain(src string) bool {
+	return subDomainpattern.MatchString(src)
 }
 
 func DecodeAddress(src string) (Address, error) {
