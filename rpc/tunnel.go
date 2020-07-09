@@ -99,8 +99,9 @@ func (t *tunnel) Close() (err error) {
 		return
 	}
 	t.closed = true
+
 	// close(t.output)
-	// close(t.input)
+	close(t.input)
 	return
 }
 
