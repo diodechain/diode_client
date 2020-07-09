@@ -4,7 +4,6 @@
 package rpc
 
 import (
-	"fmt"
 	"net"
 	"time"
 )
@@ -88,8 +87,6 @@ func (conn *DeviceConn) Close() error {
 }
 
 func (conn DeviceConn) copyLoop(client *RPCClient, ref string) (err error) {
-	fmt.Printf("copyLoop()\n")
-	defer fmt.Printf("~copyLoop()\n")
 	buf := make([]byte, readBufferSize)
 	for {
 		var count int
@@ -98,10 +95,6 @@ func (conn DeviceConn) copyLoop(client *RPCClient, ref string) (err error) {
 		}
 		count, err = conn.Conn.Read(buf)
 		if err != nil {
-			if err, ok := err.(net.Error); ok && err.Timeout() {
-				fmt.Println("Timeout", err)
-				continue
-			}
 			return
 		}
 		if count > 0 {
@@ -111,7 +104,6 @@ func (conn DeviceConn) copyLoop(client *RPCClient, ref string) (err error) {
 			}
 		} else {
 			time.Sleep(10 * time.Millisecond)
-			return
 		}
 	}
 }

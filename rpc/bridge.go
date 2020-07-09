@@ -159,7 +159,6 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 		}
 	} else if portClose, ok := inboundRequest.(*edge.PortClose); ok {
 		deviceKey := rpcClient.GetDeviceKey(portClose.Ref)
-		rpcClient.Warn("Received portClose for device %x", portClose.Ref)
 		cachedConnDevice := rpcClient.pool.GetDevice(deviceKey)
 		if cachedConnDevice != nil {
 			cachedConnDevice.Close()

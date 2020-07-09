@@ -162,6 +162,10 @@ func (e2eServer *E2EServer) Close() {
 		e2eServer.localConn.Close()
 		e2eServer.localConn = nil
 	}
+	if e2eServer.remoteConn != nil {
+		e2eServer.remoteConn.Close()
+		e2eServer.remoteConn = nil
+	}
 	if e2eServer.listener != nil {
 		e2eServer.listener.Close()
 		e2eServer.listener = nil
