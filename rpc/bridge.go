@@ -139,7 +139,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			rpcClient.pool.SetDevice(deviceKey, connDevice)
 			_ = rpcClient.ResponsePortOpen(portOpen, nil)
 
-			connDevice.copyToSSL()
+			connDevice.copyLoop()
 			connDevice.Close()
 		}()
 	} else if portSend, ok := inboundRequest.(*edge.PortSend); ok {
@@ -152,13 +152,14 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 		deviceKey := rpcClient.GetDeviceKey(portSend.Ref)
 		cachedConnDevice := rpcClient.pool.GetDevice(deviceKey)
 		if cachedConnDevice != nil {
-			cachedConnDevice.writeToTCP(decData)
+			cachedConnDevice.Write(decData)
 		} else {
 			rpcClient.Warn("Cannot find the portsend connected device %x", portSend.Ref)
 			rpcClient.CastPortClose(portSend.Ref)
 		}
 	} else if portClose, ok := inboundRequest.(*edge.PortClose); ok {
 		deviceKey := rpcClient.GetDeviceKey(portClose.Ref)
+		rpcClient.Warn("Received portClose for device %x", portClose.Ref)
 		cachedConnDevice := rpcClient.pool.GetDevice(deviceKey)
 		if cachedConnDevice != nil {
 			cachedConnDevice.Close()

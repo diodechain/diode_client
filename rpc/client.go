@@ -630,6 +630,7 @@ func (rpcClient *RPCClient) ResponsePortOpen(portOpen *edge.PortOpen, err error)
 
 // PortSend call portsend RPC
 func (rpcClient *RPCClient) PortSend(ref string, data []byte) (err error) {
+	fmt.Printf("%s\n", data)
 	_, err = rpcClient.CastContext(getRequestID(), "portsend", ref, data)
 	return err
 }

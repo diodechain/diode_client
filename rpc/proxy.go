@@ -100,8 +100,48 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	clientIP := r.RemoteAddr
-	connDevice, err := proxyServer.socksServer.connectDevice(deviceID, port, config.TLSProtocol, mode)
+	err = proxyServer.socksServer.connectDeviceAndLoop(deviceID, port, config.TLSProtocol, mode, func(*ConnectedDevice) (*DeviceConn, error) {
+		if isWS {
+			upgrader := websocket.Upgrader{
+				ReadBufferSize:    readBufferSize,
+				WriteBufferSize:   writeBufferSize,
+				CheckOrigin:       func(_ *http.Request) bool { return true },
+				EnableCompression: true,
+			}
+			conn, err := upgrader.Upgrade(w, r, nil)
+			if err != nil {
+				internalError(w, "Websocket upgrade failed")
+				return nil, nil
+			}
+			return &DeviceConn{
+				Conn: NewWSConn(conn),
+			}, nil
+		}
+		hj, ok := w.(http.Hijacker)
+		if !ok {
+			internalError(w, "Webserver doesn't support hijacking")
+			return nil, nil
+		}
+		conn, buf, err := hj.Hijack()
+		header := bytes.NewBuffer([]byte{})
+		r.Write(header)
+
+		if buf.Reader.Buffered() > 0 {
+			rest := make([]byte, buf.Reader.Buffered())
+			buf.Read(rest)
+			header.Write(rest)
+		}
+
+		if err != nil {
+			internalError(w, err.Error())
+			conn.Close()
+			return nil, nil
+		}
+		return &DeviceConn{
+			Conn: NewHTTPConn(header.Bytes(), conn),
+		}, nil
+	})
+
 	if err != nil {
 		if httpErr, ok := err.(HttpError); ok {
 			var errMsg string
@@ -126,61 +166,6 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-
-	if connDevice == nil {
-		proxyServer.socksServer.Client.Debug("connDevice still nil")
-		httpError(w, 500, "connDevice still nil")
-		return
-	}
-
-	connDevice.ClientID = clientIP
-
-	if isWS {
-		upgrader := websocket.Upgrader{
-			ReadBufferSize:    readBufferSize,
-			WriteBufferSize:   writeBufferSize,
-			CheckOrigin:       func(_ *http.Request) bool { return true },
-			EnableCompression: true,
-		}
-		conn, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			return
-		}
-		connDevice.Conn = DeviceConn{
-			Conn: NewWSConn(conn),
-		}
-	} else {
-		hj, ok := w.(http.Hijacker)
-		if !ok {
-			internalError(w, "Webserver doesn't support hijacking")
-			return
-		}
-		conn, buf, err := hj.Hijack()
-
-		header := bytes.NewBuffer([]byte{})
-		r.Write(header)
-
-		if buf.Reader.Buffered() > 0 {
-			rest := make([]byte, buf.Reader.Buffered())
-			buf.Read(rest)
-			header.Write(rest)
-		}
-
-		if err != nil {
-			internalError(w, err.Error())
-			conn.Close()
-			return
-		}
-		connDevice.Conn = DeviceConn{
-			Conn:   conn,
-			unread: header.Bytes(),
-		}
-	}
-	deviceKey := connDevice.Client.GetDeviceKey(connDevice.Ref)
-	proxyServer.socksServer.datapool.SetDevice(deviceKey, connDevice)
-	proxyServer.socksServer.Client.Debug("connDevice.copyToSSL")
-	connDevice.copyToSSL()
-	connDevice.Close()
 }
 
 func NewProxyServer(socksServer *Server) *ProxyServer {

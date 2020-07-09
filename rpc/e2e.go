@@ -160,8 +160,10 @@ func (e2eServer *E2EServer) Close() {
 
 	if e2eServer.localConn != nil {
 		e2eServer.localConn.Close()
+		e2eServer.localConn = nil
 	}
 	if e2eServer.listener != nil {
 		e2eServer.listener.Close()
+		e2eServer.listener = nil
 	}
 }
