@@ -123,10 +123,10 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			// For the E2E encryption we're wrapping remoteConn in TLS
 			if portOpen.Protocol == config.TLSProtocol {
 				e2eServer := rpcClient.NewE2EServer(remoteConn, portOpen.DeviceID)
-				err := e2eServer.ListenAndServe()
+				err := e2eServer.InternalServerConnect()
 				if err != nil {
 					_ = rpcClient.ResponsePortOpen(portOpen, err)
-					rpcClient.Error("Failed to start ssl local server: %v", err)
+					rpcClient.Error("Failed to tunnel openssl server: %v", err)
 					return
 				}
 

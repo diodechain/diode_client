@@ -458,9 +458,9 @@ func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, pro
 
 	if protocol == config.TLSProtocol {
 		e2eServer := socksServer.Client.NewE2EServer(conn.Conn, connDevice.DeviceID)
-		err := e2eServer.InternalConnect()
+		err := e2eServer.InternalClientConnect()
 		if err != nil {
-			socksServer.Client.Error("Failed to e2e.ListenAndServe(): %v", err.Error())
+			socksServer.Client.Error("Failed to tunnel openssl client: %v", err.Error())
 			return err
 		}
 

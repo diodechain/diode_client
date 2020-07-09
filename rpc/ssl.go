@@ -399,8 +399,7 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 		Blocklists:   config.Blocklists,
 		Allowlists:   config.Allowlists,
 	}
-	portService := NewPortService()
-	rpcClient := NewRPCClient(client, rpcConfig, pool, portService)
+	rpcClient := NewRPCClient(client, rpcConfig, pool)
 
 	rpcClient.Verbose = config.Debug
 	rpcClient.logger = config.Logger

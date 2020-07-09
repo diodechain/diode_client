@@ -60,7 +60,6 @@ type RPCClient struct {
 	signal                chan Signal
 	edgeProtocol          edge.EdgeProtocol
 	Config                *RPCConfig
-	portService           *PortService
 }
 
 func getRequestID() uint64 {
@@ -68,7 +67,7 @@ func getRequestID() uint64 {
 }
 
 // NewRPCClient returns rpc client
-func NewRPCClient(s *SSL, config *RPCConfig, pool *DataPool, portService *PortService) RPCClient {
+func NewRPCClient(s *SSL, config *RPCConfig, pool *DataPool) RPCClient {
 	return RPCClient{
 		s:                     s,
 		callQueue:             make(chan Call, 1024),
@@ -88,7 +87,6 @@ func NewRPCClient(s *SSL, config *RPCConfig, pool *DataPool, portService *PortSe
 		},
 		edgeProtocol: edge.RLP_V2{},
 		Config:       config,
-		portService:  portService,
 	}
 }
 
