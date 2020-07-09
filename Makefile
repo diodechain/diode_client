@@ -86,3 +86,12 @@ client_debug$(EXE):
 .PHONY: diode_race_test
 diode_race_test:
 	$(GOBUILD) -race -o diode_race_test cmd/diode/*.go
+
+.PHONY: ci_test
+ci_test:
+	$(MAKE) test
+	$(MAKE) diode_race_test
+	chmod +x ./diode_race_test 
+	./diode_race_test config -list
+	./diode_race_test time
+	rm ./diode_race_test

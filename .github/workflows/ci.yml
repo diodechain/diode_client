@@ -29,12 +29,7 @@ jobs:
     - uses: actions/setup-go@v1
       with:
         go-version: ${{ matrix.go }}
-    - run: make test
-    - run: make diode_race_test
-    - run: |
-        chmod +x ./diode_race_test 
-        ./diode_race_test config -list
-        ./diode_race_test time
+    - run: make ci_test
     - run: make dist
     - run: echo "::set-env name=ZIPNAME::`./deployment/zipname.sh`"
       shell: bash

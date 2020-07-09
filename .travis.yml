@@ -16,14 +16,11 @@ before_install:
 
 install:
   - make diode
-  - make diode_race_test
 
 before_script: make lint
 
 script:
-  - make test
-  - ./diode_race_test config -list
-  - ./diode_race_test time
+  - make ci_test
   # test build on pi
   - docker container run crosscompile:0.1 make
 
