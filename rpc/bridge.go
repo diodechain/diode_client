@@ -116,7 +116,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			connDevice.ClientID = clientID
 			connDevice.DeviceID = portOpen.DeviceID
 			connDevice.Client = rpcClient
-			connDevice.Conn = DeviceConn{
+			connDevice.Conn = &DeviceConn{
 				Conn: remoteConn,
 			}
 
@@ -130,7 +130,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 					return
 				}
 
-				connDevice.Conn = DeviceConn{
+				connDevice.Conn = &DeviceConn{
 					Conn:      e2eServer.localConn,
 					e2eServer: &e2eServer,
 				}

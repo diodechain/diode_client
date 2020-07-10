@@ -136,8 +136,8 @@ func TestSetWriteDeadlineOfTunnel(t *testing.T) {
 	}
 	tunnelA.SetWriteDeadline(time.Now().Add(duration))
 	buf := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 0}
+	_, _ = tunnelA.Write(buf)
 	_, err := tunnelA.Write(buf)
-	_, err = tunnelA.Write(buf)
 	if err == nil || err.Error() != "send to tunnel timeout" {
 		t.Errorf("Write should return timeout error")
 	}
@@ -163,8 +163,8 @@ func TestSetDeadlineOfTunnel(t *testing.T) {
 	}
 	tunnelA.SetDeadline(time.Now().Add(duration))
 	buf := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 0}
+	_, _ = tunnelA.Write(buf)
 	_, err := tunnelA.Write(buf)
-	_, err = tunnelA.Write(buf)
 	if err == nil || err.Error() != "send to tunnel timeout" {
 		t.Errorf("Write should return timeout error")
 	}

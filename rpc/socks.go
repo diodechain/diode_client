@@ -453,7 +453,7 @@ func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, pro
 		return err
 	}
 
-	connDevice.Conn = *conn
+	connDevice.Conn = conn
 	connDevice.ClientID = conn.Conn.RemoteAddr().String()
 
 	if protocol == config.TLSProtocol {
@@ -464,7 +464,7 @@ func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, pro
 			return err
 		}
 
-		connDevice.Conn = DeviceConn{
+		connDevice.Conn = &DeviceConn{
 			Conn:      e2eServer.localConn,
 			e2eServer: &e2eServer,
 		}

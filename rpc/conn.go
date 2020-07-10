@@ -14,7 +14,7 @@ type ConnectedDevice struct {
 	Ref      string
 	ClientID string
 	DeviceID Address
-	Conn     DeviceConn
+	Conn     *DeviceConn
 	Client   *RPCClient
 }
 
@@ -66,8 +66,7 @@ func (device *ConnectedDevice) copyLoop() {
 
 // Maybe we should return error
 func (device *ConnectedDevice) Write(data []byte) {
-	conn := device.Conn
-	err := conn.Write(data)
+	err := device.Conn.Write(data)
 	if err != nil {
 		device.Client.Debug("Write failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
 		device.Close()
@@ -93,7 +92,7 @@ func (conn *DeviceConn) Close() error {
 	return nil
 }
 
-func (conn DeviceConn) copyLoop(client *RPCClient, ref string) (err error) {
+func (conn *DeviceConn) copyLoop(client *RPCClient, ref string) (err error) {
 	buf := make([]byte, readBufferSize)
 	for {
 		var count int
