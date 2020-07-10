@@ -5,6 +5,7 @@ package rpc
 
 import (
 	"net"
+	"sync"
 	"time"
 )
 
@@ -21,6 +22,7 @@ type ConnectedDevice struct {
 type DeviceConn struct {
 	Conn   net.Conn
 	closed bool
+	mx     sync.Mutex
 
 	// E2E
 	e2eServer *E2EServer
@@ -74,6 +76,11 @@ func (device *ConnectedDevice) Write(data []byte) {
 
 // Close the connection
 func (conn *DeviceConn) Close() error {
+	conn.mx.Lock()
+	defer conn.mx.Unlock()
+	if conn.closed {
+		return nil
+	}
 	if conn.Conn != nil {
 		conn.Conn.SetReadDeadline(time.Now().Add(time.Second))
 		conn.Conn.Close()

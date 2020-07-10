@@ -64,11 +64,13 @@ func tunnelCopy(input, output *tunnel) (err error) {
 		if err != nil {
 			return
 		}
-		if output.Closed() {
+		output.mx.Lock()
+		if output.closed {
 			err = fmt.Errorf("tunnel had been closed")
 			return
 		}
 		err = sendToTunnel(output.input, d, wd)
+		output.mx.Unlock()
 		if err != nil {
 			return
 		}

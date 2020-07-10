@@ -28,7 +28,7 @@ var (
 			Bytes: []byte{0, 0, 0, 0},
 		},
 	}
-	duration = 1 * time.Second
+	duration = 10 * time.Millisecond
 )
 
 func TestReadAndWriteInTunnels(t *testing.T) {
@@ -131,16 +131,22 @@ func TestReadAndWriteInTunnels(t *testing.T) {
 
 func TestSetWriteDeadlineOfTunnel(t *testing.T) {
 	tunnelA := &tunnel{
-		input:  make(chan []byte, 2),
-		output: make(chan []byte, 2),
+		input:  make(chan []byte, 1),
+		output: make(chan []byte, 1),
 	}
 	tunnelA.SetWriteDeadline(time.Now().Add(duration))
+	buf := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 0}
+	_, err := tunnelA.Write(buf)
+	_, err = tunnelA.Write(buf)
+	if err == nil || err.Error() != "send to tunnel timeout" {
+		t.Errorf("Write should return timeout error")
+	}
 }
 
 func TestSetReadDeadlineOfTunnel(t *testing.T) {
 	tunnelA := &tunnel{
-		input:  make(chan []byte, bufferSize),
-		output: make(chan []byte, bufferSize),
+		input:  make(chan []byte, 1),
+		output: make(chan []byte, 1),
 	}
 	tunnelA.SetReadDeadline(time.Now().Add(duration))
 	buf := make([]byte, 10)
@@ -152,13 +158,19 @@ func TestSetReadDeadlineOfTunnel(t *testing.T) {
 
 func TestSetDeadlineOfTunnel(t *testing.T) {
 	tunnelA := &tunnel{
-		input:  make(chan []byte, bufferSize),
-		output: make(chan []byte, bufferSize),
+		input:  make(chan []byte, 1),
+		output: make(chan []byte, 1),
 	}
-	tunnelA.SetDeadline(time.Now().Add(duration * 2))
-	buf := make([]byte, 10)
+	tunnelA.SetDeadline(time.Now().Add(duration))
+	buf := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 0}
+	_, err := tunnelA.Write(buf)
+	_, err = tunnelA.Write(buf)
+	if err == nil || err.Error() != "send to tunnel timeout" {
+		t.Errorf("Write should return timeout error")
+	}
 
-	_, err := tunnelA.Read(buf)
+	tunnelA.SetDeadline(time.Now().Add(duration))
+	_, err = tunnelA.Read(buf)
 	if err == nil || err.Error() != "read from tunnel timeout" {
 		t.Errorf("Read should return timeout error")
 	}
