@@ -41,6 +41,7 @@ func sendToTunnel(output chan []byte, buf []byte, d time.Duration) (err error) {
 		case output <- buf:
 			return
 		case <-time.After(d):
+			// this should never happen
 			err = fmt.Errorf("send to tunnel timeout")
 			return
 		}
@@ -100,7 +101,7 @@ func (t *tunnel) Close() (err error) {
 	}
 	t.closed = true
 
-	// close(t.output)
+	close(t.output)
 	close(t.input)
 	return
 }
@@ -114,7 +115,9 @@ func (t *tunnel) Read(b []byte) (n int, err error) {
 		return
 	}
 	var buf []byte
+	t.mx.Lock()
 	rd := time.Until(t.readDeadline)
+	t.mx.Unlock()
 	buf, err = readFromTunnel(t.input, rd)
 	if buf == nil {
 		n = 0
@@ -132,18 +135,20 @@ func (t *tunnel) Write(b []byte) (n int, err error) {
 	if t.Closed() {
 		return
 	}
+	t.mx.Lock()
 	wd := time.Until(t.writeDeadline)
+	t.mx.Unlock()
 	err = sendToTunnel(t.output, b, wd)
 	n = len(b)
 	return
 }
 
-// LocalAddr of tunnel, always return nil
+// LocalAddr of tunnel, always return nil because it's a virtual tunnel
 func (t *tunnel) LocalAddr() net.Addr {
 	return nil
 }
 
-// RemoteAddr of tunnel, always return nil
+// RemoteAddr of tunnel, always return nil because it's a virtual tunnel
 func (t *tunnel) RemoteAddr() net.Addr {
 	return nil
 }
@@ -162,7 +167,9 @@ func (t *tunnel) SetReadDeadline(ti time.Time) (err error) {
 		err = fmt.Errorf("read deadline is before the original read deadline")
 		return
 	}
+	t.mx.Lock()
 	t.readDeadline = ti
+	t.mx.Unlock()
 	return
 }
 
@@ -172,6 +179,8 @@ func (t *tunnel) SetWriteDeadline(ti time.Time) (err error) {
 		err = fmt.Errorf("write deadline is before the original write deadline")
 		return
 	}
+	t.mx.Lock()
 	t.writeDeadline = ti
+	t.mx.Unlock()
 	return
 }

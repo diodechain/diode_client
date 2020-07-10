@@ -6,6 +6,7 @@ package rpc
 import (
 	"bytes"
 	"testing"
+	"time"
 )
 
 type TunnelTest struct {
@@ -27,9 +28,10 @@ var (
 			Bytes: []byte{0, 0, 0, 0},
 		},
 	}
+	duration = 1 * time.Second
 )
 
-func TestPaddingBytesSuffix(t *testing.T) {
+func TestReadAndWriteInTunnels(t *testing.T) {
 	tunnelA := &tunnel{
 		input:  make(chan []byte, bufferSize),
 		output: make(chan []byte, bufferSize),
@@ -124,5 +126,40 @@ func TestPaddingBytesSuffix(t *testing.T) {
 		if n != 0 {
 			t.Errorf("Should not read buffer from closed tunnel, expected length: 0 got: %d", n)
 		}
+	}
+}
+
+func TestSetWriteDeadlineOfTunnel(t *testing.T) {
+	tunnelA := &tunnel{
+		input:  make(chan []byte, 2),
+		output: make(chan []byte, 2),
+	}
+	tunnelA.SetWriteDeadline(time.Now().Add(duration))
+}
+
+func TestSetReadDeadlineOfTunnel(t *testing.T) {
+	tunnelA := &tunnel{
+		input:  make(chan []byte, bufferSize),
+		output: make(chan []byte, bufferSize),
+	}
+	tunnelA.SetReadDeadline(time.Now().Add(duration))
+	buf := make([]byte, 10)
+	_, err := tunnelA.Read(buf)
+	if err == nil || err.Error() != "read from tunnel timeout" {
+		t.Errorf("Read should return timeout error")
+	}
+}
+
+func TestSetDeadlineOfTunnel(t *testing.T) {
+	tunnelA := &tunnel{
+		input:  make(chan []byte, bufferSize),
+		output: make(chan []byte, bufferSize),
+	}
+	tunnelA.SetDeadline(time.Now().Add(duration * 2))
+	buf := make([]byte, 10)
+
+	_, err := tunnelA.Read(buf)
+	if err == nil || err.Error() != "read from tunnel timeout" {
+		t.Errorf("Read should return timeout error")
 	}
 }
