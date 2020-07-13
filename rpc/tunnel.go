@@ -16,7 +16,7 @@ func readFromTunnel(input chan []byte, d time.Duration) (buf []byte, err error) 
 		select {
 		case buf, ok = <-input:
 			if !ok {
-				err = fmt.Errorf("tunnel had been closed")
+				err = fmt.Errorf("tunnel has been closed")
 				return
 			}
 		case <-time.After(d):
@@ -26,7 +26,7 @@ func readFromTunnel(input chan []byte, d time.Duration) (buf []byte, err error) 
 	}
 	buf, ok = <-input
 	if !ok {
-		err = fmt.Errorf("tunnel had been closed")
+		err = fmt.Errorf("tunnel has been closed")
 		return
 	}
 	return
@@ -50,34 +50,22 @@ func sendToTunnel(output chan []byte, buf []byte, d time.Duration) (err error) {
 	return
 }
 
-// tunnelCopy copy buffer from input.ouput to output.input
-func tunnelCopy(input, output *tunnel) (err error) {
-	rd := time.Until(input.readDeadline)
-	wd := time.Until(input.writeDeadline)
-	for {
-		var d []byte
-		if input.Closed() {
-			err = fmt.Errorf("tunnel had been closed")
-			return
-		}
-		d, err = readFromTunnel(input.output, rd)
-		if err != nil {
-			return
-		}
-		output.mx.Lock()
-		if output.closed {
-			err = fmt.Errorf("tunnel had been closed")
-			return
-		}
-		err = sendToTunnel(output.input, d, wd)
-		output.mx.Unlock()
-		if err != nil {
-			return
-		}
+// NewTunnel returns a newly created Tunnel
+func NewTunnel() (begin *Tunnel, end *Tunnel) {
+	size := 1
+	begin = &Tunnel{
+		input:  make(chan []byte, size),
+		output: make(chan []byte, size),
 	}
+	end = &Tunnel{
+		input:  begin.output,
+		output: begin.input,
+	}
+	return
 }
 
-type tunnel struct {
+// Tunnel is a handle to an OpenSSL encrypted endpoint
+type Tunnel struct {
 	input         chan []byte
 	output        chan []byte
 	readDeadline  time.Time
@@ -86,40 +74,31 @@ type tunnel struct {
 	mx            sync.Mutex
 }
 
-// Closed returns the tunnel was closed
-func (t *tunnel) Closed() (closed bool) {
-	t.mx.Lock()
-	defer t.mx.Unlock()
-	closed = t.closed
-	return
+// Closed returns the Tunnel was closed
+func (t *Tunnel) Closed() bool {
+	return t.closed
 }
 
-// Close the tunnel
-func (t *tunnel) Close() (err error) {
+// Close the Tunnel
+func (t *Tunnel) Close() (err error) {
 	t.mx.Lock()
 	defer t.mx.Unlock()
 	if t.closed {
 		return
 	}
 	t.closed = true
-
 	close(t.output)
-	close(t.input)
 	return
 }
 
-// Read from the tunnel input buffer
-func (t *tunnel) Read(b []byte) (n int, err error) {
+// Read from the Tunnel input buffer
+func (t *Tunnel) Read(b []byte) (n int, err error) {
 	if len(b) == 0 {
 		return
 	}
-	if t.Closed() {
-		return
-	}
+
 	var buf []byte
-	t.mx.Lock()
 	rd := time.Until(t.readDeadline)
-	t.mx.Unlock()
 	buf, err = readFromTunnel(t.input, rd)
 	if buf == nil {
 		n = 0
@@ -130,59 +109,59 @@ func (t *tunnel) Read(b []byte) (n int, err error) {
 }
 
 // Write to the tunnnel output buffer
-func (t *tunnel) Write(b []byte) (n int, err error) {
+func (t *Tunnel) Write(b []byte) (n int, err error) {
 	if len(b) == 0 {
 		return
 	}
-	if t.Closed() {
+
+	if t.closed {
+		err = fmt.Errorf("tunnel has been closed")
 		return
 	}
-	t.mx.Lock()
 	wd := time.Until(t.writeDeadline)
-	t.mx.Unlock()
 	err = sendToTunnel(t.output, b, wd)
 	n = len(b)
 	return
 }
 
-// LocalAddr of tunnel, always return nil because it's a virtual tunnel
-func (t *tunnel) LocalAddr() net.Addr {
+// LocalAddr of Tunnel, always return nil because it's a virtual Tunnel
+func (t *Tunnel) LocalAddr() net.Addr {
 	return nil
 }
 
-// RemoteAddr of tunnel, always return nil because it's a virtual tunnel
-func (t *tunnel) RemoteAddr() net.Addr {
+// RemoteAddr of Tunnel, always return nil because it's a virtual Tunnel
+func (t *Tunnel) RemoteAddr() net.Addr {
 	return nil
 }
 
-// SetDeadline set read/write deadline of the tunnel
-func (t *tunnel) SetDeadline(ti time.Time) (err error) {
+// SetDeadline set read/write deadline of the Tunnel
+func (t *Tunnel) SetDeadline(ti time.Time) (err error) {
 	if err := t.SetReadDeadline(ti); err != nil {
 		return err
 	}
 	return t.SetWriteDeadline(ti)
 }
 
-// SetReadDeadline set read deadline of the tunnel
-func (t *tunnel) SetReadDeadline(ti time.Time) (err error) {
+// SetReadDeadline set read deadline of the Tunnel
+func (t *Tunnel) SetReadDeadline(ti time.Time) (err error) {
+	t.mx.Lock()
+	defer t.mx.Unlock()
 	if ti.Before(t.readDeadline) {
 		err = fmt.Errorf("read deadline is before the original read deadline")
 		return
 	}
-	t.mx.Lock()
 	t.readDeadline = ti
-	t.mx.Unlock()
 	return
 }
 
-// SetWriteDeadline set write deadline of the tunnel
-func (t *tunnel) SetWriteDeadline(ti time.Time) (err error) {
+// SetWriteDeadline set write deadline of the Tunnel
+func (t *Tunnel) SetWriteDeadline(ti time.Time) (err error) {
+	t.mx.Lock()
+	defer t.mx.Unlock()
 	if ti.Before(t.writeDeadline) {
 		err = fmt.Errorf("write deadline is before the original write deadline")
 		return
 	}
-	t.mx.Lock()
 	t.writeDeadline = ti
-	t.mx.Unlock()
 	return
 }

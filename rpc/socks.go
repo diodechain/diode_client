@@ -477,8 +477,6 @@ func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, pro
 	return nil
 }
 
-//////////// EEEEEEEEND
-
 func writeSocksError(conn net.Conn, ver int, err byte) {
 	socksVer := byte(ver)
 	conn.Write([]byte{socksVer, err})
@@ -529,32 +527,27 @@ func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
 	socksServer.Client.Debug("host connect success @ %s", host)
 	writeSocksReturn(conn, ver, socksServer.Client.s.LocalAddr(), port)
 
-	// Copy local to remote
 	go netCopy(conn, remote)
-
-	// Copy remote to local
 	netCopy(remote, conn)
-	remote.Close()
 }
 
 func netCopy(input, output net.Conn) (err error) {
+	defer input.Close()
+
 	buf := make([]byte, readBufferSize)
 	for {
-		count, err := input.Read(buf)
-		if err != nil {
-			if err == io.EOF && count > 0 {
-				output.Write(buf[:count])
-			}
-			break
-		}
+		var count int
+		count, err = input.Read(buf)
 		if count > 0 {
-			_, err := output.Write(buf[:count])
+			_, err = output.Write(buf[:count])
 			if err != nil {
-				break
+				return
 			}
+		}
+		if err != nil {
+			return
 		}
 	}
-	return
 }
 
 func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *edge.DeviceTicket, port int, mode string) {

@@ -6,7 +6,6 @@ package rpc
 import (
 	"fmt"
 	"net"
-	"sync"
 
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/openssl"
@@ -14,10 +13,8 @@ import (
 
 // E2EServer represents a proxy server that port ssl connection to local resource connection
 type E2EServer struct {
-	mx       sync.Mutex
-	listener net.Listener
-	client   *RPCClient
-	peer     Address
+	client *RPCClient
+	peer   Address
 
 	remoteConn net.Conn
 	localConn  net.Conn
@@ -28,23 +25,12 @@ func (rpcClient *RPCClient) NewE2EServer(remoteConn net.Conn, peer Address) (e2e
 	e2eServer.remoteConn = remoteConn
 	e2eServer.peer = peer
 	e2eServer.client = rpcClient
-	rpcClient.Debug("Enable e2e tunnel")
+	rpcClient.Debug("Enable e2e Tunnel")
 	return
 }
 
-func (e2eServer *E2EServer) internalTunnels() (tunnelOpenssl *tunnel, tunnelDiode *tunnel) {
-	tunnelOpenssl = &tunnel{
-		input:  make(chan []byte, readBufferSize),
-		output: make(chan []byte, readBufferSize),
-	}
-	tunnelDiode = &tunnel{
-		input:  make(chan []byte, readBufferSize),
-		output: make(chan []byte, readBufferSize),
-	}
-	// copy tunnnel buffer
-	go tunnelCopy(tunnelOpenssl, tunnelDiode)
-	go tunnelCopy(tunnelDiode, tunnelOpenssl)
-
+func (e2eServer *E2EServer) internalTunnels() (tunnelOpenssl *Tunnel, tunnelDiode *Tunnel) {
+	tunnelOpenssl, tunnelDiode = NewTunnel()
 	e2eServer.localConn = tunnelDiode
 	return
 }
@@ -60,11 +46,10 @@ func (e2eServer *E2EServer) handshake(conn *openssl.Conn) (err error) {
 	return
 }
 
-// InternalServerConnect create tunnels to bridge openssl server connection to diode network
-func (e2eServer *E2EServer) InternalServerConnect() error {
+func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*openssl.Conn, error)) error {
 	ctx := e2eServer.ctx()
 	tunnelOpenssl, tunnelDiode := e2eServer.internalTunnels()
-	conn, err := openssl.Server(tunnelOpenssl, ctx)
+	conn, err := fn(tunnelOpenssl, ctx)
 	if err != nil {
 		tunnelOpenssl.Close()
 		tunnelDiode.Close()
@@ -76,40 +61,22 @@ func (e2eServer *E2EServer) InternalServerConnect() error {
 			conn.Close()
 			tunnelOpenssl.Close()
 			tunnelDiode.Close()
+			return
 		}
 		go netCopy(conn, e2eServer.remoteConn)
-		netCopy(e2eServer.remoteConn, conn)
-		conn.Close()
-		tunnelOpenssl.Close()
-		tunnelDiode.Close()
+		go netCopy(e2eServer.remoteConn, conn)
 	}()
 	return nil
 }
 
+// InternalServerConnect create tunnels to bridge openssl server connection to diode network
+func (e2eServer *E2EServer) InternalServerConnect() error {
+	return e2eServer.internalConnect(openssl.Server)
+}
+
 // InternalClientConnect create tunnels to bridge openssl client connection to diode network
 func (e2eServer *E2EServer) InternalClientConnect() error {
-	ctx := e2eServer.ctx()
-	tunnelOpenssl, tunnelDiode := e2eServer.internalTunnels()
-	conn, err := openssl.Client(tunnelOpenssl, ctx)
-	if err != nil {
-		tunnelOpenssl.Close()
-		tunnelDiode.Close()
-		return err
-	}
-	go func() {
-		if err = e2eServer.handshake(conn); err != nil {
-			e2eServer.Error(err.Error())
-			conn.Close()
-			tunnelOpenssl.Close()
-			tunnelDiode.Close()
-		}
-		go netCopy(conn, e2eServer.remoteConn)
-		netCopy(e2eServer.remoteConn, conn)
-		conn.Close()
-		tunnelOpenssl.Close()
-		tunnelDiode.Close()
-	}()
-	return nil
+	return e2eServer.internalConnect(openssl.Client)
 }
 
 func (e2eServer *E2EServer) ctx() *openssl.Ctx {
@@ -137,29 +104,8 @@ func (e2eServer *E2EServer) Error(msg string, args ...interface{}) {
 	e2eServer.client.logger.Error(fmt.Sprintf(msg, args...))
 }
 
-// Addr returns address that e2e server is listening to
-func (e2eServer *E2EServer) Addr() (addr net.Addr) {
-	addr = e2eServer.listener.Addr()
-	return
-}
-
 // Close e2e server
 func (e2eServer *E2EServer) Close() {
 	e2eServer.client.Debug("Close openssl server listener and release port")
 
-	e2eServer.mx.Lock()
-	defer e2eServer.mx.Unlock()
-
-	if e2eServer.localConn != nil {
-		e2eServer.localConn.Close()
-		e2eServer.localConn = nil
-	}
-	if e2eServer.remoteConn != nil {
-		e2eServer.remoteConn.Close()
-		e2eServer.remoteConn = nil
-	}
-	if e2eServer.listener != nil {
-		e2eServer.listener.Close()
-		e2eServer.listener = nil
-	}
 }
