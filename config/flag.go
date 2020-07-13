@@ -342,6 +342,10 @@ func parsePorts(portStrings []string, mode int) []*Port {
 		if mode == PrivatePublishedMode && len(v.Allowlist) == 0 {
 			wrongCommandLineFlag(fmt.Errorf("private port publishing reuquires providing at least one address"))
 		}
+		// limit fleet address size when publish protected port
+		if mode == ProtectedPublishedMode && len(v.Allowlist) > 5 {
+			wrongCommandLineFlag(fmt.Errorf("fleet address size should not exceeds 5 when publish protected port"))
+		}
 	}
 
 	return ports
