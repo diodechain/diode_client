@@ -5,6 +5,7 @@ package rpc
 
 import (
 	"bytes"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -16,7 +17,6 @@ type TunnelTest struct {
 // test purpose: net dial to one tunnel, the other channel should read the same data
 // when close one of connection(tunnel), the other should close also
 var (
-	bufferSize  = 1024
 	tunnelTests = []TunnelTest{
 		{
 			Bytes: []byte{1, 2, 3, 4, 5, 6},
@@ -32,17 +32,7 @@ var (
 )
 
 func TestReadAndWriteInTunnels(t *testing.T) {
-	tunnelA := &tunnel{
-		input:  make(chan []byte, bufferSize),
-		output: make(chan []byte, bufferSize),
-	}
-	tunnelB := &tunnel{
-		input:  make(chan []byte, bufferSize),
-		output: make(chan []byte, bufferSize),
-	}
-	// copy tunnnel
-	go tunnelCopy(tunnelA, tunnelB)
-	go tunnelCopy(tunnelB, tunnelA)
+	tunnelA, tunnelB := NewTunnel()
 	for _, v := range tunnelTests {
 		// write to a
 		n, err := tunnelA.Write(v.Bytes)
@@ -92,36 +82,17 @@ func TestReadAndWriteInTunnels(t *testing.T) {
 	for _, v := range tunnelTests {
 		// write to a
 		n, err := tunnelA.Write(v.Bytes)
-		if err != nil {
-			t.Fatal(err)
+		if err == nil {
+			t.Fatal(fmt.Errorf("Expected tunnel closed error"))
 		}
 		if n != 0 {
-			t.Errorf("Should not write buffer to closed tunnel, expected length: 0 got: %d", n)
+			t.Errorf("Should not write to closed tunnel, expected length: 0 got: %d", n)
 		}
 		// read from b
 		buf := make([]byte, len(v.Bytes))
 		n, err = tunnelB.Read(buf)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if n != 0 {
-			t.Errorf("Should not read buffer from closed tunnel, expected length: 0 got: %d", n)
-		}
-	}
-	for _, v := range tunnelTests {
-		// write to b
-		n, err := tunnelB.Write(v.Bytes)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if n != 0 {
-			t.Errorf("Should not write buffer to closed tunnel, expected length: 0 got: %d", n)
-		}
-		// read from a
-		buf := make([]byte, len(v.Bytes))
-		n, err = tunnelA.Read(buf)
-		if err != nil {
-			t.Fatal(err)
+		if err == nil {
+			t.Fatal(fmt.Errorf("Expected tunnel closed error"))
 		}
 		if n != 0 {
 			t.Errorf("Should not read buffer from closed tunnel, expected length: 0 got: %d", n)
@@ -130,10 +101,7 @@ func TestReadAndWriteInTunnels(t *testing.T) {
 }
 
 func TestSetWriteDeadlineOfTunnel(t *testing.T) {
-	tunnelA := &tunnel{
-		input:  make(chan []byte, 1),
-		output: make(chan []byte, 1),
-	}
+	tunnelA, _ := NewTunnel()
 	tunnelA.SetWriteDeadline(time.Now().Add(duration))
 	buf := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 0}
 	_, _ = tunnelA.Write(buf)
@@ -144,10 +112,7 @@ func TestSetWriteDeadlineOfTunnel(t *testing.T) {
 }
 
 func TestSetReadDeadlineOfTunnel(t *testing.T) {
-	tunnelA := &tunnel{
-		input:  make(chan []byte, 1),
-		output: make(chan []byte, 1),
-	}
+	tunnelA, _ := NewTunnel()
 	tunnelA.SetReadDeadline(time.Now().Add(duration))
 	buf := make([]byte, 10)
 	_, err := tunnelA.Read(buf)
@@ -157,10 +122,7 @@ func TestSetReadDeadlineOfTunnel(t *testing.T) {
 }
 
 func TestSetDeadlineOfTunnel(t *testing.T) {
-	tunnelA := &tunnel{
-		input:  make(chan []byte, 1),
-		output: make(chan []byte, 1),
-	}
+	tunnelA, _ := NewTunnel()
 	tunnelA.SetDeadline(time.Now().Add(duration))
 	buf := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 0}
 	_, _ = tunnelA.Write(buf)

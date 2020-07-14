@@ -100,15 +100,16 @@ func (conn *DeviceConn) copyLoop(client *RPCClient, ref string) (err error) {
 			return
 		}
 		count, err = conn.Conn.Read(buf)
-		if err != nil {
-			return
-		}
 		if count > 0 {
 			err = client.PortSend(ref, buf[:count])
 			if err != nil {
 				return
 			}
-		} else {
+		}
+		if err != nil {
+			return
+		}
+		if count == 0 {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
