@@ -8,6 +8,7 @@ import (
 	"path"
 )
 
+// DefaultDBPath returns default file path to diode private database
 func DefaultDBPath() string {
 	confgDir, err := os.UserConfigDir()
 	if err != nil {

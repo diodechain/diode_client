@@ -4,6 +4,7 @@ This is Go client for connecting device through the diodechain mesh network. You
 
 [![Build Status](https://travis-ci.com/diodechain/diode_go_client.svg?branch=master)](https://travis-ci.com/diodechain/diode_go_client)
 ![CI](https://github.com/diodechain/diode_go_client/workflows/CI/badge.svg)
+[![Go Report Card](https://goreportcard.com/badge/github.com/diodechain/diode_go_client)](https://goreportcard.com/report/github.com/diodechain/diode_go_client)
 
 # Usage
 

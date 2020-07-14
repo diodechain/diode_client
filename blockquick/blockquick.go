@@ -14,7 +14,7 @@ import (
 // Address represents an Ethereum address of a miner
 type Address = util.Address
 
-// Hash is a Sha3 hash
+// Sha3 is a Sha3 hash
 type Sha3 = crypto.Sha3
 
 // Window is a state
@@ -206,8 +206,8 @@ func (win *Window) validate(bs *BlockScore) {
 	}
 
 	visited := make(map[Address]bool)
-	var score int = 0
-	var depth int = 0
+	var score int
+	var depth int
 
 	for p := bs; p != nil && !p.isFinal; p = p.parent {
 		depth++

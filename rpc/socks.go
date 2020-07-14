@@ -202,7 +202,7 @@ func handShake5(conn net.Conn, buf []byte) (url string, err error) {
 		idVer   = 0
 		idCmd   = 1
 		idType  = 3 // address type index
-		idIP0   = 4 // ip addres start index
+		idIP0   = 4 // ip address start index
 		idDmLen = 4 // domain address length index
 		idDm0   = 5 // domain address start index
 

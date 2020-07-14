@@ -8,6 +8,7 @@ import (
 )
 
 // Response struct
+// Item represents key/value of response
 type Item struct {
 	Key   string
 	Value []byte
@@ -191,7 +192,7 @@ func findItemInItems(items interface{}, key string) (item Item, err error) {
 	switch val.Kind() {
 	case reflect.Slice:
 	case reflect.Array:
-		ok := false
+		var ok bool
 		i := 0
 		len := val.Len()
 		for ; i < len; i++ {

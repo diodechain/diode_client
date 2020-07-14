@@ -558,7 +558,7 @@ func (rpcClient *RPCClient) newTicket() (*edge.DeviceTicket, error) {
 		return nil, err
 	}
 	if !ticket.ValidateDeviceSig(rpcClient.Config.ClientAddr) {
-		return nil, fmt.Errorf("ticket not verifyable")
+		return nil, fmt.Errorf("ticket not verifiable")
 	}
 
 	return ticket, nil
