@@ -46,147 +46,147 @@ type DecodeBytesUintTest struct {
 
 var (
 	isHexTest = []IsHexTest{
-		IsHexTest{
+		{
 			Src: []byte{1},
 			Res: false,
 		},
-		IsHexTest{
+		{
 			Src: []byte("0x1234"),
 			Res: true,
 		},
-		IsHexTest{
+		{
 			Src: []byte("0X1234"),
 			Res: false,
 		},
-		IsHexTest{
+		{
 			Src: []byte("0xzxvn"),
 			Res: false,
 		},
 	}
 	isHexNumberTest = []IsHexNumberTest{
-		IsHexNumberTest{
+		{
 			Src: []byte{1},
 			Res: false,
 		},
-		IsHexNumberTest{
+		{
 			Src: []byte("0x1234"),
 			Res: false,
 		},
-		IsHexNumberTest{
+		{
 			Src: []byte("0X1234"),
 			Res: true,
 		},
-		IsHexNumberTest{
+		{
 			Src: []byte("0Xljhg"),
 			Res: false,
 		},
 	}
 	decodeStringTest = []DecodeStringTest{
-		DecodeStringTest{
+		{
 			Src: "0x01",
 			Res: []byte{1},
 		},
-		DecodeStringTest{
+		{
 			Src: "0x1234",
 			Res: []byte{18, 52},
 		},
 	}
 	isAddressTest = []IsAddressTest{
-		IsAddressTest{
+		{
 			Src: []byte{1},
 			Res: false,
 		},
-		IsAddressTest{
+		{
 			Src: []byte("0x937c492a77ae90de971986d003ffbc5f8bb2232C"),
 			Res: true,
 		},
-		IsAddressTest{
+		{
 			Src: []byte("0x937c492a77ae90de971986d003ffbc5f8bb2232c"),
 			Res: true,
 		},
-		IsAddressTest{
+		{
 			Src: []byte("0X937c492a77ae90de971986d003ffbc5f8bb2232c"),
 			Res: false,
 		},
-		IsAddressTest{
+		{
 			Src: []byte("937c492a77ae90de971986d003ffbc5f8bb2232c"),
 			Res: false,
 		},
 	}
 	decodeBytesIntTest = []DecodeBytesIntTest{
-		DecodeBytesIntTest{
+		{
 			Src: []byte{1},
 			Res: 1,
 		},
-		DecodeBytesIntTest{
+		{
 			Src: []byte{10},
 			Res: 10,
 		},
-		DecodeBytesIntTest{
+		{
 			Src: []byte{1, 0},
 			Res: 256,
 		},
-		DecodeBytesIntTest{
+		{
 			Src: []byte{1, 1, 0},
 			Res: 65792,
 		},
 	}
 	decodeBytesUintTest = []DecodeBytesUintTest{
-		DecodeBytesUintTest{
+		{
 			Src: []byte{1},
 			Res: 1,
 		},
-		DecodeBytesUintTest{
+		{
 			Src: []byte{10},
 			Res: 10,
 		},
-		DecodeBytesUintTest{
+		{
 			Src: []byte{1, 0},
 			Res: 256,
 		},
-		DecodeBytesUintTest{
+		{
 			Src: []byte{1, 1, 0},
 			Res: 65792,
 		},
 	}
 	isSubdomainTest = []IsSubdomainTest{
-		IsSubdomainTest{
+		{
 			Src: "0x937c492a77ae90de971986d003ffbc5f8bb2232C",
 			Res: true,
 		},
-		IsSubdomainTest{
+		{
 			Src: "937c492a77ae90de971986d003ffbc5f8bb2232C",
 			Res: false,
 		},
-		IsSubdomainTest{
+		{
 			Src: "Helloworld",
 			Res: true,
 		},
-		IsSubdomainTest{
+		{
 			Src: "Hello-world",
 			Res: true,
 		},
-		IsSubdomainTest{
+		{
 			Src: "Hell/oworld",
 			Res: false,
 		},
-		IsSubdomainTest{
+		{
 			Src: "Hell&oworld",
 			Res: false,
 		},
-		IsSubdomainTest{
+		{
 			Src: "Hell%oworld",
 			Res: false,
 		},
-		IsSubdomainTest{
+		{
 			Src: "Hell&oworld",
 			Res: false,
 		},
-		IsSubdomainTest{
+		{
 			Src: "Hell_oworld",
 			Res: false,
 		},
-		IsSubdomainTest{
+		{
 			Src: "Hell=oworld",
 			Res: false,
 		},

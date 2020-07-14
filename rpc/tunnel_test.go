@@ -18,13 +18,13 @@ type TunnelTest struct {
 var (
 	bufferSize  = 1024
 	tunnelTests = []TunnelTest{
-		TunnelTest{
+		{
 			Bytes: []byte{1, 2, 3, 4, 5, 6},
 		},
-		TunnelTest{
+		{
 			Bytes: []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 		},
-		TunnelTest{
+		{
 			Bytes: []byte{0, 0, 0, 0},
 		},
 	}

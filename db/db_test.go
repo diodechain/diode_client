@@ -19,19 +19,19 @@ var (
 	// should remove testdb after test
 	dbFilePath = "./test.db"
 	dbTests    = []DBTest{
-		DBTest{
+		{
 			Key:   "hello",
 			Value: []byte("world"),
 		},
-		DBTest{
+		{
 			Key:   "diode",
 			Value: []byte("blockchain"),
 		},
-		DBTest{
+		{
 			Key:   "decentralized",
 			Value: []byte("PKI"),
 		},
-		DBTest{
+		{
 			Key:   "ibtc",
 			Value: []byte("iot"),
 		},

@@ -39,25 +39,25 @@ type StringsContainTest struct {
 
 var (
 	paddingBytesSuffixTests = []PaddingBytesTest{
-		PaddingBytesTest{
+		{
 			Src:    []byte{1},
 			Pad:    0,
 			Length: 5,
 			Res:    []byte{1, 0, 0, 0, 0},
 		},
-		PaddingBytesTest{
+		{
 			Src:    []byte{1},
 			Pad:    1,
 			Length: 6,
 			Res:    []byte{1, 1, 1, 1, 1, 1},
 		},
-		PaddingBytesTest{
+		{
 			Src:    []byte{1},
 			Pad:    1,
 			Length: 0,
 			Res:    []byte{1},
 		},
-		PaddingBytesTest{
+		{
 			Src:    []byte{1, 2, 3, 4},
 			Pad:    0,
 			Length: 10,
@@ -65,25 +65,25 @@ var (
 		},
 	}
 	paddingBytesPrefixTests = []PaddingBytesTest{
-		PaddingBytesTest{
+		{
 			Src:    []byte{1},
 			Pad:    0,
 			Length: 5,
 			Res:    []byte{0, 0, 0, 0, 1},
 		},
-		PaddingBytesTest{
+		{
 			Src:    []byte{1},
 			Pad:    1,
 			Length: 6,
 			Res:    []byte{1, 1, 1, 1, 1, 1},
 		},
-		PaddingBytesTest{
+		{
 			Src:    []byte{1},
 			Pad:    1,
 			Length: 0,
 			Res:    []byte{1},
 		},
-		PaddingBytesTest{
+		{
 			Src:    []byte{1, 2, 3, 4},
 			Pad:    0,
 			Length: 8,
@@ -91,82 +91,82 @@ var (
 		},
 	}
 	intBytesTests = []IntBytesTest{
-		IntBytesTest{
+		{
 			Src:   1,
 			Bytes: []byte{1},
 		},
-		IntBytesTest{
+		{
 			Src:   100,
 			Bytes: []byte{100},
 		},
-		IntBytesTest{
+		{
 			Src:   256,
 			Bytes: []byte{1, 0},
 		},
-		IntBytesTest{
+		{
 			Src:   512,
 			Bytes: []byte{2, 0},
 		},
 	}
 	intBigTests = []IntBigTest{
-		IntBigTest{
+		{
 			Src:      1,
 			AddedOne: 2,
 			Bytes:    []byte{1},
 		},
-		IntBigTest{
+		{
 			Src:      100,
 			AddedOne: 101,
 			Bytes:    []byte{100},
 		},
-		IntBigTest{
+		{
 			Src:      256,
 			AddedOne: 257,
 			Bytes:    []byte{1, 0},
 		},
-		IntBigTest{
+		{
 			Src:      512,
 			AddedOne: 513,
 			Bytes:    []byte{2, 0},
 		},
 	}
 	emptyBytesTests = []EmptyBytesTest{
-		EmptyBytesTest{
+		{
 			Length: -1,
 			Bytes:  []byte{},
 		},
-		EmptyBytesTest{
+		{
 			Length: 0,
 			Bytes:  []byte{},
 		},
-		EmptyBytesTest{
+		{
 			Length: math.MaxInt64,
 			Bytes:  []byte{},
 		},
-		EmptyBytesTest{
+		{
 			Length: 10,
 			Bytes:  []byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 		},
-		EmptyBytesTest{
+		{
 			Length: 3,
 			Bytes:  []byte{0, 0, 0},
 		},
 	}
 	stringsContainSrc   = []string{"Lorem ipsum dolor sit amet", "consectetur adipiscing elit", "Cras pulvinar urna quam", "sit amet maximus nulla finibus id", "Vestibulum sit amet ante a lorem lobortis ullamcorper"}
 	stringsContainTests = []StringsContainTest{
-		StringsContainTest{
+		{
 			Pivot: "hello",
 			Res:   false,
 		},
-		StringsContainTest{
+		{
 			Pivot: "world",
 			Res:   false,
 		},
-		StringsContainTest{
+		{
 			Pivot: "Lorem ipsum dolor sit amet",
 			Res:   true,
 		},
-		StringsContainTest{
+		{
 			Pivot: "consectetur adipiscing elit",
 			Res:   true,
 		},
