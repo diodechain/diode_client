@@ -779,7 +779,7 @@ func (rpcClient *RPCClient) GetAccountRoots(blockNumber uint64, account [20]byte
 }
 
 func (rpcClient *RPCClient) ResolveBNS(name string) (addr Address, err error) {
-	rpcClient.Info("resolving DN: %s", name)
+	rpcClient.Info("Resolving DN: %s", name)
 	key := contract.DNSMetaKey(name)
 	raw, err := rpcClient.GetAccountValueRaw(0, contract.DNSAddr, key)
 	if err != nil {

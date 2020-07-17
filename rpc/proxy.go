@@ -114,7 +114,8 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 				return nil, nil
 			}
 			return &DeviceConn{
-				Conn: NewWSConn(conn),
+				Conn:       NewWSConn(conn),
+				bufferSize: sslBufferSize,
 			}, nil
 		}
 		hj, ok := w.(http.Hijacker)
@@ -138,7 +139,8 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 			return nil, nil
 		}
 		return &DeviceConn{
-			Conn: NewHTTPConn(header.Bytes(), conn),
+			Conn:       NewHTTPConn(header.Bytes(), conn),
+			bufferSize: sslBufferSize,
 		}, nil
 	})
 

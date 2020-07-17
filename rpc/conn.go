@@ -20,9 +20,10 @@ type ConnectedDevice struct {
 
 // DeviceConn connected net/websocket connection
 type DeviceConn struct {
-	Conn   net.Conn
-	closed bool
-	mx     sync.Mutex
+	Conn       net.Conn
+	closed     bool
+	mx         sync.Mutex
+	bufferSize int
 
 	// E2E
 	e2eServer *E2EServer
@@ -93,7 +94,7 @@ func (conn *DeviceConn) Close() error {
 }
 
 func (conn *DeviceConn) copyLoop(client *RPCClient, ref string) (err error) {
-	buf := make([]byte, readBufferSize)
+	buf := make([]byte, conn.bufferSize)
 	for {
 		var count int
 		if conn.closed {

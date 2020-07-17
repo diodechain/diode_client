@@ -117,7 +117,8 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			connDevice.DeviceID = portOpen.DeviceID
 			connDevice.Client = rpcClient
 			connDevice.Conn = &DeviceConn{
-				Conn: remoteConn,
+				Conn:       remoteConn,
+				bufferSize: sslBufferSize,
 			}
 
 			// For the E2E encryption we're wrapping remoteConn in TLS
@@ -130,9 +131,11 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 					return
 				}
 
+				// The buffer to copy to diode network should be the same with sslBufferSize
 				connDevice.Conn = &DeviceConn{
-					Conn:      e2eServer.localConn,
-					e2eServer: &e2eServer,
+					Conn:       e2eServer.localConn,
+					e2eServer:  &e2eServer,
+					bufferSize: sslBufferSize,
 				}
 			}
 
@@ -154,7 +157,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 		if cachedConnDevice != nil {
 			cachedConnDevice.Write(decData)
 		} else {
-			rpcClient.Warn("Cannot find the portsend connected device %x", portSend.Ref)
+			rpcClient.Debug("Cannot find the portsend connected device %x", portSend.Ref)
 			rpcClient.CastPortClose(portSend.Ref)
 		}
 	} else if portClose, ok := inboundRequest.(*edge.PortClose); ok {
@@ -164,7 +167,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			cachedConnDevice.Close()
 			rpcClient.pool.SetDevice(deviceKey, nil)
 		} else {
-			rpcClient.Warn("Cannot find the portclose connected device %x", portClose.Ref)
+			rpcClient.Debug("Cannot find the portclose connected device %x", portClose.Ref)
 		}
 	} else if goodbye, ok := inboundRequest.(edge.Goodbye); ok {
 		rpcClient.Warn("server disconnected, reason: %v", goodbye.Reason)

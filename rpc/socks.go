@@ -437,7 +437,7 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 
 func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, protocol int, mode string, fn func(*ConnectedDevice) (*DeviceConn, error)) error {
 	if protocol == config.TLSProtocol && strings.Contains(mode, "s") {
-		fmt.Printf("Using no encryption for shared connection %v\n", mode)
+		socksServer.Client.Info("Using no encryption for shared connection %v", mode)
 		protocol = config.TCPProtocol
 	}
 
@@ -464,9 +464,11 @@ func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, pro
 			return err
 		}
 
+		// The buffer to copy to diode network should be the same with sslBufferSize
 		connDevice.Conn = &DeviceConn{
-			Conn:      e2eServer.localConn,
-			e2eServer: &e2eServer,
+			Conn:       e2eServer.localConn,
+			e2eServer:  &e2eServer,
+			bufferSize: sslBufferSize,
 		}
 	}
 
@@ -527,14 +529,14 @@ func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
 	socksServer.Client.Debug("host connect success @ %s", host)
 	writeSocksReturn(conn, ver, socksServer.Client.s.LocalAddr(), port)
 
-	go netCopy(conn, remote)
-	netCopy(remote, conn)
+	go netCopy(conn, remote, sslBufferSize)
+	netCopy(remote, conn, sslBufferSize)
 }
 
-func netCopy(input, output net.Conn) (err error) {
+func netCopy(input, output net.Conn, bufferSize int) (err error) {
 	defer input.Close()
 
-	buf := make([]byte, readBufferSize)
+	buf := make([]byte, bufferSize)
 	for {
 		var count int
 		count, err = input.Read(buf)
@@ -560,7 +562,10 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *ed
 		// send data or receive data from ref
 		socksServer.Client.Debug("Connect remote success @ %s %s %v", clientIP, deviceID, port)
 		writeSocksReturn(conn, ver, socksServer.Client.s.LocalAddr(), port)
-		return &DeviceConn{Conn: conn}, nil
+		return &DeviceConn{
+			Conn:       conn,
+			bufferSize: sslBufferSize,
+		}, nil
 	})
 
 	if err != nil {
@@ -579,8 +584,8 @@ func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, device *
 
 	writeSocksReturn(conn, ver, remoteConn.LocalAddr(), port)
 
-	go netCopy(conn, remoteConn)
-	netCopy(remoteConn, conn)
+	go netCopy(conn, remoteConn, sslBufferSize)
+	netCopy(remoteConn, conn, sslBufferSize)
 }
 
 func (socksServer *Server) handleSocksConnection(conn net.Conn) {
@@ -768,7 +773,10 @@ func (socksServer *Server) forwardUDP(addr net.Addr, deviceName string, port int
 		if err != nil {
 			socksServer.Client.Error("forwardUDP error: PortSend(): %v", err)
 		}
-		return &DeviceConn{Conn: conn}, err
+		return &DeviceConn{
+			Conn:       conn,
+			bufferSize: sslBufferSize,
+		}, err
 	})
 
 	if err != nil {
@@ -880,7 +888,10 @@ func (socksServer *Server) startBind(bind *Bind) error {
 }
 func (socksServer *Server) handleBind(conn net.Conn, bind config.Bind) {
 	err := socksServer.connectDeviceAndLoop(bind.To, bind.ToPort, bind.Protocol, "rw", func(*ConnectedDevice) (*DeviceConn, error) {
-		return &DeviceConn{Conn: conn}, nil
+		return &DeviceConn{
+			Conn:       conn,
+			bufferSize: sslBufferSize,
+		}, nil
 	})
 
 	if err != nil {
