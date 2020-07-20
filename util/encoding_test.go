@@ -29,6 +29,11 @@ type IsSubdomainTest struct {
 	Res bool
 }
 
+type IsPortTest struct {
+	Src int
+	Res bool
+}
+
 type DecodeStringTest struct {
 	Src string
 	Res []byte
@@ -191,6 +196,24 @@ var (
 			Res: false,
 		},
 	}
+	isPortTest = []IsPortTest{
+		{
+			Src: 0,
+			Res: false,
+		},
+		{
+			Src: 1,
+			Res: true,
+		},
+		{
+			Src: 65535,
+			Res: true,
+		},
+		{
+			Src: 65536,
+			Res: false,
+		},
+	}
 )
 
 func TestIsHex(t *testing.T) {
@@ -221,6 +244,14 @@ func TestIsSubdomain(t *testing.T) {
 	for _, v := range isSubdomainTest {
 		if v.Res != IsSubdomain(v.Src) {
 			t.Errorf("Wrong result when call IsSubdomain")
+		}
+	}
+}
+
+func TestIsPort(t *testing.T) {
+	for _, v := range isPortTest {
+		if v.Res != IsPort(v.Src) {
+			t.Errorf("Wrong result when call IsPort")
 		}
 	}
 }

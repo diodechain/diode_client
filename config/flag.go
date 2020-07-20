@@ -254,6 +254,10 @@ func parseBind(bind string) (*Bind, error) {
 		return nil, fmt.Errorf("Bind local_port should be a number but is: %v in: %v", elements[0], bind)
 	}
 
+	if !util.IsPort(ret.LocalPort) {
+		return nil, fmt.Errorf("Bind local_port should be bigger than 1 and smaller than 65535")
+	}
+
 	if !util.IsSubdomain(ret.To) {
 		return nil, fmt.Errorf("Bind format to_address should be valid diode domain but got: %v", ret.To)
 	}
@@ -261,6 +265,10 @@ func parseBind(bind string) (*Bind, error) {
 	ret.ToPort, err = strconv.Atoi(elements[2])
 	if err != nil {
 		return nil, fmt.Errorf("Bind to_port should be a number but is: %v in: %v", elements[2], bind)
+	}
+
+	if !util.IsPort(ret.ToPort) {
+		return nil, fmt.Errorf("Bind to_port should be bigger than 1 and smaller than 65535")
 	}
 
 	if elements[3] == "tls" {
@@ -292,9 +300,15 @@ func parsePorts(portStrings []string, mode int) []*Port {
 				if err != nil {
 					wrongCommandLineFlag(fmt.Errorf("port number expected but got: %v in %v", portDef[1], segment))
 				}
+				if !util.IsPort(srcPort) {
+					wrongCommandLineFlag(fmt.Errorf("port number should be bigger than 1 and smaller than 65535"))
+				}
 				toPort, err := strconv.Atoi(portDef[2])
 				if err != nil {
 					wrongCommandLineFlag(fmt.Errorf("port number expected but got: %v in %v", portDef[2], segment))
+				}
+				if !util.IsPort(toPort) {
+					wrongCommandLineFlag(fmt.Errorf("port number should be bigger than 1 and smaller than 65535"))
 				}
 
 				port := &Port{

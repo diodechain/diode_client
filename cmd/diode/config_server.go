@@ -80,10 +80,7 @@ func isSubdomain(fl validator.FieldLevel) bool {
 
 func isPort(fl validator.FieldLevel) bool {
 	portNum := fl.Field().Int()
-	if portNum > 65535 || portNum < 1 {
-		return false
-	}
-	return true
+	return util.IsPort(int(portNum))
 }
 
 func isProtocol(fl validator.FieldLevel) bool {

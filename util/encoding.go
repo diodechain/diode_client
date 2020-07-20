@@ -81,9 +81,17 @@ func IsAddress(src []byte) bool {
 	return false
 }
 
-// IsBNS returns given string whether is a valid bns
+// IsBNS returns whether given string is a valid bns
 func IsSubdomain(src string) bool {
 	return subDomainpattern.MatchString(src)
+}
+
+// IsPort returns whether given integer is valid port
+func IsPort(src int) bool {
+	if src > 65535 || src < 1 {
+		return false
+	}
+	return true
 }
 
 func DecodeAddress(src string) (Address, error) {
