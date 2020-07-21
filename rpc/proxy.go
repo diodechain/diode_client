@@ -81,7 +81,7 @@ func internalError(w http.ResponseWriter, str string) {
 }
 
 func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request) {
-	proxyServer.socksServer.Client.Debug("got proxy request from: %s", r.RemoteAddr)
+	proxyServer.socksServer.Client.Debug("Got proxy request from: %s", r.RemoteAddr)
 	host := r.Host
 	if len(host) == 0 {
 		badRequest(w, "Host was wrong")

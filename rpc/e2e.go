@@ -58,18 +58,16 @@ func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*op
 		return err
 	}
 	go func() {
+		defer e2eServer.remoteConn.Close()
+		defer conn.Close()
+		defer tunnelOpenssl.Close()
+		defer tunnelDiode.Close()
 		if err = e2eServer.handshake(conn); err != nil {
 			e2eServer.Error(err.Error())
-			conn.Close()
-			tunnelOpenssl.Close()
-			tunnelDiode.Close()
 			return
 		}
 		go netCopy(conn, e2eServer.remoteConn, e2eBufferSize)
 		netCopy(e2eServer.remoteConn, conn, e2eBufferSize)
-		conn.Close()
-		tunnelOpenssl.Close()
-		tunnelDiode.Close()
 	}()
 	return nil
 }

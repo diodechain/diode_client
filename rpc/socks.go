@@ -523,6 +523,8 @@ func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
 		writeSocksError(conn, ver, socksRepNetworkUnreachable)
 		return
 	}
+	defer remote.Close()
+	defer conn.Close()
 
 	port := remote.RemoteAddr().(*net.TCPAddr).Port
 
@@ -534,8 +536,6 @@ func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
 }
 
 func netCopy(input, output net.Conn, bufferSize int) (err error) {
-	defer input.Close()
-
 	buf := make([]byte, bufferSize)
 	for {
 		var count int
@@ -581,6 +581,8 @@ func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, device *
 		writeSocksError(conn, ver, socksRepNetworkUnreachable)
 		return
 	}
+	defer remoteConn.Close()
+	defer conn.Close()
 
 	writeSocksReturn(conn, ver, remoteConn.LocalAddr(), port)
 

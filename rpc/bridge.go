@@ -227,12 +227,12 @@ func (rpcClient *RPCClient) handleInboundMessage(msg edge.Message) {
 			return
 		}
 		if call.Parse == nil {
-			rpcClient.Debug("no parse callback for rpc call id: %d, method: %s", call.id, call.method)
+			rpcClient.Debug("No parse callback for rpc call id: %d, method: %s", call.id, call.method)
 			return
 		}
 		res, err := call.Parse(msg.Buffer)
 		if err != nil {
-			rpcClient.Debug("cannot decode response: %s", err.Error())
+			rpcClient.Debug("Cannot decode response: %s", err.Error())
 			rpcError := edge.Error{
 				Message: err.Error(),
 			}
