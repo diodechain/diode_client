@@ -142,7 +142,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 					bufferSize: sslBufferSize,
 				}
 			}
-			rpcClient.Info("Bridge local resource :%d external :%d protocol :%s", portOpen.SrcPortNumber, portOpen.PortNumber, config.ProtocolName(portOpen.Protocol))
+			rpcClient.Debug("Bridge local resource :%d external :%d protocol :%s", portOpen.SrcPortNumber, portOpen.PortNumber, config.ProtocolName(portOpen.Protocol))
 
 			rpcClient.pool.SetDevice(deviceKey, connDevice)
 			_ = rpcClient.ResponsePortOpen(portOpen, nil)

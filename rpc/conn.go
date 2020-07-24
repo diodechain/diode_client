@@ -57,7 +57,7 @@ func (device *ConnectedDevice) Close() {
 	}
 
 	if device.Protocol > 0 {
-		device.Client.Info("Close local resource :%d external :%d protocol :%s", device.SrcPortNumber, device.PortNumber, config.ProtocolName(device.Protocol))
+		device.Client.Debug("Close local resource :%d external :%d protocol :%s", device.SrcPortNumber, device.PortNumber, config.ProtocolName(device.Protocol))
 	}
 
 	// send portclose request and channel
