@@ -31,13 +31,14 @@ type Error struct {
 }
 
 type PortOpen struct {
-	RequestID  uint64
-	Ref        string
-	Protocol   int
-	PortNumber int
-	DeviceID   Address
-	Ok         bool
-	Err        error
+	RequestID     uint64
+	Ref           string
+	Protocol      int
+	PortNumber    int
+	SrcPortNumber int
+	DeviceID      Address
+	Ok            bool
+	Err           error
 }
 
 type PortSend struct {

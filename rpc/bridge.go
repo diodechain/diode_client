@@ -93,11 +93,12 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			}
 
 			// TODO check that this format %x%x conforms with the read side
+			portOpen.SrcPortNumber = int(publishedPort.Src)
 			clientID := fmt.Sprintf("%x%x", portOpen.DeviceID, portOpen.Ref)
 			connDevice := &ConnectedDevice{}
 
 			// connect to stream service
-			host := net.JoinHostPort(localhost, strconv.Itoa(int(publishedPort.Src)))
+			host := net.JoinHostPort(localhost, strconv.Itoa(portOpen.SrcPortNumber))
 
 			network := "tcp"
 			if portOpen.Protocol == config.UDPProtocol {
@@ -113,6 +114,9 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 
 			deviceKey := rpcClient.GetDeviceKey(portOpen.Ref)
 			connDevice.Ref = portOpen.Ref
+			connDevice.Protocol = portOpen.Protocol
+			connDevice.PortNumber = portOpen.PortNumber
+			connDevice.SrcPortNumber = portOpen.SrcPortNumber
 			connDevice.ClientID = clientID
 			connDevice.DeviceID = portOpen.DeviceID
 			connDevice.Client = rpcClient
@@ -138,6 +142,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 					bufferSize: sslBufferSize,
 				}
 			}
+			rpcClient.Info("Bridge local resource :%d external :%d protocol :%s", portOpen.SrcPortNumber, portOpen.PortNumber, config.ProtocolName(portOpen.Protocol))
 
 			rpcClient.pool.SetDevice(deviceKey, connDevice)
 			_ = rpcClient.ResponsePortOpen(portOpen, nil)

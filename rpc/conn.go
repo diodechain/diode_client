@@ -7,15 +7,20 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/diodechain/diode_go_client/config"
 )
 
 // ConnectedDevice connected device
 type ConnectedDevice struct {
-	Ref      string
-	ClientID string
-	DeviceID Address
-	Conn     *DeviceConn
-	Client   *RPCClient
+	Ref           string
+	ClientID      string
+	Protocol      int
+	PortNumber    int
+	SrcPortNumber int
+	DeviceID      Address
+	Conn          *DeviceConn
+	Client        *RPCClient
 }
 
 // DeviceConn connected net/websocket connection
@@ -42,14 +47,22 @@ func (conn *DeviceConn) RemoteAddr() net.Addr {
 // Close the connection of device
 func (device *ConnectedDevice) Close() {
 	deviceKey := device.Client.GetDeviceKey(device.Ref)
-	// check if disconnect
+	// check whether is disconnected
 	if device.Client.s.pool.GetDevice(deviceKey) != nil {
 		device.Client.s.pool.SetDevice(deviceKey, nil)
 	}
 
-	device.Client.CastPortClose(device.Ref)
+	if device.Conn.Closed() {
+		return
+	}
+
+	if device.Protocol > 0 {
+		device.Client.Info("Close local resource :%d external :%d protocol :%s", device.SrcPortNumber, device.PortNumber, config.ProtocolName(device.Protocol))
+	}
 
 	// send portclose request and channel
+	device.Client.CastPortClose(device.Ref)
+
 	if device.Conn.Conn != nil {
 		device.Conn.Close()
 	}
@@ -75,6 +88,13 @@ func (device *ConnectedDevice) Write(data []byte) {
 }
 
 // Close the connection
+func (conn *DeviceConn) Closed() bool {
+	conn.mx.Lock()
+	defer conn.mx.Unlock()
+	return conn.closed
+}
+
+// Close the connection
 func (conn *DeviceConn) Close() error {
 	conn.mx.Lock()
 	defer conn.mx.Unlock()
@@ -82,7 +102,8 @@ func (conn *DeviceConn) Close() error {
 		return nil
 	}
 	if conn.Conn != nil {
-		conn.Conn.SetReadDeadline(time.Now().Add(time.Second))
+		// e2eServer close will also shut down tunnel
+		// conn.Conn.SetReadDeadline(time.Now().Add(time.Second))
 		conn.Conn.Close()
 	}
 	if conn.e2eServer != nil {
@@ -97,7 +118,7 @@ func (conn *DeviceConn) copyLoop(client *RPCClient, ref string) (err error) {
 	buf := make([]byte, conn.bufferSize)
 	for {
 		var count int
-		if conn.closed {
+		if conn.Closed() {
 			return
 		}
 		count, err = conn.Conn.Read(buf)
@@ -117,7 +138,7 @@ func (conn *DeviceConn) copyLoop(client *RPCClient, ref string) (err error) {
 }
 
 func (conn *DeviceConn) Write(data []byte) error {
-	if conn.closed {
+	if conn.Closed() {
 		return nil
 	}
 	_, err := conn.Conn.Write(data)
