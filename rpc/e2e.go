@@ -16,8 +16,9 @@ type E2EServer struct {
 	client *RPCClient
 	peer   Address
 
-	remoteConn net.Conn
-	localConn  net.Conn
+	remoteConn  net.Conn
+	localConn   net.Conn
+	opensslConn *openssl.Conn
 }
 
 // NewE2EServer returns e2e server rpcClient.Error(err.Error())
@@ -57,9 +58,8 @@ func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*op
 		tunnelDiode.Close()
 		return err
 	}
+	e2eServer.opensslConn = conn
 	go func() {
-		defer e2eServer.remoteConn.Close()
-		defer conn.Close()
 		defer tunnelOpenssl.Close()
 		defer tunnelDiode.Close()
 		if err = e2eServer.handshake(conn); err != nil {
@@ -109,6 +109,7 @@ func (e2eServer *E2EServer) Error(msg string, args ...interface{}) {
 
 // Close e2e server
 func (e2eServer *E2EServer) Close() {
-	e2eServer.client.Debug("Close openssl server listener and release port")
-
+	e2eServer.client.Debug("Close e2e connections")
+	e2eServer.remoteConn.Close()
+	e2eServer.opensslConn.Close()
 }
