@@ -1,0 +1,14 @@
+# Can be put into /etc/systemd/system/
+[Unit]
+Description=Diode blockchain network client
+
+[Service]
+Type=simple
+ExecStart=/home/pi/opt/diode/diode publish -public 22:22,80:80,3030:3030
+Restart=always
+User=pi
+
+[Install]
+WantedBy=multi-user.target
+
+
