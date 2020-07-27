@@ -284,7 +284,7 @@ func parseBind(bind string) (*Bind, error) {
 	return ret, nil
 }
 
-var portPattern = regexp.MustCompile(`^(\d+):(\d+)(:(tcp|tls|udp))?$`)
+var portPattern = regexp.MustCompile(`^(\d+)(:(\d*)(:(tcp|tls|udp))?)?$`)
 var accessPattern = regexp.MustCompile(`^0x[a-fA-F0-9]{40}$`)
 
 func parsePorts(portStrings []string, mode int) []*Port {
@@ -294,21 +294,27 @@ func parsePorts(portStrings []string, mode int) []*Port {
 		allowlist := make(map[Address]bool)
 		for _, segment := range segments {
 			portDef := portPattern.FindStringSubmatch(segment)
+			fmt.Printf("%+v (%v)\n", portDef, len(portDef))
 
-			if len(portDef) >= 3 {
+			if len(portDef) >= 2 {
 				srcPort, err := strconv.Atoi(portDef[1])
 				if err != nil {
-					wrongCommandLineFlag(fmt.Errorf("port number expected but got: %v in %v", portDef[1], segment))
+					wrongCommandLineFlag(fmt.Errorf("src port number expected but got: %v in %v", portDef[1], segment))
 				}
 				if !util.IsPort(srcPort) {
-					wrongCommandLineFlag(fmt.Errorf("port number should be bigger than 1 and smaller than 65535"))
+					wrongCommandLineFlag(fmt.Errorf("src port number should be bigger than 1 and smaller than 65535"))
 				}
-				toPort, err := strconv.Atoi(portDef[2])
-				if err != nil {
-					wrongCommandLineFlag(fmt.Errorf("port number expected but got: %v in %v", portDef[2], segment))
-				}
-				if !util.IsPort(toPort) {
-					wrongCommandLineFlag(fmt.Errorf("port number should be bigger than 1 and smaller than 65535"))
+				var toPort int
+				if len(portDef) < 4 || portDef[3] == "" {
+					toPort = srcPort
+				} else {
+					toPort, err = strconv.Atoi(portDef[3])
+					if err != nil {
+						wrongCommandLineFlag(fmt.Errorf("to port number expected but got: %v in %v", portDef[3], segment))
+					}
+					if !util.IsPort(toPort) {
+						wrongCommandLineFlag(fmt.Errorf("to port number should be bigger than 1 and smaller than 65535"))
+					}
 				}
 
 				port := &Port{
@@ -319,16 +325,19 @@ func parsePorts(portStrings []string, mode int) []*Port {
 					Allowlist: allowlist,
 				}
 
-				if len(portDef) >= 5 {
-					if portDef[4] == "tls" {
+				if len(portDef) >= 6 {
+					switch portDef[5] {
+					case "tls":
 						port.Protocol = TLSProtocol
-					} else if portDef[4] == "tcp" {
+					case "tcp":
 						port.Protocol = TCPProtocol
-					} else if portDef[4] == "udp" {
+					case "udp":
 						port.Protocol = UDPProtocol
-					} else if portDef[4] == "any" || portDef[4] == "" {
+					case "any":
 						port.Protocol = AnyProtocol
-					} else {
+					case "":
+						port.Protocol = AnyProtocol
+					default:
 						wrongCommandLineFlag(fmt.Errorf("port unknown protocol %v in: %v", portDef[4], segment))
 					}
 				}
