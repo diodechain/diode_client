@@ -353,7 +353,7 @@ func (rpcClient *RPCClient) watchLatestBlock() {
 			mx.Lock()
 			if bq == nil {
 				mx.Unlock()
-				return
+				continue
 			}
 			if lastblock == 0 {
 				lastblock, _ = bq.Last()
@@ -367,7 +367,7 @@ func (rpcClient *RPCClient) watchLatestBlock() {
 			blockNumMax := blockPeak - confirmationSize
 			if lastblock >= blockNumMax {
 				// Nothing to do
-				return
+				continue
 			}
 
 			for num := lastblock + 1; num <= blockNumMax; num++ {

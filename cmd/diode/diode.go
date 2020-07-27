@@ -620,10 +620,25 @@ func doBNS(cfg *config.Config, client *rpc.RPCClient) (status int) {
 			status = 129
 			return
 		}
-		printLabel("Register bns: ", bnsName)
-		printInfo("Waiting for block to be confirmed - this can take up to a minute")
-		watchAccount(client, contract.DNSAddr)
-		printInfo("Register bns successfully")
+		printLabel("Register bns: ", fmt.Sprintf("%s=%s", bnsName, bnsAddr.HexString()))
+		printInfo("Waiting for block to be confirmed - expect to wait 5 minutes")
+		for i := 0; i < 6000; i++ {
+			bn, _ = rpc.LastValid()
+			current, err := client.ResolveBNS(bnsName)
+			if err == nil && current == bnsAddr {
+				printInfo("Registered bns successfully")
+				return
+			}
+			for {
+				bn2, _ := rpc.LastValid()
+				if bn != bn2 {
+					break
+				}
+				time.Sleep(time.Millisecond * 100)
+			}
+		}
+		printError("Giving up to wait for transaction", fmt.Errorf("timeout after 10 minutes"))
+		status = 129
 	}
 
 	if len(lookupName) > 0 {
