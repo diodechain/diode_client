@@ -572,13 +572,13 @@ func doBNS(cfg *config.Config, client *rpc.RPCClient) (status int) {
 	registerPair := strings.Split(cfg.BNSRegister, "=")
 	lookupName := cfg.BNSLookup
 
-	if len(registerPair) != 2 && len(lookupName) == 0 {
-		printError("Argument Error: ", fmt.Errorf("provide -register <name>:<address> or -lookup <name> argument"))
+	if (len(registerPair) == 0 || len(registerPair) > 2) && len(lookupName) == 0 {
+		printError("Argument Error: ", fmt.Errorf("provide -register <name>=<address> or -lookup <name> argument"))
 		status = 129
 		return
 	}
 
-	if len(registerPair) == 2 {
+	if len(registerPair) > 0 {
 		act, _ := client.GetValidAccount(uint64(bn), cfg.ClientAddr)
 		if act == nil {
 			nonce = 0
@@ -586,17 +586,22 @@ func doBNS(cfg *config.Config, client *rpc.RPCClient) (status int) {
 			nonce = uint64(act.Nonce)
 		}
 		bnsName := registerPair[0]
-		bnsAddr, err := util.DecodeAddress(registerPair[1])
-		if err != nil {
-			printError("Wrong diode address", err)
-			status = 129
-			return
+		var bnsAddr util.Address
+		if len(registerPair) > 1 {
+			bnsAddr, err = util.DecodeAddress(registerPair[1])
+			if err != nil {
+				printError("Invalid diode address", err)
+				status = 129
+				return
+			}
+		} else {
+			bnsAddr = cfg.ClientAddr
 		}
 		// check bns
 		obnsAddr, err := client.ResolveBNS(bnsName)
 		if err == nil {
 			if obnsAddr == bnsAddr {
-				printError("Same diode address on blockchain", err)
+				printError("BNS name is already mapped to this address", err)
 				status = 129
 				return
 			}
