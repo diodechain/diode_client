@@ -74,7 +74,7 @@ func (device *ConnectedDevice) copyLoop() {
 	err := device.Conn.copyLoop(device.Client, device.Ref)
 	if err != nil {
 		device.Client.Debug("copyLoop failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
-		device.Close()
+		device.Conn.Close()
 	}
 }
 
@@ -83,7 +83,6 @@ func (device *ConnectedDevice) Write(data []byte) {
 	err := device.Conn.Write(data)
 	if err != nil {
 		device.Client.Debug("Write failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
-		device.Close()
 	}
 }
 

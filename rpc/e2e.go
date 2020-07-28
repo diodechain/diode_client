@@ -6,6 +6,7 @@ package rpc
 import (
 	"fmt"
 	"net"
+	"time"
 
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/openssl"
@@ -19,19 +20,21 @@ type E2EServer struct {
 	remoteConn  net.Conn
 	localConn   net.Conn
 	opensslConn *openssl.Conn
+	timeout     time.Duration
 }
 
 // NewE2EServer returns e2e server rpcClient.Error(err.Error())
-func (rpcClient *RPCClient) NewE2EServer(remoteConn net.Conn, peer Address) (e2eServer E2EServer) {
+func (rpcClient *RPCClient) NewE2EServer(remoteConn net.Conn, peer Address, timeout time.Duration) (e2eServer E2EServer) {
 	e2eServer.remoteConn = remoteConn
 	e2eServer.peer = peer
 	e2eServer.client = rpcClient
+	e2eServer.timeout = timeout
 	rpcClient.Debug("Enable e2e Tunnel")
 	return
 }
 
 func (e2eServer *E2EServer) internalTunnels() (tunnelOpenssl *Tunnel, tunnelDiode *Tunnel) {
-	tunnelOpenssl, tunnelDiode = NewTunnel()
+	tunnelOpenssl, tunnelDiode = NewTunnel(e2eServer.timeout)
 	e2eServer.localConn = tunnelDiode
 	return
 }
@@ -62,6 +65,7 @@ func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*op
 	go func() {
 		defer tunnelOpenssl.Close()
 		defer tunnelDiode.Close()
+		defer e2eServer.remoteConn.Close()
 		if err = e2eServer.handshake(conn); err != nil {
 			e2eServer.Error(err.Error())
 			return

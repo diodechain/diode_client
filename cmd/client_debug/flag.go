@@ -5,7 +5,6 @@ package main
 
 import (
 	"flag"
-	"fmt"
 	"net"
 	"strconv"
 )
@@ -54,10 +53,10 @@ func (cfg *Config) SocksServerAddr() string {
 
 // ProxyServerAddr returns proxy server address
 func (cfg *Config) ProxyServerAddr() string {
-	return fmt.Sprintf("%s:%d", cfg.ProxyServerHost, cfg.ProxyServerPort)
+	return net.JoinHostPort(cfg.ProxyServerHost, strconv.Itoa(cfg.ProxyServerPort))
 }
 
 // SProxyServerAddr returns secure proxy server address
 func (cfg *Config) SProxyServerAddr() string {
-	return fmt.Sprintf("%s:%d", cfg.SProxyServerHost, cfg.SProxyServerPort)
+	return net.JoinHostPort(cfg.SProxyServerHost, strconv.Itoa(cfg.SProxyServerPort))
 }

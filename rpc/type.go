@@ -49,7 +49,7 @@ type TimeoutError struct {
 }
 
 func (e TimeoutError) Error() string {
-	return fmt.Sprintf("remote procedure call timeout: %s", e.Timeout)
+	return fmt.Sprintf("remote timeout: %s", e.Timeout)
 }
 
 // ReconnectError is struct for reconnect error

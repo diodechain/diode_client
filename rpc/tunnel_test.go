@@ -32,7 +32,7 @@ var (
 )
 
 func TestReadAndWriteInTunnels(t *testing.T) {
-	tunnelA, tunnelB := NewTunnel()
+	tunnelA, tunnelB := NewTunnel(0)
 	for _, v := range tunnelTests {
 		// write to a
 		n, err := tunnelA.Write(v.Bytes)
@@ -101,39 +101,52 @@ func TestReadAndWriteInTunnels(t *testing.T) {
 }
 
 func TestSetWriteDeadlineOfTunnel(t *testing.T) {
-	tunnelA, _ := NewTunnel()
+	tunnelA, _ := NewTunnel(0)
 	tunnelA.SetWriteDeadline(time.Now().Add(duration))
 	buf := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 0}
 	_, _ = tunnelA.Write(buf)
-	_, err := tunnelA.Write(buf)
-	if err == nil || err.Error() != "send to tunnel timeout" {
+	_, err := tunnelA.Write(
+		buf)
+	if err == nil {
+		t.Errorf("Write should return timeout error")
+	}
+	if _, ok := err.(TimeoutError); !ok {
 		t.Errorf("Write should return timeout error")
 	}
 }
 
 func TestSetReadDeadlineOfTunnel(t *testing.T) {
-	tunnelA, _ := NewTunnel()
+	tunnelA, _ := NewTunnel(0)
 	tunnelA.SetReadDeadline(time.Now().Add(duration))
 	buf := make([]byte, 10)
 	_, err := tunnelA.Read(buf)
-	if err == nil || err.Error() != "read from tunnel timeout" {
+	if err == nil {
+		t.Errorf("Read should return timeout error")
+	}
+	if _, ok := err.(TimeoutError); !ok {
 		t.Errorf("Read should return timeout error")
 	}
 }
 
 func TestSetDeadlineOfTunnel(t *testing.T) {
-	tunnelA, _ := NewTunnel()
+	tunnelA, _ := NewTunnel(0)
 	tunnelA.SetDeadline(time.Now().Add(duration))
 	buf := []byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 0}
 	_, _ = tunnelA.Write(buf)
 	_, err := tunnelA.Write(buf)
-	if err == nil || err.Error() != "send to tunnel timeout" {
+	if err == nil {
+		t.Errorf("Write should return timeout error")
+	}
+	if _, ok := err.(TimeoutError); !ok {
 		t.Errorf("Write should return timeout error")
 	}
 
 	tunnelA.SetDeadline(time.Now().Add(duration))
 	_, err = tunnelA.Read(buf)
-	if err == nil || err.Error() != "read from tunnel timeout" {
+	if err == nil {
+		t.Errorf("Read should return timeout error")
+	}
+	if _, ok := err.(TimeoutError); !ok {
 		t.Errorf("Read should return timeout error")
 	}
 }

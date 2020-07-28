@@ -445,7 +445,6 @@ func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, pro
 	if err != nil {
 		return err
 	}
-	defer connDevice.Close()
 	deviceKey := connDevice.Client.GetDeviceKey(connDevice.Ref)
 
 	conn, err := fn(connDevice)
@@ -457,7 +456,7 @@ func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, pro
 	connDevice.ClientID = conn.Conn.RemoteAddr().String()
 
 	if protocol == config.TLSProtocol {
-		e2eServer := socksServer.Client.NewE2EServer(conn.Conn, connDevice.DeviceID)
+		e2eServer := socksServer.Client.NewE2EServer(conn.Conn, connDevice.DeviceID, 2*time.Second)
 		err := e2eServer.InternalClientConnect()
 		if err != nil {
 			socksServer.Client.Error("Failed to tunnel openssl client: %v", err.Error())
@@ -476,6 +475,7 @@ func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, pro
 
 	// write request data to device
 	connDevice.copyLoop()
+	connDevice.Close()
 	return nil
 }
 
@@ -539,8 +539,10 @@ func netCopy(input, output net.Conn, bufferSize int) (err error) {
 	buf := make([]byte, bufferSize)
 	for {
 		var count int
+		input.SetReadDeadline(time.Now().Add(2 * time.Second))
 		count, err = input.Read(buf)
 		if count > 0 {
+			output.SetWriteDeadline(time.Now().Add(2 * time.Second))
 			_, err = output.Write(buf[:count])
 			if err != nil {
 				return

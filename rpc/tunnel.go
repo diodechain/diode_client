@@ -5,6 +5,7 @@ package rpc
 
 import (
 	"fmt"
+	"io"
 	"net"
 	"sync"
 	"time"
@@ -16,22 +17,23 @@ func readFromTunnel(input chan []byte, d time.Duration) (buf []byte, err error) 
 		select {
 		case buf, ok = <-input:
 			if !ok {
-				err = fmt.Errorf("tunnel has been closed")
-				return
+				err = io.EOF
 			}
+			return
 		case <-time.After(d):
-			err = fmt.Errorf("read from tunnel timeout")
+			err = TimeoutError{d}
 			return
 		}
 	}
 	buf, ok = <-input
 	if !ok {
-		err = fmt.Errorf("tunnel has been closed")
+		err = io.EOF
 		return
 	}
 	return
 }
 
+// TODO: send to closed channel
 func sendToTunnel(output chan []byte, buf []byte, d time.Duration) (err error) {
 	if len(buf) == 0 {
 		return
@@ -41,8 +43,8 @@ func sendToTunnel(output chan []byte, buf []byte, d time.Duration) (err error) {
 		case output <- buf:
 			return
 		case <-time.After(d):
-			// this should never happen
-			err = fmt.Errorf("send to tunnel timeout")
+			// return this when the channel is blocked till timeout
+			err = TimeoutError{d}
 			return
 		}
 	}
@@ -51,7 +53,7 @@ func sendToTunnel(output chan []byte, buf []byte, d time.Duration) (err error) {
 }
 
 // NewTunnel returns a newly created Tunnel
-func NewTunnel() (begin *Tunnel, end *Tunnel) {
+func NewTunnel(tickerTime time.Duration) (begin *Tunnel, end *Tunnel) {
 	size := 1
 	begin = &Tunnel{
 		input:  make(chan []byte, size),
@@ -61,6 +63,28 @@ func NewTunnel() (begin *Tunnel, end *Tunnel) {
 		input:  begin.output,
 		output: begin.input,
 	}
+	// watch tunnels
+	go func(tickerTime time.Duration) {
+		if tickerTime <= 0 {
+			return
+		}
+		ticker := time.NewTicker(tickerTime)
+		for {
+			<-ticker.C
+			if begin.Closed() {
+				if !end.Closed() {
+					end.Close()
+				}
+				ticker.Stop()
+				return
+			}
+			if end.Closed() {
+				begin.Close()
+				ticker.Stop()
+				return
+			}
+		}
+	}(tickerTime)
 	return
 }
 
@@ -87,13 +111,16 @@ func (t *Tunnel) Close() (err error) {
 		return
 	}
 	t.closed = true
-	close(t.output)
 	return
 }
 
 // Read from the Tunnel input buffer
 func (t *Tunnel) Read(b []byte) (n int, err error) {
 	if len(b) == 0 {
+		return
+	}
+	if t.Closed() {
+		err = fmt.Errorf("tunnel has been closed")
 		return
 	}
 
@@ -113,8 +140,7 @@ func (t *Tunnel) Write(b []byte) (n int, err error) {
 	if len(b) == 0 {
 		return
 	}
-
-	if t.closed {
+	if t.Closed() {
 		err = fmt.Errorf("tunnel has been closed")
 		return
 	}

@@ -127,7 +127,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 
 			// For the E2E encryption we're wrapping remoteConn in TLS
 			if portOpen.Protocol == config.TLSProtocol {
-				e2eServer := rpcClient.NewE2EServer(remoteConn, portOpen.DeviceID)
+				e2eServer := rpcClient.NewE2EServer(remoteConn, portOpen.DeviceID, 2*time.Second)
 				err := e2eServer.InternalServerConnect()
 				if err != nil {
 					_ = rpcClient.ResponsePortOpen(portOpen, err)
@@ -148,7 +148,6 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			_ = rpcClient.ResponsePortOpen(portOpen, nil)
 
 			connDevice.copyLoop()
-			connDevice.Close()
 		}()
 	} else if portSend, ok := inboundRequest.(*edge.PortSend); ok {
 		if portSend.Err != nil {
