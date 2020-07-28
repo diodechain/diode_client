@@ -101,6 +101,7 @@ type Config struct {
 	Blocklists              map[Address]bool `yaml:"-" json:"-"`
 	Allowlists              map[Address]bool `yaml:"-" json:"-"`
 	LogMode                 int              `yaml:"-" json:"-"`
+	LogDateTime             bool             `yaml:"-" json:"-"`
 	Logger                  log.Logger       `yaml:"-" json:"-"`
 	ConfigFilePath          string           `yaml:"-" json:"-"`
 	Binds                   []Bind           `yaml:"-" json:"-"`
@@ -224,10 +225,10 @@ func newLogger(cfg *Config) log.Logger {
 	var logHandler log.Handler
 	logger := log.New()
 	if (cfg.LogMode & LogToConsole) > 0 {
-		logHandler = log.StreamHandler(os.Stderr, log.TerminalFormat())
+		logHandler = log.StreamHandler(os.Stderr, log.TerminalFormat(cfg.LogDateTime))
 	} else if (cfg.LogMode & LogToFile) > 0 {
 		var err error
-		logHandler, err = log.FileHandler(cfg.LogFilePath, log.TerminalFormat())
+		logHandler, err = log.FileHandler(cfg.LogFilePath, log.TerminalFormat(cfg.LogDateTime))
 		if err != nil {
 			panicWithError(err)
 		}
@@ -446,6 +447,7 @@ func ParseFlag() {
 	flag.StringVar(&cfg.APIServerAddr, "apiaddr", "localhost:1081", "define config api server address")
 	flag.IntVar(&cfg.RlimitNofile, "rlimit_nofile", 0, "specify the file descriptor numbers that can be opened by this process")
 	flag.StringVar(&cfg.LogFilePath, "logfilepath", "", "file path to log file")
+	flag.BoolVar(&cfg.LogDateTime, "logdatetime", false, "show the date time in log")
 	flag.StringVar(&cfg.ConfigFilePath, "configpath", "", "yaml file path to config file")
 	flag.StringVar(&cfg.CPUProfile, "cpuprofile", "", "file path for cpu profiling")
 	flag.StringVar(&cfg.MEMProfile, "memprofile", "", "file path for memory profiling")
