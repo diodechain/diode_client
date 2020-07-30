@@ -295,7 +295,7 @@ func parsePorts(portStrings []string, mode int) []*Port {
 		allowlist := make(map[Address]bool)
 		for _, segment := range segments {
 			portDef := portPattern.FindStringSubmatch(segment)
-			fmt.Printf("%+v (%v)\n", portDef, len(portDef))
+			// fmt.Printf("%+v (%v)\n", portDef, len(portDef))
 
 			if len(portDef) >= 2 {
 				srcPort, err := strconv.Atoi(portDef[1])

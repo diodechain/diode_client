@@ -344,35 +344,46 @@ func (configAPIServer ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrite
 			}
 			if len(c.Binds) >= 0 {
 				binds := []string{}
-				binded := make(map[int]string)
+				binded := make(map[int]map[int]config.Bind)
 				for _, b := range configAPIServer.appConfig.Binds {
-					binded[b.LocalPort] += config.ProtocolName(b.Protocol)
+					binded[b.LocalPort] = make(map[int]config.Bind)
+					binded[b.LocalPort][b.Protocol] = b
 				}
 				for _, b := range c.Binds {
 					var bindIden string
-					if len(b.Protocol) > 0 {
-						if b.Protocol == "any" {
+					protocolIden := config.ProtocolIdentifier(b.Protocol)
+					if protocolIden > 0 {
+						if protocolIden == config.AnyProtocol {
 							continue
 						}
-						if len(binded[b.LocalPort]) > 0 {
-							if strings.Contains(binded[b.LocalPort], b.Protocol) {
-								continue
-							}
-							if b.Protocol == "tcp" && strings.Contains(binded[b.LocalPort], "tls") {
-								continue
-							}
-							if b.Protocol == "tls" && strings.Contains(binded[b.LocalPort], "tcp") {
+						if bb, ok := binded[b.LocalPort][protocolIden]; ok {
+							if bb.To == b.Remote && bb.ToPort == b.RemotePort {
 								continue
 							}
 						}
-						binded[b.LocalPort] += b.Protocol
 						bindIden = fmt.Sprintf("%d:%s:%d:%s", b.LocalPort, b.Remote, b.RemotePort, b.Protocol)
 					} else {
 						// default is tls
-						binded[b.LocalPort] += "tls"
+						protocolIden = config.TLSProtocol
 						bindIden = fmt.Sprintf("%d:%s:%d", b.LocalPort, b.Remote, b.RemotePort)
 					}
-					if !util.StringsContain(binds, &bindIden) {
+					if protocolIden == config.TCPProtocol {
+						if _, ok := binded[b.LocalPort][config.TLSProtocol]; ok {
+							continue
+						}
+					}
+					if protocolIden == config.TLSProtocol {
+						if _, ok := binded[b.LocalPort][config.TCPProtocol]; ok {
+							continue
+						}
+					}
+					binded[b.LocalPort][protocolIden] = config.Bind{
+						To:        b.Remote,
+						ToPort:    b.RemotePort,
+						LocalPort: b.LocalPort,
+						Protocol:  protocolIden,
+					}
+					if !util.StringsContain(configAPIServer.appConfig.SBinds, &bindIden) {
 						binds = append(binds, bindIden)
 					}
 				}
