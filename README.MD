@@ -1,10 +1,13 @@
 # Diode go client
-
-This is Go client for connecting device through the diodechain mesh network. You can find more details about how diode and its client works in our previous presentations https://github.com/diodechain/presentations and on https://diode.io
-
 [![Build Status](https://travis-ci.com/diodechain/diode_go_client.svg?branch=master)](https://travis-ci.com/diodechain/diode_go_client)
 ![CI](https://github.com/diodechain/diode_go_client/workflows/CI/badge.svg)
 [![Go Report Card](https://goreportcard.com/badge/github.com/diodechain/diode_go_client)](https://goreportcard.com/report/github.com/diodechain/diode_go_client)
+
+This is Go client for connecting device through the diodechain mesh network. You can bridge your local resource to the internet with diodechain mesh network. The whole data will be encrypted with ecdh (secp256k1). You can find more details about how diode and its client works in our previous presentations https://github.com/diodechain/presentations and on https://diode.io
+
+![Conceptual diagram](docs/diode.png)
+
+*Conceptual diagram for diode*
 
 # Usage
 
