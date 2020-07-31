@@ -836,7 +836,7 @@ func (socksServer *Server) stopBind(bind *Bind) {
 func (socksServer *Server) startBind(bind *Bind) error {
 	var err error
 	address := net.JoinHostPort(localhost, strconv.Itoa(bind.def.LocalPort))
-	socksServer.Client.Info("Starting port bind %s", address)
+	socksServer.Client.Debug("Starting port bind %s", address)
 	switch bind.def.Protocol {
 	case config.UDPProtocol:
 		if bind.udp != nil {

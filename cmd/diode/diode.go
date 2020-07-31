@@ -250,11 +250,14 @@ func diode() (status int) {
 
 func processConfig(cfg *config.Config) {
 	if len(cfg.PublishedPorts) > 0 {
-		printLabel("", "")
+		printInfo("")
 		pool.SetPublishedPorts(cfg.PublishedPorts)
 		for _, port := range cfg.PublishedPorts {
 			if port.To == 80 {
-				printLabel("Http Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", cfg.ClientAddr.HexString()))
+				if port.Mode == config.PublicPublishedMode {
+					printLabel("Http Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", cfg.ClientAddr.HexString()))
+				}
+				break
 			}
 		}
 		printLabel("Port      <name>", "<extern>     <mode>    <protocol>     <allowlist>")
@@ -305,7 +308,14 @@ func processConfig(cfg *config.Config) {
 		proxyServer.Close()
 	}
 
-	socksServer.SetBinds(cfg.Binds)
+	if len(cfg.Binds) > 0 {
+		socksServer.SetBinds(cfg.Binds)
+		printInfo("")
+		printLabel("Bind      <name>", "<mode>     <remote>")
+		for _, bind := range cfg.Binds {
+			printLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
+		}
+	}
 
 	if cfg.EnableAPIServer {
 		configAPIServer.SetAddr(cfg.APIServerAddr)
