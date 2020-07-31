@@ -1,0 +1,14 @@
+# Can be put into /etc/systemd/system/
+[Unit]
+Description=Raspivid video stream
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/raspivid -t 0 -w 320 -h 180 -fps 12 -n -l -o tcp://127.0.0.1:3030 -pf baseline -rot 90
+Restart=always
+User=pi
+
+[Install]
+WantedBy=multi-user.target
+
+
