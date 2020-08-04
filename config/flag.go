@@ -55,6 +55,7 @@ type Address = util.Address
 type Config struct {
 	DBPath                  string           `yaml:"dbpath,omitempty" json:"dbpath,omitempty"`
 	Debug                   bool             `yaml:"debug,omitempty" json:"debug,omitempty"`
+	EnableUpdate            bool             `yaml:"update,omitempty" json:"update,omitempty"`
 	EnableMetrics           bool             `yaml:"metrics,omitempty" json:"metrics,omitempty"`
 	EnableKeepAlive         bool             `yaml:"keepalive,omitempty" json:"keepalive,omitempty"`
 	KeepAliveCount          int              `yaml:"keepalivecount,omitempty" json:"keepalivecount,omitempty"`
@@ -441,6 +442,7 @@ func ParseFlag() {
 
 	flag.StringVar(&cfg.DBPath, "dbpath", util.DefaultDBPath(), "file path to db file")
 	flag.IntVar(&cfg.RetryTimes, "retrytimes", 3, "retry times to connect the remote rpc server")
+	flag.BoolVar(&cfg.EnableUpdate, "update", false, "enable update when start diode")
 	flag.BoolVar(&cfg.EnableMetrics, "metrics", false, "enable metrics stats")
 	flag.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
 	flag.BoolVar(&cfg.EnableAPIServer, "api", false, "turn on the config api")

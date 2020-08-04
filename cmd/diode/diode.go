@@ -63,7 +63,7 @@ func diode() (status int) {
 	}
 	db.DB = clidb
 
-	if version != "development" {
+	if version != "development" && cfg.EnableUpdate {
 		var lastUpdateAtByt []byte
 		var lastUpdateAt time.Time
 		var shouldUpdateDiode bool
