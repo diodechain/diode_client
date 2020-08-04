@@ -30,6 +30,7 @@ import (
 
 var (
 	version         string = "development"
+	buildTime       string
 	socksServer     *rpc.Server
 	proxyServer     *rpc.ProxyServer
 	configAPIServer *ConfigAPIServer
@@ -52,7 +53,7 @@ func diode() (status int) {
 	cfg := config.AppConfig
 	pool = rpc.NewPool()
 
-	printLabel("Diode Client version", version)
+	printLabel("Diode Client version", fmt.Sprintf("%s %s", version, buildTime))
 
 	// Initialize db
 	clidb, err := db.OpenFile(cfg.DBPath)

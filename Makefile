@@ -1,8 +1,9 @@
 TESTS= $(shell go list ./... | grep -v -e gowasm_test -e cmd)
 GOPATH= $(shell go env GOPATH)
-GOBUILD=go build -ldflags "-s -r ./ -X main.version=`git describe --tags --dirty`"
+COMMIT= $(shell git describe --tags --dirty)
+BUILDTIME= $(shell date +"%d %b %Y")
+GOBUILD=go build -ldflags '-s -r ./ -X "main.version=${COMMIT}" -X "main.buildTime=${BUILDTIME}"'
 ARCHIVE= $(shell ./deployment/zipname.sh)
-
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
