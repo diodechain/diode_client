@@ -15,7 +15,6 @@ import (
 	"syscall"
 
 	"github.com/diodechain/diode_go_client/config"
-	"github.com/diodechain/diode_go_client/rpc"
 	"github.com/diodechain/diode_go_client/util"
 	"github.com/go-playground/validator"
 	"github.com/rs/cors"
@@ -192,16 +191,17 @@ func (configAPIServer ConfigAPIServer) successResponse(w http.ResponseWriter, me
 
 func (configAPIServer ConfigAPIServer) configResponse(w http.ResponseWriter, message string) {
 	cfg := configAPIServer.appConfig
-	lvbn, lvbh := rpc.LastValid()
+	// lvbn, lvbh will change depends on network
+	// lvbn, lvbh := rpc.LastValid()
 	res, _ := json.Marshal(&apiResponse{
 		Success: true,
 		Message: message,
 		Config: &configEntry{
-			Address:              cfg.ClientAddr.HexString(),
-			Fleet:                cfg.FleetAddr.HexString(),
-			Version:              version,
-			LastValidBlockNumber: lvbn,
-			LastValidBlockHash:   util.EncodeToString(lvbh[:]),
+			Address: cfg.ClientAddr.HexString(),
+			Fleet:   cfg.FleetAddr.HexString(),
+			Version: version,
+			// LastValidBlockNumber: lvbn,
+			// LastValidBlockHash:   util.EncodeToString(lvbh[:]),
 			Binds: func(binds []config.Bind) []bind {
 				ret := make([]bind, len(binds))
 				for i, v := range binds {

@@ -355,15 +355,12 @@ func (rpcClient *RPCClient) watchLatestBlock() {
 		case <-rpcClient.blockTicker.C:
 			// use go routine might cause data race issue
 			// go func() {
-			mx.Lock()
-			if bq == nil {
-				mx.Unlock()
+			if rpcClient.bq == nil {
 				continue
 			}
 			if lastblock == 0 {
-				lastblock, _ = bq.Last()
+				lastblock, _ = rpcClient.bq.Last()
 			}
-			mx.Unlock()
 			blockPeak, err := rpcClient.GetBlockPeak()
 			if err != nil {
 				rpcClient.Error("Cannot getblockheader: %v", err)
@@ -381,20 +378,20 @@ func (rpcClient *RPCClient) watchLatestBlock() {
 					rpcClient.Error("Couldn't download block header %v", err)
 					return
 				}
-				err = bq.AddBlock(blockHeader, false)
+				err = rpcClient.bq.AddBlock(blockHeader, false)
 				if err != nil {
 					rpcClient.Error("Couldn't add block %v %v: %v", num, blockHeader.Hash(), err)
 					// This could happen on an uncle block, in that case we reset
 					// the counter the last finalized block
-					bq.Last()
+					rpcClient.bq.Last()
 					return
 				}
 			}
 
-			lastn, _ := bq.Last()
+			lastn, _ := rpcClient.bq.Last()
 			rpcClient.Debug("Added block(s) %v-%v, last valid %v", lastblock, blockNumMax, lastn)
 			lastblock = blockNumMax
-			storeLastValid()
+			rpcClient.storeLastValid()
 			// }()
 		}
 	}

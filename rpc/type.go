@@ -8,7 +8,6 @@ import (
 	"net"
 	"time"
 
-	"github.com/diodechain/diode_go_client/blockquick"
 	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/db"
 	"github.com/diodechain/diode_go_client/edge"
@@ -19,14 +18,12 @@ const (
 	confirmationSize  = 6
 	windowSize        = 100
 	rpcCallRetryTimes = 2
-
-	lvbnKey = "lvbn3"
-	lvbhKey = "lvbh3"
+	lvbnKey           = "lvbn3"
+	lvbhKey           = "lvbh3"
 )
 
 var (
 	NullData       = []byte("null")
-	bq             *blockquick.Window
 	enqueueTimeout = 100 * time.Millisecond
 )
 
@@ -96,11 +93,11 @@ func isOpError(netErr error) (isOpError bool) {
 }
 
 // LastValid returns the last valid block number and block header
-func LastValid() (uint64, crypto.Sha3) {
-	if bq == nil {
+func (rpcClient *RPCClient) LastValid() (uint64, crypto.Sha3) {
+	if rpcClient.bq == nil {
 		return restoreLastValid()
 	}
-	return bq.Last()
+	return rpcClient.bq.Last()
 }
 
 func restoreLastValid() (uint64, crypto.Sha3) {
@@ -118,8 +115,8 @@ func restoreLastValid() (uint64, crypto.Sha3) {
 	return 500, [32]byte{0, 0, 91, 137, 111, 20, 109, 80, 251, 76, 143, 80, 134, 152, 142, 201, 98, 250, 205, 7, 108, 135, 20, 235, 135, 65, 44, 186, 4, 161, 71, 238}
 }
 
-func storeLastValid() {
-	lvbn, lvbh := LastValid()
+func (rpcClient *RPCClient) storeLastValid() {
+	lvbn, lvbh := rpcClient.LastValid()
 	db.DB.Put(lvbnKey, util.DecodeUintToBytes(lvbn))
 	db.DB.Put(lvbhKey, lvbh[:])
 }

@@ -22,11 +22,10 @@ import (
 
 var (
 	RequestID           uint64 = 0
-	mx                  sync.Mutex
-	errEmptyDNSresult   = fmt.Errorf("couldn't resolve name (null)")
-	errRPCClientClosed  = fmt.Errorf("rpc client was closed")
-	DefaultRegistryAddr = [20]byte{80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-	DefaultFleetAddr    = [20]byte{96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	errEmptyDNSresult          = fmt.Errorf("couldn't resolve name (null)")
+	errRPCClientClosed         = fmt.Errorf("rpc client was closed")
+	DefaultRegistryAddr        = [20]byte{80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	DefaultFleetAddr           = [20]byte{96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 )
 
 // RPCConfig struct for rpc client
@@ -60,6 +59,7 @@ type RPCClient struct {
 	signal                chan Signal
 	edgeProtocol          edge.EdgeProtocol
 	Config                *RPCConfig
+	bq                    *blockquick.Window
 }
 
 func getRequestID() uint64 {
@@ -353,10 +353,10 @@ func (rpcClient *RPCClient) ValidateNetwork() (bool, error) {
 		}
 	}
 
-	mx.Lock()
-	bq = win
-	mx.Unlock()
-	storeLastValid()
+	rpcClient.rm.Lock()
+	rpcClient.bq = win
+	rpcClient.rm.Unlock()
+	rpcClient.storeLastValid()
 	return true, nil
 }
 
@@ -437,9 +437,9 @@ func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]*bl
 // GetBlockHeaderValid returns a validated recent block header
 // (only available for the last windowsSize blocks)
 func (rpcClient *RPCClient) GetBlockHeaderValid(blockNum uint64) *blockquick.BlockHeader {
-	mx.Lock()
-	defer mx.Unlock()
-	return bq.GetBlockHeader(blockNum)
+	// rpcClient.rm.Lock()
+	// defer rpcClient.rm.Unlock()
+	return rpcClient.bq.GetBlockHeader(blockNum)
 }
 
 // GetBlockHeadersUnsafe returns a consecutive range of block headers
@@ -506,13 +506,13 @@ func (rpcClient *RPCClient) Greet() error {
 
 // SubmitNewTicket creates and submits a new ticket
 func (rpcClient *RPCClient) SubmitNewTicket() error {
-	mx.Lock()
-	if bq == nil {
-		mx.Unlock()
+	rpcClient.rm.Lock()
+	if rpcClient.bq == nil {
+		rpcClient.rm.Unlock()
 		return nil
 	}
+	rpcClient.rm.Unlock()
 	ticket, err := rpcClient.newTicket()
-	mx.Unlock()
 	if err != nil {
 		return err
 	}
@@ -535,7 +535,7 @@ func (rpcClient *RPCClient) newTicket() (*edge.DeviceTicket, error) {
 		return nil, err
 	}
 	rpcClient.s.UpdateCounter(rpcClient.s.TotalBytes())
-	lvbn, lvbh := LastValid()
+	lvbn, lvbh := rpcClient.LastValid()
 	rpcClient.Debug("New ticket: %d", lvbn)
 	ticket := &edge.DeviceTicket{
 		ServerID:         serverID,
@@ -697,7 +697,7 @@ func (rpcClient *RPCClient) GetStateRoots(blockNumber uint64) (*edge.StateRoots,
 // GetValidAccount returns valid account information: nonce, balance, storage root, code
 func (rpcClient *RPCClient) GetValidAccount(blockNumber uint64, account [20]byte) (*edge.Account, error) {
 	if blockNumber <= 0 {
-		bn, _ := LastValid()
+		bn, _ := rpcClient.LastValid()
 		blockNumber = uint64(bn)
 	}
 	act, err := rpcClient.GetAccount(blockNumber, account)
@@ -717,7 +717,7 @@ func (rpcClient *RPCClient) GetValidAccount(blockNumber uint64, account [20]byte
 // GetAccountValue returns account storage value
 func (rpcClient *RPCClient) GetAccountValue(blockNumber uint64, account [20]byte, rawKey []byte) (*edge.AccountValue, error) {
 	if blockNumber <= 0 {
-		bn, _ := LastValid()
+		bn, _ := rpcClient.LastValid()
 		blockNumber = uint64(bn)
 	}
 	// encAccount := util.EncodeToString(account[:])
@@ -737,7 +737,7 @@ func (rpcClient *RPCClient) GetAccountValue(blockNumber uint64, account [20]byte
 // GetAccountValueRaw returns account value
 func (rpcClient *RPCClient) GetAccountValueRaw(blockNumber uint64, addr [20]byte, key []byte) ([]byte, error) {
 	if blockNumber <= 0 {
-		bn, _ := LastValid()
+		bn, _ := rpcClient.LastValid()
 		blockNumber = uint64(bn)
 	}
 	acv, err := rpcClient.GetAccountValue(blockNumber, addr, key)
@@ -765,7 +765,7 @@ func (rpcClient *RPCClient) GetAccountValueRaw(blockNumber uint64, addr [20]byte
 // GetAccountRoots returns account state roots
 func (rpcClient *RPCClient) GetAccountRoots(blockNumber uint64, account [20]byte) (*edge.AccountRoots, error) {
 	if blockNumber <= 0 {
-		bn, _ := LastValid()
+		bn, _ := rpcClient.LastValid()
 		blockNumber = uint64(bn)
 	}
 	rawAccountRoots, err := rpcClient.CallContext("getaccountroots", nil, blockNumber, account[:])
@@ -801,18 +801,14 @@ func (rpcClient *RPCClient) ResolveBlockHash(blockNumber uint64) (blockHash []by
 	if blockNumber == 0 {
 		return
 	}
-	mx.Lock()
-	blockHeader := bq.GetBlockHeader(blockNumber)
+	blockHeader := rpcClient.bq.GetBlockHeader(blockNumber)
 	if blockHeader == nil {
-		lvbn, _ := bq.Last()
+		lvbn, _ := rpcClient.bq.Last()
 		rpcClient.Info("Validating ticket based on non-checked block %v %v", blockNumber, lvbn)
-		mx.Unlock()
 		blockHeader, err = rpcClient.GetBlockHeaderUnsafe(blockNumber)
 		if err != nil {
 			return
 		}
-	} else {
-		mx.Unlock()
 	}
 	hash := blockHeader.Hash()
 	blockHash = hash[:]
