@@ -560,7 +560,11 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *ed
 	socksServer.Client.Debug("Connect remote %s mode %s e2e...", deviceID, mode)
 
 	clientIP := conn.RemoteAddr().String()
-	err := socksServer.connectDeviceAndLoop(deviceID, port, config.TLSProtocol, mode, func(*ConnectedDevice) (*DeviceConn, error) {
+	protocol := config.TCPProtocol
+	if config.AppConfig.EnableEdgeE2E {
+		protocol = config.TLSProtocol
+	}
+	err := socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, func(*ConnectedDevice) (*DeviceConn, error) {
 		// send data or receive data from ref
 		socksServer.Client.Debug("Connect remote success @ %s %s %v", clientIP, deviceID, port)
 		writeSocksReturn(conn, ver, socksServer.Client.s.LocalAddr(), port)

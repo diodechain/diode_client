@@ -249,7 +249,7 @@ func (configAPIServer ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrite
 			configAPIServer.configResponse(w, "ok")
 			return
 		} else if req.Method == "PUT" {
-			if !config.AppConfig.LoadFromFile {
+			if !configAPIServer.appConfig.LoadFromFile {
 				configAPIServer.appConfig.Logger.Error("Didn't load config file")
 				configAPIServer.serverError(w)
 				return
@@ -368,6 +368,11 @@ func (configAPIServer ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrite
 						bindIden = fmt.Sprintf("%d:%s:%d", b.LocalPort, b.Remote, b.RemotePort)
 					}
 					if protocolIden == config.TCPProtocol {
+						if !configAPIServer.appConfig.EnableEdgeE2E {
+							validationError["binds"] = "server didn't enable e2e"
+							configAPIServer.clientError(w, validationError)
+							return
+						}
 						if _, ok := binded[b.LocalPort][config.TLSProtocol]; ok {
 							continue
 						}

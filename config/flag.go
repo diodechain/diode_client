@@ -55,6 +55,7 @@ type Address = util.Address
 type Config struct {
 	DBPath                  string           `yaml:"dbpath,omitempty" json:"dbpath,omitempty"`
 	Debug                   bool             `yaml:"debug,omitempty" json:"debug,omitempty"`
+	EnableEdgeE2E           bool             `yaml:"e2e,omitempty" json:"e2e,omitempty"`
 	EnableUpdate            bool             `yaml:"update,omitempty" json:"update,omitempty"`
 	EnableMetrics           bool             `yaml:"metrics,omitempty" json:"metrics,omitempty"`
 	EnableKeepAlive         bool             `yaml:"keepalive,omitempty" json:"keepalive,omitempty"`
@@ -238,7 +239,7 @@ func newLogger(cfg *Config) log.Logger {
 	return logger
 }
 
-func parseBind(bind string) (*Bind, error) {
+func parseBind(bind string, enableEdgeE2E bool) (*Bind, error) {
 	elements := strings.Split(bind, ":")
 	if len(elements) == 3 {
 		elements = append(elements, "tls")
@@ -274,6 +275,9 @@ func parseBind(bind string) (*Bind, error) {
 	}
 
 	if elements[3] == "tls" {
+		if !enableEdgeE2E {
+			wrongCommandLineFlag(fmt.Errorf("should enable e2e to use tle protocol"))
+		}
 		ret.Protocol = TLSProtocol
 	} else if elements[3] == "tcp" {
 		ret.Protocol = TCPProtocol
@@ -289,7 +293,7 @@ func parseBind(bind string) (*Bind, error) {
 var portPattern = regexp.MustCompile(`^(\d+)(:(\d*)(:(tcp|tls|udp))?)?$`)
 var accessPattern = regexp.MustCompile(`^0x[a-fA-F0-9]{40}$`)
 
-func parsePorts(portStrings []string, mode int) []*Port {
+func parsePorts(portStrings []string, mode int, enableEdgeE2E bool) []*Port {
 	ports := []*Port{}
 	for _, portString := range portStrings {
 		segments := strings.Split(portString, ",")
@@ -330,6 +334,9 @@ func parsePorts(portStrings []string, mode int) []*Port {
 				if len(portDef) >= 6 {
 					switch portDef[5] {
 					case "tls":
+						if !enableEdgeE2E {
+							wrongCommandLineFlag(fmt.Errorf("should enable e2e to use tle protocol"))
+						}
 						port.Protocol = TLSProtocol
 					case "tcp":
 						port.Protocol = TCPProtocol
@@ -442,6 +449,7 @@ func ParseFlag() {
 
 	flag.StringVar(&cfg.DBPath, "dbpath", util.DefaultDBPath(), "file path to db file")
 	flag.IntVar(&cfg.RetryTimes, "retrytimes", 3, "retry times to connect the remote rpc server")
+	flag.BoolVar(&cfg.EnableEdgeE2E, "e2e", false, "enable edge e2e when start diode")
 	flag.BoolVar(&cfg.EnableUpdate, "update", false, "enable update when start diode")
 	flag.BoolVar(&cfg.EnableMetrics, "metrics", false, "enable metrics stats")
 	flag.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
@@ -516,19 +524,19 @@ func ParseFlag() {
 		commandFlag.Parse(args[1:])
 		portString := make(map[int]*Port)
 		// copy to config
-		for _, port := range parsePorts(cfg.PublicPublishedPorts, PublicPublishedMode) {
+		for _, port := range parsePorts(cfg.PublicPublishedPorts, PublicPublishedMode, cfg.EnableEdgeE2E) {
 			if portString[port.To] != nil {
 				wrongCommandLineFlag(fmt.Errorf("public port specified twice: %v", port.To))
 			}
 			portString[port.To] = port
 		}
-		for _, port := range parsePorts(cfg.ProtectedPublishedPorts, ProtectedPublishedMode) {
+		for _, port := range parsePorts(cfg.ProtectedPublishedPorts, ProtectedPublishedMode, cfg.EnableEdgeE2E) {
 			if portString[port.To] != nil {
 				wrongCommandLineFlag(fmt.Errorf("port conflict between public and protected port: %v", port.To))
 			}
 			portString[port.To] = port
 		}
-		for _, port := range parsePorts(cfg.PrivatePublishedPorts, PrivatePublishedMode) {
+		for _, port := range parsePorts(cfg.PrivatePublishedPorts, PrivatePublishedMode, cfg.EnableEdgeE2E) {
 			if portString[port.To] != nil {
 				wrongCommandLineFlag(fmt.Errorf("port conflict with private port: %v", port.To))
 			}
@@ -610,7 +618,7 @@ func ParseFlag() {
 	}
 	cfg.Binds = make([]Bind, 0)
 	for _, str := range cfg.SBinds {
-		bind, err := parseBind(str)
+		bind, err := parseBind(str, cfg.EnableEdgeE2E)
 		if err != nil {
 			wrongCommandLineFlag(err)
 		}
