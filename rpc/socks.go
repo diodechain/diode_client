@@ -908,11 +908,11 @@ func (socksServer *Server) handleBind(conn net.Conn, bind config.Bind) {
 }
 
 // NewSocksServer generate socksserver struct
-func (client *RPCClient) NewSocksServer(pool *DataPool) *Server {
+func (client *RPCClient) NewSocksServer(clientPool map[Address]*RPCClient, pool *DataPool) *Server {
 	return &Server{
 		Config:   &Config{},
 		wg:       &sync.WaitGroup{},
-		pool:     make(map[Address]*RPCClient),
+		pool:     clientPool,
 		datapool: pool,
 		started:  false,
 		Client:   client,

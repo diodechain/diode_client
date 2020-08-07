@@ -144,7 +144,8 @@ func diode() (status int) {
 	wg := &sync.WaitGroup{}
 	rpcAddrLen := len(cfg.RemoteRPCAddrs)
 	c := make(chan *rpc.RPCClient, rpcAddrLen)
-	wg.Add(rpcAddrLen)
+	// only wait for one connection
+	wg.Add(1)
 	for _, RemoteRPCAddr := range cfg.RemoteRPCAddrs {
 		go connect(c, RemoteRPCAddr, cfg, wg, pool)
 	}
@@ -152,31 +153,36 @@ func diode() (status int) {
 	var lvbh crypto.Sha3
 
 	var client *rpc.RPCClient
+	clientPool := make(map[util.Address]*rpc.RPCClient)
 	go func() {
 		for rpcClient := range c {
-			if client == nil && rpcClient != nil {
-				// lvbn, lvbh = rpcClient.LastValid()
-				// printLabel("Last valid block", fmt.Sprintf("%v %v", lvbn, util.EncodeToString(lvbh[:])))
-				cfg.Logger.Info(fmt.Sprintf("Connected to host: %s, validating...", rpcClient.Host()))
-				isValid, err := rpcClient.ValidateNetwork()
-				if isValid {
+			// lvbn, lvbh = rpcClient.LastValid()
+			// printLabel("Last valid block", fmt.Sprintf("%v %v", lvbn, util.EncodeToString(lvbh[:])))
+			cfg.Logger.Info(fmt.Sprintf("Connected to host: %s, validating...", rpcClient.Host()))
+			isValid, err := rpcClient.ValidateNetwork()
+			if isValid {
+				if client == nil {
 					client = rpcClient
-				} else {
-					if err != nil {
-						cfg.Logger.Error(fmt.Sprintf("Network is not valid (err: %s), trying next...", err.Error()))
-					} else {
-						cfg.Logger.Error("Network is not valid for unknown reasons")
-					}
-					rpcClient.Close()
+					wg.Done()
 				}
-			} else if rpcClient != nil {
+				serverID, err := rpcClient.GetServerID()
+				if err != nil {
+					cfg.Logger.Warn("Failed to get server id: %v", err)
+					rpcClient.Close()
+					continue
+				}
+				clientPool[serverID] = rpcClient
+			} else {
+				if err != nil {
+					cfg.Logger.Error(fmt.Sprintf("Network is not valid (err: %s), trying next...", err.Error()))
+				} else {
+					cfg.Logger.Error("Network is not valid for unknown reasons")
+				}
 				rpcClient.Close()
 			}
-			wg.Done()
 		}
 	}()
 	wg.Wait()
-	close(c)
 
 	if client == nil {
 		printError("Couldn't connect to any server", fmt.Errorf("server are not validated"))
@@ -230,7 +236,7 @@ func diode() (status int) {
 		return
 	}
 
-	socksServer = client.NewSocksServer(pool)
+	socksServer = client.NewSocksServer(clientPool, pool)
 	proxyServer = rpc.NewProxyServer(socksServer)
 	configAPIServer = NewConfigAPIServer(cfg)
 	processConfig(cfg)

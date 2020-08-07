@@ -53,7 +53,6 @@ type SSL struct {
 	totalBytes        uint64
 	counter           uint64
 	clientPrivKey     *ecdsa.PrivateKey
-	pool              *DataPool
 	rm                sync.RWMutex
 }
 
@@ -63,7 +62,7 @@ func (s *SSL) Host() string {
 }
 
 // DialContext connect to address with openssl context
-func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags, pool *DataPool) (*SSL, error) {
+func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags) (*SSL, error) {
 	conn, err := openssl.Dial("tcp", addr, ctx, mode)
 	if err != nil {
 		return nil, err
@@ -73,7 +72,6 @@ func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags, pool *Da
 		ctx:  ctx,
 		addr: addr,
 		mode: mode,
-		pool: pool,
 	}
 	return s, nil
 }
@@ -134,11 +132,11 @@ func (s *SSL) Closed() bool {
 }
 
 // Close the ssl connection
-func (s *SSL) Close() error {
+func (s *SSL) Close() (err error) {
 	s.rm.Lock()
 	defer s.rm.Unlock()
 	s.closed = true
-	err := s.conn.Close()
+	err = s.conn.Close()
 	return err
 }
 
@@ -356,7 +354,7 @@ func EnsurePrivatePEM() []byte {
 
 func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, error) {
 	ctx := initSSLCtx(config)
-	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
+	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification)
 	if err != nil {
 		config.Logger.Crit(fmt.Sprintf("Failed to connect to host: %s", err.Error()), "server", host)
 		// Retry to connect
@@ -364,7 +362,7 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 		for i := 1; i <= config.RetryTimes; i++ {
 			config.Logger.Info(fmt.Sprintf("Retry to connect to host: %s, wait %s", host, config.RetryWait.String()), "server", host)
 			time.Sleep(config.RetryWait)
-			client, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification, pool)
+			client, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification)
 			if err == nil {
 				isOk = true
 				break

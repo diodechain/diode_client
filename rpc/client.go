@@ -122,6 +122,11 @@ func (rpcClient *RPCClient) Host() string {
 	return rpcClient.s.addr
 }
 
+// GetServerID returns server address
+func (rpcClient *RPCClient) GetServerID() ([20]byte, error) {
+	return rpcClient.s.GetServerID()
+}
+
 // GetDeviceKey returns device key of given ref
 func (rpcClient *RPCClient) GetDeviceKey(ref string) string {
 	prefixByt, err := rpcClient.s.GetServerID()

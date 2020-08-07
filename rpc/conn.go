@@ -48,8 +48,8 @@ func (conn *DeviceConn) RemoteAddr() net.Addr {
 func (device *ConnectedDevice) Close() {
 	deviceKey := device.Client.GetDeviceKey(device.Ref)
 	// check whether is disconnected
-	if device.Client.s.pool.GetDevice(deviceKey) != nil {
-		device.Client.s.pool.SetDevice(deviceKey, nil)
+	if device.Client.pool.GetDevice(deviceKey) != nil {
+		device.Client.pool.SetDevice(deviceKey, nil)
 	}
 
 	if device.Conn.Closed() {
