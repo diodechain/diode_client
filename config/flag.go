@@ -611,7 +611,7 @@ func ParseFlag() {
 	}
 	cfg.Allowlists = allowlistsIDs
 	if cfg.RlimitNofile > 0 {
-		if err := setRlimitNofile(cfg.RlimitNofile); err != nil {
+		if err := SetRlimitNofile(cfg.RlimitNofile); err != nil {
 			cfg.Logger.Error(fmt.Sprintf("cannot set rlimit: %s", err.Error()))
 			os.Exit(2)
 		}

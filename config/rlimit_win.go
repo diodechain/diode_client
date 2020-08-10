@@ -5,6 +5,6 @@
 
 package config
 
-func setRlimitNofile(newRlimit int) error {
+func SetRlimitNofile(newRlimit int) error {
 	return nil
 }
