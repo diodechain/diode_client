@@ -449,8 +449,8 @@ func ParseFlag() {
 
 	flag.StringVar(&cfg.DBPath, "dbpath", util.DefaultDBPath(), "file path to db file")
 	flag.IntVar(&cfg.RetryTimes, "retrytimes", 3, "retry times to connect the remote rpc server")
-	flag.BoolVar(&cfg.EnableEdgeE2E, "e2e", false, "enable edge e2e when start diode")
-	flag.BoolVar(&cfg.EnableUpdate, "update", false, "enable update when start diode")
+	flag.BoolVar(&cfg.EnableEdgeE2E, "e2e", true, "disable edge e2e when start diode")
+	flag.BoolVar(&cfg.EnableUpdate, "update", true, "disable update when start diode")
 	flag.BoolVar(&cfg.EnableMetrics, "metrics", false, "enable metrics stats")
 	flag.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
 	flag.BoolVar(&cfg.EnableAPIServer, "api", false, "turn on the config api")
