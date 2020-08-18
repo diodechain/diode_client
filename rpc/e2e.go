@@ -6,6 +6,7 @@ package rpc
 import (
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/diodechain/diode_go_client/config"
@@ -16,6 +17,7 @@ import (
 type E2EServer struct {
 	client *RPCClient
 	peer   Address
+	cd     sync.Once
 
 	remoteConn  net.Conn
 	localConn   net.Conn
@@ -65,13 +67,12 @@ func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*op
 	go func() {
 		defer tunnelOpenssl.Close()
 		defer tunnelDiode.Close()
-		defer e2eServer.remoteConn.Close()
 		if err = e2eServer.handshake(conn); err != nil {
 			e2eServer.Error(err.Error())
 			return
 		}
-		go netCopy(conn, e2eServer.remoteConn, e2eBufferSize)
-		netCopy(e2eServer.remoteConn, conn, e2eBufferSize)
+		go netCopy(conn, e2eServer.remoteConn, e2eBufferSize, 90*time.Second)
+		netCopy(e2eServer.remoteConn, conn, e2eBufferSize, 90*time.Second)
 	}()
 	return nil
 }
@@ -113,7 +114,9 @@ func (e2eServer *E2EServer) Error(msg string, args ...interface{}) {
 
 // Close e2e server
 func (e2eServer *E2EServer) Close() {
-	e2eServer.client.Debug("Close e2e connections")
-	e2eServer.remoteConn.Close()
-	e2eServer.opensslConn.Close()
+	e2eServer.cd.Do(func() {
+		e2eServer.client.Debug("Close e2e connections")
+		e2eServer.remoteConn.Close()
+		e2eServer.opensslConn.Close()
+	})
 }

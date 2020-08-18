@@ -12,6 +12,7 @@ import (
 	"os"
 	"runtime"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/diodechain/diode_go_client/config"
@@ -107,6 +108,7 @@ type ConfigAPIServer struct {
 	addr        string
 	corsOptions cors.Options
 	httpServer  *http.Server
+	cd          sync.Once
 }
 
 // NewConfigAPIServer return ConfigAPIServer
@@ -491,7 +493,9 @@ func (configAPIServer *ConfigAPIServer) ListenAndServe() {
 
 // Close config api server
 func (configAPIServer *ConfigAPIServer) Close() {
-	if configAPIServer.httpServer != nil {
-		configAPIServer.httpServer.Close()
-	}
+	configAPIServer.cd.Do(func() {
+		if configAPIServer.httpServer != nil {
+			configAPIServer.httpServer.Close()
+		}
+	})
 }

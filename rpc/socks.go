@@ -77,6 +77,7 @@ type Server struct {
 	rm       sync.Mutex
 	started  bool
 	binds    []Bind
+	cd       sync.Once
 }
 
 type DeviceError struct {
@@ -516,6 +517,30 @@ func writeSocksReturn(conn net.Conn, ver int, addr net.Addr, port int) {
 	conn.Write(rep[0 : pindex+2])
 }
 
+func netCopy(input, output net.Conn, bufferSize int, timeout time.Duration) (err error) {
+	buf := make([]byte, bufferSize)
+	for {
+		var count int
+		var writed int
+		input.SetReadDeadline(time.Now().Add(timeout))
+		count, err = input.Read(buf)
+		if count > 0 {
+			output.SetWriteDeadline(time.Now().Add(timeout))
+			writed, err = output.Write(buf[:count])
+			if err != nil {
+				return
+			}
+			if writed == 0 {
+				err = io.EOF
+				return
+			}
+		}
+		if err != nil {
+			return
+		}
+	}
+}
+
 func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
 	remote, err := net.Dial("tcp", host)
 	if err != nil {
@@ -531,27 +556,8 @@ func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
 	socksServer.Client.Debug("host connect success @ %s", host)
 	writeSocksReturn(conn, ver, socksServer.Client.s.LocalAddr(), port)
 
-	go netCopy(conn, remote, sslBufferSize)
-	netCopy(remote, conn, sslBufferSize)
-}
-
-func netCopy(input, output net.Conn, bufferSize int) (err error) {
-	buf := make([]byte, bufferSize)
-	for {
-		var count int
-		input.SetReadDeadline(time.Now().Add(2 * time.Second))
-		count, err = input.Read(buf)
-		if count > 0 {
-			output.SetWriteDeadline(time.Now().Add(2 * time.Second))
-			_, err = output.Write(buf[:count])
-			if err != nil {
-				return
-			}
-		}
-		if err != nil {
-			return
-		}
-	}
+	go netCopy(conn, remote, sslBufferSize, 5*time.Second)
+	netCopy(remote, conn, sslBufferSize, 5*time.Second)
 }
 
 func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *edge.DeviceTicket, port int, mode string) {
@@ -592,8 +598,8 @@ func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, device *
 
 	writeSocksReturn(conn, ver, remoteConn.LocalAddr(), port)
 
-	go netCopy(conn, remoteConn, sslBufferSize)
-	netCopy(remoteConn, conn, sslBufferSize)
+	go netCopy(conn, remoteConn, sslBufferSize, 5*time.Second)
+	netCopy(remoteConn, conn, sslBufferSize, 1*time.Second)
 }
 
 func (socksServer *Server) handleSocksConnection(conn net.Conn) {
@@ -1017,32 +1023,28 @@ func (socksServer *Server) Started() bool {
 
 // Close the socks server
 func (socksServer *Server) Close() {
-	socksServer.rm.Lock()
-	if !socksServer.started {
-		socksServer.rm.Unlock()
-		return
-	}
-	socksServer.started = false
-	socksServer.rm.Unlock()
-	if socksServer.listener != nil {
-		socksServer.listener.Close()
-		socksServer.listener = nil
-	}
-	// if socksServer.udpconn != nil {
-	// 	socksServer.udpconn.Close()
-	// 	socksServer.udpconn = nil
-	// }
-	// close all connections in the pool
-	for serverID, rpcClient := range socksServer.pool {
-		rpcClient.Close()
-		socksServer.setRPCClient(serverID, nil)
-	}
-	for _, bind := range socksServer.binds {
-		if bind.tcp != nil {
-			bind.tcp.Close()
+	socksServer.cd.Do(func() {
+		socksServer.started = false
+		if socksServer.listener != nil {
+			socksServer.listener.Close()
+			socksServer.listener = nil
 		}
-		if bind.udp != nil {
-			bind.udp.Close()
+		// if socksServer.udpconn != nil {
+		// 	socksServer.udpconn.Close()
+		// 	socksServer.udpconn = nil
+		// }
+		// close all connections in the pool
+		for serverID, rpcClient := range socksServer.pool {
+			rpcClient.Close()
+			socksServer.setRPCClient(serverID, nil)
 		}
-	}
+		for _, bind := range socksServer.binds {
+			if bind.tcp != nil {
+				bind.tcp.Close()
+			}
+			if bind.udp != nil {
+				bind.udp.Close()
+			}
+		}
+	})
 }

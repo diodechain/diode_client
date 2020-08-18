@@ -45,6 +45,7 @@ type ProxyServer struct {
 	httpsServer *http.Server
 	started     bool
 	mx          sync.Mutex
+	cd          sync.Once
 }
 
 var proxyTransport http.Transport = http.Transport{
@@ -266,16 +267,13 @@ func (proxyServer *ProxyServer) Started() bool {
 }
 
 func (proxyServer *ProxyServer) Close() {
-	proxyServer.mx.Lock()
-	defer proxyServer.mx.Unlock()
-	if !proxyServer.started {
-		return
-	}
-	if proxyServer.httpServer != nil {
-		proxyServer.httpServer.Close()
-	}
-	if proxyServer.httpsServer != nil {
-		proxyServer.httpsServer.Close()
-	}
-	proxyServer.started = false
+	proxyServer.cd.Do(func() {
+		if proxyServer.httpServer != nil {
+			proxyServer.httpServer.Close()
+		}
+		if proxyServer.httpsServer != nil {
+			proxyServer.httpsServer.Close()
+		}
+		proxyServer.started = false
+	})
 }

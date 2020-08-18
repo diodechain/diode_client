@@ -54,6 +54,7 @@ type RPCClient struct {
 	ticketTickerDuration  time.Duration
 	timeout               time.Duration
 	wg                    sync.WaitGroup
+	cd                    sync.Once
 	rm                    sync.Mutex
 	pool                  *DataPool
 	signal                chan Signal
@@ -883,22 +884,19 @@ func (rpcClient *RPCClient) Closed() bool {
 }
 
 // Close rpc client
-func (rpcClient *RPCClient) Close() (err error) {
-	rpcClient.rm.Lock()
-	defer rpcClient.rm.Unlock()
-	if !rpcClient.started {
-		return
-	}
-	rpcClient.started = false
-	if rpcClient.blockTicker != nil {
-		rpcClient.blockTicker.Stop()
-	}
-	rpcClient.finishBlockTickerChan <- true
-	notifySignal(rpcClient.signal, CLOSED, enqueueTimeout)
+func (rpcClient *RPCClient) Close() {
+	rpcClient.cd.Do(func() {
+		rpcClient.started = false
+		if rpcClient.blockTicker != nil {
+			rpcClient.blockTicker.Stop()
+		}
+		rpcClient.finishBlockTickerChan <- true
+		notifySignal(rpcClient.signal, CLOSED, enqueueTimeout)
 
-	if !rpcClient.s.Closed() {
-		err = rpcClient.s.Close()
-		close(rpcClient.callQueue)
-	}
-	return
+		if !rpcClient.s.Closed() {
+			rpcClient.s.Close()
+			close(rpcClient.callQueue)
+		}
+		return
+	})
 }

@@ -28,6 +28,7 @@ type DeviceConn struct {
 	Conn       net.Conn
 	closed     bool
 	mx         sync.Mutex
+	cd         sync.Once
 	bufferSize int
 
 	// E2E
@@ -83,6 +84,7 @@ func (device *ConnectedDevice) Write(data []byte) {
 	err := device.Conn.Write(data)
 	if err != nil {
 		device.Client.Debug("Write failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
+		device.Conn.Close()
 	}
 }
 
@@ -94,23 +96,19 @@ func (conn *DeviceConn) Closed() bool {
 }
 
 // Close the connection
-func (conn *DeviceConn) Close() error {
-	conn.mx.Lock()
-	defer conn.mx.Unlock()
-	if conn.closed {
-		return nil
-	}
-	if conn.Conn != nil {
-		// e2eServer close will also shut down tunnel
-		// conn.Conn.SetReadDeadline(time.Now().Add(time.Second))
-		conn.Conn.Close()
-	}
-	if conn.e2eServer != nil {
-		conn.e2eServer.Close()
-	}
+func (conn *DeviceConn) Close() {
+	conn.cd.Do(func() {
+		if conn.Conn != nil {
+			// e2eServer close will also shut down tunnel
+			// conn.Conn.SetReadDeadline(time.Now().Add(time.Second))
+			conn.Conn.Close()
+		}
+		if conn.e2eServer != nil {
+			conn.e2eServer.Close()
+		}
 
-	conn.closed = true
-	return nil
+		conn.closed = true
+	})
 }
 
 func (conn *DeviceConn) copyLoop(client *RPCClient, ref string) (err error) {

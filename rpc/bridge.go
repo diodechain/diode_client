@@ -153,6 +153,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			_ = rpcClient.ResponsePortOpen(portOpen, nil)
 
 			connDevice.copyLoop()
+			connDevice.Close()
 		}()
 	} else if portSend, ok := inboundRequest.(*edge.PortSend); ok {
 		if portSend.Err != nil {

@@ -17,6 +17,7 @@ type DataPool struct {
 	devices        map[string]*ConnectedDevice
 	publishedPorts map[int]*config.Port
 	memoryCache    *cache.Cache
+	cd             sync.Once
 }
 
 func NewPool() *DataPool {
@@ -44,10 +45,12 @@ func (p *DataPool) GetCacheDNS(key string) (dns Address, ok bool) {
 }
 
 func (p *DataPool) Close() {
-	for k, v := range p.devices {
-		v.Close()
-		delete(p.devices, k)
-	}
+	p.cd.Do(func() {
+		for k, v := range p.devices {
+			v.Close()
+			delete(p.devices, k)
+		}
+	})
 }
 
 func (p *DataPool) SetCacheDNS(key string, dns Address) {
