@@ -158,6 +158,11 @@ func diode() (status int) {
 		for rpcClient := range c {
 			// lvbn, lvbh = rpcClient.LastValid()
 			// printLabel("Last valid block", fmt.Sprintf("%v %v", lvbn, util.EncodeToString(lvbh[:])))
+			if len(cfg.PublishedPorts) > 0 && client != nil {
+				// publisher should not connect to multiple nodes
+				rpcClient.Close()
+				continue
+			}
 			cfg.Logger.Info(fmt.Sprintf("Connected to host: %s, validating...", rpcClient.Host()))
 			isValid, err := rpcClient.ValidateNetwork()
 			if isValid {
@@ -180,6 +185,9 @@ func diode() (status int) {
 				}
 				rpcClient.Close()
 			}
+		}
+		if client == nil {
+			wg.Done()
 		}
 	}()
 	wg.Wait()
