@@ -57,3 +57,9 @@ func (rpcClient *RPCClient) firstCallByID(id uint64) (c Call) {
 	delete(rpcClient.calls, id)
 	return
 }
+
+func (rpcClient *RPCClient) removeCallByID(id uint64) {
+	rpcClient.rm.Lock()
+	defer rpcClient.rm.Unlock()
+	delete(rpcClient.calls, id)
+}

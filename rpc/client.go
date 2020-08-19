@@ -259,10 +259,12 @@ func (rpcClient *RPCClient) CallContext(method string, parse func(buffer []byte)
 			}
 			if _, ok := err.(TimeoutError); ok {
 				rpcClient.Warn("Call %s timeout after %s, drop the call", method, tsDiff.String())
+				rpcClient.removeCallByID(requestID)
 				return
 			}
 			if _, ok := err.(CancelledError); ok {
-				// rpcClient.Warn("Call %s has been cancelled", method)
+				rpcClient.Warn("Call %s has been cancelled, drop the call", method)
+				rpcClient.removeCallByID(requestID)
 				return
 			}
 		}
@@ -897,6 +899,5 @@ func (rpcClient *RPCClient) Close() {
 			rpcClient.s.Close()
 			close(rpcClient.callQueue)
 		}
-		return
 	})
 }

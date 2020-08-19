@@ -135,7 +135,7 @@ func (configAPIServer *ConfigAPIServer) SetAddr(addr string) {
 	configAPIServer.addr = addr
 }
 
-func (configAPIServer ConfigAPIServer) clientError(w http.ResponseWriter, validationError map[string]string) {
+func (configAPIServer *ConfigAPIServer) clientError(w http.ResponseWriter, validationError map[string]string) {
 	var response apiResponse
 	var res []byte
 	response.Success = false
@@ -147,7 +147,7 @@ func (configAPIServer ConfigAPIServer) clientError(w http.ResponseWriter, valida
 	w.Write(res)
 }
 
-func (configAPIServer ConfigAPIServer) serverError(w http.ResponseWriter) {
+func (configAPIServer *ConfigAPIServer) serverError(w http.ResponseWriter) {
 	var response apiResponse
 	var res []byte
 	response.Success = false
@@ -158,7 +158,7 @@ func (configAPIServer ConfigAPIServer) serverError(w http.ResponseWriter) {
 	w.Write(res)
 }
 
-func (configAPIServer ConfigAPIServer) notFoundError(w http.ResponseWriter) {
+func (configAPIServer *ConfigAPIServer) notFoundError(w http.ResponseWriter) {
 	var response apiResponse
 	var res []byte
 	response.Success = false
@@ -169,7 +169,7 @@ func (configAPIServer ConfigAPIServer) notFoundError(w http.ResponseWriter) {
 	w.Write(res)
 }
 
-func (configAPIServer ConfigAPIServer) unsupportedMediaTypeError(w http.ResponseWriter) {
+func (configAPIServer *ConfigAPIServer) unsupportedMediaTypeError(w http.ResponseWriter) {
 	var response apiResponse
 	var res []byte
 	response.Success = false
@@ -180,7 +180,7 @@ func (configAPIServer ConfigAPIServer) unsupportedMediaTypeError(w http.Response
 	w.Write(res)
 }
 
-func (configAPIServer ConfigAPIServer) successResponse(w http.ResponseWriter, message string) {
+func (configAPIServer *ConfigAPIServer) successResponse(w http.ResponseWriter, message string) {
 	var response apiResponse
 	var res []byte
 	response.Success = true
@@ -191,7 +191,7 @@ func (configAPIServer ConfigAPIServer) successResponse(w http.ResponseWriter, me
 	w.Write(res)
 }
 
-func (configAPIServer ConfigAPIServer) configResponse(w http.ResponseWriter, message string) {
+func (configAPIServer *ConfigAPIServer) configResponse(w http.ResponseWriter, message string) {
 	cfg := configAPIServer.appConfig
 	// lvbn, lvbh will change depends on network
 	// lvbn, lvbh := rpc.LastValid()
@@ -241,7 +241,7 @@ func (configAPIServer ConfigAPIServer) configResponse(w http.ResponseWriter, mes
 	w.Write(res)
 }
 
-func (configAPIServer ConfigAPIServer) apiHandleFunc() func(w http.ResponseWriter, req *http.Request) {
+func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path != "/config/" {
 			configAPIServer.notFoundError(w)
@@ -440,7 +440,7 @@ func (configAPIServer ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrite
 	}
 }
 
-func (configAPIServer ConfigAPIServer) rootHandleFunc() func(w http.ResponseWriter, req *http.Request) {
+func (configAPIServer *ConfigAPIServer) rootHandleFunc() func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path != "/" {
 			configAPIServer.notFoundError(w)
@@ -450,7 +450,7 @@ func (configAPIServer ConfigAPIServer) rootHandleFunc() func(w http.ResponseWrit
 	}
 }
 
-func (configAPIServer ConfigAPIServer) requireJSON(h http.Handler) http.Handler {
+func (configAPIServer *ConfigAPIServer) requireJSON(h http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		contentType := req.Header.Get("Content-Type")
 		// set response content type to application/json
