@@ -47,13 +47,14 @@ type SSL struct {
 	keepAliveCount    int
 	keepAliveIdle     time.Duration
 	keepAliveInterval time.Duration
-	closed            bool
 	reconnecting      bool
 	totalConnections  uint64
 	totalBytes        uint64
 	counter           uint64
 	clientPrivKey     *ecdsa.PrivateKey
 	rm                sync.RWMutex
+	cd                sync.Once
+	closeCh           chan struct{}
 }
 
 // Host returns the non-resolved addr name of the host
@@ -68,10 +69,11 @@ func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags) (*SSL, e
 		return nil, err
 	}
 	s := &SSL{
-		conn: conn,
-		ctx:  ctx,
-		addr: addr,
-		mode: mode,
+		conn:    conn,
+		ctx:     ctx,
+		addr:    addr,
+		mode:    mode,
+		closeCh: make(chan struct{}),
 	}
 	return s, nil
 }
@@ -132,18 +134,15 @@ func (s *SSL) Reconnecting() bool {
 
 // Closed returns connection is closed
 func (s *SSL) Closed() bool {
-	s.rm.RLock()
-	defer s.rm.RUnlock()
-	return s.closed
+	return isClosed(s.closeCh)
 }
 
 // Close the ssl connection
-func (s *SSL) Close() (err error) {
-	s.rm.Lock()
-	defer s.rm.Unlock()
-	s.closed = true
-	err = s.conn.Close()
-	return err
+func (s *SSL) Close() {
+	s.cd.Do(func() {
+		close(s.closeCh)
+		s.conn.Close()
+	})
 }
 
 // EnableKeepAlive enable the tcp keepalive package in os level, could use ping instead

@@ -75,7 +75,7 @@ type Server struct {
 	udpconn  net.PacketConn
 	wg       *sync.WaitGroup
 	rm       sync.Mutex
-	started  bool
+	closeCh  chan struct{}
 	binds    []Bind
 	cd       sync.Once
 }
@@ -469,6 +469,7 @@ func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, pro
 			Conn:       e2eServer.localConn,
 			e2eServer:  &e2eServer,
 			bufferSize: sslBufferSize,
+			closeCh:    make(chan struct{}),
 		}
 	}
 
@@ -553,6 +554,7 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *ed
 		return &DeviceConn{
 			Conn:       conn,
 			bufferSize: sslBufferSize,
+			closeCh:    make(chan struct{}),
 		}, nil
 	})
 
@@ -623,7 +625,7 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 
 // Start socks server
 func (socksServer *Server) Start() error {
-	if socksServer.started {
+	if socksServer.Closed() {
 		return nil
 	}
 
@@ -632,7 +634,6 @@ func (socksServer *Server) Start() error {
 	if err != nil {
 		return err
 	}
-	socksServer.started = true
 	socksServer.listener = tcp
 
 	go func() {
@@ -766,6 +767,7 @@ func (socksServer *Server) forwardUDP(addr net.Addr, deviceName string, port int
 		return &DeviceConn{
 			Conn:       conn,
 			bufferSize: sslBufferSize,
+			closeCh:    make(chan struct{}),
 		}, err
 	})
 
@@ -881,6 +883,7 @@ func (socksServer *Server) handleBind(conn net.Conn, bind config.Bind) {
 		return &DeviceConn{
 			Conn:       conn,
 			bufferSize: sslBufferSize,
+			closeCh:    make(chan struct{}),
 		}, nil
 	})
 
@@ -896,7 +899,7 @@ func (client *RPCClient) NewSocksServer(clientPool map[Address]*RPCClient, pool 
 		wg:       &sync.WaitGroup{},
 		pool:     clientPool,
 		datapool: pool,
-		started:  false,
+		closeCh:  make(chan struct{}),
 		Client:   client,
 		binds:    make([]Bind, 0),
 	}
@@ -928,7 +931,7 @@ func (socksServer *Server) GetServer(nodeID Address) (client *RPCClient, err err
 	}
 	client, ok := socksServer.pool[nodeID]
 	if ok {
-		if client != nil && !client.Started() {
+		if client != nil && client.Closed() {
 			socksServer.Client.Error("GetServer(): found closed server connection in pool %v", client.s)
 			delete(socksServer.pool, nodeID)
 			client = nil
@@ -990,17 +993,15 @@ func (socksServer *Server) setRPCClient(nodeID util.Address, rpcClient *RPCClien
 	socksServer.pool[nodeID] = rpcClient
 }
 
-// Started returns whether socks server had started
-func (socksServer *Server) Started() bool {
-	socksServer.rm.Lock()
-	defer socksServer.rm.Unlock()
-	return socksServer.started
+// Closed returns whether socks server had closed
+func (socksServer *Server) Closed() bool {
+	return isClosed(socksServer.closeCh)
 }
 
 // Close the socks server
 func (socksServer *Server) Close() {
 	socksServer.cd.Do(func() {
-		socksServer.started = false
+		close(socksServer.closeCh)
 		if socksServer.listener != nil {
 			socksServer.listener.Close()
 			socksServer.listener = nil

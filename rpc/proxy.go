@@ -43,7 +43,7 @@ type ProxyServer struct {
 	socksServer *Server
 	httpServer  *http.Server
 	httpsServer *http.Server
-	started     bool
+	closeCh     chan struct{}
 	mx          sync.Mutex
 	cd          sync.Once
 }
@@ -122,6 +122,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 			return &DeviceConn{
 				Conn:       NewWSConn(conn),
 				bufferSize: sslBufferSize,
+				closeCh:    make(chan struct{}),
 			}, nil
 		}
 		hj, ok := w.(http.Hijacker)
@@ -147,6 +148,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 		return &DeviceConn{
 			Conn:       NewHTTPConn(header.Bytes(), conn),
 			bufferSize: sslBufferSize,
+			closeCh:    make(chan struct{}),
 		}, nil
 	})
 
@@ -179,6 +181,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 func NewProxyServer(socksServer *Server) *ProxyServer {
 	proxyServer := &ProxyServer{
 		socksServer: socksServer,
+		closeCh:     make(chan struct{}),
 	}
 	return proxyServer
 }
@@ -195,13 +198,12 @@ func (proxyServer *ProxyServer) Start() error {
 	proxyServer.mx.Lock()
 	defer proxyServer.mx.Unlock()
 	// start httpd proxy server
-	if proxyServer.socksServer == nil || !proxyServer.socksServer.Started() {
+	if proxyServer.socksServer == nil || proxyServer.socksServer.Closed() {
 		return fmt.Errorf("should start socks server first")
 	}
-	if proxyServer.started {
+	if proxyServer.Closed() {
 		return nil
 	}
-	proxyServer.started = true
 	if proxyServer.Config.EnableProxy {
 		proxyServer.socksServer.Client.Info("Start httpd server %s", proxyServer.Config.ProxyServerAddr)
 		prox, _ := url.Parse(fmt.Sprintf("socks5://%s", proxyServer.socksServer.Config.Addr))
@@ -260,20 +262,18 @@ func (proxyServer *ProxyServer) Start() error {
 	return nil
 }
 
-func (proxyServer *ProxyServer) Started() bool {
-	proxyServer.mx.Lock()
-	defer proxyServer.mx.Unlock()
-	return proxyServer.started
+func (proxyServer *ProxyServer) Closed() bool {
+	return isClosed(proxyServer.closeCh)
 }
 
 func (proxyServer *ProxyServer) Close() {
 	proxyServer.cd.Do(func() {
+		close(proxyServer.closeCh)
 		if proxyServer.httpServer != nil {
 			proxyServer.httpServer.Close()
 		}
 		if proxyServer.httpsServer != nil {
 			proxyServer.httpsServer.Close()
 		}
-		proxyServer.started = false
 	})
 }

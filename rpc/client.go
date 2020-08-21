@@ -50,7 +50,7 @@ type RPCClient struct {
 	blockTicker           *time.Ticker
 	blockTickerDuration   time.Duration
 	finishBlockTickerChan chan bool
-	started               bool
+	closeCh               chan struct{}
 	ticketTickerDuration  time.Duration
 	timeout               time.Duration
 	wg                    sync.WaitGroup
@@ -73,7 +73,7 @@ func NewRPCClient(s *SSL, config *RPCConfig, pool *DataPool) RPCClient {
 		s:                     s,
 		callQueue:             make(chan Call, 1024),
 		calls:                 make(map[uint64]Call),
-		started:               false,
+		closeCh:               make(chan struct{}),
 		ticketTickerDuration:  1 * time.Millisecond,
 		finishBlockTickerChan: make(chan bool, 1),
 		blockTickerDuration:   15 * time.Second,
@@ -174,7 +174,7 @@ func (rpcClient *RPCClient) waitResponse(call Call, rpcTimeout time.Duration) (r
 func (rpcClient *RPCClient) RespondContext(requestID uint64, responseType string, method string, args ...interface{}) (call Call, err error) {
 	rpcClient.rm.Lock()
 	defer rpcClient.rm.Unlock()
-	if !rpcClient.started {
+	if rpcClient.Closed() {
 		err = errRPCClientClosed
 		return
 	}
@@ -195,7 +195,7 @@ func (rpcClient *RPCClient) RespondContext(requestID uint64, responseType string
 func (rpcClient *RPCClient) CastContext(requestID uint64, method string, args ...interface{}) (call Call, err error) {
 	rpcClient.rm.Lock()
 	defer rpcClient.rm.Unlock()
-	if !rpcClient.started {
+	if rpcClient.Closed() {
 		err = errRPCClientClosed
 		return
 	}
@@ -873,22 +873,15 @@ func (rpcClient *RPCClient) Reconnecting() bool {
 	return rpcClient.s.Reconnecting()
 }
 
-// Started returns whether client had started
-func (rpcClient *RPCClient) Started() bool {
-	rpcClient.rm.Lock()
-	defer rpcClient.rm.Unlock()
-	return rpcClient.started && !rpcClient.s.Closed()
-}
-
 // Closed returns whether client had closed
 func (rpcClient *RPCClient) Closed() bool {
-	return !rpcClient.started && rpcClient.s.Closed()
+	return isClosed(rpcClient.closeCh) && rpcClient.s.Closed()
 }
 
 // Close rpc client
 func (rpcClient *RPCClient) Close() {
 	rpcClient.cd.Do(func() {
-		rpcClient.started = false
+		close(rpcClient.closeCh)
 		if rpcClient.blockTicker != nil {
 			rpcClient.blockTicker.Stop()
 		}

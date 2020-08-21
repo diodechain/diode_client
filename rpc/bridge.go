@@ -123,6 +123,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			connDevice.Conn = &DeviceConn{
 				Conn:       remoteConn,
 				bufferSize: sslBufferSize,
+				closeCh:    make(chan struct{}),
 			}
 
 			// For the E2E encryption we're wrapping remoteConn in TLS
@@ -145,6 +146,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 					Conn:       e2eServer.localConn,
 					e2eServer:  &e2eServer,
 					bufferSize: sslBufferSize,
+					closeCh:    make(chan struct{}),
 				}
 			}
 			rpcClient.Debug("Bridge local resource :%d external :%d protocol :%s", portOpen.SrcPortNumber, portOpen.PortNumber, config.ProtocolName(portOpen.Protocol))
@@ -403,5 +405,4 @@ func (rpcClient *RPCClient) Start() {
 	rpcClient.addWorker(rpcClient.recvMessage)
 	rpcClient.addWorker(rpcClient.sendMessage)
 	rpcClient.addWorker(rpcClient.watchLatestBlock)
-	rpcClient.started = true
 }

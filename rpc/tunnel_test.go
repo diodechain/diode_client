@@ -10,10 +10,6 @@ import (
 	"time"
 )
 
-type TunnelTest struct {
-	Bytes []byte
-}
-
 func TestTunnelCopy(t *testing.T) {
 	// random test data
 	transportData := randomData(10, tunnelSize)

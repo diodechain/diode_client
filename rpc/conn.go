@@ -28,10 +28,9 @@ type ConnectedDevice struct {
 // DeviceConn connected net/websocket connection
 type DeviceConn struct {
 	Conn       net.Conn
-	closed     bool
-	mx         sync.Mutex
 	cd         sync.Once
 	bufferSize int
+	closeCh    chan struct{}
 
 	// E2E
 	e2eServer *E2EServer
@@ -94,9 +93,7 @@ func (conn *DeviceConn) RemoteAddr() net.Addr {
 
 // Closed returns whether device connection had been closed
 func (conn *DeviceConn) Closed() bool {
-	conn.mx.Lock()
-	defer conn.mx.Unlock()
-	return conn.closed
+	return isClosed(conn.closeCh)
 }
 
 // Close the connection
@@ -111,7 +108,7 @@ func (conn *DeviceConn) Close() {
 			conn.e2eServer.Close()
 		}
 
-		conn.closed = true
+		close(conn.closeCh)
 	})
 }
 
