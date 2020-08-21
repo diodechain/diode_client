@@ -76,10 +76,16 @@ func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags) (*SSL, e
 	return s, nil
 }
 
-// LocalAddr returns address of ssl connection
+// LocalAddr returns local network address of ssl connection
 func (s *SSL) LocalAddr() net.Addr {
 	conn := s.UnderlyingConn()
 	return conn.LocalAddr()
+}
+
+// RemoteAddr returns remote network address of ssl connection
+func (s *SSL) RemoteAddr() net.Addr {
+	conn := s.UnderlyingConn()
+	return conn.RemoteAddr()
 }
 
 // TotalConnections returns total connections of device

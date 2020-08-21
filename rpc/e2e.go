@@ -56,7 +56,9 @@ func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*op
 	ctx := e2eServer.ctx()
 	ctx.SetOptions(openssl.NoSSLv2 | openssl.NoSSLv3)
 	ctx.SetMode(openssl.ReleaseBuffers)
-	tunnelOpenssl, tunnelDiode := e2eServer.internalTunnels()
+	// tunnelOpenssl, tunnelDiode := e2eServer.internalTunnels()
+	tunnelOpenssl, tunnelDiode := net.Pipe()
+	e2eServer.localConn = tunnelDiode
 	conn, err := fn(tunnelOpenssl, ctx)
 	if err != nil {
 		tunnelOpenssl.Close()

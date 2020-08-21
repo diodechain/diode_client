@@ -535,6 +535,10 @@ func netCopy(input, output net.Conn, bufferSize int, timeout time.Duration) (err
 				return
 			}
 		}
+		// if count == 0 {
+		// 	err = io.EOF
+		// 	return
+		// }
 		if err != nil {
 			return
 		}
