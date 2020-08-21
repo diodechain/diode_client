@@ -15,9 +15,10 @@ import (
 
 // E2EServer represents a proxy server that port ssl connection to local resource connection
 type E2EServer struct {
-	client *RPCClient
-	peer   Address
-	cd     sync.Once
+	client  *RPCClient
+	peer    Address
+	closeCh chan struct{}
+	cd      sync.Once
 
 	remoteConn  net.Conn
 	localConn   net.Conn
@@ -31,13 +32,8 @@ func (rpcClient *RPCClient) NewE2EServer(remoteConn net.Conn, peer Address, time
 	e2eServer.peer = peer
 	e2eServer.client = rpcClient
 	e2eServer.timeout = timeout
+	e2eServer.closeCh = make(chan struct{})
 	rpcClient.Debug("Enable e2e Tunnel")
-	return
-}
-
-func (e2eServer *E2EServer) internalTunnels() (tunnelOpenssl *Tunnel, tunnelDiode *Tunnel) {
-	tunnelOpenssl, tunnelDiode = NewTunnel(e2eServer.timeout)
-	e2eServer.localConn = tunnelDiode
 	return
 }
 
@@ -56,7 +52,6 @@ func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*op
 	ctx := e2eServer.ctx()
 	ctx.SetOptions(openssl.NoSSLv2 | openssl.NoSSLv3)
 	ctx.SetMode(openssl.ReleaseBuffers)
-	// tunnelOpenssl, tunnelDiode := e2eServer.internalTunnels()
 	tunnelOpenssl, tunnelDiode := net.Pipe()
 	e2eServer.localConn = tunnelDiode
 	conn, err := fn(tunnelOpenssl, ctx)
@@ -73,8 +68,8 @@ func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*op
 			e2eServer.Error(err.Error())
 			return
 		}
-		go netCopy(conn, e2eServer.remoteConn, e2eBufferSize, 90*time.Second)
-		netCopy(e2eServer.remoteConn, conn, e2eBufferSize, 90*time.Second)
+		tunnel := NewTunnel(conn, 10*time.Second, e2eServer.remoteConn, 2*time.Second, e2eBufferSize)
+		tunnel.Copy()
 		e2eServer.Close()
 	}()
 	return nil
@@ -115,11 +110,17 @@ func (e2eServer *E2EServer) Error(msg string, args ...interface{}) {
 	e2eServer.client.logger.Error(fmt.Sprintf(msg, args...))
 }
 
+// Closed returns whether e2e server is closed
+func (e2eServer *E2EServer) Closed() bool {
+	return isClosed(e2eServer.closeCh)
+}
+
 // Close e2e server
 func (e2eServer *E2EServer) Close() {
 	e2eServer.cd.Do(func() {
 		e2eServer.client.Debug("Close e2e connections")
 		e2eServer.remoteConn.Close()
 		e2eServer.opensslConn.Close()
+		close(e2eServer.closeCh)
 	})
 }

@@ -517,51 +517,23 @@ func writeSocksReturn(conn net.Conn, ver int, addr net.Addr, port int) {
 	conn.Write(rep[0 : pindex+2])
 }
 
-func netCopy(input, output net.Conn, bufferSize int, timeout time.Duration) (err error) {
-	buf := make([]byte, bufferSize)
-	for {
-		var count int
-		var writed int
-		input.SetReadDeadline(time.Now().Add(timeout))
-		count, err = input.Read(buf)
-		if count > 0 {
-			output.SetWriteDeadline(time.Now().Add(timeout))
-			writed, err = output.Write(buf[:count])
-			if err != nil {
-				return
-			}
-			if writed == 0 {
-				err = io.EOF
-				return
-			}
-		}
-		// if count == 0 {
-		// 	err = io.EOF
-		// 	return
-		// }
-		if err != nil {
-			return
-		}
-	}
-}
-
 func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
-	remote, err := net.Dial("tcp", host)
+	remoteConn, err := net.Dial("tcp", host)
 	if err != nil {
 		socksServer.Client.Error("Failed to connect host: %v", host)
 		writeSocksError(conn, ver, socksRepNetworkUnreachable)
 		return
 	}
-	defer remote.Close()
+	defer remoteConn.Close()
 	defer conn.Close()
 
-	port := remote.RemoteAddr().(*net.TCPAddr).Port
+	port := remoteConn.RemoteAddr().(*net.TCPAddr).Port
 
 	socksServer.Client.Debug("host connect success @ %s", host)
 	writeSocksReturn(conn, ver, socksServer.Client.s.LocalAddr(), port)
 
-	go netCopy(conn, remote, sslBufferSize, 5*time.Second)
-	netCopy(remote, conn, sslBufferSize, 5*time.Second)
+	tunnel := NewTunnel(conn, 5*time.Second, remoteConn, 1*time.Second, sslBufferSize)
+	tunnel.Copy()
 }
 
 func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, device *edge.DeviceTicket, port int, mode string) {
@@ -602,8 +574,8 @@ func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, device *
 
 	writeSocksReturn(conn, ver, remoteConn.LocalAddr(), port)
 
-	go netCopy(conn, remoteConn, sslBufferSize, 5*time.Second)
-	netCopy(remoteConn, conn, sslBufferSize, 1*time.Second)
+	tunnel := NewTunnel(conn, 5*time.Second, remoteConn, 1*time.Second, sslBufferSize)
+	tunnel.Copy()
 }
 
 func (socksServer *Server) handleSocksConnection(conn net.Conn) {

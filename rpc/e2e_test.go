@@ -33,6 +33,7 @@ func newTestE2EServer(remoteConn net.Conn, peer Address, timeout time.Duration) 
 	e2eServer.client = &RPCClient{
 		logger: config.AppConfig.Logger,
 	}
+	e2eServer.closeCh = make(chan struct{})
 	return
 }
 
@@ -115,8 +116,8 @@ func TestE2ETunnels(t *testing.T) {
 		}
 
 		// copy local tunnel
-		go netCopy(e2eServer.localConn, ca, tunnelSize, 1*time.Second)
-		go netCopy(ca, e2eServer.localConn, tunnelSize, 1*time.Second)
+		tunnel := NewTunnel(e2eServer.localConn, 1*time.Second, ca, 1*time.Second, tunnelSize)
+		go tunnel.Copy()
 		var n int
 		for i := 0; i < 10; i += 2 {
 			n, err = fc.Write(transportData[i])
@@ -157,8 +158,8 @@ func TestE2ETunnels(t *testing.T) {
 			return
 		}
 		// copy local tunnel to c
-		go netCopy(e2eServer.localConn, cb, tunnelSize, 1*time.Second)
-		go netCopy(cb, e2eServer.localConn, tunnelSize, 1*time.Second)
+		tunnel := NewTunnel(e2eServer.localConn, 1*time.Second, cb, 1*time.Second, tunnelSize)
+		go tunnel.Copy()
 		if err != nil {
 			errCh <- err
 			return
