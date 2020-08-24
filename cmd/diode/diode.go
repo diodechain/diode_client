@@ -169,6 +169,7 @@ func diode() (status int) {
 				if client == nil {
 					client = rpcClient
 					wg.Done()
+					continue
 				}
 				serverID, err := rpcClient.GetServerID()
 				if err != nil {
