@@ -27,10 +27,11 @@ var (
 	domainPattern    = regexp.MustCompile(`^(.+)\.(diode|diode\.link|diode\.ws)(:[\d]+)?$`)
 	subDomainpattern = regexp.MustCompile(`^([rws]{1,3}-)?(0x[A-Fa-f0-9]{40}|[A-Za-z0-9][A-Za-z0-9-]{5,30}?)(-[^0][\d]+)?$`)
 
-	errAddrType = errors.New("socks addr type not supported")
-	errVer      = errors.New("socks version not supported")
-	errCmd      = errors.New("socks only support connect command")
-	localhost   = "localhost"
+	errAddrType    = errors.New("socks addr type not supported")
+	errVer         = errors.New("socks version not supported")
+	errCmd         = errors.New("socks only support connect command")
+	localhost      = "localhost"
+	defaultTimeout = 0 * time.Second
 )
 
 const (
@@ -475,9 +476,10 @@ func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, pro
 
 	socksServer.datapool.SetDevice(deviceKey, connDevice)
 
-	// write request data to device
-	connDevice.copyLoop()
-	connDevice.Close()
+	rpcConn := NewRPCConn(socksServer.Client, connDevice.Ref)
+	tunnel := NewTunnel(connDevice.Conn, defaultTimeout, rpcConn, defaultTimeout, sslBufferSize)
+	tunnel.netCopy(connDevice.Conn, rpcConn, defaultTimeout, sslBufferSize)
+	tunnel.Close()
 	return nil
 }
 
@@ -533,7 +535,7 @@ func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
 	socksServer.Client.Debug("host connect success @ %s", host)
 	writeSocksReturn(conn, ver, socksServer.Client.s.LocalAddr(), port)
 
-	tunnel := NewTunnel(conn, 5*time.Second, remoteConn, 1*time.Second, sslBufferSize)
+	tunnel := NewTunnel(conn, defaultTimeout, remoteConn, defaultTimeout, sslBufferSize)
 	tunnel.Copy()
 }
 
@@ -576,7 +578,7 @@ func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, device *
 
 	writeSocksReturn(conn, ver, remoteConn.LocalAddr(), port)
 
-	tunnel := NewTunnel(conn, 5*time.Second, remoteConn, 1*time.Second, sslBufferSize)
+	tunnel := NewTunnel(conn, defaultTimeout, remoteConn, defaultTimeout, sslBufferSize)
 	tunnel.Copy()
 }
 

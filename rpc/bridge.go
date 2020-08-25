@@ -154,8 +154,10 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			rpcClient.pool.SetDevice(deviceKey, connDevice)
 			_ = rpcClient.ResponsePortOpen(portOpen, nil)
 
-			connDevice.copyLoop()
-			connDevice.Close()
+			rpcConn := NewRPCConn(rpcClient, connDevice.Ref)
+			tunnel := NewTunnel(connDevice.Conn, defaultTimeout, rpcConn, defaultTimeout, sslBufferSize)
+			tunnel.netCopy(connDevice.Conn, rpcConn, defaultTimeout, sslBufferSize)
+			tunnel.Close()
 		}()
 	} else if portSend, ok := inboundRequest.(*edge.PortSend); ok {
 		if portSend.Err != nil {

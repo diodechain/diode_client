@@ -20,7 +20,7 @@ type ConnectedDevice struct {
 	PortNumber    int
 	SrcPortNumber int
 	DeviceID      Address
-	Conn          *DeviceConn
+	Conn          net.Conn
 	cd            sync.Once
 	Client        *RPCClient
 }
@@ -45,10 +45,6 @@ func (device *ConnectedDevice) Close() {
 			device.Client.pool.SetDevice(deviceKey, nil)
 		}
 
-		if device.Conn.Closed() {
-			return
-		}
-
 		if device.Protocol > 0 {
 			device.Client.Debug("Close local resource :%d external :%d protocol :%s", device.SrcPortNumber, device.PortNumber, config.ProtocolName(device.Protocol))
 		}
@@ -56,25 +52,13 @@ func (device *ConnectedDevice) Close() {
 		// send portclose request and channel
 		device.Client.CastPortClose(device.Ref)
 
-		if device.Conn.Conn != nil {
-			device.Conn.Close()
-		}
+		device.Conn.Close()
 	})
-}
-
-// The non-nil error almost be io.EOF or "use of closed network"
-// Any error means connection is dead, and we should send portclose and close the connection.
-func (device *ConnectedDevice) copyLoop() {
-	err := device.Conn.copyLoop(device.Client, device.Ref)
-	if err != nil {
-		device.Client.Debug("copyLoop failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
-		device.Close()
-	}
 }
 
 // Maybe we should return error
 func (device *ConnectedDevice) Write(data []byte) {
-	err := device.Conn.Write(data)
+	_, err := device.Conn.Write(data)
 	if err != nil {
 		device.Client.Debug("Write failed: %v client_id=%v device_id=%v", err, device.ClientID, device.DeviceID)
 		device.Close()
@@ -97,7 +81,7 @@ func (conn *DeviceConn) Closed() bool {
 }
 
 // Close the connection
-func (conn *DeviceConn) Close() {
+func (conn *DeviceConn) Close() (err error) {
 	conn.cd.Do(func() {
 		if conn.Conn != nil {
 			// e2eServer close will also shut down tunnel
@@ -110,40 +94,18 @@ func (conn *DeviceConn) Close() {
 
 		close(conn.closeCh)
 	})
+	return
 }
 
-func (conn *DeviceConn) copyLoop(client *RPCClient, ref string) (err error) {
-	buf := make([]byte, conn.bufferSize)
-	for {
-		var count int
-		if conn.Closed() {
-			return
-		}
-		count, err = conn.Read(buf)
-		if count > 0 {
-			err = client.PortSend(ref, buf[:count])
-			if err != nil {
-				return
-			}
-		}
-		if err != nil {
-			return
-		}
-		if count == 0 {
-			time.Sleep(10 * time.Millisecond)
-		}
-	}
-}
-
-func (conn *DeviceConn) Write(data []byte) error {
+func (conn *DeviceConn) Write(data []byte) (n int, err error) {
 	if conn.Closed() {
-		return nil
+		return
 	}
-	n, err := conn.Conn.Write(data)
+	n, err = conn.Conn.Write(data)
 	if len(data) > 0 && n <= 0 {
 		err = io.EOF
 	}
-	return err
+	return
 }
 
 func (conn *DeviceConn) Read(buf []byte) (count int, err error) {
@@ -153,4 +115,24 @@ func (conn *DeviceConn) Read(buf []byte) (count int, err error) {
 	}
 	count, err = conn.Conn.Read(buf)
 	return
+}
+
+// SetDeadline set read/write deadline of the connection
+func (conn *DeviceConn) SetDeadline(ti time.Time) error {
+	if err := conn.SetReadDeadline(ti); err != nil {
+		return err
+	}
+	return conn.SetWriteDeadline(ti)
+}
+
+// SetReadDeadline set read deadline of the connection
+// TODO: set the read deadline of device connection?
+func (conn *DeviceConn) SetReadDeadline(ti time.Time) error {
+	return nil
+}
+
+// SetWriteDeadline set write deadline of the connection
+// TODO: set the write deadline of device connection?
+func (conn *DeviceConn) SetWriteDeadline(ti time.Time) error {
+	return nil
 }
