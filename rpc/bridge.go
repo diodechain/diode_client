@@ -133,7 +133,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 					_ = rpcClient.ResponsePortOpen(portOpen, err)
 					return
 				}
-				e2eServer := rpcClient.NewE2EServer(remoteConn, portOpen.DeviceID, 2*time.Second)
+				e2eServer := rpcClient.NewE2EServer(remoteConn, portOpen.DeviceID, defaultIdleTimeout)
 				err := e2eServer.InternalServerConnect()
 				if err != nil {
 					_ = rpcClient.ResponsePortOpen(portOpen, err)
@@ -155,8 +155,8 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			_ = rpcClient.ResponsePortOpen(portOpen, nil)
 
 			rpcConn := NewRPCConn(rpcClient, connDevice.Ref)
-			tunnel := NewTunnel(connDevice.Conn, defaultTimeout, rpcConn, defaultTimeout, sslBufferSize)
-			tunnel.netCopy(connDevice.Conn, rpcConn, defaultTimeout, sslBufferSize)
+			tunnel := NewTunnel(connDevice.Conn, defaultIdleTimeout, rpcConn, defaultIdleTimeout, sslBufferSize)
+			tunnel.netCopyWithoutTimeout(connDevice.Conn, rpcConn, sslBufferSize)
 			tunnel.Close()
 		}()
 	} else if portSend, ok := inboundRequest.(*edge.PortSend); ok {

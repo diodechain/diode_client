@@ -43,6 +43,38 @@ func isClosed(closedCh <-chan struct{}) bool {
 	}
 }
 
+func (tun *Tunnel) netCopyWithoutTimeout(input, output net.Conn, bufferSize int) (err error) {
+	buf := make([]byte, bufferSize)
+	for {
+		var count int
+		var writed int
+		if isClosed(tun.closeCh) {
+			return
+		}
+		count, err = input.Read(buf)
+		if count > 0 {
+			if isClosed(tun.closeCh) {
+				return
+			}
+			writed, err = output.Write(buf[:count])
+			if err != nil {
+				return
+			}
+			if writed == 0 {
+				err = io.EOF
+				return
+			}
+		}
+		// if count == 0 {
+		// 	err = io.EOF
+		// 	return
+		// }
+		if err != nil {
+			return
+		}
+	}
+}
+
 func (tun *Tunnel) netCopy(input, output net.Conn, timeout time.Duration, bufferSize int) (err error) {
 	buf := make([]byte, bufferSize)
 	for {
@@ -82,8 +114,16 @@ func (tun *Tunnel) Copy() bool {
 	if isClosed(tun.closeCh) {
 		return true
 	}
-	go tun.netCopy(tun.conna, tun.connb, tun.connaTimeout, tun.bufferSize)
-	tun.netCopy(tun.connb, tun.conna, tun.connbTimeout, tun.bufferSize)
+	if tun.connaTimeout > 0 {
+		go tun.netCopy(tun.conna, tun.connb, tun.connaTimeout, tun.bufferSize)
+	} else {
+		go tun.netCopyWithoutTimeout(tun.conna, tun.connb, tun.bufferSize)
+	}
+	if tun.connbTimeout > 0 {
+		tun.netCopy(tun.connb, tun.conna, tun.connbTimeout, tun.bufferSize)
+	} else {
+		tun.netCopyWithoutTimeout(tun.connb, tun.conna, tun.bufferSize)
+	}
 	tun.Close()
 	return isClosed(tun.closeCh)
 }

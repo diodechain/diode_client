@@ -106,7 +106,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 		protocol = config.TLSProtocol
 	}
 
-	err = proxyServer.socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, func(*ConnectedDevice) (*DeviceConn, error) {
+	err = proxyServer.socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, 2*time.Second, func(*ConnectedDevice) (*DeviceConn, error) {
 		if isWS {
 			upgrader := websocket.Upgrader{
 				ReadBufferSize:    readBufferSize,

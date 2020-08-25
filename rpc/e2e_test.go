@@ -26,10 +26,10 @@ var (
 	letterBytes = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 )
 
-func newTestE2EServer(remoteConn net.Conn, peer Address, timeout time.Duration) (e2eServer E2EServer) {
+func newTestE2EServer(remoteConn net.Conn, peer Address, idleTimeout time.Duration) (e2eServer E2EServer) {
 	e2eServer.remoteConn = remoteConn
 	e2eServer.peer = peer
-	e2eServer.timeout = timeout
+	e2eServer.idleTimeout = idleTimeout
 	e2eServer.client = &RPCClient{
 		logger: config.AppConfig.Logger,
 	}
