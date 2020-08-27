@@ -83,7 +83,7 @@ $ diode socksd
 
 ## Prerequisite
 
-* go > 1.10
+* go >= 1.14
 * enable go module (see: https://blog.golang.org/using-go-modules)
 
   ```BASH
@@ -112,7 +112,7 @@ $ /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/inst
 $ brew install golang
 ```
 
-Then you can check go version meets the requirement (>1.10).
+Then you can check go version meets the requirement (>=1.14).
 
 ```BASH
 $ go version
