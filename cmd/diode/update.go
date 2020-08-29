@@ -15,6 +15,10 @@ import (
 	"github.com/diodechain/go-update/stores/github"
 )
 
+var (
+	ErrFailedToUpdateClient = fmt.Errorf("failed to update diode client")
+)
+
 func doUpdate() int {
 	m := &update.Manager{
 		Command: "diode",

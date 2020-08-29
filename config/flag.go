@@ -4,18 +4,14 @@
 package config
 
 import (
-	"flag"
 	"fmt"
 	"net"
 	"os"
-	"regexp"
-	"runtime"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/diodechain/diode_go_client/util"
-	log "github.com/diodechain/log15"
 	"gopkg.in/yaml.v2"
 )
 
@@ -104,7 +100,7 @@ type Config struct {
 	Allowlists              map[Address]bool `yaml:"-" json:"-"`
 	LogMode                 int              `yaml:"-" json:"-"`
 	LogDateTime             bool             `yaml:"-" json:"-"`
-	Logger                  log.Logger       `yaml:"-" json:"-"`
+	Logger                  *Logger          `yaml:"-" json:"-"`
 	ConfigFilePath          string           `yaml:"-" json:"-"`
 	Binds                   []Bind           `yaml:"-" json:"-"`
 	BNSRegister             string           `yaml:"-" json:"-"`
@@ -223,22 +219,6 @@ func wrongCommandLineFlag(err error) {
 	os.Exit(2)
 }
 
-func newLogger(cfg *Config) log.Logger {
-	var logHandler log.Handler
-	logger := log.New()
-	if (cfg.LogMode & LogToConsole) > 0 {
-		logHandler = log.StreamHandler(os.Stderr, log.TerminalFormat(cfg.LogDateTime))
-	} else if (cfg.LogMode & LogToFile) > 0 {
-		var err error
-		logHandler, err = log.FileHandler(cfg.LogFilePath, log.TerminalFormat(cfg.LogDateTime))
-		if err != nil {
-			panicWithError(err)
-		}
-	}
-	logger.SetHandler(logHandler)
-	return logger
-}
-
 func parseBind(bind string, enableEdgeE2E bool) (*Bind, error) {
 	elements := strings.Split(bind, ":")
 	if len(elements) == 3 {
@@ -290,99 +270,6 @@ func parseBind(bind string, enableEdgeE2E bool) (*Bind, error) {
 	return ret, nil
 }
 
-var portPattern = regexp.MustCompile(`^(\d+)(:(\d*)(:(tcp|tls|udp))?)?$`)
-var accessPattern = regexp.MustCompile(`^0x[a-fA-F0-9]{40}$`)
-
-func parsePorts(portStrings []string, mode int, enableEdgeE2E bool) []*Port {
-	ports := []*Port{}
-	for _, portString := range portStrings {
-		segments := strings.Split(portString, ",")
-		allowlist := make(map[Address]bool)
-		for _, segment := range segments {
-			portDef := portPattern.FindStringSubmatch(segment)
-			// fmt.Printf("%+v (%v)\n", portDef, len(portDef))
-
-			if len(portDef) >= 2 {
-				srcPort, err := strconv.Atoi(portDef[1])
-				if err != nil {
-					wrongCommandLineFlag(fmt.Errorf("src port number expected but got: %v in %v", portDef[1], segment))
-				}
-				if !util.IsPort(srcPort) {
-					wrongCommandLineFlag(fmt.Errorf("src port number should be bigger than 1 and smaller than 65535"))
-				}
-				var toPort int
-				if len(portDef) < 4 || portDef[3] == "" {
-					toPort = srcPort
-				} else {
-					toPort, err = strconv.Atoi(portDef[3])
-					if err != nil {
-						wrongCommandLineFlag(fmt.Errorf("to port number expected but got: %v in %v", portDef[3], segment))
-					}
-					if !util.IsPort(toPort) {
-						wrongCommandLineFlag(fmt.Errorf("to port number should be bigger than 1 and smaller than 65535"))
-					}
-				}
-
-				port := &Port{
-					Src:       srcPort,
-					To:        toPort,
-					Mode:      mode,
-					Protocol:  AnyProtocol,
-					Allowlist: allowlist,
-				}
-
-				if len(portDef) >= 6 {
-					switch portDef[5] {
-					case "tls":
-						if !enableEdgeE2E {
-							wrongCommandLineFlag(fmt.Errorf("should enable e2e to use tle protocol"))
-						}
-						port.Protocol = TLSProtocol
-					case "tcp":
-						port.Protocol = TCPProtocol
-					case "udp":
-						port.Protocol = UDPProtocol
-					case "any":
-						port.Protocol = AnyProtocol
-					case "":
-						port.Protocol = AnyProtocol
-					default:
-						wrongCommandLineFlag(fmt.Errorf("port unknown protocol %v in: %v", portDef[4], segment))
-					}
-				}
-				ports = append(ports, port)
-			} else {
-				access := accessPattern.FindString(segment)
-				if access == "" {
-					wrongCommandLineFlag(fmt.Errorf("port format expected <from>:<to>(:<protocol>) or <address> but got: %v", segment))
-				}
-
-				addr, err := util.DecodeAddress(access)
-				if err != nil {
-					wrongCommandLineFlag(fmt.Errorf("port format couldn't parse port address: %v", segment))
-				}
-
-				allowlist[addr] = true
-			}
-		}
-	}
-
-	for _, v := range ports {
-		if mode == PublicPublishedMode && len(v.Allowlist) > 0 {
-			wrongCommandLineFlag(fmt.Errorf("public port publishing does not support providing addresses"))
-		}
-		if mode == PrivatePublishedMode && len(v.Allowlist) == 0 {
-			wrongCommandLineFlag(fmt.Errorf("private port publishing reuquires providing at least one address"))
-		}
-		// limit fleet address size when publish protected port
-		if mode == ProtectedPublishedMode && len(v.Allowlist) > 5 {
-			wrongCommandLineFlag(fmt.Errorf("fleet address size should not exceeds 5 when publish protected port"))
-		}
-	}
-
-	return ports
-}
-
 // LoadConfigFromFile returns bytes data of config
 func LoadConfigFromFile(filePath string) (configBytes []byte, err error) {
 	var f *os.File
@@ -415,217 +302,6 @@ func isValidRPCAddress(address string) (isValid bool) {
 		isValid = true
 	}
 	return
-}
-
-// ParseFlag parse command line flags and return Config
-// TODO: refactor flag usage and commandFlag usage text
-func ParseFlag() {
-	cfg := &Config{}
-	commands := makeCommandFlags(cfg)
-	flag.Usage = func() {
-		fmt.Print("Name\n  diode - Diode network command line interface\n\n")
-		fmt.Print("SYNOPSYS\n  diode")
-		count := 0
-		flag.VisitAll(func(flag *flag.Flag) {
-			count++
-			if count > 3 {
-				count = 0
-				fmt.Print("\n       ")
-			}
-			if len(flag.DefValue) < 10 {
-				fmt.Printf(" [-%s=%s]", flag.Name, flag.DefValue)
-			} else {
-				fmt.Printf(" [-%s=%s...]", flag.Name, flag.DefValue[:7])
-			}
-		})
-		fmt.Print(" COMMAND <args>\n\n")
-
-		fmt.Print("COMMANDS\n")
-		for _, commandFlag := range *commands {
-			fmt.Printf("  %-10s %s\n", commandFlag.Name, commandFlag.HelpText)
-		}
-		fmt.Print(finalText)
-	}
-
-	flag.StringVar(&cfg.DBPath, "dbpath", util.DefaultDBPath(), "file path to db file")
-	flag.IntVar(&cfg.RetryTimes, "retrytimes", 3, "retry times to connect the remote rpc server")
-	flag.BoolVar(&cfg.EnableEdgeE2E, "e2e", true, "disable edge e2e when start diode")
-	flag.BoolVar(&cfg.EnableUpdate, "update", true, "disable update when start diode")
-	flag.BoolVar(&cfg.EnableMetrics, "metrics", false, "enable metrics stats")
-	flag.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
-	flag.BoolVar(&cfg.EnableAPIServer, "api", false, "turn on the config api")
-	flag.StringVar(&cfg.APIServerAddr, "apiaddr", "localhost:1081", "define config api server address")
-	flag.IntVar(&cfg.RlimitNofile, "rlimit_nofile", 0, "specify the file descriptor numbers that can be opened by this process")
-	flag.StringVar(&cfg.LogFilePath, "logfilepath", "", "file path to log file")
-	flag.BoolVar(&cfg.LogDateTime, "logdatetime", false, "show the date time in log")
-	flag.StringVar(&cfg.ConfigFilePath, "configpath", "", "yaml file path to config file")
-	flag.StringVar(&cfg.CPUProfile, "cpuprofile", "", "file path for cpu profiling")
-	flag.StringVar(&cfg.MEMProfile, "memprofile", "", "file path for memory profiling")
-
-	var fleetFake string
-	flag.StringVar(&fleetFake, "fleet", "", "@deprecated. Use: 'diode config -set fleet=0x1234' instead")
-
-	// tcp keepalive for node connection
-	flag.BoolVar(&cfg.EnableKeepAlive, "keepalive", runtime.GOOS != "windows", "enable tcp keepalive (only Linux >= 2.4, DragonFly, FreeBSD, NetBSD and OS X >= 10.8 are supported)")
-	flag.IntVar(&cfg.KeepAliveCount, "keepalivecount", 4, "the maximum number of keepalive probes TCP should send before dropping the connection")
-	keepaliveIdle := flag.Int("keepaliveidle", 30, "the time (in seconds) the connection needs to remain idle before TCP starts sending keepalive probes")
-	keepaliveIdleTime, err := time.ParseDuration(strconv.Itoa(*keepaliveIdle) + "s")
-	cfg.KeepAliveIdle = keepaliveIdleTime
-	if err != nil {
-		wrongCommandLineFlag(err)
-	}
-	keepaliveInterval := flag.Int("keepaliveinterval", 5, "the time (in seconds) between individual keepalive probes")
-	keepaliveIntervalTime, err := time.ParseDuration(strconv.Itoa(*keepaliveInterval) + "s")
-	cfg.KeepAliveInterval = keepaliveIntervalTime
-	if err != nil {
-		wrongCommandLineFlag(err)
-	}
-
-	flag.Var(&cfg.RemoteRPCAddrs, "diodeaddrs", "addresses of Diode node server (default: asia.testnet.diode.io:41046, europe.testnet.diode.io:41046, usa.testnet.diode.io:41046)")
-	remoteRPCTimeout := flag.Int("timeout", 5, "timeout seconds to connect to the remote rpc server")
-	retryWait := flag.Int("retrywait", 1, "wait seconds before next retry")
-	flag.Var(&cfg.SBlocklists, "blocklists", "addresses are not allowed to connect to published resource (worked when allowlists is empty)")
-	flag.Var(&cfg.SAllowlists, "allowlists", "addresses are allowed to connect to published resource (worked when blocklists is empty)")
-	flag.Var(&cfg.SBinds, "bind", "bind a remote port to a local port. -bind <local_port>:<to_address>:<to_port>:(udp|tcp)")
-
-	flag.Parse()
-
-	if len(cfg.ConfigFilePath) > 0 {
-		configBytes, err := LoadConfigFromFile(cfg.ConfigFilePath)
-		if err != nil {
-			panicWithError(err)
-		}
-		err = yaml.Unmarshal(configBytes, cfg)
-		if err != nil {
-			panicWithError(err)
-		}
-		cfg.LoadFromFile = true
-	}
-
-	commandName := flag.Arg(0)
-	args := flag.Args()
-	if commandName == "" {
-		if len(cfg.SBinds) > 0 {
-			args = []string{"publish"}
-			commandName = "publish"
-		}
-	}
-	commandFlag := command(commandName, commands)
-	switch commandName {
-	case "socksd":
-		commandFlag.Parse(args[1:])
-		cfg.EnableSocksServer = true
-		cfg.EnableProxyServer = true
-		cfg.ProxyServerPort = 8080
-	case "httpd":
-		commandFlag.Parse(args[1:])
-		cfg.EnableProxyServer = true
-	case "publish":
-		commandFlag.Parse(args[1:])
-		portString := make(map[int]*Port)
-		// copy to config
-		for _, port := range parsePorts(cfg.PublicPublishedPorts, PublicPublishedMode, cfg.EnableEdgeE2E) {
-			if portString[port.To] != nil {
-				wrongCommandLineFlag(fmt.Errorf("public port specified twice: %v", port.To))
-			}
-			portString[port.To] = port
-		}
-		for _, port := range parsePorts(cfg.ProtectedPublishedPorts, ProtectedPublishedMode, cfg.EnableEdgeE2E) {
-			if portString[port.To] != nil {
-				wrongCommandLineFlag(fmt.Errorf("port conflict between public and protected port: %v", port.To))
-			}
-			portString[port.To] = port
-		}
-		for _, port := range parsePorts(cfg.PrivatePublishedPorts, PrivatePublishedMode, cfg.EnableEdgeE2E) {
-			if portString[port.To] != nil {
-				wrongCommandLineFlag(fmt.Errorf("port conflict with private port: %v", port.To))
-			}
-			portString[port.To] = port
-		}
-		cfg.PublishedPorts = portString
-	default:
-		if commandFlag == nil {
-			flag.Usage()
-			os.Exit(0)
-		}
-		commandFlag.Parse(args[1:])
-	}
-
-	cfg.Command = commandName
-
-	// TODO: add another log mode
-	if len(cfg.LogFilePath) > 0 {
-		cfg.LogMode = LogToFile
-	} else {
-		cfg.LogMode = LogToConsole
-	}
-	cfg.Logger = newLogger(cfg)
-
-	if fleetFake != "" {
-		cfg.Logger.Warn("-fleet parameter is deprecated")
-	}
-
-	if len(cfg.RemoteRPCAddrs) <= 0 {
-		cfg.RemoteRPCAddrs = bootDiodeAddrs[:]
-	} else {
-		remoteRPCAddrs := []string{}
-		for _, RPCAddr := range cfg.RemoteRPCAddrs {
-			if isValidRPCAddress(RPCAddr) && !util.StringsContain(remoteRPCAddrs, &RPCAddr) {
-				remoteRPCAddrs = append(remoteRPCAddrs, RPCAddr)
-			}
-		}
-		if len(remoteRPCAddrs) == 0 {
-			wrongCommandLineFlag(errWrongDiodeAddrs)
-		}
-		cfg.RemoteRPCAddrs = remoteRPCAddrs
-	}
-
-	retryWaitTime, err := time.ParseDuration(strconv.Itoa(*retryWait) + "s")
-	cfg.RetryWait = retryWaitTime
-	if err != nil {
-		wrongCommandLineFlag(err)
-	}
-	remoteRPCTimeoutTime, err := time.ParseDuration(strconv.Itoa(*remoteRPCTimeout) + "s")
-	cfg.RemoteRPCTimeout = remoteRPCTimeoutTime
-	if err != nil {
-		wrongCommandLineFlag(err)
-	}
-	blocklistsIDs := make(map[Address]bool)
-	for _, blocklistedID := range cfg.SBlocklists {
-		addr, err := util.DecodeAddress(blocklistedID)
-		if err != nil {
-			cfg.Logger.Error(fmt.Sprintf("Blocklist entry '%s' is not an address: %v", blocklistedID, err))
-			continue
-		}
-		blocklistsIDs[addr] = true
-	}
-	cfg.Blocklists = blocklistsIDs
-	allowlistsIDs := make(map[Address]bool)
-	for _, allowlistedID := range cfg.SAllowlists {
-		addr, err := util.DecodeAddress(allowlistedID)
-		if err != nil {
-			cfg.Logger.Error(fmt.Sprintf("Allowlist entry '%s' is not an address: %v", allowlistedID, err))
-			continue
-		}
-		allowlistsIDs[addr] = true
-	}
-	cfg.Allowlists = allowlistsIDs
-	if cfg.RlimitNofile > 0 {
-		if err := SetRlimitNofile(cfg.RlimitNofile); err != nil {
-			cfg.Logger.Error(fmt.Sprintf("cannot set rlimit: %s", err.Error()))
-			os.Exit(2)
-		}
-	}
-	cfg.Binds = make([]Bind, 0)
-	for _, str := range cfg.SBinds {
-		bind, err := parseBind(str, cfg.EnableEdgeE2E)
-		if err != nil {
-			wrongCommandLineFlag(err)
-		}
-		cfg.Binds = append(cfg.Binds, *bind)
-	}
-	AppConfig = cfg
-	// return cfg
 }
 
 func (cfg *Config) SocksServerAddr() string {

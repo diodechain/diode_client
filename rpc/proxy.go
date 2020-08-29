@@ -24,7 +24,6 @@ type ProxyConfig struct {
 	SProxyServerAddr string
 	CertPath         string
 	PrivPath         string
-	EnableProxy      bool
 	EnableSProxy     bool
 	AllowRedirect    bool
 }
@@ -204,38 +203,31 @@ func (proxyServer *ProxyServer) Start() error {
 	if proxyServer.Closed() {
 		return nil
 	}
-	if proxyServer.Config.EnableProxy {
-		proxyServer.socksServer.Client.Info("Start httpd server %s", proxyServer.Config.ProxyServerAddr)
-		prox, _ := url.Parse(fmt.Sprintf("socks5://%s", proxyServer.socksServer.Config.Addr))
-		proxyTransport.Proxy = http.ProxyURL(prox)
-		httpdHandler := http.HandlerFunc(proxyServer.pipeProxy)
-		if proxyServer.Config.AllowRedirect {
-			httpdHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-				// if host is not valid, throw bad request
-				host := req.Host
-				if len(host) <= 0 {
-					badRequest(w, "Bad request")
-				} else {
-					http.Redirect(w, req, fmt.Sprintf("https://%s%s", host, req.URL.String()), http.StatusPermanentRedirect)
-				}
-			})
-		}
-		httpdAddr := proxyServer.Config.ProxyServerAddr
-		proxyServer.httpServer = &http.Server{Addr: httpdAddr, Handler: httpdHandler}
-		go func() {
-			if err := proxyServer.httpServer.ListenAndServe(); err != nil {
-				proxyServer.httpServer = nil
-				if err != http.ErrServerClosed {
-					proxyServer.socksServer.Client.Error("Couldn't start http proxy: %v", err)
-				}
+	proxyServer.socksServer.Client.Info("Start httpd server %s", proxyServer.Config.ProxyServerAddr)
+	prox, _ := url.Parse(fmt.Sprintf("socks5://%s", proxyServer.socksServer.Config.Addr))
+	proxyTransport.Proxy = http.ProxyURL(prox)
+	httpdHandler := http.HandlerFunc(proxyServer.pipeProxy)
+	if proxyServer.Config.AllowRedirect {
+		httpdHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+			// if host is not valid, throw bad request
+			host := req.Host
+			if len(host) <= 0 {
+				badRequest(w, "Bad request")
+			} else {
+				http.Redirect(w, req, fmt.Sprintf("https://%s%s", host, req.URL.String()), http.StatusPermanentRedirect)
 			}
-		}()
-	} else {
-		if proxyServer.httpServer != nil {
-			proxyServer.httpServer.Close()
-			proxyServer.httpServer = nil
-		}
+		})
 	}
+	httpdAddr := proxyServer.Config.ProxyServerAddr
+	proxyServer.httpServer = &http.Server{Addr: httpdAddr, Handler: httpdHandler}
+	go func() {
+		if err := proxyServer.httpServer.ListenAndServe(); err != nil {
+			proxyServer.httpServer = nil
+			if err != http.ErrServerClosed {
+				proxyServer.socksServer.Client.Error("Couldn't start http proxy: %v", err)
+			}
+		}
+	}()
 
 	// start httpsd proxy server
 	if proxyServer.Config.EnableSProxy {

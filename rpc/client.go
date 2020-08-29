@@ -17,7 +17,6 @@ import (
 	"github.com/diodechain/diode_go_client/db"
 	"github.com/diodechain/diode_go_client/edge"
 	"github.com/diodechain/diode_go_client/util"
-	"github.com/diodechain/log15"
 )
 
 var (
@@ -42,7 +41,7 @@ type RPCClient struct {
 	backoff               Backoff
 	callQueue             chan Call
 	s                     *SSL
-	logger                log15.Logger
+	logger                *config.Logger
 	enableMetrics         bool
 	metrics               *Metrics
 	Verbose               bool
@@ -61,6 +60,7 @@ type RPCClient struct {
 	edgeProtocol          edge.EdgeProtocol
 	Config                *RPCConfig
 	bq                    *blockquick.Window
+	Order                 int
 }
 
 func getRequestID() uint64 {
@@ -93,29 +93,29 @@ func NewRPCClient(s *SSL, config *RPCConfig, pool *DataPool) RPCClient {
 
 // Info logs to logger in Info level
 func (rpcClient *RPCClient) Info(msg string, args ...interface{}) {
-	rpcClient.logger.Info(fmt.Sprintf(msg, args...), "server", rpcClient.s.addr)
+	rpcClient.logger.InfoWithHost(fmt.Sprintf(msg, args...), rpcClient.s.addr)
 }
 
 // Debug logs to logger in Debug level
 func (rpcClient *RPCClient) Debug(msg string, args ...interface{}) {
 	if rpcClient.Verbose {
-		rpcClient.logger.Debug(fmt.Sprintf(msg, args...), "server", rpcClient.s.addr)
+		rpcClient.logger.DebugWithHost(fmt.Sprintf(msg, args...), rpcClient.s.addr)
 	}
 }
 
 // Error logs to logger in Error level
 func (rpcClient *RPCClient) Error(msg string, args ...interface{}) {
-	rpcClient.logger.Error(fmt.Sprintf(msg, args...), "server", rpcClient.s.addr)
+	rpcClient.logger.ErrorWithHost(fmt.Sprintf(msg, args...), rpcClient.s.addr)
 }
 
 // Warn logs to logger in Warn level
 func (rpcClient *RPCClient) Warn(msg string, args ...interface{}) {
-	rpcClient.logger.Warn(fmt.Sprintf(msg, args...), "server", rpcClient.s.addr)
+	rpcClient.logger.WarnWithHost(fmt.Sprintf(msg, args...), rpcClient.s.addr)
 }
 
 // Crit logs to logger in Crit level
 func (rpcClient *RPCClient) Crit(msg string, args ...interface{}) {
-	rpcClient.logger.Crit(fmt.Sprintf(msg, args...), "server", rpcClient.s.addr)
+	rpcClient.logger.CritWithHost(fmt.Sprintf(msg, args...), rpcClient.s.addr)
 }
 
 // Host returns the non-resolved addr name of the host
