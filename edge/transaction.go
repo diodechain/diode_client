@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	chainID uint64 = 41043
+	chainID uint64 = 15
 )
 
 var (
