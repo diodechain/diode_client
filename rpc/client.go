@@ -127,6 +127,8 @@ func (rpcClient *RPCClient) Host() string {
 
 // SetCloseCB set close callback of rpc client
 func (rpcClient *RPCClient) SetCloseCB(closeCB func()) {
+	rpcClient.rm.Lock()
+	defer rpcClient.rm.Unlock()
 	rpcClient.closeCB = closeCB
 }
 
@@ -896,6 +898,7 @@ func (rpcClient *RPCClient) Closed() bool {
 // Close rpc client
 func (rpcClient *RPCClient) Close() {
 	rpcClient.cd.Do(func() {
+		rpcClient.rm.Lock()
 		close(rpcClient.closeCh)
 		if rpcClient.blockTicker != nil {
 			rpcClient.blockTicker.Stop()
@@ -904,6 +907,7 @@ func (rpcClient *RPCClient) Close() {
 		if rpcClient.closeCB != nil {
 			rpcClient.closeCB()
 		}
+		rpcClient.rm.Unlock()
 
 		rpcClient.s.Close()
 		close(rpcClient.callQueue)
