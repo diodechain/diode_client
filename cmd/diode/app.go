@@ -268,7 +268,6 @@ func (dio *Diode) Start() error {
 	var client *rpc.RPCClient
 
 	go func() {
-		order := 1
 		for rpcClient := range c {
 			if isPublished && client != nil {
 				rpcClient.Close()
@@ -285,8 +284,6 @@ func (dio *Diode) Start() error {
 					rpcClient.Close()
 					continue
 				}
-				rpcClient.Order = order
-				order++
 				dio.datapool.SetClient(serverID, rpcClient)
 				if client == nil {
 					client = rpcClient

@@ -5,6 +5,7 @@ package rpc
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/diodechain/diode_go_client/config"
@@ -14,6 +15,7 @@ import (
 )
 
 type DataPool struct {
+	clientOrder    uint64
 	rm             sync.RWMutex
 	clients        map[util.Address]*RPCClient
 	devices        map[string]*ConnectedDevice
@@ -157,6 +159,8 @@ func (p *DataPool) SetClient(nodeID util.Address, client *RPCClient) {
 		delete(p.clients, nodeID)
 	} else {
 		if p.clients[nodeID] == nil {
+			order := atomic.AddUint64(&p.clientOrder, 1)
+			client.Order = int(order)
 			p.wg.Add(1)
 		}
 		p.clients[nodeID] = client
