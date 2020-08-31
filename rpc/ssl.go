@@ -384,7 +384,6 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 	if config.EnableKeepAlive {
 		err = client.EnableKeepAlive()
 		if err != nil {
-			client.Close()
 			return nil, err
 		}
 		err = client.SetKeepAliveCount(config.KeepAliveCount)
