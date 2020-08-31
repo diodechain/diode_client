@@ -93,7 +93,6 @@ func prepareDiode() {
 	// initialize logger
 	pool = rpc.NewPool()
 
-	clientPool := make(map[util.Address]*rpc.RPCClient)
 	logger, err := config.NewLogger(cfg)
 	if err != nil {
 		os.Exit(2)
@@ -120,7 +119,7 @@ func prepareDiode() {
 	}
 
 	// initialize didoe application
-	app = NewDiode(cfg, pool, clientPool)
+	app = NewDiode(cfg, pool)
 	app.Init()
 	return
 }
@@ -142,22 +141,21 @@ func cleanDiode() {
 // Diode represents didoe application
 type Diode struct {
 	config          *config.Config
-	clientpool      map[util.Address]*rpc.RPCClient
 	datapool        *rpc.DataPool
 	socksServer     *rpc.Server
 	proxyServer     *rpc.ProxyServer
 	configAPIServer *ConfigAPIServer
+	mx              sync.Mutex
 	cd              sync.Once
 	closeCh         chan struct{}
 }
 
 // NewDiode return diode application
-func NewDiode(cfg *config.Config, datapool *rpc.DataPool, clientpool map[util.Address]*rpc.RPCClient) Diode {
+func NewDiode(cfg *config.Config, datapool *rpc.DataPool) Diode {
 	return Diode{
-		config:     cfg,
-		clientpool: clientpool,
-		datapool:   datapool,
-		closeCh:    make(chan struct{}),
+		config:   cfg,
+		datapool: datapool,
+		closeCh:  make(chan struct{}),
 	}
 }
 
@@ -291,11 +289,14 @@ func (dio *Diode) Start() error {
 				}
 				rpcClient.Order = order
 				order++
-				dio.clientpool[serverID] = rpcClient
+				dio.datapool.SetClient(serverID, rpcClient)
 				if client == nil {
 					client = rpcClient
 					wg.Done()
 				}
+				rpcClient.SetCloseCB(func() {
+					dio.datapool.SetClient(serverID, nil)
+				})
 			} else {
 				if err != nil {
 					cfg.Logger.Error(fmt.Sprintf("Network is not valid (err: %s), trying next...", err.Error()))
@@ -368,26 +369,17 @@ func (dio *Diode) PublishPorts() {
 
 // Wait till user signal int to diode application
 func (dio *Diode) Wait() {
-	// listen to signal
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT)
-	sig := <-sigChan
-	switch sig {
-	case syscall.SIGINT:
-		break
-	}
-	return
-}
-
-// GetClientByOrder returns client by given order (1 is the nearest node)
-func (dio *Diode) GetClientByOrder(order int) (client *rpc.RPCClient) {
-	for _, client = range dio.clientpool {
-		if client.Order == order {
-			return
+	go func() {
+		// listen to signal
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT)
+		sig := <-sigChan
+		switch sig {
+		case syscall.SIGINT:
+			dio.Close()
 		}
-	}
-	client = nil
-	return
+	}()
+	app.datapool.WaitClients()
 }
 
 // Closed returns the whether diode application has been closed
@@ -409,27 +401,23 @@ func (dio *Diode) Closed() bool {
 func (dio *Diode) Close() {
 	dio.cd.Do(func() {
 		close(dio.closeCh)
-		printInfo("1/6 Stopping clients")
-		for _, cc := range dio.clientpool {
-			cc.Close()
-		}
-		printInfo("2/6 Stopping socksserver")
+		printInfo("1/5 Stopping socksserver")
 		if dio.socksServer != nil {
 			dio.socksServer.Close()
 		}
-		printInfo("3/6 Stopping proxyserver")
+		printInfo("2/5 Stopping proxyserver")
 		if dio.proxyServer != nil {
 			dio.proxyServer.Close()
 		}
-		printInfo("4/6 Stopping configserver")
+		printInfo("3/5 Stopping configserver")
 		if dio.configAPIServer != nil {
 			dio.configAPIServer.Close()
 		}
-		printInfo("5/6 Cleaning pool")
+		printInfo("4/5 Cleaning pool")
 		if dio.datapool != nil {
 			dio.datapool.Close()
 		}
-		printInfo(fmt.Sprintf("6/6 Closing logs"))
+		printInfo(fmt.Sprintf("5/5 Closing logs"))
 		dio.config.Logger.Close()
 	})
 }

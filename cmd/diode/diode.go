@@ -38,7 +38,7 @@ func main() {
 	err := RunDiode()
 	// TODO: set status to custom error struct
 	if err != nil {
-		printError("Couldn't run command", err)
+		printError("Couldn't execute command", err)
 		os.Exit(2)
 	}
 	os.Exit(0)

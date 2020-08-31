@@ -60,7 +60,9 @@ type RPCClient struct {
 	edgeProtocol          edge.EdgeProtocol
 	Config                *RPCConfig
 	bq                    *blockquick.Window
+	serverID              util.Address
 	Order                 int
+	closeCB               func()
 }
 
 func getRequestID() uint64 {
@@ -123,9 +125,22 @@ func (rpcClient *RPCClient) Host() string {
 	return rpcClient.s.addr
 }
 
+// SetCloseCB set close callback of rpc client
+func (rpcClient *RPCClient) SetCloseCB(closeCB func()) {
+	rpcClient.closeCB = closeCB
+}
+
 // GetServerID returns server address
 func (rpcClient *RPCClient) GetServerID() ([20]byte, error) {
-	return rpcClient.s.GetServerID()
+	if rpcClient.serverID != util.EmptyAddress {
+		return rpcClient.serverID, nil
+	}
+	serverID, err := rpcClient.s.GetServerID()
+	if err != nil {
+		return util.EmptyAddress, err
+	}
+	copy(rpcClient.serverID[:], serverID[:])
+	return serverID, nil
 }
 
 // GetDeviceKey returns device key of given ref
@@ -886,11 +901,11 @@ func (rpcClient *RPCClient) Close() {
 			rpcClient.blockTicker.Stop()
 		}
 		rpcClient.finishBlockTickerChan <- true
-		notifySignal(rpcClient.signal, CLOSED, enqueueTimeout)
-
-		if !rpcClient.s.Closed() {
-			rpcClient.s.Close()
-			close(rpcClient.callQueue)
+		if rpcClient.closeCB != nil {
+			rpcClient.closeCB()
 		}
+
+		rpcClient.s.Close()
+		close(rpcClient.callQueue)
 	})
 }

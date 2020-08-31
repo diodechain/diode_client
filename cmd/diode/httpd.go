@@ -33,6 +33,9 @@ func init() {
 	httpdCmd.Flag.StringVar(&cfg.SProxyServerPrivPath, "privpath", "./priv/priv.pem", "Pem format of private key file path of httpsd secure server")
 	httpdCmd.Flag.BoolVar(&cfg.EnableSProxyServer, "secure", false, "enable httpsd server")
 	httpdCmd.Flag.BoolVar(&cfg.AllowRedirectToSProxy, "allow_redirect", false, "allow redirect all http transmission to httpsd")
+	httpdCmd.Flag.StringVar(&cfg.SocksServerHost, "socksd_host", "127.0.0.1", "host of socks server listening to")
+	httpdCmd.Flag.IntVar(&cfg.SocksServerPort, "socksd_port", 1080, "port of socks server listening to")
+	httpdCmd.Flag.StringVar(&cfg.SocksFallback, "fallback", "localhost", "how to resolve web2 addresses")
 }
 
 func httpdHandler() (err error) {
@@ -41,7 +44,7 @@ func httpdHandler() (err error) {
 		return
 	}
 	cfg := config.AppConfig
-	client := app.GetClientByOrder(1)
+	client := app.datapool.GetClientByOrder(1)
 	cfg.EnableProxyServer = true
 	if cfg.EnableAPIServer {
 		configAPIServer := NewConfigAPIServer(cfg)
@@ -57,7 +60,7 @@ func httpdHandler() (err error) {
 			printLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
 		}
 	}
-	socksServer := client.NewSocksServer(app.clientpool, app.datapool)
+	socksServer := client.NewSocksServer(app.datapool)
 	socksServer.SetConfig(&rpc.Config{
 		Addr:            cfg.SocksServerAddr(),
 		FleetAddr:       cfg.FleetAddr,

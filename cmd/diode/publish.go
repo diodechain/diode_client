@@ -184,7 +184,7 @@ func publishHandler() (err error) {
 		return
 	}
 	cfg := config.AppConfig
-	client := app.GetClientByOrder(1)
+	client := app.datapool.GetClientByOrder(1)
 	if len(cfg.PublishedPorts) > 0 {
 		printInfo("")
 		pool.SetPublishedPorts(cfg.PublishedPorts)
@@ -221,7 +221,7 @@ func publishHandler() (err error) {
 		}
 	}
 	if cfg.EnableSocksServer {
-		socksServer := client.NewSocksServer(app.clientpool, app.datapool)
+		socksServer := client.NewSocksServer(app.datapool)
 		socksServer.SetConfig(&rpc.Config{
 			Addr:            cfg.SocksServerAddr(),
 			FleetAddr:       cfg.FleetAddr,

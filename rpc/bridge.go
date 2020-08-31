@@ -157,8 +157,9 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			_ = rpcClient.ResponsePortOpen(portOpen, nil)
 
 			rpcConn := NewRPCConn(rpcClient, connDevice.Ref)
-			tunnel := NewTunnel(connDevice.Conn, defaultIdleTimeout, rpcConn, defaultIdleTimeout, sslBufferSize)
+			tunnel := NewTunnel(connDevice.Conn, rpcConn, defaultIdleTimeout, sslBufferSize)
 			tunnel.netCopyWithoutTimeout(connDevice.Conn, rpcConn, sslBufferSize)
+			connDevice.Close()
 			tunnel.Close()
 		}()
 	} else if portSend, ok := inboundRequest.(*edge.PortSend); ok {
@@ -232,6 +233,10 @@ func (rpcClient *RPCClient) handleInboundMessage(msg edge.Message) {
 	if msg.IsResponse(rpcClient.edgeProtocol) {
 		rpcClient.backoff.StepBack()
 		call := rpcClient.firstCallByID(msg.ResponseID(rpcClient.edgeProtocol))
+		if call.id == 0 {
+			// receive empty call, client might drop call because timeout, should drop message
+			return
+		}
 		if call.response == nil {
 			// should not wait response for the call
 			rpcClient.Warn("Call.response is nil id: %d, method: %s, this might lead to rpc timeout error if you wait rpc response", call.id, call.method)
@@ -288,7 +293,6 @@ func (rpcClient *RPCClient) recvMessage() {
 						// }()
 						// Resetting buffers to not mix old messages with new messages
 						rpcClient.recall()
-						notifySignal(rpcClient.signal, RECONNECTED, enqueueTimeout)
 						continue
 					}
 				}

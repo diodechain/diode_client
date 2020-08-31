@@ -27,7 +27,7 @@ func timeHandler() (err error) {
 	if err != nil {
 		return
 	}
-	client := app.GetClientByOrder(1)
+	client := app.datapool.GetClientByOrder(1)
 	blocknr, _ := client.LastValid()
 	header := client.GetBlockHeaderValid(blocknr)
 	if header == nil {

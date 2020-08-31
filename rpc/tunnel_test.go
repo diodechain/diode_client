@@ -17,7 +17,7 @@ func TestTunnelCopy(t *testing.T) {
 	// the data should pipe: fa <=> fb <=> fc <=> fd
 	fa, fb := net.Pipe()
 	fc, fd := net.Pipe()
-	tunnel := NewTunnel(fb, 1*time.Second, fc, 1*time.Second, tunnelSize)
+	tunnel := NewTunnel(fb, fc, 1*time.Second, tunnelSize)
 	if tunnel.Closed() {
 		t.Fatalf("tunnel should not be closed")
 	}

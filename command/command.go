@@ -13,7 +13,8 @@ import (
 )
 
 var (
-	errEmptyCommand = fmt.Errorf("empty command to execute")
+	ErrWrongFlag    = fmt.Errorf("wrong command line flag")
+	ErrEmptyCommand = fmt.Errorf("empty command to execute")
 	finalText       = `
 Run 'diode COMMAND --help' for more information on a command.
 `
@@ -51,9 +52,9 @@ func (cmd *Command) Execute() (err error) {
 	}
 	err = cmd.Flag.Parse(args)
 	if err != nil {
-		if err == flag.ErrHelp {
-			err = nil
-		}
+		// if err == flag.ErrHelp {
+		err = nil
+		// }
 		return
 	}
 	if len(cmd.subCommands) > 0 {
@@ -77,9 +78,9 @@ func (cmd *Command) Execute() (err error) {
 		}
 		err = subCmd.Flag.Parse(args[1:])
 		if err != nil {
-			if err == flag.ErrHelp {
-				err = nil
-			}
+			// if err == flag.ErrHelp {
+			err = nil
+			// }
 			return
 		}
 		// TODO: support recursive execute?

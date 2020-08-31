@@ -70,7 +70,7 @@ func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*op
 			e2eServer.Error(err.Error())
 			return
 		}
-		tunnel := NewTunnel(conn, e2eServer.idleTimeout, e2eServer.remoteConn, e2eServer.idleTimeout, e2eBufferSize)
+		tunnel := NewTunnel(conn, e2eServer.remoteConn, e2eServer.idleTimeout, e2eBufferSize)
 		tunnel.Copy()
 		if e2eServer.closeCallback != nil {
 			e2eServer.closeCallback()

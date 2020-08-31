@@ -47,6 +47,32 @@ Run 'diode COMMAND --help' for more information on a command.
 // Address represents an Ethereum address
 type Address = util.Address
 
+// LoadConfigFromFile returns bytes data of config
+func LoadConfigFromFile(filePath string) (configBytes []byte, err error) {
+	var f *os.File
+	f, err = os.OpenFile(filePath, os.O_RDONLY, 0400)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	var fs os.FileInfo
+	fs, err = f.Stat()
+	if err != nil {
+		return
+	}
+	var n int
+	configBytes = make([]byte, fs.Size())
+	n, err = f.Read(configBytes)
+	if err != nil {
+		return
+	}
+	if n != int(fs.Size()) {
+		err = fmt.Errorf("readed file size not equal")
+		return
+	}
+	return
+}
+
 // Config for diode-go-client
 type Config struct {
 	DBPath                  string           `yaml:"dbpath,omitempty" json:"dbpath,omitempty"`
@@ -131,6 +157,21 @@ func (cfg *Config) SaveToFile() (err error) {
 		return
 	}
 	return
+}
+
+// SocksServerAddr returns address that socks proxy listen to
+func (cfg *Config) SocksServerAddr() string {
+	return fmt.Sprintf("%s:%d", cfg.SocksServerHost, cfg.SocksServerPort)
+}
+
+// ProxyServerAddr returns address that http proxy server listen to
+func (cfg *Config) ProxyServerAddr() string {
+	return fmt.Sprintf("%s:%d", cfg.ProxyServerHost, cfg.ProxyServerPort)
+}
+
+// SProxyServerAddr returns address that https proxy server listen to
+func (cfg *Config) SProxyServerAddr() string {
+	return fmt.Sprintf("%s:%d", cfg.SProxyServerHost, cfg.SProxyServerPort)
 }
 
 // Bind struct for port forwarding
@@ -270,48 +311,10 @@ func parseBind(bind string, enableEdgeE2E bool) (*Bind, error) {
 	return ret, nil
 }
 
-// LoadConfigFromFile returns bytes data of config
-func LoadConfigFromFile(filePath string) (configBytes []byte, err error) {
-	var f *os.File
-	f, err = os.OpenFile(filePath, os.O_RDONLY, 0400)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	var fs os.FileInfo
-	fs, err = f.Stat()
-	if err != nil {
-		return
-	}
-	var n int
-	configBytes = make([]byte, fs.Size())
-	n, err = f.Read(configBytes)
-	if err != nil {
-		return
-	}
-	if n != int(fs.Size()) {
-		err = fmt.Errorf("readed file size not equal")
-		return
-	}
-	return
-}
-
 func isValidRPCAddress(address string) (isValid bool) {
 	_, _, err := net.SplitHostPort(address)
 	if err == nil {
 		isValid = true
 	}
 	return
-}
-
-func (cfg *Config) SocksServerAddr() string {
-	return fmt.Sprintf("%s:%d", cfg.SocksServerHost, cfg.SocksServerPort)
-}
-
-func (cfg *Config) ProxyServerAddr() string {
-	return fmt.Sprintf("%s:%d", cfg.ProxyServerHost, cfg.ProxyServerPort)
-}
-
-func (cfg *Config) SProxyServerAddr() string {
-	return fmt.Sprintf("%s:%d", cfg.SProxyServerHost, cfg.SProxyServerPort)
 }

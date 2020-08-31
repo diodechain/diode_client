@@ -111,7 +111,7 @@ func TestE2ETunnels(t *testing.T) {
 		}
 
 		// copy local tunnel
-		tunnel := NewTunnel(e2eServer.localConn, 1*time.Second, ca, 1*time.Second, tunnelSize)
+		tunnel := NewTunnel(e2eServer.localConn, ca, 1*time.Second, tunnelSize)
 		go tunnel.Copy()
 		var n int
 		for i := 0; i < 10; i += 2 {
@@ -153,7 +153,7 @@ func TestE2ETunnels(t *testing.T) {
 			return
 		}
 		// copy local tunnel to c
-		tunnel := NewTunnel(e2eServer.localConn, 1*time.Second, cb, 1*time.Second, tunnelSize)
+		tunnel := NewTunnel(e2eServer.localConn, cb, 1*time.Second, tunnelSize)
 		go tunnel.Copy()
 		if err != nil {
 			errCh <- err
