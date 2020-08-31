@@ -113,15 +113,15 @@ func prepareDiode() {
 			}
 		}
 		if len(remoteRPCAddrs) == 0 {
-			// wrongCommandLineFlag(errWrongDiodeAddrs)
+			cfg.RemoteRPCAddrs = bootDiodeAddrs[:]
+		} else {
+			cfg.RemoteRPCAddrs = remoteRPCAddrs
 		}
-		cfg.RemoteRPCAddrs = remoteRPCAddrs
 	}
 
 	// initialize didoe application
 	app = NewDiode(cfg, pool)
 	app.Init()
-	return
 }
 
 func isValidRPCAddress(address string) (isValid bool) {
@@ -135,7 +135,6 @@ func isValidRPCAddress(address string) (isValid bool) {
 func cleanDiode() {
 	// close diode application
 	app.Close()
-	return
 }
 
 // Diode represents didoe application
@@ -145,7 +144,6 @@ type Diode struct {
 	socksServer     *rpc.Server
 	proxyServer     *rpc.ProxyServer
 	configAPIServer *ConfigAPIServer
-	mx              sync.Mutex
 	cd              sync.Once
 	closeCh         chan struct{}
 }
@@ -417,7 +415,7 @@ func (dio *Diode) Close() {
 		if dio.datapool != nil {
 			dio.datapool.Close()
 		}
-		printInfo(fmt.Sprintf("5/5 Closing logs"))
+		printInfo("5/5 Closing logs")
 		dio.config.Logger.Close()
 	})
 }

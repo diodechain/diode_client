@@ -61,13 +61,13 @@ func (cmd *Command) Execute() (err error) {
 		// find subcommand and run it
 		commandName := cmd.Flag.Arg(0)
 		args := cmd.Flag.Args()
-		if commandName == "" {
-			// should go to help command?
-			// if len(cfg.SBinds) > 0 {
-			// 	args = []string{"publish"}
-			// 	commandName = "publish"
-			// }
-		}
+		// should go to help command?
+		// if commandName == "" {
+		// 	if len(cfg.SBinds) > 0 {
+		// 		args = []string{"publish"}
+		// 		commandName = "publish"
+		// 	}
+		// }
 		subCmd := cmd.subCommands[commandName]
 		if len(subCmd.Name) == 0 {
 			cmd.Flag.Usage()
@@ -134,7 +134,7 @@ func (cmd *Command) printUsage() {
 }
 
 func (cmd *Command) printSubCommandDefaults(indent int) {
-	s := fmt.Sprintf(" COMMAND <args>\n\nCOMMANDS\n")
+	s := " COMMAND <args>\n\nCOMMANDS\n"
 
 	subCommandsKey := make([]string, len(cmd.subCommands))
 	count := 0
@@ -184,7 +184,7 @@ func (cmd *Command) printCommandDefaults(indent int) {
 		s += "\n"
 	})
 	if count == 0 {
-		s += fmt.Sprintf("  Empty\n")
+		s += "  Empty\n"
 	}
 	s += fmt.Sprintf("%*sEXAMPLE\n%*s%s\n", indent, "", indent, "", cmd.ExampleText)
 	fmt.Fprint(cmd.Flag.Output(), s)

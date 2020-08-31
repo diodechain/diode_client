@@ -20,7 +20,6 @@ var (
 		Name:        "publish",
 		HelpText:    `  Publish ports of the local device to the Diode Network.`,
 		ExampleText: `  diode publish -public 80:80 -public 8080:8080 -protected 3000:3000 -protected 3001:3001 -private 22:22,0x......,0x...... -private 33:33,0x......,0x......`,
-		PreRun:      publishPreRunHandler,
 		Run:         publishHandler,
 	}
 )
@@ -138,7 +137,7 @@ func parsePorts(portStrings []string, mode int, enableEdgeE2E bool) ([]*config.P
 	return ports, nil
 }
 
-func publishPreRunHandler() {
+func publishHandler() (err error) {
 	cfg := config.AppConfig
 	portString := make(map[int]*config.Port)
 	// copy to config
@@ -176,14 +175,10 @@ func publishPreRunHandler() {
 		portString[port.To] = port
 	}
 	cfg.PublishedPorts = portString
-}
-
-func publishHandler() (err error) {
 	err = app.Start()
 	if err != nil {
 		return
 	}
-	cfg := config.AppConfig
 	client := app.datapool.GetClientByOrder(1)
 	if len(cfg.PublishedPorts) > 0 {
 		printInfo("")
@@ -212,16 +207,16 @@ func publishHandler() (err error) {
 		configAPIServer.ListenAndServe()
 		app.SetConfigAPIServer(configAPIServer)
 	}
-	if len(cfg.Binds) > 0 {
-		socksServer.SetBinds(cfg.Binds)
-		printInfo("")
-		printLabel("Bind      <name>", "<mode>     <remote>")
-		for _, bind := range cfg.Binds {
-			printLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
-		}
-	}
 	if cfg.EnableSocksServer {
 		socksServer := client.NewSocksServer(app.datapool)
+		if len(cfg.Binds) > 0 {
+			socksServer.SetBinds(cfg.Binds)
+			printInfo("")
+			printLabel("Bind      <name>", "<mode>     <remote>")
+			for _, bind := range cfg.Binds {
+				printLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
+			}
+		}
 		socksServer.SetConfig(&rpc.Config{
 			Addr:            cfg.SocksServerAddr(),
 			FleetAddr:       cfg.FleetAddr,

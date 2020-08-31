@@ -18,14 +18,11 @@ import (
 )
 
 var (
-	version         string = "development"
-	socksServer     *rpc.Server
-	proxyServer     *rpc.ProxyServer
-	configAPIServer *ConfigAPIServer
-	pool            *rpc.DataPool
-	bnsPattern      = regexp.MustCompile(`^[0-9A-Za-z-]+$`)
-	app             Diode
-	buildTime       string
+	version    string = "development"
+	pool       *rpc.DataPool
+	bnsPattern = regexp.MustCompile(`^[0-9A-Za-z-]+$`)
+	app        Diode
+	buildTime  string
 )
 
 // RunDiode diode command

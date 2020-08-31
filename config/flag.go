@@ -5,9 +5,7 @@ package config
 
 import (
 	"fmt"
-	"net"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -28,19 +26,10 @@ const (
 )
 
 var (
-	AppConfig *Config
-	finalText = `
-Run 'diode COMMAND --help' for more information on a command.
-`
-	bootDiodeAddrs = [3]string{
-		"asia.testnet.diode.io:41046",
-		"europe.testnet.diode.io:41046",
-		"usa.testnet.diode.io:41046",
-	}
+	AppConfig                  *Config
 	NullAddr                   = [20]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 	DefaultRegistryAddr        = [20]byte{80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 	DefaultFleetAddr           = [20]byte{96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-	errWrongDiodeAddrs         = fmt.Errorf("wrong remote diode addresses")
 	errConfigNotLoadedFromFile = fmt.Errorf("config wasn't loaded from file")
 )
 
@@ -248,73 +237,4 @@ func (svs *stringValues) String() string {
 func (svs *stringValues) Set(value string) error {
 	*svs = append(*svs, value)
 	return nil
-}
-
-func panicWithError(err error) {
-	fmt.Println(err.Error())
-	os.Exit(129)
-}
-
-func wrongCommandLineFlag(err error) {
-	fmt.Println(err.Error())
-	os.Exit(2)
-}
-
-func parseBind(bind string, enableEdgeE2E bool) (*Bind, error) {
-	elements := strings.Split(bind, ":")
-	if len(elements) == 3 {
-		elements = append(elements, "tls")
-	}
-	if len(elements) != 4 {
-		return nil, fmt.Errorf("Bind format expected <local_port>:<to_address>:<to_port>:(udp|tcp|tls) but got: %v", bind)
-	}
-
-	var err error
-	ret := &Bind{
-		To: elements[1],
-	}
-	ret.LocalPort, err = strconv.Atoi(elements[0])
-	if err != nil {
-		return nil, fmt.Errorf("Bind local_port should be a number but is: %v in: %v", elements[0], bind)
-	}
-
-	if !util.IsPort(ret.LocalPort) {
-		return nil, fmt.Errorf("Bind local_port should be bigger than 1 and smaller than 65535")
-	}
-
-	if !util.IsSubdomain(ret.To) {
-		return nil, fmt.Errorf("Bind format to_address should be valid diode domain but got: %v", ret.To)
-	}
-
-	ret.ToPort, err = strconv.Atoi(elements[2])
-	if err != nil {
-		return nil, fmt.Errorf("Bind to_port should be a number but is: %v in: %v", elements[2], bind)
-	}
-
-	if !util.IsPort(ret.ToPort) {
-		return nil, fmt.Errorf("Bind to_port should be bigger than 1 and smaller than 65535")
-	}
-
-	if elements[3] == "tls" {
-		if !enableEdgeE2E {
-			wrongCommandLineFlag(fmt.Errorf("should enable e2e to use tle protocol"))
-		}
-		ret.Protocol = TLSProtocol
-	} else if elements[3] == "tcp" {
-		ret.Protocol = TCPProtocol
-	} else if elements[3] == "udp" {
-		ret.Protocol = UDPProtocol
-	} else {
-		return nil, fmt.Errorf("Bind protocol should be 'tls', 'tcp', 'udp' but is: %v in: %v", elements[3], bind)
-	}
-
-	return ret, nil
-}
-
-func isValidRPCAddress(address string) (isValid bool) {
-	_, _, err := net.SplitHostPort(address)
-	if err == nil {
-		isValid = true
-	}
-	return
 }
