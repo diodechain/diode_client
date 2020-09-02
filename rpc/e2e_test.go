@@ -8,12 +8,9 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
-	"os"
 	"runtime"
 	"testing"
 	"time"
-
-	"github.com/diodechain/log15"
 
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/db"
@@ -49,6 +46,7 @@ func testConfig() (cfg *config.Config) {
 		APIServerAddr:   "localhost:1081",
 		LogFilePath:     "",
 		LogDateTime:     false,
+		LogMode:         config.LogToFile,
 		EnableKeepAlive: runtime.GOOS != "windows",
 		KeepAliveCount:  4,
 	}
@@ -60,11 +58,8 @@ func testConfig() (cfg *config.Config) {
 	cfg.RemoteRPCTimeout = remoteRPCTimeoutTime
 	retryWaitTime, _ := time.ParseDuration("1s")
 	cfg.RetryWait = retryWaitTime
-	var logHandler log15.Handler
-	logger := log15.New()
-	logHandler = log15.StreamHandler(os.Stderr, log15.TerminalFormat(cfg.LogDateTime))
-	logger.SetHandler(logHandler)
-	cfg.Logger = logger
+	l, _ := config.NewLogger(cfg)
+	cfg.Logger = &l
 	return
 }
 
@@ -116,7 +111,7 @@ func TestE2ETunnels(t *testing.T) {
 		}
 
 		// copy local tunnel
-		tunnel := NewTunnel(e2eServer.localConn, 1*time.Second, ca, 1*time.Second, tunnelSize)
+		tunnel := NewTunnel(e2eServer.localConn, ca, 1*time.Second, tunnelSize)
 		go tunnel.Copy()
 		var n int
 		for i := 0; i < 10; i += 2 {
@@ -158,7 +153,7 @@ func TestE2ETunnels(t *testing.T) {
 			return
 		}
 		// copy local tunnel to c
-		tunnel := NewTunnel(e2eServer.localConn, 1*time.Second, cb, 1*time.Second, tunnelSize)
+		tunnel := NewTunnel(e2eServer.localConn, cb, 1*time.Second, tunnelSize)
 		go tunnel.Copy()
 		if err != nil {
 			errCh <- err

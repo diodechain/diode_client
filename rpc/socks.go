@@ -69,7 +69,6 @@ type Bind struct {
 // Server is the only instances of the Socks Server
 type Server struct {
 	Client   *RPCClient
-	pool     map[Address]*RPCClient
 	datapool *DataPool
 	Config   *Config
 	listener net.Listener
@@ -458,7 +457,9 @@ func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, pro
 	connDevice.ClientID = conn.Conn.RemoteAddr().String()
 
 	if protocol == config.TLSProtocol {
-		e2eServer := socksServer.Client.NewE2EServer(conn.Conn, connDevice.DeviceID, idleTimeout)
+		e2eServer := socksServer.Client.NewE2EServer(conn.Conn, connDevice.DeviceID, idleTimeout, func() {
+			connDevice.Close()
+		})
 		err := e2eServer.InternalClientConnect()
 		if err != nil {
 			socksServer.Client.Error("Failed to tunnel openssl client: %v", err.Error())
@@ -476,9 +477,11 @@ func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, pro
 
 	socksServer.datapool.SetDevice(deviceKey, connDevice)
 
-	rpcConn := NewRPCConn(socksServer.Client, connDevice.Ref)
-	tunnel := NewTunnel(connDevice.Conn, defaultIdleTimeout, rpcConn, defaultIdleTimeout, sslBufferSize)
+	// rpc client might be different with socks server
+	rpcConn := NewRPCConn(connDevice.Client, connDevice.Ref)
+	tunnel := NewTunnel(connDevice.Conn, rpcConn, idleTimeout, sslBufferSize)
 	tunnel.netCopyWithoutTimeout(connDevice.Conn, rpcConn, sslBufferSize)
+	connDevice.Close()
 	tunnel.Close()
 	return nil
 }
@@ -535,7 +538,7 @@ func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
 	socksServer.Client.Debug("host connect success @ %s", host)
 	writeSocksReturn(conn, ver, socksServer.Client.s.LocalAddr(), port)
 
-	tunnel := NewTunnel(conn, defaultIdleTimeout, remoteConn, defaultIdleTimeout, sslBufferSize)
+	tunnel := NewTunnel(conn, remoteConn, defaultIdleTimeout, sslBufferSize)
 	tunnel.Copy()
 }
 
@@ -578,7 +581,7 @@ func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, device *
 
 	writeSocksReturn(conn, ver, remoteConn.LocalAddr(), port)
 
-	tunnel := NewTunnel(conn, defaultIdleTimeout, remoteConn, defaultIdleTimeout, sslBufferSize)
+	tunnel := NewTunnel(conn, remoteConn, defaultIdleTimeout, sslBufferSize)
 	tunnel.Copy()
 }
 
@@ -895,11 +898,10 @@ func (socksServer *Server) handleBind(conn net.Conn, bind config.Bind) {
 }
 
 // NewSocksServer generate socksserver struct
-func (client *RPCClient) NewSocksServer(clientPool map[Address]*RPCClient, pool *DataPool) *Server {
+func (client *RPCClient) NewSocksServer(pool *DataPool) *Server {
 	return &Server{
 		Config:   &Config{},
 		wg:       &sync.WaitGroup{},
-		pool:     clientPool,
 		datapool: pool,
 		closeCh:  make(chan struct{}),
 		Client:   client,
@@ -917,7 +919,7 @@ func (socksServer *Server) SetConfig(config *Config) {
 func (socksServer *Server) GetServer(nodeID Address) (client *RPCClient, err error) {
 	socksServer.rm.Lock()
 	defer socksServer.rm.Unlock()
-	serverID, err := socksServer.Client.s.GetServerID()
+	serverID, err := socksServer.Client.GetServerID()
 	if err != nil {
 		socksServer.Client.Warn("Failed to get server id: %v", err)
 		return
@@ -931,11 +933,11 @@ func (socksServer *Server) GetServer(nodeID Address) (client *RPCClient, err err
 			return
 		}
 	}
-	client, ok := socksServer.pool[nodeID]
-	if ok {
-		if client != nil && client.Closed() {
+	client = socksServer.datapool.GetClient(nodeID)
+	if client != nil {
+		if client.Closed() {
 			socksServer.Client.Error("GetServer(): found closed server connection in pool %v", client.s)
-			delete(socksServer.pool, nodeID)
+			socksServer.datapool.SetClient(nodeID, nil)
 			client = nil
 		}
 		if client != nil {
@@ -959,40 +961,25 @@ func (socksServer *Server) GetServer(nodeID Address) (client *RPCClient, err err
 		err = fmt.Errorf("couldn't connect to server '%+v' with error '%v'", serverObj, err)
 		return
 	}
+	isValid, err := client.ValidateNetwork()
+	if err != nil {
+		err = fmt.Errorf("couldn't validate server with error '%v'", err)
+		return
+	}
+	if !isValid {
+		err = fmt.Errorf("network is not valid")
+		return
+	}
 	err = client.Greet()
 	if err != nil {
 		err = fmt.Errorf("couldn't submitTicket to server with error '%v'", err)
 		return
 	}
-	socksServer.pool[nodeID] = client
-	// listen to signal
-	go func(nodeID Address) {
-		for {
-			// TODO check this logic
-			signal, ok := <-client.signal
-			if !ok {
-				return
-			}
-			switch signal {
-			case CLOSED:
-				socksServer.setRPCClient(nodeID, nil)
-				return
-			case RECONNECTED:
-				continue
-			}
-		}
-	}(nodeID)
+	socksServer.datapool.SetClient(nodeID, client)
+	client.SetCloseCB(func() {
+		socksServer.datapool.SetClient(nodeID, nil)
+	})
 	return
-}
-
-func (socksServer *Server) setRPCClient(nodeID util.Address, rpcClient *RPCClient) {
-	socksServer.rm.Lock()
-	defer socksServer.rm.Unlock()
-	if rpcClient == nil {
-		delete(socksServer.pool, nodeID)
-		return
-	}
-	socksServer.pool[nodeID] = rpcClient
 }
 
 // Closed returns whether socks server had closed
@@ -1012,11 +999,6 @@ func (socksServer *Server) Close() {
 		// 	socksServer.udpconn.Close()
 		// 	socksServer.udpconn = nil
 		// }
-		// close all connections in the pool
-		for serverID, rpcClient := range socksServer.pool {
-			rpcClient.Close()
-			socksServer.setRPCClient(serverID, nil)
-		}
 		for _, bind := range socksServer.binds {
 			if bind.tcp != nil {
 				bind.tcp.Close()

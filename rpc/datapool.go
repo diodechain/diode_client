@@ -5,24 +5,30 @@ package rpc
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/edge"
+	"github.com/diodechain/diode_go_client/util"
 	"github.com/diodechain/go-cache"
 )
 
 type DataPool struct {
+	clientOrder    uint64
 	rm             sync.RWMutex
+	clients        map[util.Address]*RPCClient
 	devices        map[string]*ConnectedDevice
 	publishedPorts map[int]*config.Port
 	memoryCache    *cache.Cache
+	wg             sync.WaitGroup
 	cd             sync.Once
 }
 
 func NewPool() *DataPool {
 	return &DataPool{
 		memoryCache:    cache.New(5*time.Minute, 10*time.Minute),
+		clients:        make(map[util.Address]*RPCClient),
 		devices:        make(map[string]*ConnectedDevice),
 		publishedPorts: make(map[int]*config.Port),
 	}
@@ -49,6 +55,10 @@ func (p *DataPool) Close() {
 		for k, v := range p.devices {
 			v.Close()
 			delete(p.devices, k)
+		}
+		for _, c := range p.clients {
+			// should delete client here because we already did in close callback
+			c.Close()
 		}
 	})
 }
@@ -129,4 +139,40 @@ func (p *DataPool) SetPublishedPorts(ports map[int]*config.Port) {
 	p.rm.Lock()
 	defer p.rm.Unlock()
 	p.publishedPorts = ports
+}
+
+func (p *DataPool) WaitClients() {
+	p.wg.Wait()
+}
+
+func (p *DataPool) GetClient(nodeID util.Address) *RPCClient {
+	p.rm.RLock()
+	defer p.rm.RUnlock()
+	return p.clients[nodeID]
+}
+
+func (p *DataPool) SetClient(nodeID util.Address, client *RPCClient) {
+	p.rm.Lock()
+	defer p.rm.Unlock()
+	if client == nil {
+		p.wg.Done()
+		delete(p.clients, nodeID)
+	} else {
+		if p.clients[nodeID] == nil {
+			order := atomic.AddUint64(&p.clientOrder, 1)
+			client.Order = int(order)
+			p.wg.Add(1)
+		}
+		p.clients[nodeID] = client
+	}
+}
+
+func (p *DataPool) GetClientByOrder(order int) (client *RPCClient) {
+	for _, client = range p.clients {
+		if client.Order == order {
+			return
+		}
+	}
+	client = nil
+	return
 }

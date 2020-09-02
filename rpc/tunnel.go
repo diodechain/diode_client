@@ -12,24 +12,22 @@ import (
 
 // Tunnel is a multiplex net copier in diode
 type Tunnel struct {
-	closeCh      chan struct{}
-	conna        net.Conn
-	connb        net.Conn
-	connaTimeout time.Duration
-	connbTimeout time.Duration
-	bufferSize   int
-	cd           sync.Once
+	closeCh     chan struct{}
+	conna       net.Conn
+	connb       net.Conn
+	idleTimeout time.Duration
+	bufferSize  int
+	cd          sync.Once
 }
 
 // NewTunnel returns a newly created Tunnel
-func NewTunnel(conna net.Conn, connaTimeout time.Duration, connb net.Conn, connbTimeout time.Duration, bufferSize int) (tun *Tunnel) {
+func NewTunnel(conna, connb net.Conn, idleTimeout time.Duration, bufferSize int) (tun *Tunnel) {
 	tun = &Tunnel{
-		conna:        conna,
-		connaTimeout: connaTimeout,
-		connb:        connb,
-		connbTimeout: connbTimeout,
-		bufferSize:   bufferSize,
-		closeCh:      make(chan struct{}),
+		conna:       conna,
+		connb:       connb,
+		idleTimeout: idleTimeout,
+		bufferSize:  bufferSize,
+		closeCh:     make(chan struct{}),
 	}
 	return
 }
@@ -114,14 +112,11 @@ func (tun *Tunnel) Copy() bool {
 	if isClosed(tun.closeCh) {
 		return true
 	}
-	if tun.connaTimeout > 0 {
-		go tun.netCopy(tun.conna, tun.connb, tun.connaTimeout, tun.bufferSize)
+	if tun.idleTimeout > 0 {
+		go tun.netCopy(tun.conna, tun.connb, tun.idleTimeout, tun.bufferSize)
+		tun.netCopy(tun.connb, tun.conna, tun.idleTimeout, tun.bufferSize)
 	} else {
 		go tun.netCopyWithoutTimeout(tun.conna, tun.connb, tun.bufferSize)
-	}
-	if tun.connbTimeout > 0 {
-		tun.netCopy(tun.connb, tun.conna, tun.connbTimeout, tun.bufferSize)
-	} else {
 		tun.netCopyWithoutTimeout(tun.connb, tun.conna, tun.bufferSize)
 	}
 	tun.Close()
