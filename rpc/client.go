@@ -348,7 +348,7 @@ func (rpcClient *RPCClient) ValidateNetwork() (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	blockNumMax := peak - confirmationSize
+	blockNumMax := peak - confirmationSize + 1
 	// fetch more blocks than windowSize
 	blocks, err := rpcClient.GetBlockquick(uint64(lvbn), uint64(windowSize+confirmationSize+1))
 	if err != nil {

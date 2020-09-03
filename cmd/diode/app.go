@@ -259,14 +259,11 @@ func (dio *Diode) Start() error {
 		return fmt.Errorf("should use at least one rpc address")
 	}
 	c := make(chan *rpc.RPCClient, rpcAddrLen)
-	wg.Add(1)
-	for _, RemoteRPCAddr := range cfg.RemoteRPCAddrs {
-		go connect(c, RemoteRPCAddr, cfg, wg, dio.datapool)
-	}
 	var lvbn uint64
 	var lvbh crypto.Sha3
 	var client *rpc.RPCClient
-
+	// waiting for first client
+	wg.Add(1)
 	go func() {
 		for rpcClient := range c {
 			if isPublished && client != nil {
@@ -306,6 +303,10 @@ func (dio *Diode) Start() error {
 			wg.Done()
 		}
 	}()
+	for _, RemoteRPCAddr := range cfg.RemoteRPCAddrs {
+		connect(c, RemoteRPCAddr, cfg, dio.datapool)
+	}
+	close(c)
 	wg.Wait()
 
 	if client == nil {

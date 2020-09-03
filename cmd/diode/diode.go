@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"os"
 	"regexp"
-	"sync"
 	"time"
 
 	"github.com/diodechain/diode_go_client/config"
@@ -63,12 +62,11 @@ func printInfo(msg string) {
 	config.AppConfig.Logger.Info(msg)
 }
 
-func connect(c chan *rpc.RPCClient, host string, cfg *config.Config, wg *sync.WaitGroup, pool *rpc.DataPool) {
+func connect(c chan *rpc.RPCClient, host string, cfg *config.Config, pool *rpc.DataPool) {
 	client, err := rpc.DoConnect(host, cfg, pool)
 	if err != nil {
 		client.Close()
 		cfg.Logger.Error(fmt.Sprintf("Connection to host: %s failed: %+v", host, err))
-		wg.Done()
 	} else {
 		c <- client
 	}
