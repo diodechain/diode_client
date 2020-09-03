@@ -46,7 +46,7 @@ func testConfig() (cfg *config.Config) {
 		APIServerAddr:   "localhost:1081",
 		LogFilePath:     "",
 		LogDateTime:     false,
-		LogMode:         config.LogToFile,
+		LogMode:         config.LogToConsole,
 		EnableKeepAlive: runtime.GOOS != "windows",
 		KeepAliveCount:  4,
 	}
