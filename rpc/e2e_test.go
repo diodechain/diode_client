@@ -4,8 +4,6 @@
 package rpc
 
 import (
-	"bytes"
-	"fmt"
 	"math/rand"
 	"net"
 	"runtime"
@@ -92,8 +90,6 @@ func TestE2ETunnels(t *testing.T) {
 	pubKey := LoadClientPubKey()
 	ID := util.PubkeyToAddress(pubKey)
 
-	// random test data
-	transportData := randomData(10, tunnelSize)
 	errCh := make(chan error)
 	// client
 	go func() {
@@ -109,33 +105,10 @@ func TestE2ETunnels(t *testing.T) {
 			errCh <- err
 			return
 		}
-
 		// copy local tunnel
 		tunnel := NewTunnel(e2eServer.localConn, ca, 1*time.Second, tunnelSize)
-		go tunnel.Copy()
-		var n int
-		for i := 0; i < 10; i += 2 {
-			n, err = fc.Write(transportData[i])
-			if err != nil {
-				errCh <- err
-				return
-			}
-			if n != len(transportData[i]) {
-				errCh <- fmt.Errorf("Data was truncated when write to e2e in client")
-				return
-			}
-			buf := make([]byte, tunnelSize)
-			_, err = fc.Read(buf)
-			if err != nil {
-				errCh <- err
-				return
-			}
-			if !bytes.Equal(buf, transportData[i+1]) {
-				errCh <- fmt.Errorf("Data was truncated when read from e2e in client")
-				return
-			}
-		}
-		// the last receiver should close the error channel
+		defer tunnel.Close()
+		tunnel.Copy()
 		errCh <- nil
 	}()
 	// device
@@ -154,33 +127,8 @@ func TestE2ETunnels(t *testing.T) {
 		}
 		// copy local tunnel to c
 		tunnel := NewTunnel(e2eServer.localConn, cb, 1*time.Second, tunnelSize)
-		go tunnel.Copy()
-		if err != nil {
-			errCh <- err
-			return
-		}
-		var n int
-		for i := 1; i < 10; i += 2 {
-			buf := make([]byte, tunnelSize)
-			_, err = fc.Read(buf)
-			if err != nil {
-				errCh <- err
-				return
-			}
-			if !bytes.Equal(buf, transportData[i-1]) {
-				errCh <- fmt.Errorf("Data was truncated when read from e2e in device")
-				return
-			}
-			n, err = fc.Write(transportData[i])
-			if err != nil {
-				errCh <- err
-				return
-			}
-			if n != len(transportData[i]) {
-				errCh <- fmt.Errorf("Data was truncated when write to e2e in device")
-				return
-			}
-		}
+		defer tunnel.Close()
+		tunnel.Copy()
 	}()
 	err = <-errCh
 	if err != nil {

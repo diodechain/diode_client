@@ -100,7 +100,7 @@ func prepareDiode() {
 	// should not copy lock
 	cfg.Logger = &logger
 
-	printLabel("Diode Client version", version)
+	printLabel("Diode Client version", fmt.Sprintf("%s %s", version, buildTime))
 
 	if len(cfg.RemoteRPCAddrs) == 0 {
 		// setup default strings value
@@ -161,8 +161,6 @@ func NewDiode(cfg *config.Config, datapool *rpc.DataPool) Diode {
 func (dio *Diode) Init() error {
 	// Connect to first server to respond, and keep the other connections opened
 	cfg := dio.config
-
-	printLabel("Diode Client version", fmt.Sprintf("%s %s", version, buildTime))
 
 	// Initialize db
 	clidb, err := db.OpenFile(cfg.DBPath)
