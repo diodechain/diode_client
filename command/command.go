@@ -62,14 +62,12 @@ func (cmd *Command) Execute() (err error) {
 		commandName := cmd.Flag.Arg(0)
 		args := cmd.Flag.Args()
 		// should go to help command?
-		// if commandName == "" {
-		// 	if len(cfg.SBinds) > 0 {
-		// 		args = []string{"publish"}
-		// 		commandName = "publish"
-		// 	}
-		// }
+		if commandName == "" {
+			args = []string{"publish"}
+			commandName = "publish"
+		}
 		subCmd := cmd.subCommands[commandName]
-		if len(subCmd.Name) == 0 {
+		if subCmd == nil || len(subCmd.Name) == 0 {
 			cmd.Flag.Usage()
 			return
 		}

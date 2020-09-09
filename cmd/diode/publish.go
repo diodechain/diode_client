@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -137,6 +138,46 @@ func parsePorts(portStrings []string, mode int, enableEdgeE2E bool) ([]*config.P
 	return ports, nil
 }
 
+func parseBind(bind string) (*config.Bind, error) {
+	elements := strings.Split(bind, ":")
+	if len(elements) == 3 {
+		elements = append(elements, "tls")
+	}
+	if len(elements) != 4 {
+		return nil, fmt.Errorf("Bind format expected <local_port>:<to_address>:<to_port>:(udp|tcp|tls) but got: %v", bind)
+	}
+
+	var err error
+	ret := &config.Bind{
+		To: elements[1],
+	}
+	ret.LocalPort, err = strconv.Atoi(elements[0])
+	if err != nil {
+		return nil, fmt.Errorf("Bind local_port should be a number but is: %v in: %v", elements[0], bind)
+	}
+
+	if !util.IsSubdomain(ret.To) {
+		return nil, fmt.Errorf("Bind format to_address should be valid diode domain but got: %v", ret.To)
+	}
+
+	ret.ToPort, err = strconv.Atoi(elements[2])
+	if err != nil {
+		return nil, fmt.Errorf("Bind to_port should be a number but is: %v in: %v", elements[2], bind)
+	}
+
+	if elements[3] == "tls" {
+		ret.Protocol = config.TLSProtocol
+	} else if elements[3] == "tcp" {
+		ret.Protocol = config.TCPProtocol
+	} else if elements[3] == "udp" {
+		ret.Protocol = config.UDPProtocol
+	} else {
+		return nil, fmt.Errorf("Bind protocol should be 'tls', 'tcp', 'udp' but is: %v in: %v", elements[3], bind)
+	}
+
+	return ret, nil
+}
+
 func publishHandler() (err error) {
 	cfg := config.AppConfig
 	portString := make(map[int]*config.Port)
@@ -175,6 +216,16 @@ func publishHandler() (err error) {
 		portString[port.To] = port
 	}
 	cfg.PublishedPorts = portString
+
+	if len(cfg.PublishedPorts) == 0 && len(cfg.Binds) == 0 {
+		fmt.Println()
+		fmt.Println("ERROR: Can't run publish without any arguments!")
+		fmt.Println(" HINT: Try 'diode publish -public 8080:80' to publish a local port")
+		fmt.Println(" HINT: Check our docs to learn more about publishing ports: https://diode.io/docs/getting-started.html")
+		fmt.Println(" HINT: Or run 'diode help' to see all commands")
+		os.Exit(2)
+	}
+
 	err = app.Start()
 	if err != nil {
 		return
@@ -207,31 +258,31 @@ func publishHandler() (err error) {
 		configAPIServer.ListenAndServe()
 		app.SetConfigAPIServer(configAPIServer)
 	}
+	socksServer := client.NewSocksServer(app.datapool)
+	socksServer.SetConfig(&rpc.Config{
+		Addr:            cfg.SocksServerAddr(),
+		FleetAddr:       cfg.FleetAddr,
+		Blocklists:      cfg.Blocklists,
+		Allowlists:      cfg.Allowlists,
+		EnableProxy:     true,
+		ProxyServerAddr: cfg.ProxyServerAddr(),
+		Fallback:        cfg.SocksFallback,
+	})
 	if cfg.EnableSocksServer {
-		socksServer := client.NewSocksServer(app.datapool)
-		if len(cfg.Binds) > 0 {
-			socksServer.SetBinds(cfg.Binds)
-			printInfo("")
-			printLabel("Bind      <name>", "<mode>     <remote>")
-			for _, bind := range cfg.Binds {
-				printLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
-			}
-		}
-		socksServer.SetConfig(&rpc.Config{
-			Addr:            cfg.SocksServerAddr(),
-			FleetAddr:       cfg.FleetAddr,
-			Blocklists:      cfg.Blocklists,
-			Allowlists:      cfg.Allowlists,
-			EnableProxy:     true,
-			ProxyServerAddr: cfg.ProxyServerAddr(),
-			Fallback:        cfg.SocksFallback,
-		})
 		if err = socksServer.Start(); err != nil {
 			cfg.Logger.Error(err.Error())
 			return
 		}
-		app.SetSocksServer(socksServer)
 	}
+	if len(cfg.Binds) > 0 {
+		socksServer.SetBinds(cfg.Binds)
+		printInfo("")
+		printLabel("Bind      <name>", "<mode>     <remote>")
+		for _, bind := range cfg.Binds {
+			printLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
+		}
+	}
+	app.SetSocksServer(socksServer)
 	app.Wait()
 	return
 }

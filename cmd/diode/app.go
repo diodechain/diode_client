@@ -95,6 +95,7 @@ func prepareDiode() {
 
 	logger, err := config.NewLogger(cfg)
 	if err != nil {
+		fmt.Println(err.Error())
 		os.Exit(2)
 	}
 	// should not copy lock
@@ -119,9 +120,22 @@ func prepareDiode() {
 		}
 	}
 
-	// initialize didoe application
+	cfg.Binds = make([]config.Bind, 0)
+	for _, str := range cfg.SBinds {
+		bind, err := parseBind(str)
+		if err != nil {
+			fmt.Println(err.Error())
+			os.Exit(2)
+		}
+		cfg.Binds = append(cfg.Binds, *bind)
+	}
+
+	// initialize diode application
 	app = NewDiode(cfg, pool)
-	app.Init()
+	if err := app.Init(); err != nil {
+		fmt.Println(err.Error())
+		os.Exit(2)
+	}
 }
 
 func isValidRPCAddress(address string) (isValid bool) {
@@ -137,7 +151,7 @@ func cleanDiode() {
 	app.Close()
 }
 
-// Diode represents didoe application
+// Diode represents diode application
 type Diode struct {
 	config          *config.Config
 	datapool        *rpc.DataPool
