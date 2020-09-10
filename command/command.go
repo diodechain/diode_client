@@ -24,9 +24,9 @@ Run 'diode COMMAND --help' for more information on a command.
 type Command struct {
 	subCommands map[string]*Command
 	Name        string
-	PreRun      func()
+	PreRun      func() error
 	Run         func() error
-	PostRun     func()
+	PostRun     func() error
 	HelpText    string
 	ExampleText string
 	UsageText   string
@@ -52,9 +52,7 @@ func (cmd *Command) Execute() (err error) {
 	}
 	err = cmd.Flag.Parse(args)
 	if err != nil {
-		// if err == flag.ErrHelp {
 		err = nil
-		// }
 		return
 	}
 	if len(cmd.subCommands) > 0 {
@@ -76,32 +74,39 @@ func (cmd *Command) Execute() (err error) {
 		}
 		err = subCmd.Flag.Parse(args[1:])
 		if err != nil {
-			// if err == flag.ErrHelp {
 			err = nil
-			// }
 			return
 		}
 		// TODO: support recursive execute?
 		if cmd.PreRun != nil {
-			cmd.PreRun()
+			err = cmd.PreRun()
+			if err != nil {
+				return
+			}
 		}
 		if subCmd.PreRun != nil {
-			subCmd.PreRun()
+			err = subCmd.PreRun()
+			if err != nil {
+				return
+			}
 		}
 		if subCmd.Run != nil {
 			err = subCmd.Run()
 		}
 		if subCmd.PostRun != nil {
-			subCmd.PostRun()
+			err = subCmd.PostRun()
 		}
 	} else if cmd.Run != nil {
 		if cmd.PreRun != nil {
-			cmd.PreRun()
+			err = cmd.PreRun()
+			if err != nil {
+				return
+			}
 		}
 		err = cmd.Run()
 	}
 	if cmd.PostRun != nil {
-		cmd.PostRun()
+		err = cmd.PostRun()
 	}
 	return
 }

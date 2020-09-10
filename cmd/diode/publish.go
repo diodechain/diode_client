@@ -144,7 +144,7 @@ func parseBind(bind string) (*config.Bind, error) {
 		elements = append(elements, "tls")
 	}
 	if len(elements) != 4 {
-		return nil, fmt.Errorf("Bind format expected <local_port>:<to_address>:<to_port>:(udp|tcp|tls) but got: %v", bind)
+		return nil, fmt.Errorf("bind format expected <local_port>:<to_address>:<to_port>:(udp|tcp|tls) but got: %v", bind)
 	}
 
 	var err error
@@ -153,16 +153,16 @@ func parseBind(bind string) (*config.Bind, error) {
 	}
 	ret.LocalPort, err = strconv.Atoi(elements[0])
 	if err != nil {
-		return nil, fmt.Errorf("Bind local_port should be a number but is: %v in: %v", elements[0], bind)
+		return nil, fmt.Errorf("bind local_port should be a number but is: %v in: %v", elements[0], bind)
 	}
 
 	if !util.IsSubdomain(ret.To) {
-		return nil, fmt.Errorf("Bind format to_address should be valid diode domain but got: %v", ret.To)
+		return nil, fmt.Errorf("bind format to_address should be valid diode domain but got: %v", ret.To)
 	}
 
 	ret.ToPort, err = strconv.Atoi(elements[2])
 	if err != nil {
-		return nil, fmt.Errorf("Bind to_port should be a number but is: %v in: %v", elements[2], bind)
+		return nil, fmt.Errorf("bind to_port should be a number but is: %v in: %v", elements[2], bind)
 	}
 
 	if elements[3] == "tls" {
@@ -172,7 +172,7 @@ func parseBind(bind string) (*config.Bind, error) {
 	} else if elements[3] == "udp" {
 		ret.Protocol = config.UDPProtocol
 	} else {
-		return nil, fmt.Errorf("Bind protocol should be 'tls', 'tcp', 'udp' but is: %v in: %v", elements[3], bind)
+		return nil, fmt.Errorf("bind protocol should be 'tls', 'tcp', 'udp' but is: %v in: %v", elements[3], bind)
 	}
 
 	return ret, nil

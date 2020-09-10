@@ -41,7 +41,7 @@ func init() {
 	cfg := &config.Config{}
 	diodeCmd.Flag.StringVar(&cfg.DBPath, "dbpath", util.DefaultDBPath(), "file path to db file")
 	diodeCmd.Flag.IntVar(&cfg.RetryTimes, "retrytimes", 3, "retry times to connect the remote rpc server")
-	diodeCmd.Flag.BoolVar(&cfg.EnableEdgeE2E, "e2e", false, "enable edge e2e when start diode")
+	diodeCmd.Flag.BoolVar(&cfg.EnableEdgeE2E, "e2e", true, "enable edge e2e when start diode")
 	// should put to httpd or other command
 	// diodeCmd.Flag.BoolVar(&cfg.EnableUpdate, "update", false, "enable update when start diode")
 	diodeCmd.Flag.BoolVar(&cfg.EnableMetrics, "metrics", false, "enable metrics stats")
@@ -88,15 +88,14 @@ func init() {
 	diodeCmd.AddSubCommand(timeCmd)
 }
 
-func prepareDiode() {
+func prepareDiode() error {
 	cfg := config.AppConfig
 	// initialize logger
 	pool = rpc.NewPool()
 
 	logger, err := config.NewLogger(cfg)
 	if err != nil {
-		fmt.Println(err.Error())
-		os.Exit(2)
+		return err
 	}
 	// should not copy lock
 	cfg.Logger = &logger
@@ -124,8 +123,7 @@ func prepareDiode() {
 	for _, str := range cfg.SBinds {
 		bind, err := parseBind(str)
 		if err != nil {
-			fmt.Println(err.Error())
-			os.Exit(2)
+			return err
 		}
 		cfg.Binds = append(cfg.Binds, *bind)
 	}
@@ -133,9 +131,9 @@ func prepareDiode() {
 	// initialize diode application
 	app = NewDiode(cfg, pool)
 	if err := app.Init(); err != nil {
-		fmt.Println(err.Error())
-		os.Exit(2)
+		return err
 	}
+	return nil
 }
 
 func isValidRPCAddress(address string) (isValid bool) {
@@ -146,9 +144,10 @@ func isValidRPCAddress(address string) (isValid bool) {
 	return
 }
 
-func cleanDiode() {
+func cleanDiode() error {
 	// close diode application
 	app.Close()
+	return nil
 }
 
 // Diode represents diode application

@@ -85,7 +85,7 @@ type DeviceError struct {
 }
 
 func (deviceError DeviceError) Error() string {
-	return fmt.Sprintf("This device is offline - Or you entered the wrong id? %v", deviceError.err)
+	return fmt.Sprintf("This device is offline - %v", deviceError.err)
 }
 
 func handShake(conn net.Conn) (version int, url string, err error) {
