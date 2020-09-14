@@ -42,7 +42,6 @@ func httpdHandler() (err error) {
 		return
 	}
 	cfg := config.AppConfig
-	client := app.datapool.GetClientByOrder(1)
 	cfg.EnableProxyServer = true
 	if cfg.EnableAPIServer {
 		configAPIServer := NewConfigAPIServer(cfg)
@@ -50,7 +49,7 @@ func httpdHandler() (err error) {
 		configAPIServer.ListenAndServe()
 		app.SetConfigAPIServer(configAPIServer)
 	}
-	socksServer := client.NewSocksServer(app.datapool)
+	socksServer := rpc.NewSocksServer(app.datapool)
 	if len(cfg.Binds) > 0 {
 		socksServer.SetBinds(cfg.Binds)
 		printInfo("")

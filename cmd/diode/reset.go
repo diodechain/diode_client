@@ -191,7 +191,7 @@ func resetHandler() (err error) {
 		return err
 	}
 	cfg := config.AppConfig
-	client := app.datapool.GetClientByOrder(1)
+	client := app.datapool.GetNearestClient()
 	if cfg.Experimental {
 		err = doInitExp(cfg, client)
 	} else {

@@ -36,7 +36,7 @@ func bnsHandler() (err error) {
 		return
 	}
 	cfg := config.AppConfig
-	client := app.datapool.GetClientByOrder(1)
+	client := app.datapool.GetNearestClient()
 	// register bns record
 	bn, _ := client.GetBlockPeak()
 	if bn == 0 {

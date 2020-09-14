@@ -39,6 +39,7 @@ func (httpError HttpError) Error() string {
 
 type ProxyServer struct {
 	Config      ProxyConfig
+	logger      *config.Logger
 	socksServer *Server
 	httpServer  *http.Server
 	httpsServer *http.Server
@@ -81,7 +82,7 @@ func internalError(w http.ResponseWriter, str string) {
 }
 
 func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request) {
-	proxyServer.socksServer.Client.Debug("Got proxy request from: %s", r.RemoteAddr)
+	proxyServer.logger.Debug("Got proxy request from: %s", r.RemoteAddr)
 	host := r.Host
 	if len(host) == 0 {
 		badRequest(w, "Host was wrong")
@@ -180,6 +181,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 func NewProxyServer(socksServer *Server) *ProxyServer {
 	proxyServer := &ProxyServer{
 		socksServer: socksServer,
+		logger:      config.AppConfig.Logger,
 		closeCh:     make(chan struct{}),
 	}
 	return proxyServer
@@ -203,7 +205,7 @@ func (proxyServer *ProxyServer) Start() error {
 	if proxyServer.Closed() {
 		return nil
 	}
-	proxyServer.socksServer.Client.Info("Start httpd server %s", proxyServer.Config.ProxyServerAddr)
+	proxyServer.logger.Info("Start httpd server %s", proxyServer.Config.ProxyServerAddr)
 	prox, _ := url.Parse(fmt.Sprintf("socks5://%s", proxyServer.socksServer.Config.Addr))
 	proxyTransport.Proxy = http.ProxyURL(prox)
 	httpdHandler := http.HandlerFunc(proxyServer.pipeProxy)
@@ -224,14 +226,14 @@ func (proxyServer *ProxyServer) Start() error {
 		if err := proxyServer.httpServer.ListenAndServe(); err != nil {
 			proxyServer.httpServer = nil
 			if err != http.ErrServerClosed {
-				proxyServer.socksServer.Client.Error("Couldn't start http proxy: %v", err)
+				proxyServer.logger.Error("Couldn't start http proxy: %v", err)
 			}
 		}
 	}()
 
 	// start httpsd proxy server
 	if proxyServer.Config.EnableSProxy {
-		proxyServer.socksServer.Client.Info("Start httpsd server %s", proxyServer.Config.SProxyServerAddr)
+		proxyServer.logger.Info("Start httpsd server %s", proxyServer.Config.SProxyServerAddr)
 		httpsdHandler := http.HandlerFunc(proxyServer.pipeProxy)
 		httpsdAddr := proxyServer.Config.SProxyServerAddr
 		protos := make(map[string]func(*http.Server, *tls.Conn, http.Handler))
@@ -241,7 +243,7 @@ func (proxyServer *ProxyServer) Start() error {
 			if err := proxyServer.httpsServer.ListenAndServeTLS(proxyServer.Config.CertPath, proxyServer.Config.PrivPath); err != nil {
 				proxyServer.httpsServer = nil
 				if err != http.ErrServerClosed {
-					proxyServer.socksServer.Client.Error("Couldn't start https proxy: %v", err)
+					proxyServer.logger.Error("Couldn't start https proxy: %v", err)
 				}
 			}
 		}()

@@ -176,3 +176,14 @@ func (p *DataPool) GetClientByOrder(order int) (client *RPCClient) {
 	client = nil
 	return
 }
+
+func (p *DataPool) GetNearestClient() (client *RPCClient) {
+	min := int(p.clientOrder)
+	for _, c := range p.clients {
+		if c.Order > 0 && c.Order <= min {
+			client = c
+			min = c.Order
+		}
+	}
+	return
+}

@@ -33,7 +33,6 @@ func socksdHandler() (err error) {
 		return
 	}
 	cfg := config.AppConfig
-	client := app.datapool.GetClientByOrder(1)
 	cfg.EnableSocksServer = true
 	cfg.EnableProxyServer = true
 	cfg.ProxyServerPort = 8080
@@ -43,7 +42,7 @@ func socksdHandler() (err error) {
 		configAPIServer.ListenAndServe()
 		app.SetConfigAPIServer(configAPIServer)
 	}
-	socksServer := client.NewSocksServer(app.datapool)
+	socksServer := rpc.NewSocksServer(app.datapool)
 	if len(cfg.Binds) > 0 {
 		socksServer.SetBinds(cfg.Binds)
 		printInfo("")

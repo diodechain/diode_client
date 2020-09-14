@@ -93,6 +93,4 @@ ci_test:
 	$(MAKE) test
 	$(MAKE) diode_race_test
 	chmod +x ./diode_race_test 
-	./diode_race_test config -list
-	./diode_race_test time
-	rm ./diode_race_test
+	sh ci_test.sh
