@@ -331,13 +331,15 @@ func (rpcClient *RPCClient) sendMessage() {
 		conn := rpcClient.s.getOpensslConn()
 		n, err := conn.Write(call.data)
 		if err != nil {
-			// should not reconnect here
-			// because there might be some pending buffers (response) in tcp connection
-			// if reconnect here the recall() will get wrong response (maybe solve this
-			// issue by adding id in each rpc call)
 			rpcClient.Error("Failed to write to node: %v", err)
-			res := rpcClient.edgeProtocol.NewErrorResponse(err)
-			call.enqueueResponse(res)
+			if rpcClient.Closed() {
+				return
+			}
+			if rpcClient.Reconnecting() {
+				rpcClient.Debug("Resend rpc due to reconnect: %s", call.method)
+				rpcClient.addCall(call)
+				continue
+			}
 			continue
 		}
 		if n != len(call.data) {

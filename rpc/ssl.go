@@ -361,11 +361,11 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 	ctx := initSSLCtx(config)
 	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification)
 	if err != nil {
-		config.Logger.Crit(fmt.Sprintf("Failed to connect to host: %s", err.Error()), "server", host)
+		config.Logger.Crit(fmt.Sprintf("Failed to connect to: %s", err.Error()), "server", host)
 		// Retry to connect
 		isOk := false
 		for i := 1; i <= config.RetryTimes; i++ {
-			config.Logger.Info(fmt.Sprintf("Retry to connect to host: %s, wait %s", host, config.RetryWait.String()), "server", host)
+			config.Logger.Info(fmt.Sprintf("Retry to connect to %s (%d/%d), wait %s", host, i, config.RetryTimes, config.RetryWait.String()), "server", host)
 			time.Sleep(config.RetryWait)
 			client, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification)
 			if err == nil {
