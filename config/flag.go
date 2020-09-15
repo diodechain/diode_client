@@ -36,32 +36,6 @@ var (
 // Address represents an Ethereum address
 type Address = util.Address
 
-// LoadConfigFromFile returns bytes data of config
-func LoadConfigFromFile(filePath string) (configBytes []byte, err error) {
-	var f *os.File
-	f, err = os.OpenFile(filePath, os.O_RDONLY, 0400)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-	var fs os.FileInfo
-	fs, err = f.Stat()
-	if err != nil {
-		return
-	}
-	var n int
-	configBytes = make([]byte, fs.Size())
-	n, err = f.Read(configBytes)
-	if err != nil {
-		return
-	}
-	if n != int(fs.Size()) {
-		err = fmt.Errorf("readed file size not equal")
-		return
-	}
-	return
-}
-
 // Config for diode-go-client
 type Config struct {
 	DBPath                  string           `yaml:"dbpath,omitempty" json:"dbpath,omitempty"`
@@ -108,9 +82,9 @@ type Config struct {
 	ConfigDelete            stringValues     `yaml:"-" json:"-"`
 	ConfigSet               stringValues     `yaml:"-" json:"-"`
 	PublishedPorts          map[int]*Port    `yaml:"-" json:"-"`
-	PublicPublishedPorts    stringValues     `yaml:"-" json:"-"`
-	ProtectedPublishedPorts stringValues     `yaml:"-" json:"-"`
-	PrivatePublishedPorts   stringValues     `yaml:"-" json:"-"`
+	PublicPublishedPorts    stringValues     `yaml:"published_public_ports,omitempty" json:"-"`
+	ProtectedPublishedPorts stringValues     `yaml:"published_protected_ports,omitempty" json:"-"`
+	PrivatePublishedPorts   stringValues     `yaml:"published_private_ports,omitempty" json:"-"`
 	Blocklists              map[Address]bool `yaml:"-" json:"-"`
 	Allowlists              map[Address]bool `yaml:"-" json:"-"`
 	LogMode                 int              `yaml:"-" json:"-"`
@@ -122,6 +96,32 @@ type Config struct {
 	BNSLookup               string           `yaml:"-" json:"-"`
 	Experimental            bool             `yaml:"-" json:"-"`
 	LoadFromFile            bool             `yaml:"-" json:"-"`
+}
+
+// LoadConfigFromFile returns bytes data of config
+func LoadConfigFromFile(filePath string) (configBytes []byte, err error) {
+	var f *os.File
+	f, err = os.OpenFile(filePath, os.O_RDONLY, 0400)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	var fs os.FileInfo
+	fs, err = f.Stat()
+	if err != nil {
+		return
+	}
+	var n int
+	configBytes = make([]byte, fs.Size())
+	n, err = f.Read(configBytes)
+	if err != nil {
+		return
+	}
+	if n != int(fs.Size()) {
+		err = fmt.Errorf("readed file size not equal")
+		return
+	}
+	return
 }
 
 // SaveToFile store yaml config to ConfigFilePath
@@ -178,6 +178,20 @@ type Port struct {
 	Mode      int
 	Protocol  int
 	Allowlist map[Address]bool
+}
+
+// ModeIdentifier returns a mode code of the human readable version
+func ModeIdentifier(mode string) int {
+	if mode == "private" {
+		return PrivatePublishedMode
+	}
+	if mode == "public" {
+		return PublicPublishedMode
+	}
+	if mode == "protected" {
+		return ProtectedPublishedMode
+	}
+	return 0
 }
 
 // ModeName returns the human readable version of a mode code

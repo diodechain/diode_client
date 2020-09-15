@@ -53,10 +53,10 @@ type bind struct {
 }
 
 type port struct {
-	LocalPort  int    `json:"localPort"`
-	ExternPort int    `json:"externPort"`
-	Protocol   string `json:"protocol"`
-	Mode       string `json:"mode"`
+	LocalPort  int    `json:"localPort" validate:"required,port"`
+	ExternPort int    `json:"externPort" validate:"required,port"`
+	Protocol   string `json:"protocol" validate:"omitempty,protocol"`
+	Mode       string `json:"mode" validate:"required,mode"`
 }
 
 type putConfigRequest struct {
@@ -66,6 +66,7 @@ type putConfigRequest struct {
 	Blocklists []string `json:"blocklists,omitempty" validate:"dive,omitempty,address"`
 	Allowlists []string `json:"allowlists,omitempty" validate:"dive,omitempty,address"`
 	Binds      []bind   `json:"binds,omitempty" validate:"dive,omitempty"`
+	Ports      []port   `json:"ports,omitempty" validate:"dive,omitempty"`
 }
 
 func isAddress(fl validator.FieldLevel) bool {
@@ -93,6 +94,11 @@ func isURL(fl validator.FieldLevel) bool {
 	return err == nil
 }
 
+func isMode(fl validator.FieldLevel) bool {
+	mode := fl.Field().String()
+	return config.ModeIdentifier(mode) > 0
+}
+
 func init() {
 	validate = validator.New()
 	validate.RegisterValidation("address", isAddress)
@@ -100,6 +106,7 @@ func init() {
 	validate.RegisterValidation("port", isPort)
 	validate.RegisterValidation("protocol", isProtocol)
 	validate.RegisterValidation("url", isURL)
+	validate.RegisterValidation("mode", isMode)
 }
 
 // ConfigAPIServer struct
@@ -243,7 +250,7 @@ func (configAPIServer *ConfigAPIServer) configResponse(w http.ResponseWriter, me
 
 func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
-		if req.URL.Path != "/config/" {
+		if req.URL.Path != "/config" {
 			configAPIServer.notFoundError(w)
 			return
 		}
@@ -402,6 +409,65 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 					configAPIServer.appConfig.SBinds = binds
 				}
 			}
+			// only updates published ports when user already publish
+			// do we need api authentication for updating ports, eg sign a signature with user private key, or unlock account?
+			if len(c.Ports) >= 0 && len(configAPIServer.appConfig.PublishedPorts) > 0 {
+				ports := make(map[int]bool)
+				// publicPorts := []string{}
+				// protectedPorts := []string{}
+				// privatePorts := []string{}
+				// for _, p := range configAPIServer.appConfig.PublicPublishedPorts {
+				// 	ported[p.To] += config.ProtocolName(b.Protocol)
+				// }
+				for _, p := range c.Ports {
+					if ports[p.ExternPort] {
+						continue
+					}
+					protocol := p.Protocol
+					if len(protocol) > 0 {
+					} else {
+						protocol = "any"
+					}
+					portIden := fmt.Sprintf("%d:%d:%s", p.LocalPort, p.ExternPort, protocol)
+					published := configAPIServer.appConfig.PublishedPorts[p.ExternPort]
+					if published != nil {
+						if published.Src == p.LocalPort &&
+							config.ProtocolIdentifier(p.Protocol) == published.Protocol &&
+							config.ModeIdentifier(p.Mode) == published.Mode {
+							continue
+						}
+						switch published.Mode {
+						case config.PublicPublishedMode:
+							i := findExternPort(configAPIServer.appConfig.PublicPublishedPorts, p.ExternPort)
+							if i >= 0 {
+								configAPIServer.appConfig.PublicPublishedPorts = append(configAPIServer.appConfig.PublicPublishedPorts[:i], configAPIServer.appConfig.PublicPublishedPorts[i+1:]...)
+							}
+						case config.PrivatePublishedMode:
+							i := findExternPort(configAPIServer.appConfig.PrivatePublishedPorts, p.ExternPort)
+							if i >= 0 {
+								configAPIServer.appConfig.PrivatePublishedPorts = append(configAPIServer.appConfig.PrivatePublishedPorts[:i], configAPIServer.appConfig.PrivatePublishedPorts[i+1:]...)
+							}
+						case config.ProtectedPublishedMode:
+							i := findExternPort(configAPIServer.appConfig.ProtectedPublishedPorts, p.ExternPort)
+							if i >= 0 {
+								configAPIServer.appConfig.ProtectedPublishedPorts = append(configAPIServer.appConfig.ProtectedPublishedPorts[:i], configAPIServer.appConfig.ProtectedPublishedPorts[i+1:]...)
+							}
+						}
+					}
+					switch config.ModeIdentifier(p.Mode) {
+					case config.PublicPublishedMode:
+						configAPIServer.appConfig.PublicPublishedPorts = append(configAPIServer.appConfig.PublicPublishedPorts, portIden)
+						isDirty = true
+					case config.PrivatePublishedMode:
+						//  TODO: private address
+						configAPIServer.appConfig.PrivatePublishedPorts = append(configAPIServer.appConfig.PrivatePublishedPorts, portIden)
+						isDirty = true
+					case config.ProtectedPublishedMode:
+						configAPIServer.appConfig.ProtectedPublishedPorts = append(configAPIServer.appConfig.ProtectedPublishedPorts, portIden)
+						isDirty = true
+					}
+				}
+			}
 
 			if !isDirty {
 				configAPIServer.successResponse(w, "ok")
@@ -440,6 +506,17 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 	}
 }
 
+func findExternPort(ports []string, externPort int) (index int) {
+	format := fmt.Sprintf(":%d", externPort)
+	for i, port := range ports {
+		if strings.Contains(port, format) {
+			index = i
+			return
+		}
+	}
+	return -1
+}
+
 func (configAPIServer *ConfigAPIServer) rootHandleFunc() func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
 		if req.URL.Path != "/" {
@@ -475,7 +552,7 @@ func (configAPIServer *ConfigAPIServer) requireJSON(h http.Handler) http.Handler
 // ListenAndServe start config api server
 func (configAPIServer *ConfigAPIServer) ListenAndServe() {
 	mux := http.NewServeMux()
-	mux.HandleFunc("/config/", configAPIServer.apiHandleFunc())
+	mux.HandleFunc("/config", configAPIServer.apiHandleFunc())
 	mux.HandleFunc("/", configAPIServer.rootHandleFunc())
 	handler := cors.New(configAPIServer.corsOptions).Handler(mux)
 	handler = configAPIServer.requireJSON(handler)

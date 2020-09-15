@@ -92,6 +92,9 @@ func (cmd *Command) Execute() (err error) {
 		}
 		if subCmd.Run != nil {
 			err = subCmd.Run()
+			if err != nil {
+				return
+			}
 		}
 		if subCmd.PostRun != nil {
 			err = subCmd.PostRun()
