@@ -53,10 +53,11 @@ type bind struct {
 }
 
 type port struct {
-	LocalPort  int    `json:"localPort" validate:"required,port"`
-	ExternPort int    `json:"externPort" validate:"required,port"`
-	Protocol   string `json:"protocol" validate:"omitempty,protocol"`
-	Mode       string `json:"mode" validate:"required,mode"`
+	LocalPort  int      `json:"localPort" validate:"required,port"`
+	ExternPort int      `json:"externPort" validate:"required,port"`
+	Protocol   string   `json:"protocol" validate:"omitempty,protocol"`
+	Mode       string   `json:"mode" validate:"required,mode"`
+	Addresses  []string `json:"addresses,omitempty" validate:"dive,omitempty,address"`
 }
 
 type putConfigRequest struct {
@@ -107,6 +108,15 @@ func init() {
 	validate.RegisterValidation("protocol", isProtocol)
 	validate.RegisterValidation("url", isURL)
 	validate.RegisterValidation("mode", isMode)
+	validate.RegisterStructValidation(portValidation, port{})
+}
+
+func portValidation(sl validator.StructLevel) {
+	port := sl.Current().Interface().(port)
+
+	if config.ModeIdentifier(port.Mode) == config.PrivatePublishedMode && len(port.Addresses) == 0 {
+		sl.ReportError(port.Addresses, "addresses", "Addresses", "addresses", "")
+	}
 }
 
 // ConfigAPIServer struct
@@ -413,12 +423,6 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 			// do we need api authentication for updating ports, eg sign a signature with user private key, or unlock account?
 			if len(c.Ports) >= 0 && len(configAPIServer.appConfig.PublishedPorts) > 0 {
 				ports := make(map[int]bool)
-				// publicPorts := []string{}
-				// protectedPorts := []string{}
-				// privatePorts := []string{}
-				// for _, p := range configAPIServer.appConfig.PublicPublishedPorts {
-				// 	ported[p.To] += config.ProtocolName(b.Protocol)
-				// }
 				for _, p := range c.Ports {
 					if ports[p.ExternPort] {
 						continue
@@ -459,7 +463,7 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 						configAPIServer.appConfig.PublicPublishedPorts = append(configAPIServer.appConfig.PublicPublishedPorts, portIden)
 						isDirty = true
 					case config.PrivatePublishedMode:
-						//  TODO: private address
+						portIden = fmt.Sprintf("%s,%s", portIden, strings.Join(p.Addresses, ","))
 						configAPIServer.appConfig.PrivatePublishedPorts = append(configAPIServer.appConfig.PrivatePublishedPorts, portIden)
 						isDirty = true
 					case config.ProtectedPublishedMode:
@@ -468,7 +472,6 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 					}
 				}
 			}
-
 			if !isDirty {
 				configAPIServer.successResponse(w, "ok")
 				return
