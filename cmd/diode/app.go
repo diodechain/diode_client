@@ -176,6 +176,7 @@ type Diode struct {
 	proxyServer     *rpc.ProxyServer
 	configAPIServer *ConfigAPIServer
 	cd              sync.Once
+	deferals        []func()
 	closeCh         chan struct{}
 }
 
@@ -230,7 +231,7 @@ func (dio *Diode) Init() error {
 			return err
 		}
 		pprof.StartCPUProfile(fd)
-		defer pprof.StopCPUProfile()
+		dio.Defer(func() { pprof.StopCPUProfile() })
 	}
 
 	if cfg.MEMProfile != "" {
@@ -271,6 +272,11 @@ func (dio *Diode) Init() error {
 	printLabel("Client address", cfg.ClientAddr.HexString())
 	printLabel("Fleet address", cfg.FleetAddr.HexString())
 	return nil
+}
+
+// Defer a callback for application closure
+func (dio *Diode) Defer(deferal func()) {
+	dio.deferals = append(dio.deferals, deferal)
 }
 
 // Start the diode application
@@ -428,6 +434,9 @@ func (dio *Diode) Closed() bool {
 // Close shut down diode application
 func (dio *Diode) Close() {
 	dio.cd.Do(func() {
+		for _, fun := range dio.deferals {
+			fun()
+		}
 		close(dio.closeCh)
 		printInfo("1/5 Stopping socksserver")
 		if dio.socksServer != nil {
