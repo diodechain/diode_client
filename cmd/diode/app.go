@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
 	"net"
 	"os"
 	"os/signal"
@@ -30,10 +31,13 @@ var (
 		PreRun:   prepareDiode,
 		PostRun:  cleanDiode,
 	}
-	bootDiodeAddrs = [3]string{
-		"asia.testnet.diode.io:41046",
-		"europe.testnet.diode.io:41046",
-		"usa.testnet.diode.io:41046",
+	bootDiodeAddrs = [6]string{
+		"as1.prenet.diode.io:41046",
+		"as2.prenet.diode.io:41046",
+		"us1.prenet.diode.io:41046",
+		"us2.prenet.diode.io:41046",
+		"eu1.prenet.diode.io:41046",
+		"eu2.prenet.diode.io:41046",
 	}
 )
 
@@ -118,6 +122,10 @@ func prepareDiode() error {
 			cfg.RemoteRPCAddrs = remoteRPCAddrs
 		}
 	}
+	rand.Seed(time.Now().Unix())
+	rand.Shuffle(len(cfg.RemoteRPCAddrs), func(i, j int) {
+		cfg.RemoteRPCAddrs[i], cfg.RemoteRPCAddrs[j] = cfg.RemoteRPCAddrs[j], cfg.RemoteRPCAddrs[i]
+	})
 
 	cfg.Binds = make([]config.Bind, 0)
 	for _, str := range cfg.SBinds {
@@ -309,15 +317,15 @@ func (dio *Diode) Start() error {
 				rpcClient.Close()
 			}
 		}
+		close(c)
 		// should end waiting if there is no valid client
 		if client == nil {
 			wg.Done()
 		}
 	}()
 	for _, RemoteRPCAddr := range cfg.RemoteRPCAddrs {
-		connect(c, RemoteRPCAddr, cfg, dio.datapool)
+		go connect(c, RemoteRPCAddr, cfg, dio.datapool)
 	}
-	close(c)
 	wg.Wait()
 
 	if client == nil {
