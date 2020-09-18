@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"sync"
 	"time"
@@ -27,6 +28,12 @@ var (
 	cfg                      = &Config{}
 	ErrUnsupportTransport    = fmt.Errorf("unsupported transport, make sure you use these options (proxy, sproxy, socks5)")
 	ErrFailedSetRlimitNofile = fmt.Errorf("cannot set rlimit nofile")
+	headerTemplate = `
+
+|                |    DNS Lookup   |  TCP Connection    |  Server Process    | Content Transfer |    Total     |
+`
+	rowTemplate = `|    Fetch #%-3d  |    %-10s   |    %-12s    |    %-12s    |   %-12s   | %-12s |
+`
 )
 
 func clientDebugHandler(cmd *cobra.Command, args []string) (err error) {
@@ -83,30 +90,53 @@ func clientDebugHandler(cmd *cobra.Command, args []string) (err error) {
 			return
 		}
 	}
-	log.Printf("Start to connect %d times", cfg.Conn)
+	fmt.Printf("\nStart to connect to %s for %d times", cfg.Target, cfg.Conn)
+	fmt.Print(headerTemplate)
 	wg.Add(cfg.Conn)
 	for i := 0; i < cfg.Conn; i++ {
 		go func(j int) {
-			client := &http.Client{}
-			client.Transport = transport
-			resp, err := client.Get(cfg.Target)
+			var t0, t1, t2, t3, t4 time.Time
+			req, _ := http.NewRequest("GET", cfg.Target, nil)
+			trace := &httptrace.ClientTrace{
+				DNSStart: func (ds httptrace.DNSStartInfo) {
+					t0 = time.Now()
+				},
+				DNSDone: func (ds httptrace.DNSDoneInfo) {
+					t1 = time.Now()
+				},
+				ConnectStart: func(network, addr string) {
+					if t1.IsZero() {
+						t1 = time.Now()
+					}
+				},
+				ConnectDone: func(network, addr string, err error) {
+					if err == nil {
+						t2 = time.Now()
+					}
+				},
+				GotConn: func(_ httptrace.GotConnInfo) {
+					t3 = time.Now()
+				},
+				GotFirstResponseByte: func() {
+					t4 = time.Now()
+				},
+			}
+			req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+			resp, err := transport.RoundTrip(req)
 			if err != nil {
 				log.Printf("Failed to get target #%d: %s\n", j, err.Error())
 				wg.Done()
 				return
 			}
-			body, err := ioutil.ReadAll(resp.Body)
+			_, err = ioutil.ReadAll(resp.Body)
 			if err != nil {
 				log.Printf("Failed to read from body #%d: %s\n", j, err.Error())
 				resp.Body.Close()
 				wg.Done()
 				return
 			}
-			if cfg.Verbose {
-				log.Printf("Content #%d:  %s\n", j, string(body))
-			} else {
-				log.Printf("Fetch #%d successfully\n", j)
-			}
+			t5 := time.Now()
+			fmt.Printf(rowTemplate, j, t1.Sub(t0), t2.Sub(t1), t4.Sub(t3), t5.Sub(t4), t5.Sub(t0))
 			resp.Body.Close()
 			wg.Done()
 		}(i + 1)

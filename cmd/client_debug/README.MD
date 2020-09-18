@@ -2,6 +2,8 @@
 
 This is a debug program for connecting the target through diode network concurrently.
 
+![Client debug demo](docs/client_debug.gif)
+
 # Run
 
 1. Normal connection
