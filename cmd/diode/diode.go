@@ -65,7 +65,9 @@ func printInfo(msg string) {
 func connect(c chan *rpc.RPCClient, host string, cfg *config.Config, pool *rpc.DataPool) {
 	client, err := rpc.DoConnect(host, cfg, pool)
 	if err != nil {
-		client.Close()
+		if client != nil {
+			client.Close()
+		}
 		cfg.Logger.Error(fmt.Sprintf("Connection to host: %s failed: %+v", host, err))
 	} else {
 		c <- client

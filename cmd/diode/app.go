@@ -296,7 +296,8 @@ func (dio *Diode) Start() error {
 	wg.Add(1)
 	go func() {
 		i := 2
-		for rpcClient := range c {
+		for range cfg.RemoteRPCAddrs {
+			rpcClient := <-c
 			if isPublished && client != nil {
 				rpcClient.Close()
 				continue
