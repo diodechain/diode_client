@@ -22,7 +22,8 @@ jobs:
     - if: runner.os == 'macOS'
       run: |
         brew install binutils
-        brew install https://raw.githubusercontent.com/Homebrew/homebrew-core/b1f92701367028062abb3518426aa5d8dacc224b/Formula/upx.rb
+        brew tap diodechain/homebrew-upx
+        brew install diodechain/upx/upx
         rm /usr/local/opt/openssl/lib/*.dylib
         echo "::add-path::/usr/local/opt/binutils/bin"
     - uses: actions/checkout@v1
