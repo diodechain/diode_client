@@ -279,19 +279,25 @@ func (dio *Diode) Start() error {
 	// waiting for first client
 	wg.Add(1)
 	go func() {
+		i := 2
 		for rpcClient := range c {
 			if isPublished && client != nil {
 				rpcClient.Close()
 				continue
 			}
-			// lvbn, lvbh = rpcClient.LastValid()
-			// printLabel("Last valid block", fmt.Sprintf("%v %v", lvbn, util.EncodeToString(lvbh[:])))
-			cfg.Logger.Info(fmt.Sprintf("Connected to host: %s, validating...", rpcClient.Host()))
+			verbose := client == nil
+
+			if verbose {
+				cfg.Logger.Info(fmt.Sprintf("Connected to host: %s, validating...", rpcClient.Host()))
+			} else {
+				cfg.Logger.Info(fmt.Sprintf("Adding host: %s [%d/%d]", rpcClient.Host(), i, rpcAddrLen))
+				i = i + 1
+			}
 			isValid, err := rpcClient.ValidateNetwork()
 			if isValid {
 				serverID, err := rpcClient.GetServerID()
 				if err != nil {
-					cfg.Logger.Warn("Failed to get server id: %v", err)
+					cfg.Logger.Warn("Failed to get server id: %v from %s", err, rpcClient.Host())
 					rpcClient.Close()
 					continue
 				}
@@ -304,10 +310,12 @@ func (dio *Diode) Start() error {
 					dio.datapool.SetClient(serverID, nil)
 				})
 			} else {
-				if err != nil {
-					cfg.Logger.Error(fmt.Sprintf("Network is not valid (err: %s), trying next...", err.Error()))
-				} else {
-					cfg.Logger.Error("Network is not valid for unknown reasons")
+				if verbose {
+					if err != nil {
+						cfg.Logger.Error(fmt.Sprintf("Network of %s is not valid (err: %s), trying next...", rpcClient.Host(), err.Error()))
+					} else {
+						cfg.Logger.Error("Network of %s is not valid for unknown reasons", rpcClient.Host())
+					}
 				}
 				rpcClient.Close()
 			}
