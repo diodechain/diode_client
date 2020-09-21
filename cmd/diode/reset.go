@@ -21,6 +21,7 @@ var (
 		HelpText:    `  Initialize a new account and a new fleet contract in the network. WARNING deletes current credentials!`,
 		ExampleText: `  diode reset`,
 		Run:         resetHandler,
+		Type:        command.OneOffCommand,
 	}
 )
 

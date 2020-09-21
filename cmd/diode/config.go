@@ -23,6 +23,7 @@ var (
 		HelpText:    `  Manage variables in the local config store.`,
 		ExampleText: `  diode config -delete lvbn2 -delete lvbn`,
 		Run:         configHandler,
+		Type:        command.OneOffCommand,
 	}
 )
 

@@ -19,6 +19,7 @@ var (
 		HelpText:    `  Lookup the current time from the blockchain consensus.`,
 		ExampleText: `  diode time`,
 		Run:         timeHandler,
+		Type:        command.OneOffCommand,
 	}
 )
 

@@ -361,19 +361,26 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 	ctx := initSSLCtx(config)
 	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification)
 	if err != nil {
-		config.Logger.Crit(fmt.Sprintf("Failed to connect to: %s", err.Error()), "server", host)
+		config.Logger.Crit(fmt.Sprintf("Failed to connect to: %s (%s)", host, err.Error()))
 		// Retry to connect
 		isOk := false
+		backoff := Backoff{
+			Min:    config.RetryWait,
+			Max:    10 * config.RetryWait,
+			Factor: 2,
+			Jitter: true,
+		}
 		for i := 1; i <= config.RetryTimes; i++ {
-			config.Logger.Info(fmt.Sprintf("Retry to connect to %s (%d/%d), wait %s", host, i, config.RetryTimes, config.RetryWait.String()), "server", host)
-			time.Sleep(config.RetryWait)
+			dur := backoff.Duration()
+			config.Logger.Info(fmt.Sprintf("Retry to connect to %s (%d/%d), waiting %s", host, i, config.RetryTimes, dur.String()))
+			time.Sleep(dur)
 			client, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification)
 			if err == nil {
 				isOk = true
 				break
 			}
 			if config.Debug {
-				config.Logger.Debug(fmt.Sprintf("Failed to connect to host: %s", err.Error()), "server", host)
+				config.Logger.Debug(fmt.Sprintf("Failed to connect to host: %s (%s)", host, err.Error()))
 			}
 		}
 		if !isOk {

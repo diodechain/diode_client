@@ -17,6 +17,7 @@ var (
 		HelpText:    `  Enable a socks proxy for use with browsers and other apps.`,
 		ExampleText: `  diode socksd -socksd_port 8082 -socksd_host 127.0.0.1`,
 		Run:         socksdHandler,
+		Type:        command.DaemonCommand,
 	}
 )
 

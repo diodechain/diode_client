@@ -21,6 +21,7 @@ var (
 		HelpText:    `  Register/Update name service on diode blockchain.`,
 		ExampleText: `  diode bns -register hello-world=0x......`,
 		Run:         bnsHandler,
+		Type:        command.OneOffCommand,
 	}
 )
 

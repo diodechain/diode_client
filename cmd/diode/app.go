@@ -282,23 +282,53 @@ func (dio *Diode) Defer(deferal func()) {
 // Start the diode application
 func (dio *Diode) Start() error {
 	cfg := dio.config
-	wg := &sync.WaitGroup{}
-	rpcAddrLen := len(cfg.RemoteRPCAddrs)
-	isPublished := len(cfg.PublishedPorts) > 0
-	if rpcAddrLen < 1 {
+	cmd := diodeCmd.SubCommand()
+	isOneOffCommand := cmd == nil || cmd.Type == command.OneOffCommand
+
+	if len(dio.config.RemoteRPCAddrs) < 1 {
 		return fmt.Errorf("should use at least one rpc address")
 	}
-	c := make(chan *rpc.RPCClient, rpcAddrLen)
 	var lvbn uint64
 	var lvbh crypto.Sha3
 	var client *rpc.RPCClient
+
 	// waiting for first client
+	for {
+		client = dio.waitForFirstClient(isOneOffCommand)
+
+		if client != nil || isOneOffCommand {
+			break
+		}
+
+		cfg.Logger.Info("Could not connect to network trying again in 5 seconds")
+		time.Sleep(5 * time.Second)
+	}
+
+	if client == nil {
+		err := fmt.Errorf("server are not validated")
+		printError("Couldn't connect to any server", err)
+		return err
+	}
+	lvbn, lvbh = client.LastValid()
+	cfg.Logger.Info(fmt.Sprintf("Network is validated, last valid block: %d 0x%x", lvbn, lvbh))
+	return nil
+}
+
+func (dio *Diode) waitForFirstClient(isOneOffCommand bool) (client *rpc.RPCClient) {
+	cfg := dio.config
+	rpcAddrLen := len(cfg.RemoteRPCAddrs)
+	c := make(chan *rpc.RPCClient, rpcAddrLen)
+
+	wg := &sync.WaitGroup{}
 	wg.Add(1)
 	go func() {
 		i := 2
 		for range cfg.RemoteRPCAddrs {
 			rpcClient := <-c
-			if isPublished && client != nil {
+			if rpcClient == nil {
+				continue
+			}
+			if isOneOffCommand && client != nil {
 				rpcClient.Close()
 				continue
 			}
@@ -347,15 +377,7 @@ func (dio *Diode) Start() error {
 		go connect(c, RemoteRPCAddr, cfg, dio.datapool)
 	}
 	wg.Wait()
-
-	if client == nil {
-		err := fmt.Errorf("server are not validated")
-		printError("Couldn't connect to any server", err)
-		return err
-	}
-	lvbn, lvbh = client.LastValid()
-	cfg.Logger.Info(fmt.Sprintf("Network is validated, last valid block: %d 0x%x", lvbn, lvbh))
-	return nil
+	return
 }
 
 // SetSocksServer set socks server of diode application

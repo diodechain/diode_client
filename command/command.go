@@ -20,6 +20,16 @@ Run 'diode COMMAND --help' for more information on a command.
 `
 )
 
+// Type defines the type of command
+type Type int
+
+const (
+	// OneOffCommand is a command the executes a task and quits
+	OneOffCommand Type = iota
+	// DaemonCommand is a command that keeps running forever
+	DaemonCommand
+)
+
 // Command represent command
 type Command struct {
 	subCommands map[string]*Command
@@ -31,6 +41,7 @@ type Command struct {
 	ExampleText string
 	UsageText   string
 	Flag        flag.FlagSet
+	Type        Type
 }
 
 // AddSubCommand add subcommand to the given command, the subcommand will execute if
@@ -42,6 +53,21 @@ func (cmd *Command) AddSubCommand(subCmd *Command) {
 		}
 		cmd.subCommands[subCmd.Name] = subCmd
 	}
+}
+
+// SubCommand returns the selected subcommand
+func (cmd *Command) SubCommand() *Command {
+	// find subcommand and run it
+	commandName := cmd.Flag.Arg(0)
+	// should go to help command?
+	if commandName == "" {
+		commandName = "publish"
+	}
+	subCmd := cmd.subCommands[commandName]
+	if subCmd == nil || len(subCmd.Name) == 0 {
+		return nil
+	}
+	return subCmd
 }
 
 // Execute will run the command
@@ -56,23 +82,19 @@ func (cmd *Command) Execute() (err error) {
 		return
 	}
 	if len(cmd.subCommands) > 0 {
-		// find subcommand and run it
-		commandName := cmd.Flag.Arg(0)
-		args := cmd.Flag.Args()
-		// should go to help command?
-		if commandName == "" {
-			args = []string{"publish"}
-			commandName = "publish"
-		}
-		subCmd := cmd.subCommands[commandName]
-		if subCmd == nil || len(subCmd.Name) == 0 {
+		subCmd := cmd.SubCommand()
+		if subCmd == nil {
 			cmd.Flag.Usage()
 			return
 		}
 		subCmd.Flag.Usage = func() {
 			subCmd.printUsage()
 		}
-		err = subCmd.Flag.Parse(args[1:])
+		if len(args) > 0 {
+			err = subCmd.Flag.Parse(args[1:])
+		} else {
+			subCmd.Flag.Parse([]string{})
+		}
 		if err != nil {
 			err = nil
 			return

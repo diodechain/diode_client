@@ -69,6 +69,7 @@ func connect(c chan *rpc.RPCClient, host string, cfg *config.Config, pool *rpc.D
 			client.Close()
 		}
 		cfg.Logger.Error(fmt.Sprintf("Connection to host: %s failed: %+v", host, err))
+		c <- nil
 	} else {
 		c <- client
 	}
