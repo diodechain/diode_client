@@ -18,11 +18,12 @@ import (
 
 var (
 	publishCmd = &command.Command{
-		Name:        "publish",
-		HelpText:    `  Publish ports of the local device to the Diode Network.`,
-		ExampleText: `  diode publish -public 80:80 -public 8080:8080 -protected 3000:3000 -protected 3001:3001 -private 22:22,0x......,0x...... -private 33:33,0x......,0x......`,
-		Run:         publishHandler,
-		Type:        command.DaemonCommand,
+		Name:             "publish",
+		HelpText:         `  Publish ports of the local device to the Diode Network.`,
+		ExampleText:      `  diode publish -public 80:80 -public 8080:8080 -protected 3000:3000 -protected 3001:3001 -private 22:22,0x......,0x...... -private 33:33,0x......,0x......`,
+		Run:              publishHandler,
+		Type:             command.DaemonCommand,
+		SingleConnection: true,
 	}
 )
 

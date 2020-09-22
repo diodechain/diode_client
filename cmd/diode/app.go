@@ -283,7 +283,12 @@ func (dio *Diode) Defer(deferal func()) {
 func (dio *Diode) Start() error {
 	cfg := dio.config
 	cmd := diodeCmd.SubCommand()
-	isOneOffCommand := cmd == nil || cmd.Type == command.OneOffCommand
+	if cmd == nil {
+		return fmt.Errorf("could not determine command to start")
+	}
+
+	isOneOffCommand := cmd.Type == command.OneOffCommand
+	onlyNeedOne := cmd.SingleConnection
 
 	if len(dio.config.RemoteRPCAddrs) < 1 {
 		return fmt.Errorf("should use at least one rpc address")
@@ -294,7 +299,7 @@ func (dio *Diode) Start() error {
 
 	// waiting for first client
 	for {
-		client = dio.waitForFirstClient(isOneOffCommand)
+		client = dio.waitForFirstClient(onlyNeedOne)
 
 		if client != nil || isOneOffCommand {
 			break
@@ -314,7 +319,7 @@ func (dio *Diode) Start() error {
 	return nil
 }
 
-func (dio *Diode) waitForFirstClient(isOneOffCommand bool) (client *rpc.RPCClient) {
+func (dio *Diode) waitForFirstClient(onlyNeedOne bool) (client *rpc.RPCClient) {
 	cfg := dio.config
 	rpcAddrLen := len(cfg.RemoteRPCAddrs)
 	c := make(chan *rpc.RPCClient, rpcAddrLen)
@@ -328,7 +333,7 @@ func (dio *Diode) waitForFirstClient(isOneOffCommand bool) (client *rpc.RPCClien
 			if rpcClient == nil {
 				continue
 			}
-			if isOneOffCommand && client != nil {
+			if onlyNeedOne && client != nil {
 				rpcClient.Close()
 				continue
 			}

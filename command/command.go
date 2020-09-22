@@ -32,16 +32,17 @@ const (
 
 // Command represent command
 type Command struct {
-	subCommands map[string]*Command
-	Name        string
-	PreRun      func() error
-	Run         func() error
-	PostRun     func() error
-	HelpText    string
-	ExampleText string
-	UsageText   string
-	Flag        flag.FlagSet
-	Type        Type
+	subCommands      map[string]*Command
+	Name             string
+	PreRun           func() error
+	Run              func() error
+	PostRun          func() error
+	HelpText         string
+	ExampleText      string
+	UsageText        string
+	Flag             flag.FlagSet
+	Type             Type
+	SingleConnection bool
 }
 
 // AddSubCommand add subcommand to the given command, the subcommand will execute if
