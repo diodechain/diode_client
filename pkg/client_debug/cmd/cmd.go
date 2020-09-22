@@ -28,7 +28,7 @@ var (
 	cfg                      = &Config{}
 	ErrUnsupportTransport    = fmt.Errorf("unsupported transport, make sure you use these options (proxy, sproxy, socks5)")
 	ErrFailedSetRlimitNofile = fmt.Errorf("cannot set rlimit nofile")
-	headerTemplate = `
+	headerTemplate           = `
 
 |                |    DNS Lookup   |  TCP Connection    |  Server Process    | Content Transfer |    Total     |
 `
@@ -98,10 +98,10 @@ func clientDebugHandler(cmd *cobra.Command, args []string) (err error) {
 			var t0, t1, t2, t3, t4 time.Time
 			req, _ := http.NewRequest("GET", cfg.Target, nil)
 			trace := &httptrace.ClientTrace{
-				DNSStart: func (ds httptrace.DNSStartInfo) {
+				DNSStart: func(ds httptrace.DNSStartInfo) {
 					t0 = time.Now()
 				},
-				DNSDone: func (ds httptrace.DNSDoneInfo) {
+				DNSDone: func(ds httptrace.DNSDoneInfo) {
 					t1 = time.Now()
 				},
 				ConnectStart: func(network, addr string) {

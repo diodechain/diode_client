@@ -270,6 +270,7 @@ func publishHandler() (err error) {
 		Fallback:        cfg.SocksFallback,
 	})
 	if cfg.EnableSocksServer {
+		app.SetSocksServer(socksServer)
 		if err = socksServer.Start(); err != nil {
 			cfg.Logger.Error(err.Error())
 			return
@@ -283,7 +284,6 @@ func publishHandler() (err error) {
 			printLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
 		}
 	}
-	app.SetSocksServer(socksServer)
 	app.Wait()
 	return
 }

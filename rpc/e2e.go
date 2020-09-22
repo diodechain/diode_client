@@ -67,16 +67,13 @@ func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*op
 		// tunnelOpenssl.Close()
 		// tunnelDiode.Close()
 		if err = e2eServer.handshake(conn); err != nil {
-			e2eServer.Error(err.Error())
+			e2eServer.client.Error(err.Error())
+			e2eServer.Close()
 			return
 		}
 		tunnel := NewTunnel(conn, e2eServer.remoteConn, e2eServer.idleTimeout, e2eBufferSize)
 		tunnel.Copy()
-		if e2eServer.closeCallback != nil {
-			e2eServer.closeCallback()
-		} else {
-			e2eServer.Close()
-		}
+		e2eServer.Close()
 	}()
 	return nil
 }
@@ -111,11 +108,6 @@ func (e2eServer *E2EServer) checkPeer(ssl *openssl.Conn) error {
 	return nil
 }
 
-// Error logs to logger in Error level
-func (e2eServer *E2EServer) Error(msg string, args ...interface{}) {
-	e2eServer.client.logger.Error(fmt.Sprintf(msg, args...))
-}
-
 // Closed returns whether e2e server is closed
 func (e2eServer *E2EServer) Closed() bool {
 	return isClosed(e2eServer.closeCh)
@@ -128,5 +120,8 @@ func (e2eServer *E2EServer) Close() {
 		e2eServer.remoteConn.Close()
 		e2eServer.opensslConn.Close()
 		close(e2eServer.closeCh)
+		if e2eServer.closeCallback != nil {
+			e2eServer.closeCallback()
+		}
 	})
 }

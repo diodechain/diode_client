@@ -61,6 +61,7 @@ func socksdHandler() (err error) {
 		ProxyServerAddr: cfg.ProxyServerAddr(),
 		Fallback:        cfg.SocksFallback,
 	})
+	app.SetSocksServer(socksServer)
 	if err = socksServer.Start(); err != nil {
 		cfg.Logger.Error(err.Error())
 		return

@@ -83,10 +83,10 @@ func httpdHandler() (err error) {
 		AllowRedirect:    cfg.AllowRedirectToSProxy,
 	})
 	// Start proxy server
+	app.SetProxyServer(proxyServer)
 	if err := proxyServer.Start(); err != nil {
 		cfg.Logger.Error(err.Error())
 	}
-	app.SetProxyServer(proxyServer)
 	app.Wait()
 	return
 }
