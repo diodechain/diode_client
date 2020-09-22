@@ -90,6 +90,7 @@ func (cmd *Command) Execute() (err error) {
 		subCmd.Flag.Usage = func() {
 			subCmd.printUsage()
 		}
+		args = cmd.Flag.Args()
 		if len(args) > 0 {
 			err = subCmd.Flag.Parse(args[1:])
 		} else {
