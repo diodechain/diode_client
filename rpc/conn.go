@@ -51,7 +51,6 @@ func (device *ConnectedDevice) Close() {
 
 		// send portclose request and channel
 		device.Client.CastPortClose(device.Ref)
-
 		device.Conn.Close()
 	})
 }

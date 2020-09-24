@@ -15,11 +15,10 @@ import (
 
 // E2EServer represents a proxy server that port ssl connection to local resource connection
 type E2EServer struct {
-	client        *RPCClient
-	peer          Address
-	closeCh       chan struct{}
-	cd            sync.Once
-	closeCallback func()
+	client  *RPCClient
+	peer    Address
+	closeCh chan struct{}
+	cd      sync.Once
 
 	remoteConn  net.Conn
 	localConn   net.Conn
@@ -28,13 +27,12 @@ type E2EServer struct {
 }
 
 // NewE2EServer returns e2e server rpcClient.Error(err.Error())
-func (rpcClient *RPCClient) NewE2EServer(remoteConn net.Conn, peer Address, idleTimeout time.Duration, closeCallback func()) (e2eServer E2EServer) {
+func (rpcClient *RPCClient) NewE2EServer(remoteConn net.Conn, peer Address, idleTimeout time.Duration) (e2eServer E2EServer) {
 	e2eServer.remoteConn = remoteConn
 	e2eServer.peer = peer
 	e2eServer.client = rpcClient
 	e2eServer.idleTimeout = idleTimeout
 	e2eServer.closeCh = make(chan struct{})
-	e2eServer.closeCallback = closeCallback
 	rpcClient.Debug("Enable e2e Tunnel")
 	return
 }
@@ -120,8 +118,5 @@ func (e2eServer *E2EServer) Close() {
 		e2eServer.remoteConn.Close()
 		e2eServer.opensslConn.Close()
 		close(e2eServer.closeCh)
-		if e2eServer.closeCallback != nil {
-			e2eServer.closeCallback()
-		}
 	})
 }
