@@ -321,7 +321,7 @@ func parseHost(host string) (isWS bool, mode string, deviceID string, port int, 
 }
 
 func (socksServer *Server) checkAccess(deviceName string) (*edge.DeviceTicket, error) {
-	// Resolving DNS if needed
+	// Resolving BNS if needed
 	var err error
 	var deviceID Address
 	client := socksServer.datapool.GetNearestClient()
@@ -329,15 +329,15 @@ func (socksServer *Server) checkAccess(deviceName string) (*edge.DeviceTicket, e
 		return nil, HttpError{404, err}
 	}
 	if !util.IsHex([]byte(deviceName)) {
-		dnsKey := fmt.Sprintf("dns:%s", deviceName)
+		bnsKey := fmt.Sprintf("bns:%s", deviceName)
 		var ok bool
-		deviceID, ok = socksServer.datapool.GetCacheDNS(dnsKey)
+		deviceID, ok = socksServer.datapool.GetCacheBNS(bnsKey)
 		if !ok {
 			deviceID, err = client.ResolveBNS(deviceName)
 			if err != nil {
 				return nil, HttpError{404, err}
 			}
-			socksServer.datapool.SetCacheDNS(dnsKey, deviceID)
+			socksServer.datapool.SetCacheBNS(bnsKey, deviceID)
 		}
 	} else {
 		deviceID, err = util.DecodeAddress(deviceName)

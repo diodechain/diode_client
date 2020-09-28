@@ -20,11 +20,12 @@ import (
 )
 
 var (
-	RequestID           uint64 = 0
-	errEmptyDNSresult          = fmt.Errorf("couldn't resolve name (null)")
-	errRPCClientClosed         = fmt.Errorf("rpc client was closed")
-	DefaultRegistryAddr        = [20]byte{80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-	DefaultFleetAddr           = [20]byte{96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	RequestID uint64 = 0
+	// ErrEmptyBNSresult indicates that the BNS name could not be found
+	ErrEmptyBNSresult   = fmt.Errorf("couldn't resolve name (null)")
+	errRPCClientClosed  = fmt.Errorf("rpc client was closed")
+	DefaultRegistryAddr = [20]byte{80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	DefaultFleetAddr    = [20]byte{96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 )
 
 // RPCConfig struct for rpc client
@@ -739,6 +740,15 @@ func (rpcClient *RPCClient) GetValidAccount(blockNumber uint64, account [20]byte
 	return nil, nil
 }
 
+// GetAccountNonce returns the nonce of the given account, or 0
+func (rpcClient *RPCClient) GetAccountNonce(blockNumber uint64, account [20]byte) uint64 {
+	act, _ := rpcClient.GetValidAccount(blockNumber, account)
+	if act == nil {
+		return 0
+	}
+	return uint64(act.Nonce)
+}
+
 // GetAccountValue returns account storage value
 func (rpcClient *RPCClient) GetAccountValue(blockNumber uint64, account [20]byte, rawKey []byte) (*edge.AccountValue, error) {
 	if blockNumber <= 0 {
@@ -803,20 +813,39 @@ func (rpcClient *RPCClient) GetAccountRoots(blockNumber uint64, account [20]byte
 	return nil, nil
 }
 
+// ResolveBNS resolves the (primary) destination of the BNS entry
 func (rpcClient *RPCClient) ResolveBNS(name string) (addr Address, err error) {
-	rpcClient.Info("Resolving DN: %s", name)
-	key := contract.DNSMetaKey(name)
-	raw, err := rpcClient.GetAccountValueRaw(0, contract.DNSAddr, key)
+	rpcClient.Info("Resolving BNS: %s", name)
+	key := contract.BNSEntryLocation(name)
+	raw, err := rpcClient.GetAccountValueRaw(0, contract.BNSAddr, key)
 	if err != nil {
 		return [20]byte{}, err
 	}
 	if string(raw) == "null" {
-		return [20]byte{}, errEmptyDNSresult
+		return [20]byte{}, ErrEmptyBNSresult
 	}
 
 	copy(addr[:], raw[12:])
 	if addr == [20]byte{} {
-		return [20]byte{}, errEmptyDNSresult
+		return [20]byte{}, ErrEmptyBNSresult
+	}
+	return addr, nil
+}
+
+// ResolveBNSOwner resolves the owner of the BNS entry
+func (rpcClient *RPCClient) ResolveBNSOwner(name string) (addr Address, err error) {
+	key := contract.BNSOwnerLocation(name)
+	raw, err := rpcClient.GetAccountValueRaw(0, contract.BNSAddr, key)
+	if err != nil {
+		return [20]byte{}, err
+	}
+	if string(raw) == "null" {
+		return [20]byte{}, ErrEmptyBNSresult
+	}
+
+	copy(addr[:], raw[12:])
+	if addr == [20]byte{} {
+		return [20]byte{}, ErrEmptyBNSresult
 	}
 	return addr, nil
 }

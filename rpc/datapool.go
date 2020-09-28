@@ -34,18 +34,18 @@ func NewPool() *DataPool {
 	}
 }
 
-func (p *DataPool) GetCacheDNS(key string) (dns Address, ok bool) {
+func (p *DataPool) GetCacheBNS(key string) (bns Address, ok bool) {
 	p.rm.RLock()
 	defer p.rm.RUnlock()
-	cachedDNS, hit := p.memoryCache.Get(key)
+	cachedBNS, hit := p.memoryCache.Get(key)
 	if !hit {
 		ok = false
 		return
 	}
-	dns, ok = cachedDNS.(Address)
+	bns, ok = cachedBNS.(Address)
 	if !ok {
-		// remove dns key
-		p.DeleteCacheDNS(key)
+		// remove bns key
+		p.DeleteCacheBNS(key)
 	}
 	return
 }
@@ -63,12 +63,12 @@ func (p *DataPool) Close() {
 	})
 }
 
-func (p *DataPool) SetCacheDNS(key string, dns Address) {
+func (p *DataPool) SetCacheBNS(key string, bns Address) {
 	p.rm.Lock()
 	defer p.rm.Unlock()
-	p.memoryCache.Set(key, dns, cache.DefaultExpiration)
+	p.memoryCache.Set(key, bns, cache.DefaultExpiration)
 }
-func (p *DataPool) DeleteCacheDNS(key string) {
+func (p *DataPool) DeleteCacheBNS(key string) {
 	p.rm.Lock()
 	defer p.rm.Unlock()
 	p.memoryCache.Delete(key)

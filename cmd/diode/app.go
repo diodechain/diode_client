@@ -178,6 +178,7 @@ type Diode struct {
 	cd              sync.Once
 	deferals        []func()
 	closeCh         chan struct{}
+	cmd             *command.Command
 }
 
 // NewDiode return diode application
@@ -282,13 +283,13 @@ func (dio *Diode) Defer(deferal func()) {
 // Start the diode application
 func (dio *Diode) Start() error {
 	cfg := dio.config
-	cmd := diodeCmd.SubCommand()
-	if cmd == nil {
+	dio.cmd = diodeCmd.SubCommand()
+	if dio.cmd == nil {
 		return fmt.Errorf("could not determine command to start")
 	}
 
-	isOneOffCommand := cmd.Type == command.OneOffCommand
-	onlyNeedOne := cmd.SingleConnection
+	isOneOffCommand := dio.cmd.Type == command.OneOffCommand
+	onlyNeedOne := dio.cmd.SingleConnection || isOneOffCommand
 
 	if len(dio.config.RemoteRPCAddrs) < 1 {
 		return fmt.Errorf("should use at least one rpc address")
@@ -466,23 +467,37 @@ func (dio *Diode) Close() {
 			fun()
 		}
 		close(dio.closeCh)
-		printInfo("1/5 Stopping socksserver")
+
+		cmd := dio.cmd
+		verbose := cmd.Type != command.OneOffCommand
+
+		if verbose {
+			printInfo("1/5 Stopping socksserver")
+		}
 		if dio.socksServer != nil {
 			dio.socksServer.Close()
 		}
-		printInfo("2/5 Stopping proxyserver")
+		if verbose {
+			printInfo("2/5 Stopping proxyserver")
+		}
 		if dio.proxyServer != nil {
 			dio.proxyServer.Close()
 		}
-		printInfo("3/5 Stopping configserver")
+		if verbose {
+			printInfo("3/5 Stopping configserver")
+		}
 		if dio.configAPIServer != nil {
 			dio.configAPIServer.Close()
 		}
-		printInfo("4/5 Cleaning pool")
+		if verbose {
+			printInfo("4/5 Cleaning pool")
+		}
 		if dio.datapool != nil {
 			dio.datapool.Close()
 		}
-		printInfo("5/5 Closing logs")
+		if verbose {
+			printInfo("5/5 Closing logs")
+		}
 		dio.config.Logger.Close()
 	})
 }

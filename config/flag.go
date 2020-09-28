@@ -93,6 +93,8 @@ type Config struct {
 	ConfigFilePath          string           `yaml:"-" json:"-"`
 	Binds                   []Bind           `yaml:"-" json:"-"`
 	BNSRegister             string           `yaml:"-" json:"-"`
+	BNSUnregister           string           `yaml:"-" json:"-"`
+	BNSTransfer             string           `yaml:"-" json:"-"`
 	BNSLookup               string           `yaml:"-" json:"-"`
 	Experimental            bool             `yaml:"-" json:"-"`
 	LoadFromFile            bool             `yaml:"-" json:"-"`
