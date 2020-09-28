@@ -793,7 +793,8 @@ func (socksServer *Server) SetBinds(bindDefs []config.Bind) {
 		newBind := &Bind{def: def}
 		for _, b := range socksServer.binds {
 			if b.def == def {
-				newBind = &b
+				newBind.tcp = b.tcp
+				newBind.udp = b.udp
 				break
 			}
 		}
@@ -813,13 +814,13 @@ func (socksServer *Server) SetBinds(bindDefs []config.Bind) {
 			}
 		}
 		if stop {
-			socksServer.stopBind(&bind)
+			socksServer.stopBind(bind)
 		}
 	}
 	socksServer.binds = newBinds
 }
 
-func (socksServer *Server) stopBind(bind *Bind) {
+func (socksServer *Server) stopBind(bind Bind) {
 	if bind.udp != nil {
 		bind.udp.Close()
 		bind.udp = nil

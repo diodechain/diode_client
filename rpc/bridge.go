@@ -374,7 +374,7 @@ func (rpcClient *RPCClient) watchLatestBlock() {
 			}
 			blockPeak, err := rpcClient.GetBlockPeak()
 			if err != nil {
-				rpcClient.Error("Cannot getblockheader: %v", err)
+				rpcClient.Error("Couldn't getblockpeak: %v", err)
 				return
 			}
 			blockNumMax := blockPeak - confirmationSize

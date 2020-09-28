@@ -105,7 +105,9 @@ func LoadConfigFromFile(filePath string) (configBytes []byte, err error) {
 	if err != nil {
 		return
 	}
-	defer f.Close()
+	defer func(f *os.File) {
+		f.Close()
+	}(f)
 	var fs os.FileInfo
 	fs, err = f.Stat()
 	if err != nil {
@@ -136,7 +138,7 @@ func (cfg *Config) SaveToFile() (err error) {
 	if err != nil {
 		return
 	}
-	f, err = os.OpenFile(cfg.ConfigFilePath, os.O_WRONLY|os.O_TRUNC, 0644)
+	f, err = os.OpenFile(cfg.ConfigFilePath, os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return
 	}

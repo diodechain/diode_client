@@ -122,7 +122,7 @@ func prepareDiode() error {
 	} else {
 		remoteRPCAddrs := []string{}
 		for _, RPCAddr := range cfg.RemoteRPCAddrs {
-			if isValidRPCAddress(RPCAddr) && !util.StringsContain(remoteRPCAddrs, &RPCAddr) {
+			if isValidRPCAddress(RPCAddr) && !util.StringsContain(remoteRPCAddrs, RPCAddr) {
 				remoteRPCAddrs = append(remoteRPCAddrs, RPCAddr)
 			}
 		}

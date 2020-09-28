@@ -56,7 +56,9 @@ func OpenFile(filepath string) (*Database, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func(f *os.File) {
+		f.Close()
+	}(f)
 	r := bufio.NewReader(f)
 	magic, _ := binary.ReadUvarint(r)
 	values := make(map[string][]byte)
@@ -129,7 +131,7 @@ func (db *Database) List() []string {
 }
 
 func (db *Database) store() error {
-	f, err := os.OpenFile(db.path+".tmp", os.O_CREATE|os.O_WRONLY, 0644)
+	f, err := os.OpenFile(db.path+".tmp", os.O_CREATE|os.O_WRONLY, 0600)
 	if err != nil {
 		return err
 	}

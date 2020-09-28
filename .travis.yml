@@ -17,7 +17,9 @@ before_install:
 install:
   - make diode
 
-before_script: make lint
+before_script:
+  - make lint
+  - make seccheck
 
 script:
   - make ci_test

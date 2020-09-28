@@ -247,7 +247,7 @@ func TestEmptyBytes(t *testing.T) {
 
 func TestStringsContain(t *testing.T) {
 	for _, v := range stringsContainTests {
-		if v.Res != StringsContain(stringsContainSrc, &v.Pivot) {
+		if v.Res != StringsContain(stringsContainSrc, v.Pivot) {
 			t.Errorf("Cannot find the string")
 		}
 	}

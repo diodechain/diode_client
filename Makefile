@@ -35,6 +35,19 @@ lint:
 	GO111MODULE=on go get honnef.co/go/tools/cmd/staticcheck@2020.1.3
 	$(GOPATH)/bin/staticcheck -go 1.14 ./...
 
+# Exclude rules from security check:
+# G104 (CWE-703): Errors unhandled.
+# G110 (CWE-409): Potential DoS vulnerability via decompression bomb.
+# G204 (CWE-78): Subprocess launched with variable.
+# G304 (CWE-22): Potential file inclusion via variable.
+# G402 (CWE-295): TLS InsecureSkipVerify set true.
+# G404 (CWE-338): Use of weak random number generator (math/rand instead of crypto/rand).
+.PHONY: seccheck
+seccheck:
+	go vet ./...
+	GO111MODULE=on go get github.com/securego/gosec/v2/cmd/gosec
+	$(GOPATH)/bin/gosec -exclude=G104,G110,G204,G304,G402,G404 ./...
+
 .PHONY: clean
 clean:
 	-rm $(BINS)

@@ -120,9 +120,9 @@ func EmptyBytes(len int) []byte {
 }
 
 // StringsContain returns true if string slice contain the pivot
-func StringsContain(src []string, pivot *string) bool {
+func StringsContain(src []string, pivot string) bool {
 	for i := 0; i < len(src); i++ {
-		if *pivot == src[i] {
+		if pivot == src[i] {
 			return true
 		}
 	}

@@ -307,7 +307,7 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 			if len(c.DiodeAddrs) > 0 {
 				remoteRPCAddrs := []string{}
 				for _, RPCAddr := range c.DiodeAddrs {
-					if !util.StringsContain(remoteRPCAddrs, &RPCAddr) && !util.StringsContain(configAPIServer.appConfig.RemoteRPCAddrs, &RPCAddr) {
+					if !util.StringsContain(remoteRPCAddrs, RPCAddr) && !util.StringsContain(configAPIServer.appConfig.RemoteRPCAddrs, RPCAddr) {
 						remoteRPCAddrs = append(remoteRPCAddrs, RPCAddr)
 					}
 				}
@@ -319,7 +319,7 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 			if len(c.Blocklists) >= 0 {
 				blocklists := []string{}
 				for _, blocklist := range c.Blocklists {
-					if !util.StringsContain(blocklists, &blocklist) && !util.StringsContain(configAPIServer.appConfig.SBlocklists, &blocklist) {
+					if !util.StringsContain(blocklists, blocklist) && !util.StringsContain(configAPIServer.appConfig.SBlocklists, blocklist) {
 						blocklists = append(blocklists, blocklist)
 					}
 				}
@@ -334,7 +334,7 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 			if len(c.Allowlists) >= 0 {
 				allowlists := []string{}
 				for _, allowlist := range c.Allowlists {
-					if !util.StringsContain(allowlists, &allowlist) && !util.StringsContain(configAPIServer.appConfig.SAllowlists, &allowlist) {
+					if !util.StringsContain(allowlists, allowlist) && !util.StringsContain(configAPIServer.appConfig.SAllowlists, allowlist) {
 						allowlists = append(allowlists, allowlist)
 					}
 				}
@@ -349,7 +349,7 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 			if len(c.Blocklists) >= 0 {
 				blocklists := []string{}
 				for _, blocklist := range c.Blocklists {
-					if !util.StringsContain(blocklists, &blocklist) && !util.StringsContain(configAPIServer.appConfig.SBlocklists, &blocklist) {
+					if !util.StringsContain(blocklists, blocklist) && !util.StringsContain(configAPIServer.appConfig.SBlocklists, blocklist) {
 						blocklists = append(blocklists, blocklist)
 					}
 				}
@@ -407,7 +407,7 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 						LocalPort: b.LocalPort,
 						Protocol:  protocolIden,
 					}
-					if !util.StringsContain(configAPIServer.appConfig.SBinds, &bindIden) {
+					if !util.StringsContain(configAPIServer.appConfig.SBinds, bindIden) {
 						binds = append(binds, bindIden)
 					}
 				}
