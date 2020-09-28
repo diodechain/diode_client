@@ -19,6 +19,11 @@ import (
 	"github.com/diodechain/diode_go_client/util"
 )
 
+const (
+	// 4194304 = 1024 * 4096 (server limit is 41943040)
+	ticketBound = 4194304
+)
+
 var (
 	RequestID uint64 = 0
 	// ErrEmptyBNSresult indicates that the BNS name could not be found
@@ -299,7 +304,7 @@ func (rpcClient *RPCClient) CallContext(method string, parse func(buffer []byte)
 // CheckTicket should client send traffic ticket to server
 func (rpcClient *RPCClient) CheckTicket() error {
 	counter := rpcClient.s.Counter()
-	if rpcClient.s.TotalBytes() > counter+40000 {
+	if rpcClient.s.TotalBytes() > counter+ticketBound {
 		return rpcClient.SubmitNewTicket()
 	}
 	return nil
