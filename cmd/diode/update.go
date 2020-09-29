@@ -41,7 +41,13 @@ func doUpdate() int {
 		bin = os.Args[0]
 	}
 
-	dir := filepath.Dir(bin)
+	// find the real path of execute file if the file was symlink
+	binExe, err := filepath.EvalSymlinks(bin)
+	if err != nil {
+		binExe = bin
+	}
+
+	dir := filepath.Dir(binExe)
 	if err := m.InstallTo(tarball, dir); err != nil {
 		printError("Error installing", err)
 		return 129
