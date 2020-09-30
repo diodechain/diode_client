@@ -38,26 +38,31 @@ type Address = util.Address
 
 // Config for diode-go-client
 type Config struct {
-	DBPath                  string           `yaml:"dbpath,omitempty" json:"dbpath,omitempty"`
-	Debug                   bool             `yaml:"debug,omitempty" json:"debug,omitempty"`
-	EnableEdgeE2E           bool             `yaml:"e2e,omitempty" json:"e2e,omitempty"`
-	EnableUpdate            bool             `yaml:"update,omitempty" json:"update,omitempty"`
-	EnableMetrics           bool             `yaml:"metrics,omitempty" json:"metrics,omitempty"`
-	EnableKeepAlive         bool             `yaml:"keepalive,omitempty" json:"keepalive,omitempty"`
-	KeepAliveCount          int              `yaml:"keepalivecount,omitempty" json:"keepalivecount,omitempty"`
-	KeepAliveIdle           time.Duration    `yaml:"keepaliveidle,omitempty" json:"keepaliveidle,omitempty"`
-	KeepAliveInterval       time.Duration    `yaml:"keepaliveinterval,omitempty" json:"keepaliveinterval,omitempty"`
-	RemoteRPCAddrs          stringValues     `yaml:"diodeaddrs,omitempty" json:"diodeaddrs,omitempty"`
-	RemoteRPCTimeout        time.Duration    `yaml:"timeout,omitempty" json:"timeout,omitempty"`
-	RetryTimes              int              `yaml:"retrytimes,omitempty" json:"retrytimes,omitempty"`
-	RetryWait               time.Duration    `yaml:"retrywait,omitempty" json:"retrywait,omitempty"`
-	RlimitNofile            int              `yaml:"rlimit_nofile,omitempty" json:"rlimit_nofile,omitempty"`
-	LogFilePath             string           `yaml:"logfilepath,omitempty" json:"logfilepath,omitempty"`
-	SBlocklists             stringValues     `yaml:"blocklists,omitempty" json:"blocklists,omitempty"`
-	SAllowlists             stringValues     `yaml:"allowlists,omitempty" json:"allowlists,omitempty"`
-	SBinds                  stringValues     `yaml:"bind,omitempty" json:"bind,omitempty"`
-	CPUProfile              string           `yaml:"cpuprofile,omitempty" json:"cpuprofile,omitempty"`
-	MEMProfile              string           `yaml:"memprofile,omitempty" json:"memprofile,omitempty"`
+	DBPath            string        `yaml:"dbpath,omitempty" json:"dbpath,omitempty"`
+	Debug             bool          `yaml:"debug,omitempty" json:"debug,omitempty"`
+	EnableEdgeE2E     bool          `yaml:"e2e,omitempty" json:"e2e,omitempty"`
+	EnableUpdate      bool          `yaml:"update,omitempty" json:"update,omitempty"`
+	EnableMetrics     bool          `yaml:"metrics,omitempty" json:"metrics,omitempty"`
+	EnableKeepAlive   bool          `yaml:"keepalive,omitempty" json:"keepalive,omitempty"`
+	KeepAliveCount    int           `yaml:"keepalivecount,omitempty" json:"keepalivecount,omitempty"`
+	KeepAliveIdle     time.Duration `yaml:"keepaliveidle,omitempty" json:"keepaliveidle,omitempty"`
+	KeepAliveInterval time.Duration `yaml:"keepaliveinterval,omitempty" json:"keepaliveinterval,omitempty"`
+	RemoteRPCAddrs    stringValues  `yaml:"diodeaddrs,omitempty" json:"diodeaddrs,omitempty"`
+	RemoteRPCTimeout  time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
+	RetryTimes        int           `yaml:"retrytimes,omitempty" json:"retrytimes,omitempty"`
+	RetryWait         time.Duration `yaml:"retrywait,omitempty" json:"retrywait,omitempty"`
+	RlimitNofile      int           `yaml:"rlimit_nofile,omitempty" json:"rlimit_nofile,omitempty"`
+	LogFilePath       string        `yaml:"logfilepath,omitempty" json:"logfilepath,omitempty"`
+	SBlocklists       stringValues  `yaml:"blocklists,omitempty" json:"blocklists,omitempty"`
+	SAllowlists       stringValues  `yaml:"allowlists,omitempty" json:"allowlists,omitempty"`
+	SBinds            stringValues  `yaml:"bind,omitempty" json:"bind,omitempty"`
+	CPUProfile        string        `yaml:"cpuprofile,omitempty" json:"-"`
+	// CPUProfileRate          int              `yaml:"cpuprofilerate,omitempty" json:"-"`
+	MEMProfile              string           `yaml:"memprofile,omitempty"`
+	BlockProfile            string           `yaml:"blockprofile,omitempty" json:"-"`
+	BlockProfileRate        int              `yaml:"blockprofilerate,omitempty" json:"-"`
+	MutexProfile            string           `yaml:"mutexprofile,omitempty" json:"-"`
+	MutexProfileRate        int              `yaml:"mutexprofilerate,omitempty" json:"-"`
 	Command                 string           `yaml:"-" json:"-"`
 	FleetAddr               Address          `yaml:"-" json:"-"`
 	ClientAddr              Address          `yaml:"-" json:"-"`

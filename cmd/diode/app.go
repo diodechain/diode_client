@@ -58,7 +58,12 @@ func init() {
 	diodeCmd.Flag.BoolVar(&cfg.LogDateTime, "logdatetime", false, "show the date time in log")
 	diodeCmd.Flag.StringVar(&cfg.ConfigFilePath, "configpath", "", "yaml file path to config file")
 	diodeCmd.Flag.StringVar(&cfg.CPUProfile, "cpuprofile", "", "file path for cpu profiling")
+	// diodeCmd.Flag.IntVar(&cfg.CPUProfileRate, "cpuprofilerate", 100, "the CPU profiling rate to hz samples per second")
 	diodeCmd.Flag.StringVar(&cfg.MEMProfile, "memprofile", "", "file path for memory profiling")
+	diodeCmd.Flag.StringVar(&cfg.BlockProfile, "blockprofile", "", "file path for block profiling")
+	diodeCmd.Flag.IntVar(&cfg.BlockProfileRate, "blockprofilerate", 1, "the fraction of goroutine blocking events that are reported in the blocking profile")
+	diodeCmd.Flag.StringVar(&cfg.MutexProfile, "mutexprofile", "", "file path for mutex profiling")
+	diodeCmd.Flag.IntVar(&cfg.MutexProfileRate, "mutexprofilerate", 1, "the fraction of mutex contention events that are reported in the mutex profile")
 
 	var fleetFake string
 	diodeCmd.Flag.StringVar(&fleetFake, "fleet", "", "@deprecated. Use: 'diode config set fleet=0x1234' instead")
@@ -231,6 +236,11 @@ func (dio *Diode) Init() error {
 			printError("Couldn't open cpu profile file", err)
 			return err
 		}
+		printInfo("Note: do not enable cpu profile on production server")
+		// It seems pprof hard code cpu profile rate to 100HZ
+		// if cfg.CPUProfileRate > 0 {
+		// 	runtime.SetCPUProfileRate(cfg.CPUProfileRate)
+		// }
 		pprof.StartCPUProfile(fd)
 		dio.Defer(func() { pprof.StopCPUProfile() })
 	}
@@ -241,9 +251,50 @@ func (dio *Diode) Init() error {
 			printError("Couldn't open memory profile file", err)
 			return err
 		}
+		printInfo("Note: do not enable memory profile on production server")
 		runtime.GC()
 		pprof.WriteHeapProfile(mfd)
 		mfd.Close()
+	}
+
+	if cfg.BlockProfile != "" {
+		fd, err := os.Create(cfg.BlockProfile)
+		if err != nil {
+			printError("Couldn't open block profile file", err)
+			return err
+		}
+		printInfo("Note: do not enable block profile on production server")
+		if cfg.BlockProfileRate > 0 {
+			runtime.SetBlockProfileRate(cfg.BlockProfileRate)
+		}
+		dio.Defer(func() {
+			p := pprof.Lookup("block")
+			err := p.WriteTo(fd, 0)
+			// couldn't write block profile, maybe wrong file permission?
+			if err != nil {
+			}
+			fd.Close()
+		})
+	}
+
+	if cfg.MutexProfile != "" {
+		fd, err := os.Create(cfg.MutexProfile)
+		if err != nil {
+			printError("Couldn't open mutex profile file", err)
+			return err
+		}
+		printInfo("Note: do not enable mutex profile on production server")
+		if cfg.MutexProfileRate > 0 {
+			runtime.SetMutexProfileFraction(cfg.MutexProfileRate)
+		}
+		dio.Defer(func() {
+			p := pprof.Lookup("mutex")
+			err := p.WriteTo(fd, 0)
+			// couldn't write mutex profile, maybe wrong file permission?
+			if err != nil {
+			}
+			fd.Close()
+		})
 	}
 
 	{
