@@ -272,6 +272,7 @@ func (dio *Diode) Init() error {
 			err := p.WriteTo(fd, 0)
 			// couldn't write block profile, maybe wrong file permission?
 			if err != nil {
+				printError("Couldn't write to block profile", err)
 			}
 			fd.Close()
 		})
@@ -292,6 +293,7 @@ func (dio *Diode) Init() error {
 			err := p.WriteTo(fd, 0)
 			// couldn't write mutex profile, maybe wrong file permission?
 			if err != nil {
+				printError("Couldn't write to mutex profile", err)
 			}
 			fd.Close()
 		})
