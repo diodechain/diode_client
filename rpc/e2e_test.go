@@ -26,6 +26,9 @@ func newTestE2EServer(remoteConn net.Conn, peer Address, idleTimeout time.Durati
 	e2eServer.peer = peer
 	e2eServer.idleTimeout = idleTimeout
 	e2eServer.client = &RPCClient{
+		s: &SSL{
+			addr: "localhost:41046",
+		},
 		logger: config.AppConfig.Logger,
 	}
 	e2eServer.closeCh = make(chan struct{})
