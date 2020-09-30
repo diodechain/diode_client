@@ -520,7 +520,7 @@ func (dio *Diode) Close() {
 		close(dio.closeCh)
 
 		cmd := dio.cmd
-		verbose := cmd == nil || cmd.Type != command.OneOffCommand
+		verbose := cmd != nil && cmd.Type != command.OneOffCommand
 
 		if verbose {
 			printInfo("1/5 Stopping socksserver")

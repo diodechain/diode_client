@@ -50,7 +50,7 @@ func isValidBNS(name string) (isValid bool) {
 }
 
 func printLabel(label string, value string) {
-	msg := fmt.Sprintf("%-20s : %-80s", label, value)
+	msg := fmt.Sprintf("%-20s : %-42s", label, value)
 	config.AppConfig.Logger.Info(msg)
 }
 
