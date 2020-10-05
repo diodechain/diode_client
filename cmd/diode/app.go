@@ -94,6 +94,7 @@ func init() {
 	diodeCmd.AddSubCommand(resetCmd)
 	diodeCmd.AddSubCommand(socksdCmd)
 	diodeCmd.AddSubCommand(timeCmd)
+	diodeCmd.AddSubCommand(versionCmd)
 }
 
 func prepareDiode() error {
@@ -328,8 +329,6 @@ func (dio *Diode) Init() error {
 			}
 		}
 	}
-	printLabel("Client address", cfg.ClientAddr.HexString())
-	printLabel("Fleet address", cfg.FleetAddr.HexString())
 	return nil
 }
 
@@ -344,6 +343,12 @@ func (dio *Diode) Start() error {
 	dio.cmd = diodeCmd.SubCommand()
 	if dio.cmd == nil {
 		return fmt.Errorf("could not determine command to start")
+	}
+	printLabel("Client address", cfg.ClientAddr.HexString())
+	printLabel("Fleet address", cfg.FleetAddr.HexString())
+
+	if dio.cmd.Type == command.EmptyConnectionCommand {
+		return nil
 	}
 
 	isOneOffCommand := dio.cmd.Type == command.OneOffCommand
@@ -527,7 +532,7 @@ func (dio *Diode) Close() {
 		close(dio.closeCh)
 
 		cmd := dio.cmd
-		verbose := cmd != nil && cmd.Type != command.OneOffCommand
+		verbose := cmd != nil && cmd.Type == command.DaemonCommand
 
 		if verbose {
 			printInfo("1/5 Stopping socksserver")

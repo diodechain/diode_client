@@ -24,10 +24,12 @@ Run 'diode COMMAND --help' for more information on a command.
 type Type int
 
 const (
-	// OneOffCommand is a command the executes a task and quits
+	// OneOffCommand is a command that executes a task and quits
 	OneOffCommand Type = iota
 	// DaemonCommand is a command that keeps running forever
 	DaemonCommand
+	// EmptyConnectionCommand is a command that not require any blockchain network and executes a task and quits
+	EmptyConnectionCommand
 )
 
 // Command represent command

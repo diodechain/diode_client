@@ -11,7 +11,7 @@ require (
 	github.com/diodechain/go-update v2.2.10+incompatible
 	github.com/diodechain/gobert v1.0.0
 	github.com/diodechain/log15 v0.0.0-20200728094332-8d155c475c8f
-	github.com/diodechain/openssl v1.0.13
+	github.com/diodechain/openssl v1.0.14
 	github.com/dsnet/compress v0.0.1 // indirect
 	github.com/ethereum/go-ethereum v1.9.11
 	github.com/fsnotify/fsnotify v1.4.9 // indirect

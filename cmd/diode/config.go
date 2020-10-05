@@ -23,7 +23,7 @@ var (
 		HelpText:    `  Manage variables in the local config store.`,
 		ExampleText: `  diode config -delete lvbn2 -delete lvbn`,
 		Run:         configHandler,
-		Type:        command.OneOffCommand,
+		Type:        command.EmptyConnectionCommand,
 	}
 )
 
@@ -36,10 +36,10 @@ func init() {
 }
 
 func configHandler() (err error) {
-	// err = app.Start()
-	// if err != nil {
-	// 	return
-	// }
+	err = app.Start()
+	if err != nil {
+		return
+	}
 	cfg := config.AppConfig
 	activity := false
 	if len(cfg.ConfigDelete) > 0 {
