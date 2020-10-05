@@ -242,19 +242,24 @@ func (dio *Diode) Init() error {
 		// 	runtime.SetCPUProfileRate(cfg.CPUProfileRate)
 		// }
 		pprof.StartCPUProfile(fd)
-		dio.Defer(func() { pprof.StopCPUProfile() })
+		dio.Defer(func() {
+			pprof.StopCPUProfile()
+			fd.Close()
+		})
 	}
 
 	if cfg.MEMProfile != "" {
-		mfd, err := os.Create(cfg.MEMProfile)
+		fd, err := os.Create(cfg.MEMProfile)
 		if err != nil {
 			printError("Couldn't open memory profile file", err)
 			return err
 		}
 		printInfo("Note: do not enable memory profile on production server")
 		runtime.GC()
-		pprof.WriteHeapProfile(mfd)
-		mfd.Close()
+		pprof.WriteHeapProfile(fd)
+		dio.Defer(func() {
+			fd.Close()
+		})
 	}
 
 	if cfg.BlockProfile != "" {

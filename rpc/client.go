@@ -133,8 +133,6 @@ func (rpcClient *RPCClient) Host() string {
 
 // SetCloseCB set close callback of rpc client
 func (rpcClient *RPCClient) SetCloseCB(closeCB func()) {
-	rpcClient.rm.Lock()
-	defer rpcClient.rm.Unlock()
 	rpcClient.closeCB = closeCB
 }
 
@@ -195,8 +193,6 @@ func (rpcClient *RPCClient) waitResponse(call Call, rpcTimeout time.Duration) (r
 
 // RespondContext sends a message without expecting a response
 func (rpcClient *RPCClient) RespondContext(requestID uint64, responseType string, method string, args ...interface{}) (call Call, err error) {
-	rpcClient.rm.Lock()
-	defer rpcClient.rm.Unlock()
 	if rpcClient.Closed() {
 		err = errRPCClientClosed
 		return
@@ -216,8 +212,6 @@ func (rpcClient *RPCClient) RespondContext(requestID uint64, responseType string
 
 // CastContext returns a response future after calling the rpc
 func (rpcClient *RPCClient) CastContext(requestID uint64, method string, args ...interface{}) (call Call, err error) {
-	rpcClient.rm.Lock()
-	defer rpcClient.rm.Unlock()
 	if rpcClient.Closed() {
 		err = errRPCClientClosed
 		return
@@ -435,7 +429,7 @@ func (rpcClient *RPCClient) GetBlockHeaderUnsafe(blockNum uint64) (*blockquick.B
 // TODO: use copy instead reference of BlockHeader
 func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]*blockquick.BlockHeader, error) {
 	count := len(blockNumbers)
-	responses := make(map[uint64]*blockquick.BlockHeader)
+	responses := make(map[uint64]*blockquick.BlockHeader, count)
 	headers := make([]*blockquick.BlockHeader, 0)
 	mx := sync.Mutex{}
 	wg := sync.WaitGroup{}
