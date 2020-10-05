@@ -611,7 +611,7 @@ func (rpcClient *RPCClient) submitTicket(ticket *edge.DeviceTicket) error {
 				rpcClient.s.totalConnections = lastTicket.TotalConnections + 1
 				err = rpcClient.SubmitNewTicket()
 				if err != nil {
-					// rpcClient.s.Logger.Error(fmt.Sprintf("failed to submit ticket: %s", err.Error()))
+					// rpcClient.Error(fmt.Sprintf("failed to submit ticket: %s", err.Error()))
 					return nil
 				}
 
