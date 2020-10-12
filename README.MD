@@ -19,11 +19,13 @@ Name
 
 SYNOPSYS
   diode [-allowlists=] [-api=false] [-apiaddr=localho...]
-        [-bind=] [-blocklists=] [-configpath=] [-cpuprofile=]
-        [-dbpath=/Users/...] [-debug=false] [-diodeaddrs=] [-fleet=]
-        [-keepalive=true] [-keepalivecount=4] [-keepaliveidle=30] [-keepaliveinterval=5]
-        [-logfilepath=] [-memprofile=] [-metrics=false] [-retrytimes=3]
-        [-retrywait=1] [-rlimit_nofile=0] [-timeout=5] COMMAND <args>
+        [-bind=] [-blocklists=] [-blockprofile=] [-blockprofilerate=1]
+        [-configpath=] [-cpuprofile=] [-dbpath=/Users/...] [-debug=false]
+        [-diodeaddrs=] [-e2e=true] [-fleet=] [-keepalive=true]
+        [-keepalivecount=4] [-keepaliveidle=30s] [-keepaliveinterval=5s] [-logdatetime=false]
+        [-logfilepath=] [-memprofile=] [-metrics=false] [-mutexprofile=]
+        [-mutexprofilerate=1] [-retrytimes=3] [-retrywait=1s] [-rlimit_nofile=0]
+        [-timeout=5s] [-update=true] COMMAND <args>
 
 COMMANDS
   bns          Register/Update name service on diode blockchain.
@@ -33,6 +35,7 @@ COMMANDS
   reset        Initialize a new account and a new fleet contract in the network. WARNING deletes current credentials!
   socksd       Enable a socks proxy for use with browsers and other apps.
   time         Lookup the current time from the blockchain consensus.
+  version      Print the didoe client version.
 
 Run 'diode COMMAND --help' for more information on a command.
 ```
