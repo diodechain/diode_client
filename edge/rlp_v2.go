@@ -503,12 +503,14 @@ func (rlpV2 RLP_V2) parseInboundGoodbyeRequest(buffer []byte) (interface{}, erro
 	var inboundRequest goodbyeInboundRequest
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&inboundRequest)
-	if err != nil {
-		return nil, err
-	}
 	goodbye := Goodbye{
-		Reason: inboundRequest.Payload.Reason,
+		Reason: []string{"unkown reason"},
 	}
+	if err != nil {
+		goodbye.Reason[0] = err.Error()
+		return goodbye, nil
+	}
+	goodbye.Reason = inboundRequest.Payload.Reason
 	return goodbye, nil
 }
 
