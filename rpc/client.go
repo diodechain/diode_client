@@ -57,7 +57,7 @@ type RPCClient struct {
 	finishBlockTickerChan chan bool
 	closeCh               chan struct{}
 	ticketTickerDuration  time.Duration
-	timeout               time.Duration
+	localTimeout          time.Duration
 	wg                    sync.WaitGroup
 	cd                    sync.Once
 	rm                    sync.Mutex
@@ -85,7 +85,7 @@ func NewRPCClient(s *SSL, config *RPCConfig, pool *DataPool) RPCClient {
 		ticketTickerDuration:  1 * time.Millisecond,
 		finishBlockTickerChan: make(chan bool, 1),
 		blockTickerDuration:   15 * time.Second,
-		timeout:               5 * time.Second,
+		localTimeout:          100 * time.Millisecond,
 		pool:                  pool,
 		signal:                make(chan Signal),
 		backoff: Backoff{

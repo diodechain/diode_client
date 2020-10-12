@@ -105,7 +105,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 				network = "udp"
 			}
 
-			remoteConn, err := net.DialTimeout(network, host, rpcClient.timeout)
+			remoteConn, err := net.DialTimeout(network, host, rpcClient.localTimeout)
 			if err != nil {
 				_ = rpcClient.ResponsePortOpen(portOpen, err)
 				rpcClient.Error("Failed to connect local: %v", err)

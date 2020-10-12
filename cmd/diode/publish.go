@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"net/http"
 	"os"
 	"regexp"
 	"strconv"
@@ -25,6 +26,7 @@ var (
 		Type:             command.DaemonCommand,
 		SingleConnection: true,
 	}
+	staticServer rpc.StaticHTTPServer
 )
 
 func init() {
@@ -35,6 +37,10 @@ func init() {
 	publishCmd.Flag.StringVar(&cfg.SocksServerHost, "proxy_host", "127.0.0.1", "host of socksd proxy server")
 	publishCmd.Flag.IntVar(&cfg.SocksServerPort, "proxy_port", 1080, "port of socksd proxy server")
 	publishCmd.Flag.BoolVar(&cfg.EnableSocksServer, "socksd", false, "enable socksd proxy server")
+	publishCmd.Flag.BoolVar(&staticServer.Enabled, "httpd", false, "enable httpd static file server")
+	publishCmd.Flag.StringVar(&staticServer.RootDirectory, "httpd_dir", "/tmp", "the root directory of http static file server")
+	publishCmd.Flag.StringVar(&staticServer.Host, "httpd_host", "127.0.0.1", "the host of http static file server")
+	publishCmd.Flag.IntVar(&staticServer.Port, "httpd_port", 80, "the port of http static file server")
 }
 
 var portPattern = regexp.MustCompile(`^(\d+)(:(\d*)(:(tcp|tls|udp))?)?$`)
@@ -238,7 +244,7 @@ func publishHandler() (err error) {
 		for _, port := range cfg.PublishedPorts {
 			if port.To == 80 {
 				if port.Mode == config.PublicPublishedMode {
-					printLabel("Http Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", cfg.ClientAddr.HexString()))
+					printLabel("HTTP Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", cfg.ClientAddr.HexString()))
 				}
 				break
 			}
@@ -283,6 +289,20 @@ func publishHandler() (err error) {
 		for _, bind := range cfg.Binds {
 			printLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
 		}
+	}
+	if staticServer.Enabled {
+		go func() {
+			err := staticServer.ListenAndServe()
+			if err != nil {
+				if err != http.ErrServerClosed {
+					printError("Couldn't listen to http: ", err)
+				}
+				return
+			}
+		}()
+		app.Defer(func() {
+			staticServer.Close()
+		})
 	}
 	app.Wait()
 	return
