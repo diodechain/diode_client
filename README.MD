@@ -35,7 +35,7 @@ COMMANDS
   reset        Initialize a new account and a new fleet contract in the network. WARNING deletes current credentials!
   socksd       Enable a socks proxy for use with browsers and other apps.
   time         Lookup the current time from the blockchain consensus.
-  version      Print the didoe client version.
+  version      Print the diode client version.
 
 Run 'diode COMMAND --help' for more information on a command.
 ```

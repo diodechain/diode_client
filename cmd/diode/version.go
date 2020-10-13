@@ -13,7 +13,7 @@ import (
 var (
 	versionCmd = &command.Command{
 		Name:        "version",
-		HelpText:    `  Print the didoe client version.`,
+		HelpText:    `  Print the diode client version.`,
 		ExampleText: `  diode version`,
 		Run:         versionHandler,
 		Type:        command.EmptyConnectionCommand,
