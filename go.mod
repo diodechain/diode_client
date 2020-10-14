@@ -9,7 +9,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/diodechain/go-cache v2.1.0+incompatible
 	github.com/diodechain/go-update v2.2.10+incompatible
-	github.com/diodechain/gobert v1.0.0
+	github.com/diodechain/gobert v1.0.1
 	github.com/diodechain/log15 v0.0.0-20200728094332-8d155c475c8f
 	github.com/diodechain/openssl v1.0.14
 	github.com/dsnet/compress v0.0.1 // indirect
