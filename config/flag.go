@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -71,6 +72,7 @@ type Config struct {
 	ProxyServerPort         int              `yaml:"-" json:"-"`
 	SProxyServerHost        string           `yaml:"-" json:"-"`
 	SProxyServerPort        int              `yaml:"-" json:"-"`
+	SProxyServerPorts       string           `yaml:"-" json:"-"`
 	SProxyServerCertPath    string           `yaml:"-" json:"-"`
 	SProxyServerPrivPath    string           `yaml:"-" json:"-"`
 	AllowRedirectToSProxy   bool             `yaml:"-" json:"-"`
@@ -169,7 +171,36 @@ func (cfg *Config) ProxyServerAddr() string {
 
 // SProxyServerAddr returns address that https proxy server listen to
 func (cfg *Config) SProxyServerAddr() string {
-	return fmt.Sprintf("%s:%d", cfg.SProxyServerHost, cfg.SProxyServerPort)
+	return cfg.SProxyServerAddrForPort(cfg.SProxyServerPort)
+}
+
+// SProxyServerAddrForPort returns address that https proxy server listen to
+func (cfg *Config) SProxyServerAddrForPort(port int) string {
+	return fmt.Sprintf("%s:%d", cfg.SProxyServerHost, port)
+}
+
+// SProxyAdditionalPorts returns the additional port numbers
+func (cfg *Config) SProxyAdditionalPorts() []int {
+	var ports []int
+	items := strings.Split(cfg.SProxyServerPorts, ",")
+	for _, frag := range items {
+		ranges := strings.Split(frag, "..")
+		if len(ranges) == 2 {
+			start, err1 := strconv.Atoi(ranges[0])
+			end, err2 := strconv.Atoi(ranges[1])
+			if err1 == nil && err2 == nil {
+				for i := start; i <= end; i++ {
+					ports = append(ports, i)
+				}
+			}
+		} else {
+			portInt, err := strconv.Atoi(ranges[0])
+			if err == nil {
+				ports = append(ports, portInt)
+			}
+		}
+	}
+	return ports
 }
 
 // Bind struct for port forwarding

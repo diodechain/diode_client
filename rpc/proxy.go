@@ -20,12 +20,13 @@ import (
 
 // Config is Proxy Server configuration
 type ProxyConfig struct {
-	ProxyServerAddr  string
-	SProxyServerAddr string
-	CertPath         string
-	PrivPath         string
-	EnableSProxy     bool
-	AllowRedirect    bool
+	ProxyServerAddr   string
+	SProxyServerAddr  string
+	SProxyServerPorts []int
+	CertPath          string
+	PrivPath          string
+	EnableSProxy      bool
+	AllowRedirect     bool
 }
 
 type HttpError struct {
@@ -248,6 +249,20 @@ func (proxyServer *ProxyServer) Start() error {
 				}
 			}
 		}()
+
+		if len(proxyServer.Config.SProxyServerPorts) > 0 {
+			proxyServer.logger.Info("Starting %d additional httpsd servers", len(proxyServer.Config.SProxyServerPorts))
+		}
+		for _, port := range proxyServer.Config.SProxyServerPorts {
+			addr := config.AppConfig.SProxyServerAddrForPort(port)
+			httpsServer := &http.Server{Addr: addr, Handler: httpsdHandler, TLSNextProto: protos}
+			go func() {
+				err := httpsServer.ListenAndServeTLS(proxyServer.Config.CertPath, proxyServer.Config.PrivPath)
+				if err != http.ErrServerClosed {
+					proxyServer.logger.Error("Couldn't start https proxy: %v", err)
+				}
+			}()
+		}
 	} else {
 		if proxyServer.httpsServer != nil {
 			proxyServer.httpsServer.Close()

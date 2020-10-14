@@ -31,6 +31,8 @@ func init() {
 	httpdCmd.Flag.IntVar(&cfg.ProxyServerPort, "httpd_port", 80, "port of httpd server listening to")
 	httpdCmd.Flag.StringVar(&cfg.SProxyServerHost, "httpsd_host", "127.0.0.1", "host of httpsd server listening to")
 	httpdCmd.Flag.IntVar(&cfg.SProxyServerPort, "httpsd_port", 443, "port of httpsd server listening to")
+	httpdCmd.Flag.StringVar(&cfg.SProxyServerPorts, "additional_ports", "", "httpsd secure server ports")
+
 	httpdCmd.Flag.StringVar(&cfg.SProxyServerCertPath, "certpath", "./priv/cert.pem", "Pem format of certificate file path of httpsd secure server")
 	httpdCmd.Flag.StringVar(&cfg.SProxyServerPrivPath, "privpath", "./priv/priv.pem", "Pem format of private key file path of httpsd secure server")
 	httpdCmd.Flag.BoolVar(&cfg.EnableSProxyServer, "secure", false, "enable httpsd server")
@@ -75,12 +77,13 @@ func httpdHandler() (err error) {
 	}
 	proxyServer := rpc.NewProxyServer(socksServer)
 	proxyServer.SetConfig(rpc.ProxyConfig{
-		EnableSProxy:     cfg.EnableSProxyServer,
-		ProxyServerAddr:  cfg.ProxyServerAddr(),
-		SProxyServerAddr: cfg.SProxyServerAddr(),
-		CertPath:         cfg.SProxyServerCertPath,
-		PrivPath:         cfg.SProxyServerPrivPath,
-		AllowRedirect:    cfg.AllowRedirectToSProxy,
+		EnableSProxy:      cfg.EnableSProxyServer,
+		ProxyServerAddr:   cfg.ProxyServerAddr(),
+		SProxyServerAddr:  cfg.SProxyServerAddr(),
+		SProxyServerPorts: cfg.SProxyAdditionalPorts(),
+		CertPath:          cfg.SProxyServerCertPath,
+		PrivPath:          cfg.SProxyServerPrivPath,
+		AllowRedirect:     cfg.AllowRedirectToSProxy,
 	})
 	// Start proxy server
 	app.SetProxyServer(proxyServer)
