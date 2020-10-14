@@ -18,7 +18,7 @@ jobs:
     - if: runner.os == 'Windows'
       run: |
         pacman -S --noconfirm pacman-mirrors pkg-config
-        pacman -S --noconfirm --needed base-devel mingw-w64-i686-toolchain mingw-w64-x86_64-toolchain mingw-w64-x86_64-openssl upx
+        pacman -S --noconfirm --needed base-devel mingw-w64-i686-toolchain mingw-w64-x86_64-toolchain mingw-w64-x86_64-openssl upx gnu-netcat
     - if: runner.os == 'macOS'
       run: |
         brew install binutils
