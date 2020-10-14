@@ -9,6 +9,8 @@ This is Go client for connecting device through the diodechain mesh network. You
 
 *Conceptual diagram for diode*
 
+
+
 # Usage
 
 ## Command line options
@@ -53,6 +55,15 @@ On the destination:
 ```BASH
 $ diode publish -public 22:22
 ```
+
+## Use cases
+- Publish a Local Webserver
+Diode is the Swiss army knife of Web3 capabilities! One of the neat things it allows you to do is to publish a local website / webserver to the Internet where anyone can view it. A common reason for doing this is to allow others to see a website that is under development - the development is done locally and can be viewed by collaborators remotely without setting up a staging server and without any IT tools / configuration. [Article link](https://support.diode.io/article/ss32engxlq-publish-your-local-webserver)
+
+
+- Develop LINE chatbots
+Diode is the best tool in connecting LINE’s webhook - it allows you to connect LINE’s message API through Diode’s peer-to-peer network and establish your LINE’s webhook within minutes of time. We're giving everyone a better, more secure, fully decentralized option when developing LINE chatbots. [Article link](https://diode.io/diode/How-Diode-Allows-Engineers-to-Develop-LINE-Chatbots-in-a-Decentralized-Way-20252/)
+
 
 ## Enable Proxy Server in Browser
 
