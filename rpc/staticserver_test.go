@@ -4,10 +4,8 @@
 package rpc
 
 import (
-	"fmt"
-	"net"
 	"net/http"
-	"strconv"
+	"net/http/httptest"
 	"testing"
 )
 
@@ -19,53 +17,40 @@ type StaticServerTest struct {
 var (
 	staticServerTests = []StaticServerTest{
 		{
-			Path:   ".DS_Store",
+			Path:   "/.DS_Store",
 			Status: 403,
 		}, {
-			Path:   "..index.html",
+			Path:   "/..index.html",
 			Status: 403,
 		}, {
-			Path:   "../../",
+			Path:   "/../../",
 			Status: 200,
 		}, {
-			Path:   "./",
+			Path:   "/./",
 			Status: 200,
 		}, {
-			Path:   "",
+			Path:   "/",
 			Status: 200,
 		},
 	}
 )
 
-func testHTTPGetStatus(t *testing.T, url string, status int) {
-	r, err := http.Get(url)
-	if err != nil {
-		t.Fatal(err)
-	}
+func testHTTPGetStatus(t *testing.T, handler http.Handler, url string, status int) {
+	req := httptest.NewRequest("GET", url, nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, req)
+	r := w.Result()
 	if r.StatusCode != status {
 		t.Fatalf("Test http get %s status not the same, want %d but got %d", url, status, r.StatusCode)
 	}
 }
 
 func TestStaticServer(t *testing.T) {
-	host := "127.0.0.1"
-	port := 41046
 	staticServer := StaticHTTPServer{
-		Host:          host,
-		Port:          port,
 		RootDirectory: ".",
 	}
-	go func() {
-		err := staticServer.ListenAndServe()
-		if err != http.ErrServerClosed {
-			t.Fatal(err)
-		}
-	}()
-	addr := net.JoinHostPort(host, strconv.Itoa(port))
+	staticHandler := staticServer.Handler()
 	for _, st := range staticServerTests {
-		url := fmt.Sprintf("http://%s/%s", addr, st.Path)
-		testHTTPGetStatus(t, url, st.Status)
+		testHTTPGetStatus(t, staticHandler, st.Path, st.Status)
 	}
-	// close server
-	staticServer.Close()
 }
