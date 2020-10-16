@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"regexp"
 
 	"github.com/diodechain/diode_go_client/command"
 	"github.com/diodechain/diode_go_client/config"
@@ -24,6 +25,7 @@ var (
 		Run:         bnsHandler,
 		Type:        command.OneOffCommand,
 	}
+	bnsPattern = regexp.MustCompile(`^[0-9a-z-]+$`)
 )
 
 func init() {
@@ -32,6 +34,15 @@ func init() {
 	bnsCmd.Flag.StringVar(&cfg.BNSUnregister, "unregister", "", "Free a new BNS name with <name>.")
 	bnsCmd.Flag.StringVar(&cfg.BNSTransfer, "transfer", "", "Transfer an existing BNS name with <name>=<new_owner>.")
 	bnsCmd.Flag.StringVar(&cfg.BNSLookup, "lookup", "", "Lookup a given BNS name.")
+}
+
+func isValidBNS(name string) (isValid bool) {
+	if len(name) < 7 || len(name) > 32 {
+		isValid = false
+		return
+	}
+	isValid = bnsPattern.Match([]byte(name))
+	return
 }
 
 func bnsHandler() (err error) {
@@ -68,7 +79,7 @@ func bnsHandler() (err error) {
 
 func handleLookup() (done bool, err error) {
 	cfg := config.AppConfig
-	lookupName := cfg.BNSLookup
+	lookupName := strings.ToLower(cfg.BNSLookup)
 	if len(lookupName) == 0 {
 		return
 	}
@@ -110,7 +121,8 @@ func handleRegister() (done bool, err error) {
 	}
 
 	var obnsAddr util.Address
-	bnsName := registerPair[0]
+	// should lowercase bns name
+	bnsName := strings.ToLower(registerPair[0])
 	if !isValidBNS(bnsName) {
 		printError("Argument Error: ", fmt.Errorf("BNS name should be more than 7 or less than 32 characters (0-9A-Za-z-)"))
 		return
@@ -173,7 +185,7 @@ func handleTransfer() (done bool, err error) {
 		return
 	}
 
-	bnsName := transferPair[0]
+	bnsName := strings.ToLower(transferPair[0])
 	if !isValidBNS(bnsName) {
 		printError("Argument Error: ", fmt.Errorf("BNS name should be more than 7 or less than 32 characters (0-9A-Za-z-)"))
 		return
@@ -239,7 +251,7 @@ func handleUnregister() (done bool, err error) {
 		return
 	}
 
-	bnsName := cfg.BNSUnregister
+	bnsName := strings.ToLower(cfg.BNSUnregister)
 	if !isValidBNS(bnsName) {
 		printError("Argument Error: ", fmt.Errorf("BNS name should be more than 7 or less than 32 characters (0-9A-Za-z-)"))
 		return

@@ -7,7 +7,6 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"regexp"
 	"time"
 
 	"github.com/diodechain/diode_go_client/config"
@@ -19,7 +18,6 @@ import (
 var (
 	version    string = "development"
 	pool       *rpc.DataPool
-	bnsPattern = regexp.MustCompile(`^[0-9A-Za-z-]+$`)
 	app        Diode
 	buildTime  string
 )
@@ -38,15 +36,6 @@ func main() {
 		os.Exit(2)
 	}
 	os.Exit(0)
-}
-
-func isValidBNS(name string) (isValid bool) {
-	if len(name) < 7 || len(name) > 32 {
-		isValid = false
-		return
-	}
-	isValid = bnsPattern.Match([]byte(name))
-	return
 }
 
 func printLabel(label string, value string) {
