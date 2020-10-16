@@ -6,6 +6,7 @@ package command
 import (
 	"flag"
 	"fmt"
+	"github.com/sc0vu/didyoumean"
 	"os"
 	"reflect"
 	"sort"
@@ -58,6 +59,17 @@ func (cmd *Command) AddSubCommand(subCmd *Command) {
 	}
 }
 
+func (cmd *Command) subCommandsKey() []string {
+	subCommandsKey := make([]string, len(cmd.subCommands))
+	count := 0
+
+	for i := range cmd.subCommands {
+		subCommandsKey[count] = i
+		count++
+	}
+	return subCommandsKey
+}
+
 // SubCommand returns the selected subcommand
 func (cmd *Command) SubCommand() *Command {
 	// find subcommand and run it
@@ -68,6 +80,13 @@ func (cmd *Command) SubCommand() *Command {
 	}
 	subCmd := cmd.subCommands[commandName]
 	if subCmd == nil || len(subCmd.Name) == 0 {
+		subCommandsKey := cmd.subCommandsKey()
+		didyoumean.ThresholdRate = 0.4
+		mightCommandName := didyoumean.FirstMatch(commandName, subCommandsKey)
+		fmt.Printf("diode: '%s' is not a diode command. See 'diode --help'.\n", commandName)
+		if len(mightCommandName) > 0 {
+			fmt.Printf("\nThe most similar command is\n    %s\n", mightCommandName)
+		}
 		return nil
 	}
 	return subCmd
@@ -87,7 +106,7 @@ func (cmd *Command) Execute() (err error) {
 	if len(cmd.subCommands) > 0 {
 		subCmd := cmd.SubCommand()
 		if subCmd == nil {
-			cmd.Flag.Usage()
+			// cmd.Flag.Usage()
 			return
 		}
 		subCmd.Flag.Usage = func() {
@@ -168,13 +187,7 @@ func (cmd *Command) printUsage() {
 func (cmd *Command) printSubCommandDefaults(indent int) {
 	s := " COMMAND <args>\n\nCOMMANDS\n"
 
-	subCommandsKey := make([]string, len(cmd.subCommands))
-	count := 0
-
-	for i := range cmd.subCommands {
-		subCommandsKey[count] = i
-		count++
-	}
+	subCommandsKey := cmd.subCommandsKey()
 	sort.Strings(subCommandsKey)
 	for _, i := range subCommandsKey {
 		subCmd := cmd.subCommands[i]

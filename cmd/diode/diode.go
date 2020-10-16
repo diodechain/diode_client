@@ -16,10 +16,10 @@ import (
 )
 
 var (
-	version    string = "development"
-	pool       *rpc.DataPool
-	app        Diode
-	buildTime  string
+	version   string = "development"
+	pool      *rpc.DataPool
+	app       Diode
+	buildTime string
 )
 
 // RunDiode diode command

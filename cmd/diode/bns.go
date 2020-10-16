@@ -5,9 +5,9 @@ package main
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
-	"regexp"
 
 	"github.com/diodechain/diode_go_client/command"
 	"github.com/diodechain/diode_go_client/config"
