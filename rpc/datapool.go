@@ -155,8 +155,10 @@ func (p *DataPool) SetClient(nodeID util.Address, client *RPCClient) {
 	p.rm.Lock()
 	defer p.rm.Unlock()
 	if client == nil {
-		p.wg.Done()
-		delete(p.clients, nodeID)
+		if p.clients[nodeID] != nil {
+			p.wg.Done()
+			delete(p.clients, nodeID)
+		}
 	} else {
 		if p.clients[nodeID] == nil {
 			order := atomic.AddUint64(&p.clientOrder, 1)
