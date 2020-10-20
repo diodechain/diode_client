@@ -21,7 +21,7 @@ type DataPool struct {
 	devices        map[string]*ConnectedDevice
 	publishedPorts map[int]*config.Port
 	memoryCache    *cache.Cache
-	wg             sync.WaitGroup
+	done           chan struct{}
 	cd             sync.Once
 }
 
@@ -31,6 +31,7 @@ func NewPool() *DataPool {
 		clients:        make(map[util.Address]*RPCClient),
 		devices:        make(map[string]*ConnectedDevice),
 		publishedPorts: make(map[int]*config.Port),
+		done:           make(chan struct{}),
 	}
 }
 
@@ -142,7 +143,7 @@ func (p *DataPool) SetPublishedPorts(ports map[int]*config.Port) {
 }
 
 func (p *DataPool) WaitClients() {
-	p.wg.Wait()
+	<-p.done
 }
 
 func (p *DataPool) GetClient(nodeID util.Address) *RPCClient {
@@ -156,14 +157,15 @@ func (p *DataPool) SetClient(nodeID util.Address, client *RPCClient) {
 	defer p.rm.Unlock()
 	if client == nil {
 		if p.clients[nodeID] != nil {
-			p.wg.Done()
 			delete(p.clients, nodeID)
+			if len(p.clients) == 0 {
+				close(p.done)
+			}
 		}
 	} else {
 		if p.clients[nodeID] == nil {
 			order := atomic.AddUint64(&p.clientOrder, 1)
 			client.Order = int(order)
-			p.wg.Add(1)
 		}
 		p.clients[nodeID] = client
 	}
