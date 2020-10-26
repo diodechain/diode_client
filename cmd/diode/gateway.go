@@ -14,8 +14,8 @@ import (
 var (
 	gatewayCmd = &command.Command{
 		Name:        "gateway",
-		HelpText:    `  Enable a public http server as is used by the "diode.link" website`,
-		ExampleText: `  diode httpd -httpd_port 8080 -httpsd_port 443 -secure -certpath ./cert.pem -privpath ./priv.pem`,
+		HelpText:    `  Enable a public gateway server as is used by the "diode.link" website`,
+		ExampleText: `  diode gateway -httpd_port 8080 -httpsd_port 443 -secure -certpath ./cert.pem -privpath ./priv.pem`,
 		Run:         httpdHandler,
 		Type:        command.DaemonCommand,
 	}

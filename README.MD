@@ -32,7 +32,7 @@ SYNOPSYS
 COMMANDS
   bns          Register/Update name service on diode blockchain.
   config       Manage variables in the local config store.
-  httpd        Enable a public http server as is used by the "diode.link" website
+  gateway      Enable a public http server as is used by the "diode.link" website
   publish      Publish ports of the local device to the Diode Network.
   reset        Initialize a new account and a new fleet contract in the network. WARNING deletes current credentials!
   socksd       Enable a socks proxy for use with browsers and other apps.

@@ -27,11 +27,15 @@ func containsDotFile(name string) bool {
 
 type staticFile struct {
 	http.File
+	Indexed bool
 }
 
 // Readdir is a wrapper around the Readdir method of the embedded File
 // Should readdir?!
 func (f staticFile) Readdir(n int) (fis []os.FileInfo, err error) {
+	if !f.Indexed {
+		return
+	}
 	files, err := f.File.Readdir(n)
 	for _, file := range files {
 		if !strings.HasPrefix(file.Name(), ".") {
@@ -43,6 +47,7 @@ func (f staticFile) Readdir(n int) (fis []os.FileInfo, err error) {
 
 type staticFileSystem struct {
 	http.FileSystem
+	Indexed bool
 }
 
 // Open is a wrapper around the Open method of the embedded FileSystem
@@ -54,7 +59,7 @@ func (fs staticFileSystem) Open(name string) (http.File, error) {
 	if err != nil {
 		return nil, err
 	}
-	return staticFile{file}, err
+	return staticFile{file, fs.Indexed}, err
 }
 
 // StaticHTTPServer represents static file server
@@ -64,13 +69,14 @@ type StaticHTTPServer struct {
 	RootDirectory string
 	Host          string
 	Port          int
+	Indexed       bool
 	server        *http.Server
 	cd            sync.Once
 }
 
 // Handler returns http handler of static file server
 func (sv *StaticHTTPServer) Handler() (handler http.Handler) {
-	fs := staticFileSystem{http.Dir(sv.RootDirectory)}
+	fs := staticFileSystem{http.Dir(sv.RootDirectory), sv.Indexed}
 	handler = http.FileServer(fs)
 	return
 }

@@ -17,6 +17,10 @@ import (
 	"github.com/diodechain/diode_go_client/util"
 )
 
+const (
+	httpPort = 80
+)
+
 var (
 	publishCmd = &command.Command{
 		Name:             "publish",
@@ -37,10 +41,11 @@ func init() {
 	publishCmd.Flag.StringVar(&cfg.SocksServerHost, "proxy_host", "127.0.0.1", "host of socksd proxy server")
 	publishCmd.Flag.IntVar(&cfg.SocksServerPort, "proxy_port", 1080, "port of socksd proxy server")
 	publishCmd.Flag.BoolVar(&cfg.EnableSocksServer, "socksd", false, "enable socksd proxy server")
-	publishCmd.Flag.BoolVar(&staticServer.Enabled, "httpd", false, "enable httpd static file server")
-	publishCmd.Flag.StringVar(&staticServer.RootDirectory, "httpd_dir", "/tmp", "the root directory of http static file server")
-	publishCmd.Flag.StringVar(&staticServer.Host, "httpd_host", "127.0.0.1", "the host of http static file server")
-	publishCmd.Flag.IntVar(&staticServer.Port, "httpd_port", 80, "the port of http static file server")
+	publishCmd.Flag.BoolVar(&staticServer.Indexed, "indexed", false, "enable directory indexing in http static file server")
+	publishCmd.Flag.BoolVar(&staticServer.Enabled, "http", false, "enable http static file server")
+	publishCmd.Flag.StringVar(&staticServer.RootDirectory, "http_dir", "", "the root directory of http static file server")
+	publishCmd.Flag.StringVar(&staticServer.Host, "http_host", "127.0.0.1", "the host of http static file server")
+	publishCmd.Flag.IntVar(&staticServer.Port, "http_port", 8080, "the port of http static file server")
 }
 
 var portPattern = regexp.MustCompile(`^(\d+)(:(\d*)(:(tcp|tls|udp))?)?$`)
@@ -189,6 +194,7 @@ func parseBind(bind string) (*config.Bind, error) {
 func publishHandler() (err error) {
 	cfg := config.AppConfig
 	portString := make(map[int]*config.Port)
+
 	// copy to config
 	ports, err := parsePorts(cfg.PublicPublishedPorts, config.PublicPublishedMode, cfg.EnableEdgeE2E)
 	if err != nil {
@@ -225,6 +231,30 @@ func publishHandler() (err error) {
 	}
 	cfg.PublishedPorts = portString
 
+	if staticServer.Enabled || len(staticServer.RootDirectory) > 0 {
+		go func() {
+			err := staticServer.ListenAndServe()
+			if err != nil {
+				if err != http.ErrServerClosed {
+					printError("Couldn't listen to http: ", err)
+				}
+				return
+			}
+		}()
+		app.Defer(func() {
+			staticServer.Close()
+		})
+		// publish the static by default if enabled
+		if len(cfg.PublishedPorts) == 0 {
+			cfg.PublishedPorts[httpPort] = &config.Port{
+				Src:      staticServer.Port,
+				To:       httpPort,
+				Mode:     config.PublicPublishedMode,
+				Protocol: config.AnyProtocol,
+			}
+		}
+	}
+
 	if len(cfg.PublishedPorts) == 0 && len(cfg.Binds) == 0 {
 		fmt.Println()
 		fmt.Println("ERROR: Can't run publish without any arguments!")
@@ -242,7 +272,7 @@ func publishHandler() (err error) {
 		printInfo("")
 		pool.SetPublishedPorts(cfg.PublishedPorts)
 		for _, port := range cfg.PublishedPorts {
-			if port.To == 80 {
+			if port.To == httpPort {
 				if port.Mode == config.PublicPublishedMode {
 					printLabel("HTTP Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", cfg.ClientAddr.HexString()))
 				}
@@ -289,20 +319,6 @@ func publishHandler() (err error) {
 		for _, bind := range cfg.Binds {
 			printLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
 		}
-	}
-	if staticServer.Enabled {
-		go func() {
-			err := staticServer.ListenAndServe()
-			if err != nil {
-				if err != http.ErrServerClosed {
-					printError("Couldn't listen to http: ", err)
-				}
-				return
-			}
-		}()
-		app.Defer(func() {
-			staticServer.Close()
-		})
 	}
 	app.Wait()
 	return
