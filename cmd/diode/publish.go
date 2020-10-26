@@ -260,7 +260,7 @@ func publishHandler() (err error) {
 		fmt.Println("ERROR: Can't run publish without any arguments!")
 		fmt.Println(" HINT: Try 'diode publish -public 8080:80' to publish a local port")
 		fmt.Println(" HINT: Check our docs to learn more about publishing ports: https://diode.io/docs/getting-started.html")
-		fmt.Println(" HINT: Or run 'diode help' to see all commands")
+		fmt.Println(" HINT: Or run 'diode --help' to see all commands")
 		os.Exit(2)
 	}
 
