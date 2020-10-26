@@ -89,7 +89,7 @@ func init() {
 	config.AppConfig = cfg
 	diodeCmd.AddSubCommand(bnsCmd)
 	diodeCmd.AddSubCommand(configCmd)
-	diodeCmd.AddSubCommand(httpdCmd)
+	diodeCmd.AddSubCommand(gatewayCmd)
 	diodeCmd.AddSubCommand(publishCmd)
 	diodeCmd.AddSubCommand(resetCmd)
 	diodeCmd.AddSubCommand(socksdCmd)
