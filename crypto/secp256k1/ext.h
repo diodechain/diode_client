@@ -101,6 +101,8 @@ static int secp256k1_ext_reencode_pubkey(
 int secp256k1_ext_scalar_mul(const secp256k1_context* ctx, unsigned char *point, const unsigned char *scalar) {
 	int ret = 0;
 	int overflow = 0;
+	// should size of secp256k1_ecmult_const be 256 bits?
+	int size = 256;
 	secp256k1_fe feX, feY;
 	secp256k1_gej res;
 	secp256k1_ge ge;
@@ -116,7 +118,7 @@ int secp256k1_ext_scalar_mul(const secp256k1_context* ctx, unsigned char *point,
 	if (overflow || secp256k1_scalar_is_zero(&s)) {
 		ret = 0;
 	} else {
-		secp256k1_ecmult_const(&res, &ge, &s);
+		secp256k1_ecmult_const(&res, &ge, &s, size);
 		secp256k1_ge_set_gej(&ge, &res);
 		/* Note: can't use secp256k1_pubkey_save here because it is not constant time. */
 		secp256k1_fe_normalize(&ge.x);
