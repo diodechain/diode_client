@@ -29,26 +29,14 @@ func RunDiode() (err error) {
 }
 
 func main() {
+	cfg := config.AppConfig
 	err := RunDiode()
 	// TODO: set status to custom error struct
 	if err != nil {
-		printError("Couldn't execute command", err)
+		cfg.PrintError("Couldn't execute command", err)
 		os.Exit(2)
 	}
 	os.Exit(0)
-}
-
-func printLabel(label string, value string) {
-	msg := fmt.Sprintf("%-20s : %-42s", label, value)
-	config.AppConfig.Logger.Info(msg)
-}
-
-func printError(msg string, err error) {
-	config.AppConfig.Logger.Error(msg, "error", err.Error())
-}
-
-func printInfo(msg string) {
-	config.AppConfig.Logger.Info(msg)
 }
 
 func connect(c chan *rpc.RPCClient, host string, cfg *config.Config, pool *rpc.DataPool) {
@@ -75,6 +63,7 @@ func watchAccount(client *rpc.RPCClient, to util.Address) (res bool) {
 	var oact *edge.Account
 	var getTimes int
 	var isConfirmed bool
+	cfg := config.AppConfig
 	startBN, _ = client.LastValid()
 	bn = startBN
 	oact, _ = client.GetValidAccount(uint64(bn), to)
@@ -83,14 +72,14 @@ func watchAccount(client *rpc.RPCClient, to util.Address) (res bool) {
 		var nbn uint64
 		nbn, _ = client.LastValid()
 		if nbn == bn {
-			printInfo("Waiting for next valid block...")
+			cfg.PrintInfo("Waiting for next valid block...")
 			continue
 		}
 		var nact *edge.Account
 		bn = nbn
 		nact, err = client.GetValidAccount(uint64(bn), to)
 		if err != nil {
-			printInfo("Waiting for next valid block...")
+			cfg.PrintInfo("Waiting for next valid block...")
 			continue
 		}
 		if nact != nil {

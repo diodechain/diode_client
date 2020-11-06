@@ -95,6 +95,7 @@ func init() {
 	diodeCmd.AddSubCommand(socksdCmd)
 	diodeCmd.AddSubCommand(timeCmd)
 	diodeCmd.AddSubCommand(versionCmd)
+	diodeCmd.AddSubCommand(updateCmd)
 }
 
 func prepareDiode() error {
@@ -120,7 +121,7 @@ func prepareDiode() error {
 	// should not copy lock
 	cfg.Logger = &logger
 
-	printLabel("Diode Client version", fmt.Sprintf("%s %s", version, buildTime))
+	cfg.PrintLabel("Diode Client version", fmt.Sprintf("%s %s", version, buildTime))
 
 	if len(cfg.RemoteRPCAddrs) == 0 {
 		// setup default strings value
@@ -204,7 +205,7 @@ func (dio *Diode) Init() error {
 	// Initialize db
 	clidb, err := db.OpenFile(cfg.DBPath)
 	if err != nil {
-		printError("Couldn't open database", err)
+		cfg.PrintError("Couldn't open database", err)
 		return err
 	}
 	db.DB = clidb
@@ -234,10 +235,10 @@ func (dio *Diode) Init() error {
 	if cfg.CPUProfile != "" {
 		fd, err := os.Create(cfg.CPUProfile)
 		if err != nil {
-			printError("Couldn't open cpu profile file", err)
+			cfg.PrintError("Couldn't open cpu profile file", err)
 			return err
 		}
-		printInfo("Note: do not enable cpu profile on production server")
+		cfg.PrintInfo("Note: do not enable cpu profile on production server")
 		// It seems pprof hard code cpu profile rate to 100HZ
 		// if cfg.CPUProfileRate > 0 {
 		// 	runtime.SetCPUProfileRate(cfg.CPUProfileRate)
@@ -252,10 +253,10 @@ func (dio *Diode) Init() error {
 	if cfg.MEMProfile != "" {
 		fd, err := os.Create(cfg.MEMProfile)
 		if err != nil {
-			printError("Couldn't open memory profile file", err)
+			cfg.PrintError("Couldn't open memory profile file", err)
 			return err
 		}
-		printInfo("Note: do not enable memory profile on production server")
+		cfg.PrintInfo("Note: do not enable memory profile on production server")
 		runtime.GC()
 		pprof.WriteHeapProfile(fd)
 		dio.Defer(func() {
@@ -266,10 +267,10 @@ func (dio *Diode) Init() error {
 	if cfg.BlockProfile != "" {
 		fd, err := os.Create(cfg.BlockProfile)
 		if err != nil {
-			printError("Couldn't open block profile file", err)
+			cfg.PrintError("Couldn't open block profile file", err)
 			return err
 		}
-		printInfo("Note: do not enable block profile on production server")
+		cfg.PrintInfo("Note: do not enable block profile on production server")
 		if cfg.BlockProfileRate > 0 {
 			runtime.SetBlockProfileRate(cfg.BlockProfileRate)
 		}
@@ -278,7 +279,7 @@ func (dio *Diode) Init() error {
 			err := p.WriteTo(fd, 0)
 			// couldn't write block profile, maybe wrong file permission?
 			if err != nil {
-				printError("Couldn't write to block profile", err)
+				cfg.PrintError("Couldn't write to block profile", err)
 			}
 			fd.Close()
 		})
@@ -287,10 +288,10 @@ func (dio *Diode) Init() error {
 	if cfg.MutexProfile != "" {
 		fd, err := os.Create(cfg.MutexProfile)
 		if err != nil {
-			printError("Couldn't open mutex profile file", err)
+			cfg.PrintError("Couldn't open mutex profile file", err)
 			return err
 		}
-		printInfo("Note: do not enable mutex profile on production server")
+		cfg.PrintInfo("Note: do not enable mutex profile on production server")
 		if cfg.MutexProfileRate > 0 {
 			runtime.SetMutexProfileFraction(cfg.MutexProfileRate)
 		}
@@ -299,7 +300,7 @@ func (dio *Diode) Init() error {
 			err := p.WriteTo(fd, 0)
 			// couldn't write mutex profile, maybe wrong file permission?
 			if err != nil {
-				printError("Couldn't write to mutex profile", err)
+				cfg.PrintError("Couldn't write to mutex profile", err)
 			}
 			fd.Close()
 		})
@@ -344,8 +345,8 @@ func (dio *Diode) Start() error {
 	if dio.cmd == nil {
 		return fmt.Errorf("could not determine command to start")
 	}
-	printLabel("Client address", cfg.ClientAddr.HexString())
-	printLabel("Fleet address", cfg.FleetAddr.HexString())
+	cfg.PrintLabel("Client address", cfg.ClientAddr.HexString())
+	cfg.PrintLabel("Fleet address", cfg.FleetAddr.HexString())
 
 	if dio.cmd.Type == command.EmptyConnectionCommand {
 		return nil
@@ -375,7 +376,7 @@ func (dio *Diode) Start() error {
 
 	if client == nil {
 		err := fmt.Errorf("server are not validated")
-		printError("Couldn't connect to any server", err)
+		cfg.PrintError("Couldn't connect to any server", err)
 		return err
 	}
 	lvbn, lvbh = client.LastValid()
@@ -475,24 +476,24 @@ func (dio *Diode) SetConfigAPIServer(configAPIServer *ConfigAPIServer) {
 func (dio *Diode) PublishPorts() {
 	cfg := config.AppConfig
 	if len(cfg.PublishedPorts) > 0 {
-		printInfo("")
+		cfg.PrintInfo("")
 		dio.datapool.SetPublishedPorts(cfg.PublishedPorts)
 		for _, port := range cfg.PublishedPorts {
 			if port.To == 80 {
 				if port.Mode == config.PublicPublishedMode {
-					printLabel("Http Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", cfg.ClientAddr.HexString()))
+					cfg.PrintLabel("Http Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", cfg.ClientAddr.HexString()))
 				}
 				break
 			}
 		}
-		printLabel("Port      <name>", "<extern>     <mode>    <protocol>     <allowlist>")
+		cfg.PrintLabel("Port      <name>", "<extern>     <mode>    <protocol>     <allowlist>")
 		for _, port := range cfg.PublishedPorts {
 			addrs := make([]string, 0, len(port.Allowlist))
 			for addr := range port.Allowlist {
 				addrs = append(addrs, addr.HexString())
 			}
 
-			printLabel(fmt.Sprintf("Port      %5d", port.Src), fmt.Sprintf("%8d  %10s       %s        %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol), strings.Join(addrs, ",")))
+			cfg.PrintLabel(fmt.Sprintf("Port      %5d", port.Src), fmt.Sprintf("%8d  %10s       %s        %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol), strings.Join(addrs, ",")))
 		}
 	}
 }
@@ -530,6 +531,7 @@ func (dio *Diode) Closed() bool {
 // Close shut down diode application
 func (dio *Diode) Close() {
 	dio.cd.Do(func() {
+		cfg := config.AppConfig
 		for _, fun := range dio.deferals {
 			fun()
 		}
@@ -539,31 +541,31 @@ func (dio *Diode) Close() {
 		verbose := cmd != nil && cmd.Type == command.DaemonCommand
 
 		if verbose {
-			printInfo("1/5 Stopping socksserver")
+			cfg.PrintInfo("1/5 Stopping socksserver")
 		}
 		if dio.socksServer != nil {
 			dio.socksServer.Close()
 		}
 		if verbose {
-			printInfo("2/5 Stopping proxyserver")
+			cfg.PrintInfo("2/5 Stopping proxyserver")
 		}
 		if dio.proxyServer != nil {
 			dio.proxyServer.Close()
 		}
 		if verbose {
-			printInfo("3/5 Stopping configserver")
+			cfg.PrintInfo("3/5 Stopping configserver")
 		}
 		if dio.configAPIServer != nil {
 			dio.configAPIServer.Close()
 		}
 		if verbose {
-			printInfo("4/5 Cleaning pool")
+			cfg.PrintInfo("4/5 Cleaning pool")
 		}
 		if dio.datapool != nil {
 			dio.datapool.Close()
 		}
 		if verbose {
-			printInfo("5/5 Closing logs")
+			cfg.PrintInfo("5/5 Closing logs")
 		}
 		dio.config.Logger.Close()
 	})

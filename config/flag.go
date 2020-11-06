@@ -203,6 +203,19 @@ func (cfg *Config) SProxyAdditionalPorts() []int {
 	return ports
 }
 
+func (cfg *Config) PrintLabel(label string, value string) {
+	msg := fmt.Sprintf("%-20s : %-42s", label, value)
+	cfg.Logger.Info(msg)
+}
+
+func (cfg *Config) PrintError(msg string, err error) {
+	cfg.Logger.Error(msg, "error", err.Error())
+}
+
+func (cfg *Config) PrintInfo(msg string) {
+	cfg.Logger.Info(msg)
+}
+
 // Bind struct for port forwarding
 type Bind struct {
 	To        string

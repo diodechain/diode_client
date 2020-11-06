@@ -46,7 +46,7 @@ func configHandler() (err error) {
 		activity = true
 		for _, deleteKey := range cfg.ConfigDelete {
 			db.DB.Del(deleteKey)
-			printLabel("Deleted:", deleteKey)
+			cfg.PrintLabel("Deleted:", deleteKey)
 		}
 	}
 	if len(cfg.ConfigSet) > 0 {
@@ -58,14 +58,14 @@ func configHandler() (err error) {
 				if util.IsHex(value) {
 					value, err = util.DecodeString(list[1])
 					if err != nil {
-						printError("Couldn't decode hex string", err)
+						cfg.PrintError("Couldn't decode hex string", err)
 						return
 					}
 				}
 				db.DB.Put(list[0], value)
-				printLabel("Set:", list[0])
+				cfg.PrintLabel("Set:", list[0])
 			} else {
-				printError("Couldn't set value", fmt.Errorf("expected -set name=value format"))
+				cfg.PrintError("Couldn't set value", fmt.Errorf("expected -set name=value format"))
 				return
 			}
 		}
@@ -73,7 +73,7 @@ func configHandler() (err error) {
 
 	if cfg.ConfigList || !activity {
 		var value []byte
-		printLabel("<KEY>", "<VALUE>")
+		cfg.PrintLabel("<KEY>", "<VALUE>")
 		list := db.DB.List()
 		sort.Strings(list)
 		for _, name := range list {
@@ -81,18 +81,18 @@ func configHandler() (err error) {
 			value, err = db.DB.Get(name)
 			if err == nil {
 				if name == "private" {
-					printLabel("<address>", cfg.ClientAddr.HexString())
+					cfg.PrintLabel("<address>", cfg.ClientAddr.HexString())
 
 					if cfg.ConfigUnsafe {
 						var privKey *ecdsa.PrivateKey
 						block, _ := pem.Decode(value)
 						if block == nil {
-							printError("Invalid pem private key format ", err)
+							cfg.PrintError("Invalid pem private key format ", err)
 							return
 						}
 						privKey, err = crypto.DerToECDSA(block.Bytes)
 						if err != nil {
-							printError("Invalid der private key format ", err)
+							cfg.PrintError("Invalid der private key format ", err)
 							return
 						}
 						label = util.EncodeToString(privKey.D.Bytes())
@@ -101,7 +101,7 @@ func configHandler() (err error) {
 					label = util.EncodeToString(value)
 				}
 			}
-			printLabel(name, label)
+			cfg.PrintLabel(name, label)
 		}
 	}
 	return

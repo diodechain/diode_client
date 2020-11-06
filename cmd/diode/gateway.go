@@ -55,10 +55,10 @@ func httpdHandler() (err error) {
 	socksServer := rpc.NewSocksServer(app.datapool)
 	if len(cfg.Binds) > 0 {
 		socksServer.SetBinds(cfg.Binds)
-		printInfo("")
-		printLabel("Bind      <name>", "<mode>     <remote>")
+		cfg.PrintInfo("")
+		cfg.PrintLabel("Bind      <name>", "<mode>     <remote>")
 		for _, bind := range cfg.Binds {
-			printLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
+			cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
 		}
 	}
 	socksServer.SetConfig(&rpc.Config{

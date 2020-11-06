@@ -236,7 +236,7 @@ func publishHandler() (err error) {
 			err := staticServer.ListenAndServe()
 			if err != nil {
 				if err != http.ErrServerClosed {
-					printError("Couldn't listen to http: ", err)
+					cfg.PrintError("Couldn't listen to http: ", err)
 				}
 				return
 			}
@@ -269,24 +269,24 @@ func publishHandler() (err error) {
 		return
 	}
 	if len(cfg.PublishedPorts) > 0 {
-		printInfo("")
+		cfg.PrintInfo("")
 		pool.SetPublishedPorts(cfg.PublishedPorts)
 		for _, port := range cfg.PublishedPorts {
 			if port.To == httpPort {
 				if port.Mode == config.PublicPublishedMode {
-					printLabel("HTTP Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", cfg.ClientAddr.HexString()))
+					cfg.PrintLabel("HTTP Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", cfg.ClientAddr.HexString()))
 				}
 				break
 			}
 		}
-		printLabel("Port      <name>", "<extern>     <mode>    <protocol>     <allowlist>")
+		cfg.PrintLabel("Port      <name>", "<extern>     <mode>    <protocol>     <allowlist>")
 		for _, port := range cfg.PublishedPorts {
 			addrs := make([]string, 0, len(port.Allowlist))
 			for addr := range port.Allowlist {
 				addrs = append(addrs, addr.HexString())
 			}
 
-			printLabel(fmt.Sprintf("Port      %5d", port.Src), fmt.Sprintf("%8d  %10s       %s        %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol), strings.Join(addrs, ",")))
+			cfg.PrintLabel(fmt.Sprintf("Port      %5d", port.Src), fmt.Sprintf("%8d  %10s       %s        %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol), strings.Join(addrs, ",")))
 		}
 	}
 	if cfg.EnableAPIServer {
@@ -314,10 +314,10 @@ func publishHandler() (err error) {
 	}
 	if len(cfg.Binds) > 0 {
 		socksServer.SetBinds(cfg.Binds)
-		printInfo("")
-		printLabel("Bind      <name>", "<mode>     <remote>")
+		cfg.PrintInfo("")
+		cfg.PrintLabel("Bind      <name>", "<mode>     <remote>")
 		for _, bind := range cfg.Binds {
-			printLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
+			cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
 		}
 	}
 	app.Wait()

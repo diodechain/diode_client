@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/diodechain/diode_go_client/command"
+	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/rpc"
 )
 
@@ -28,6 +29,7 @@ func timeHandler() (err error) {
 	if err != nil {
 		return
 	}
+	cfg := config.AppConfig
 	client := app.datapool.GetNearestClient()
 	blocknr, _ := client.LastValid()
 	header := client.GetBlockHeaderValid(blocknr)
@@ -41,7 +43,7 @@ func timeHandler() (err error) {
 
 	tm0 := time.Unix(int64(t0), 0)
 	tm1 := time.Unix(int64(t1), 0)
-	printLabel("Minimum Time", fmt.Sprintf("%s (%d)", tm0.Format(time.UnixDate), t0))
-	printLabel("Maximum Time", fmt.Sprintf("%s (%d)", tm1.Format(time.UnixDate), t1))
+	cfg.PrintLabel("Minimum Time", fmt.Sprintf("%s (%d)", tm0.Format(time.UnixDate), t0))
+	cfg.PrintLabel("Maximum Time", fmt.Sprintf("%s (%d)", tm1.Format(time.UnixDate), t1))
 	return
 }

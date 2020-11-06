@@ -7,6 +7,12 @@ import (
 	"path"
 	"path/filepath"
 	"runtime"
+	"time"
+
+	"github.com/diodechain/diode_go_client/command"
+	"github.com/diodechain/diode_go_client/config"
+	"github.com/diodechain/diode_go_client/db"
+	"github.com/diodechain/diode_go_client/util"
 
 	"github.com/kierdavis/ansi"
 
@@ -15,7 +21,26 @@ import (
 	"github.com/diodechain/go-update/stores/github"
 )
 
+var (
+	updateCmd = &command.Command{
+		Name:        "update",
+		HelpText:    `  Force updating the diode client version.`,
+		ExampleText: `  diode update`,
+		Run:         updateHandler,
+		Type:        command.EmptyConnectionCommand,
+	}
+)
+
+func updateHandler() (err error) {
+	lastUpdateAt := time.Now()
+	lastUpdateAtByt := util.DecodeInt64ToBytes(lastUpdateAt.Unix())
+	db.DB.Put("last_update_at", lastUpdateAtByt)
+	doUpdate()
+	return
+}
+
 func doUpdate() int {
+	cfg := config.AppConfig
 	m := &update.Manager{
 		Command: "diode",
 		Store: &github.Store{
@@ -49,7 +74,7 @@ func doUpdate() int {
 
 	dir := filepath.Dir(binExe)
 	if err := m.InstallTo(tarball, dir); err != nil {
-		printError("Error installing", err)
+		cfg.PrintError("Error installing", err)
 		return 129
 	}
 
@@ -61,31 +86,32 @@ func doUpdate() int {
 }
 
 func download(m *update.Manager) (string, bool) {
+	cfg := config.AppConfig
 	ansi.HideCursor()
 	defer ansi.ShowCursor()
 
-	printInfo("Checking for updates...")
+	cfg.PrintInfo("Checking for updates...")
 
 	// fetch the new releases
 	releases, err := m.LatestReleases()
 	if err != nil {
-		printInfo(fmt.Sprintf("Error fetching releases: %s", err))
+		cfg.PrintInfo(fmt.Sprintf("Error fetching releases: %s", err))
 		return "", false
 	}
 
 	// no updates
 	if len(releases) == 0 {
-		printInfo("No updates")
+		cfg.PrintInfo("No updates")
 		return "", false
 	}
 
 	// latest release
 	latest := releases[0]
-	printInfo(fmt.Sprintf("Found version %s > %s\n", latest.Version, version))
+	cfg.PrintInfo(fmt.Sprintf("Found version %s > %s\n", latest.Version, version))
 
 	a := latest.FindZip(runtime.GOOS, runtime.GOARCH)
 	if a == nil {
-		printInfo(fmt.Sprintf("No binary for your system (%s_%s)", runtime.GOOS, runtime.GOARCH))
+		cfg.PrintInfo(fmt.Sprintf("No binary for your system (%s_%s)", runtime.GOOS, runtime.GOARCH))
 		return "", false
 	}
 
@@ -95,7 +121,7 @@ func download(m *update.Manager) (string, bool) {
 	// download tarball to a tmp dir
 	tarball, err := a.DownloadProxy(progress.Reader)
 	if err != nil {
-		printError("Error downloading", err)
+		cfg.PrintError("Error downloading", err)
 	}
 
 	return tarball, true

@@ -32,14 +32,14 @@ func init() {
 
 func doInit(cfg *config.Config, client *rpc.RPCClient) error {
 	if cfg.FleetAddr != config.DefaultFleetAddr {
-		printInfo("Your client has been already initialized, try to publish or browse through Diode Network.")
+		cfg.PrintInfo("Your client has been already initialized, try to publish or browse through Diode Network.")
 		return nil
 	}
 	// deploy fleet
 	bn, _ := client.GetBlockPeak()
 	if bn == 0 {
 		err := fmt.Errorf("not found")
-		printError("Cannot find block peak: ", err)
+		cfg.PrintError("Cannot find block peak: ", err)
 		return err
 	}
 
@@ -48,7 +48,7 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) error {
 	var err error
 	fleetContract, err = contract.NewFleetContract()
 	if err != nil {
-		printError("Cannot create fleet contract instance: ", err)
+		cfg.PrintError("Cannot create fleet contract instance: ", err)
 		return err
 	}
 	act, _ := client.GetValidAccount(uint64(bn), cfg.ClientAddr)
@@ -59,42 +59,42 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) error {
 	}
 	deployData, err := fleetContract.DeployFleetContract(cfg.RegistryAddr, cfg.ClientAddr, cfg.ClientAddr)
 	if err != nil {
-		printError("Cannot create deploy contract data: ", err)
+		cfg.PrintError("Cannot create deploy contract data: ", err)
 		return err
 	}
 	tx := edge.NewDeployTransaction(nonce, 0, 10000000, 0, deployData, 0)
 	res, err := client.SendTransaction(tx)
 	if err != nil {
-		printError("Cannot deploy fleet contract: ", err)
+		cfg.PrintError("Cannot deploy fleet contract: ", err)
 		return err
 	}
 	if !res {
-		printError("Cannot deploy fleet contract: ", fmt.Errorf("server return err false"))
+		cfg.PrintError("Cannot deploy fleet contract: ", fmt.Errorf("server return err false"))
 		return err
 	}
 	fleetAddr := util.CreateAddress(cfg.ClientAddr, nonce)
-	printLabel("New fleet address", fleetAddr.HexString())
-	printInfo("Waiting for block to be confirmed - this can take up to a minute")
+	cfg.PrintLabel("New fleet address", fleetAddr.HexString())
+	cfg.PrintInfo("Waiting for block to be confirmed - this can take up to a minute")
 	watchAccount(client, fleetAddr)
-	printInfo("Created fleet contract successfully")
+	cfg.PrintInfo("Created fleet contract successfully")
 	// generate fleet address
 	// send device allowlist transaction
 	allowlistData, _ := fleetContract.SetDeviceAllowlist(cfg.ClientAddr, true)
 	ntx := edge.NewTransaction(nonce+1, 0, 10000000, fleetAddr, 0, allowlistData, 0)
 	res, err = client.SendTransaction(ntx)
 	if err != nil {
-		printError("Cannot allowlist device: ", err)
+		cfg.PrintError("Cannot allowlist device: ", err)
 		return err
 	}
 	if !res {
 		err = fmt.Errorf("server return err false")
-		printError("Cannot allowlist device: ", err)
+		cfg.PrintError("Cannot allowlist device: ", err)
 		return err
 	}
-	printLabel("Allowlisting device: ", cfg.ClientAddr.HexString())
-	printInfo("Waiting for block to be confirmed - this can take up to a minute")
+	cfg.PrintLabel("Allowlisting device: ", cfg.ClientAddr.HexString())
+	cfg.PrintInfo("Waiting for block to be confirmed - this can take up to a minute")
 	watchAccount(client, fleetAddr)
-	printInfo("Allowlisted device successfully")
+	cfg.PrintInfo("Allowlisted device successfully")
 	cfg.FleetAddr = fleetAddr
 	if cfg.LoadFromFile {
 		err = cfg.SaveToFile()
@@ -102,23 +102,23 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) error {
 		err = db.DB.Put("fleet", fleetAddr[:])
 	}
 	if err != nil {
-		printError("Cannot save fleet address: ", err)
+		cfg.PrintError("Cannot save fleet address: ", err)
 		return err
 	}
-	printInfo("Client has been initialized, try to publish or browser through Diode Network.")
+	cfg.PrintInfo("Client has been initialized, try to publish or browser through Diode Network.")
 	return err
 }
 
 func doInitExp(cfg *config.Config, client *rpc.RPCClient) error {
 	if cfg.FleetAddr != config.DefaultFleetAddr {
-		printInfo("Your client has been already initialized, try to publish or browse through Diode Network.")
+		cfg.PrintInfo("Your client has been already initialized, try to publish or browse through Diode Network.")
 		return nil
 	}
 	// deploy fleet
 	bn, _ := client.GetBlockPeak()
 	if bn == 0 {
 		err := fmt.Errorf("not found")
-		printError("Cannot find block peak: ", err)
+		cfg.PrintError("Cannot find block peak: ", err)
 		return err
 	}
 
@@ -127,7 +127,7 @@ func doInitExp(cfg *config.Config, client *rpc.RPCClient) error {
 	var err error
 	fleetContract, err = contract.NewFleetContract()
 	if err != nil {
-		printError("Cannot create fleet contract instance: ", err)
+		cfg.PrintError("Cannot create fleet contract instance: ", err)
 		return err
 	}
 	act, _ := client.GetValidAccount(uint64(bn), cfg.ClientAddr)
@@ -138,40 +138,40 @@ func doInitExp(cfg *config.Config, client *rpc.RPCClient) error {
 	}
 	deployData, err := fleetContract.DeployFleetContract(cfg.RegistryAddr, cfg.ClientAddr, cfg.ClientAddr)
 	if err != nil {
-		printError("Cannot create deploy contract data: ", err)
+		cfg.PrintError("Cannot create deploy contract data: ", err)
 		return err
 	}
 	tx := edge.NewDeployTransaction(nonce, 0, 10000000, 0, deployData, 0)
 	res, err := client.SendTransaction(tx)
 	if err != nil {
-		printError("Cannot deploy fleet contract: ", err)
+		cfg.PrintError("Cannot deploy fleet contract: ", err)
 		return err
 	}
 	if !res {
 		err = fmt.Errorf("server return err false")
-		printError("Cannot deploy fleet contract: ", err)
+		cfg.PrintError("Cannot deploy fleet contract: ", err)
 		return err
 	}
 	fleetAddr := util.CreateAddress(cfg.ClientAddr, nonce)
-	printLabel("New fleet address", fleetAddr.HexString())
+	cfg.PrintLabel("New fleet address", fleetAddr.HexString())
 	// generate fleet address
 	// send device allowlist transaction
 	allowlistData, _ := fleetContract.SetDeviceAllowlist(cfg.ClientAddr, true)
 	ntx := edge.NewTransaction(nonce+1, 0, 10000000, fleetAddr, 0, allowlistData, 0)
 	res, err = client.SendTransaction(ntx)
 	if err != nil {
-		printError("Cannot allowlist device: ", err)
+		cfg.PrintError("Cannot allowlist device: ", err)
 		return err
 	}
 	if !res {
 		err = fmt.Errorf("server return err false")
-		printError("Cannot allowlist device: ", err)
+		cfg.PrintError("Cannot allowlist device: ", err)
 		return err
 	}
-	printLabel("Allowlisting device: ", cfg.ClientAddr.HexString())
-	printInfo("Waiting for block to be confirmed - this can take up to a minute")
+	cfg.PrintLabel("Allowlisting device: ", cfg.ClientAddr.HexString())
+	cfg.PrintInfo("Waiting for block to be confirmed - this can take up to a minute")
 	watchAccount(client, fleetAddr)
-	printInfo("Created fleet contract and allowlisted device successfully")
+	cfg.PrintInfo("Created fleet contract and allowlisted device successfully")
 	cfg.FleetAddr = fleetAddr
 	if cfg.LoadFromFile {
 		err = cfg.SaveToFile()
@@ -179,10 +179,10 @@ func doInitExp(cfg *config.Config, client *rpc.RPCClient) error {
 		err = db.DB.Put("fleet", fleetAddr[:])
 	}
 	if err != nil {
-		printError("Cannot save fleet address: ", err)
+		cfg.PrintError("Cannot save fleet address: ", err)
 		return err
 	}
-	printInfo("Client has been initialized, try to publish or browser through Diode Network.")
+	cfg.PrintInfo("Client has been initialized, try to publish or browser through Diode Network.")
 	return nil
 }
 
