@@ -6,6 +6,7 @@ require (
 	github.com/apex/log v1.1.4 // indirect
 	github.com/bradfitz/iter v0.0.0-20191230175014-e8f45d346db8 // indirect
 	github.com/c4milo/unpackit v0.0.0-20170704181138-4ed373e9ef1c // indirect
+	github.com/caddyserver/certmagic v0.12.0
 	github.com/davecgh/go-spew v1.1.1
 	github.com/diodechain/go-cache v2.1.0+incompatible
 	github.com/diodechain/go-update v2.2.10+incompatible
@@ -28,15 +29,14 @@ require (
 	github.com/rcrowley/go-metrics v0.0.0-20190826022208-cac0b30c2563
 	github.com/rs/cors v1.7.0
 	github.com/sc0vu/didyoumean v0.0.0-20201016060748-8033fa1fcd65
-	github.com/securego/gosec/v2 v2.5.0 // indirect
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/stretchr/testify v1.4.0
 	github.com/ucirello/tcpkeepalive v0.0.0-20180903163222-92daabaeadac
 	github.com/ulikunitz/xz v0.5.7 // indirect
-	golang.org/x/crypto v0.0.0-20200622213623-75b288015ac9
+	golang.org/x/crypto v0.0.0-20200728195943-123391ffb6de
 	golang.org/x/sys v0.0.0-20200808120158-1030fc2bf1d9
-	gopkg.in/check.v1 v1.0.0-20190902080502-41f04d3bba15 // indirect
+	golang.org/x/tools v0.0.0-20201007032633-0806396f153e // indirect
 	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
 	gopkg.in/yaml.v2 v2.3.0
 )

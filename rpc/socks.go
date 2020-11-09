@@ -23,9 +23,10 @@ import (
 )
 
 var (
-	defaultMode      = "rw"
-	domainPattern    = regexp.MustCompile(`^(.+)\.(diode|diode\.link|diode\.ws)(:[\d]+)?$`)
-	subDomainpattern = regexp.MustCompile(`^([rws]{1,3}-)?(0x[A-Fa-f0-9]{40}|[A-Za-z0-9][A-Za-z0-9-]{5,30}?)(-[^0][\d]+)?$`)
+	defaultMode        = "rw"
+	domainPattern      = regexp.MustCompile(`^(.+)\.(diode|diode\.link|diode\.ws)(:[\d]+)?$`)
+	proxyDomainPattern = regexp.MustCompile(`^(.+)\.(diode|diode\.link|diode\.ws|com|io|xyz)(:[\d]+)?$`)
+	subdomainPattern   = regexp.MustCompile(`^([rws]{1,3}-)?(0x[A-Fa-f0-9]{40}|[A-Za-z0-9][A-Za-z0-9-]{5,30}?)(-[^0][\d]+)?$`)
 
 	errAddrType        = errors.New("socks addr type not supported")
 	errVer             = errors.New("socks version not supported")
@@ -280,29 +281,29 @@ func handShake5(conn net.Conn, buf []byte) (url string, err error) {
 }
 
 func isDiodeHost(host string) bool {
-	subDomainPort := domainPattern.FindStringSubmatch(host)
-	return len(subDomainPort) == 4
+	subdomainPort := domainPattern.FindStringSubmatch(host)
+	return len(subdomainPort) == 4
 }
 
-func parseHost(host string) (isWS bool, mode string, deviceID string, port int, err error) {
+func (socksServer *Server) parseHost(host string) (isWS bool, mode string, deviceID string, port int, err error) {
 	mode = defaultMode
 	strPort := ":80"
 
-	subDomainPort := domainPattern.FindStringSubmatch(host)
+	subdomainPort := domainPattern.FindStringSubmatch(host)
 	var sub, domain string
-	if len(subDomainPort) != 4 {
+	if len(subdomainPort) != 4 {
 		err = fmt.Errorf("domain pattern not supported %v", host)
 		return
 	}
 
-	sub = subDomainPort[1]
-	domain = subDomainPort[2]
-	if len(subDomainPort[3]) > 0 {
-		strPort = subDomainPort[3]
+	sub = subdomainPort[1]
+	domain = subdomainPort[2]
+	if len(subdomainPort[3]) > 0 {
+		strPort = subdomainPort[3]
 	}
 
 	isWS = domain == "diode.ws"
-	modeHostPort := subDomainpattern.FindStringSubmatch(sub)
+	modeHostPort := subdomainPattern.FindStringSubmatch(sub)
 	if len(modeHostPort) != 4 {
 		err = fmt.Errorf("subdomain pattern not supported %v", sub)
 		return
@@ -609,7 +610,7 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 		return
 	}
 
-	isWS, mode, deviceID, port, err := parseHost(host)
+	isWS, mode, deviceID, port, err := socksServer.parseHost(host)
 	if err != nil {
 		socksServer.logger.Error("Failed to parse host %v", err)
 		return
@@ -735,7 +736,7 @@ func (socksServer *Server) handleUDP(packet []byte) {
 	data := packet[idDm0+dmLen+2:]
 
 	// Finished parsing packet
-	isWS, mode, deviceID, _, err := parseHost(host)
+	isWS, mode, deviceID, _, err := socksServer.parseHost(host)
 	if err != nil {
 		socksServer.logger.Error("handleUDP error: Failed to parse %s %v", host, err)
 		return

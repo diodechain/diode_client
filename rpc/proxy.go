@@ -11,9 +11,12 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
+	// "path"
 
+	"github.com/caddyserver/certmagic"
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/gorilla/websocket"
 )
@@ -27,6 +30,7 @@ type ProxyConfig struct {
 	PrivPath          string
 	EnableSProxy      bool
 	AllowRedirect     bool
+	EdgeACME          bool
 }
 
 type HttpError struct {
@@ -82,6 +86,42 @@ func internalError(w http.ResponseWriter, str string) {
 	httpError(w, 500, str)
 }
 
+func (proxyServer *ProxyServer) parseHost(host string) (isWS bool, mode string, deviceID string, port int, err error) {
+	mode = defaultMode
+	strPort := ":80"
+
+	subdomainPort := proxyDomainPattern.FindStringSubmatch(host)
+	var sub, domain string
+	if len(subdomainPort) != 4 {
+		err = fmt.Errorf("domain pattern not supported %v", host)
+		return
+	}
+
+	sub = subdomainPort[1]
+	domain = subdomainPort[2]
+	if len(subdomainPort[3]) > 0 {
+		strPort = subdomainPort[3]
+	}
+
+	isWS = domain == "diode.ws"
+	modeHostPort := subdomainPattern.FindStringSubmatch(sub)
+	if len(modeHostPort) != 4 {
+		err = fmt.Errorf("subdomain pattern not supported %v", sub)
+		return
+	}
+	if len(modeHostPort[1]) > 0 {
+		mode = modeHostPort[1]
+		mode = mode[:len(mode)-1]
+	}
+	deviceID = modeHostPort[2]
+	if len(modeHostPort[3]) > 0 {
+		strPort = modeHostPort[3]
+	}
+
+	port, err = strconv.Atoi(strPort[1:])
+	return
+}
+
 func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request) {
 	proxyServer.logger.Debug("Got proxy request from: %s", r.RemoteAddr)
 	host := r.Host
@@ -90,7 +130,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	isWS, mode, deviceID, port, err := parseHost(host)
+	isWS, mode, deviceID, port, err := proxyServer.parseHost(host)
 
 	if err != nil {
 		msg := fmt.Sprintf("failed to parse host: %v", err)
@@ -207,7 +247,7 @@ func (proxyServer *ProxyServer) Start() error {
 	if proxyServer.Closed() {
 		return nil
 	}
-	proxyServer.logger.Info("Start httpd server %s", proxyServer.Config.ProxyServerAddr)
+	proxyServer.logger.Info("Start gateway server %s", proxyServer.Config.ProxyServerAddr)
 	prox, _ := url.Parse(fmt.Sprintf("socks5://%s", proxyServer.socksServer.Config.Addr))
 	proxyTransport.Proxy = http.ProxyURL(prox)
 	httpdHandler := http.HandlerFunc(proxyServer.pipeProxy)
@@ -235,29 +275,76 @@ func (proxyServer *ProxyServer) Start() error {
 
 	// start httpsd proxy server
 	if proxyServer.Config.EnableSProxy {
-		proxyServer.logger.Info("Start httpsd server %s", proxyServer.Config.SProxyServerAddr)
+		proxyServer.logger.Info("Start gateway server %s", proxyServer.Config.SProxyServerAddr)
 		httpsdHandler := http.HandlerFunc(proxyServer.pipeProxy)
 		httpsdAddr := proxyServer.Config.SProxyServerAddr
 		protos := make(map[string]func(*http.Server, *tls.Conn, http.Handler))
 		proxyServer.httpsServer = &http.Server{Addr: httpsdAddr, Handler: httpsdHandler, TLSNextProto: protos}
+		// load pem format certificate key pair
+		cert, err := tls.LoadX509KeyPair(proxyServer.Config.CertPath, proxyServer.Config.PrivPath)
+		if err != nil {
+			return err
+		}
+		var tlsConfig *tls.Config
+		var addr string
+		if proxyServer.Config.EdgeACME {
+			// must listen to 443 for ACME
+			addr = config.AppConfig.SProxyServerAddrForPort(443)
+			certmagic.DefaultACME.CA = certmagic.LetsEncryptProductionCA
+			certmagic.DefaultACME.Email = "peter@diode.io"
+			certmagic.DefaultACME.Agreed = true
+			certmagic.DefaultACME.DisableHTTPChallenge = true
+			certmagic.Default.OnDemand = &certmagic.OnDemandConfig{
+				DecisionFunc: func(name string) error {
+					// TODO: validate domain name
+					return nil
+				},
+			}
+			certmagicCfg := certmagic.NewDefault()
+			// cache the certificate
+			certmagicCfg.CacheUnmanagedTLSCertificate(cert, nil)
+			tlsConfig = certmagicCfg.TLSConfig()
+			// don't have to sync certificates
+			// err := certmagicCfg.ManageSync([]string{})
+			// if err != nil {
+			// 	return err
+			// }
+		} else {
+			addr = config.AppConfig.SProxyServerAddr()
+			tlsConfig = &tls.Config{
+				Certificates: []tls.Certificate{
+					cert,
+				},
+			}
+		}
+
+		ln, err := tls.Listen("tcp", addr, tlsConfig)
+		if err != nil {
+			proxyServer.logger.Error("Couldn't listen to tls server: %v", err)
+			return err
+		}
 
 		go func() {
-			if err := proxyServer.httpsServer.ListenAndServeTLS(proxyServer.Config.CertPath, proxyServer.Config.PrivPath); err != nil {
-				proxyServer.httpsServer = nil
-				if err != http.ErrServerClosed {
-					proxyServer.logger.Error("Couldn't start https proxy: %v", err)
-				}
+			httpsServer := &http.Server{Handler: httpsdHandler, TLSNextProto: protos}
+			err := httpsServer.Serve(ln)
+			if err != http.ErrServerClosed {
+				proxyServer.logger.Error("Couldn't start https proxy: %v", err)
 			}
 		}()
-
 		if len(proxyServer.Config.SProxyServerPorts) > 0 {
 			proxyServer.logger.Info("Starting %d additional httpsd servers", len(proxyServer.Config.SProxyServerPorts))
 		}
 		for _, port := range proxyServer.Config.SProxyServerPorts {
-			addr := config.AppConfig.SProxyServerAddrForPort(port)
+			addr = config.AppConfig.SProxyServerAddrForPort(port)
 			httpsServer := &http.Server{Addr: addr, Handler: httpsdHandler, TLSNextProto: protos}
+			proxyServer.logger.Info("Starting %s additional httpsd servers", addr)
+			ln, err = tls.Listen("tcp", addr, tlsConfig)
+			if err != nil {
+				proxyServer.logger.Error("Couldn't listen to %s, error: %s", addr, err.Error())
+				continue
+			}
 			go func() {
-				err := httpsServer.ListenAndServeTLS(proxyServer.Config.CertPath, proxyServer.Config.PrivPath)
+				err := httpsServer.Serve(ln)
 				if err != http.ErrServerClosed {
 					proxyServer.logger.Error("Couldn't start https proxy: %v", err)
 				}

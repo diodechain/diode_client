@@ -16,9 +16,10 @@ var (
 		Name:        "gateway",
 		HelpText:    `  Enable a public gateway server as is used by the "diode.link" website`,
 		ExampleText: `  diode gateway -httpd_port 8080 -httpsd_port 443 -secure -certpath ./cert.pem -privpath ./priv.pem`,
-		Run:         httpdHandler,
+		Run:         gatewayHandler,
 		Type:        command.DaemonCommand,
 	}
+	edgeACME = false
 )
 
 func init() {
@@ -37,9 +38,10 @@ func init() {
 	gatewayCmd.Flag.StringVar(&cfg.SProxyServerPrivPath, "privpath", "./priv/priv.pem", "Pem format of private key file path of httpsd secure server")
 	gatewayCmd.Flag.BoolVar(&cfg.EnableSProxyServer, "secure", false, "enable httpsd server")
 	gatewayCmd.Flag.BoolVar(&cfg.AllowRedirectToSProxy, "allow_redirect", false, "allow redirect all http transmission to httpsd")
+	gatewayCmd.Flag.BoolVar(&edgeACME, "edge_acme", false, "allow to use ACME generate certificates automatically")
 }
 
-func httpdHandler() (err error) {
+func gatewayHandler() (err error) {
 	err = app.Start()
 	if err != nil {
 		return
@@ -84,6 +86,7 @@ func httpdHandler() (err error) {
 		CertPath:          cfg.SProxyServerCertPath,
 		PrivPath:          cfg.SProxyServerPrivPath,
 		AllowRedirect:     cfg.AllowRedirectToSProxy,
+		EdgeACME:          edgeACME,
 	})
 	// Start proxy server
 	app.SetProxyServer(proxyServer)
