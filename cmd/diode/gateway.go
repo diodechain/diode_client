@@ -19,7 +19,8 @@ var (
 		Run:         gatewayHandler,
 		Type:        command.DaemonCommand,
 	}
-	edgeACME = false
+	edgeACME      = false
+	edgeACMEEmail = ""
 )
 
 func init() {
@@ -39,6 +40,7 @@ func init() {
 	gatewayCmd.Flag.BoolVar(&cfg.EnableSProxyServer, "secure", false, "enable httpsd server")
 	gatewayCmd.Flag.BoolVar(&cfg.AllowRedirectToSProxy, "allow_redirect", false, "allow redirect all http transmission to httpsd")
 	gatewayCmd.Flag.BoolVar(&edgeACME, "edge_acme", false, "allow to use ACME generate certificates automatically")
+	gatewayCmd.Flag.StringVar(&edgeACMEEmail, "edge_acme_email", "", "ACME email configuration")
 }
 
 func gatewayHandler() (err error) {
@@ -87,6 +89,7 @@ func gatewayHandler() (err error) {
 		PrivPath:          cfg.SProxyServerPrivPath,
 		AllowRedirect:     cfg.AllowRedirectToSProxy,
 		EdgeACME:          edgeACME,
+		EdgeACMEEmail:     edgeACMEEmail,
 	})
 	// Start proxy server
 	app.SetProxyServer(proxyServer)

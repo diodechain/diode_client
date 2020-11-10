@@ -18,6 +18,7 @@ import (
 
 	"github.com/caddyserver/certmagic"
 	"github.com/diodechain/diode_go_client/config"
+	"github.com/diodechain/diode_go_client/util"
 	"github.com/gorilla/websocket"
 )
 
@@ -31,6 +32,7 @@ type ProxyConfig struct {
 	EnableSProxy      bool
 	AllowRedirect     bool
 	EdgeACME          bool
+	EdgeACMEEmail     string
 }
 
 type HttpError struct {
@@ -120,6 +122,51 @@ func (proxyServer *ProxyServer) parseHost(host string) (isWS bool, mode string, 
 
 	port, err = strconv.Atoi(strPort[1:])
 	return
+}
+
+// isAllowedDevice validate whether the device is allowed to request the certificate
+// TODO: add enable/disable in bns smart contract
+func (proxyServer *ProxyServer) isAllowedDevice(deviceName string) (err error) {
+	// Resolving BNS if needed
+	var deviceID Address
+	socksServer := proxyServer.socksServer
+	client := socksServer.datapool.GetNearestClient()
+	if client == nil {
+		err = fmt.Errorf("serve not found")
+		return
+	}
+	if !util.IsHex([]byte(deviceName)) {
+		bnsKey := fmt.Sprintf("bns:%s", deviceName)
+		var ok bool
+		deviceID, ok = socksServer.datapool.GetCacheBNS(bnsKey)
+		if !ok {
+			deviceID, err = client.ResolveBNS(deviceName)
+			if err != nil {
+				return
+			}
+			socksServer.datapool.SetCacheBNS(bnsKey, deviceID)
+		}
+	} else {
+		// reject hex encoding device name
+		err = fmt.Errorf("unsupported device name")
+		return
+	}
+
+	// Checking blocklist and allowlist
+	if len(socksServer.Config.Blocklists) > 0 {
+		if socksServer.Config.Blocklists[deviceID] {
+			err = fmt.Errorf("device %x is in the block list", deviceName)
+			return
+		}
+	} else {
+		if len(socksServer.Config.Allowlists) > 0 {
+			if !socksServer.Config.Allowlists[deviceID] {
+				err = fmt.Errorf("device %x is not in the allow list", deviceName)
+				return
+			}
+		}
+	}
+	return nil
 }
 
 func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request) {
@@ -291,16 +338,23 @@ func (proxyServer *ProxyServer) Start() error {
 			// must listen to 443 for ACME
 			addr = config.AppConfig.SProxyServerAddrForPort(443)
 			certmagic.DefaultACME.CA = certmagic.LetsEncryptProductionCA
-			certmagic.DefaultACME.Email = "peter@diode.io"
+			certmagic.DefaultACME.Email = proxyServer.Config.EdgeACMEEmail
 			certmagic.DefaultACME.Agreed = true
 			certmagic.DefaultACME.DisableHTTPChallenge = true
-			certmagic.Default.OnDemand = &certmagic.OnDemandConfig{
+			certmagicCfg := certmagic.NewDefault()
+			certmagicCfg.OnDemand = &certmagic.OnDemandConfig{
 				DecisionFunc: func(name string) error {
-					// TODO: validate domain name
+					_, _, deviceID, _, err := proxyServer.parseHost(name)
+					if err != nil {
+						return err
+					}
+					err = proxyServer.isAllowedDevice(deviceID)
+					if err != nil {
+						return fmt.Errorf("device was not allowed %v", err)
+					}
 					return nil
 				},
 			}
-			certmagicCfg := certmagic.NewDefault()
 			// cache the certificate
 			certmagicCfg.CacheUnmanagedTLSCertificate(cert, nil)
 			tlsConfig = certmagicCfg.TLSConfig()
