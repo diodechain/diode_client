@@ -31,6 +31,7 @@ type Call struct {
 	id         uint64
 	method     string
 	retryTimes int
+	inserted   bool
 	response   chan interface{}
 	signal     chan Signal
 	data       []byte

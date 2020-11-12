@@ -21,7 +21,8 @@ import (
 
 const (
 	// 4194304 = 1024 * 4096 (server limit is 41943040)
-	ticketBound = 4194304
+	ticketBound    = 4194304
+	callsQueueSize = 1024
 )
 
 var (
@@ -79,8 +80,8 @@ func getRequestID() uint64 {
 func NewRPCClient(s *SSL, config *RPCConfig, pool *DataPool) RPCClient {
 	return RPCClient{
 		s:                     s,
-		callQueue:             make(chan Call, 1024),
-		calls:                 make(map[uint64]Call),
+		callQueue:             make(chan Call, callsQueueSize),
+		calls:                 make(map[uint64]Call, callsQueueSize),
 		closeCh:               make(chan struct{}),
 		ticketTickerDuration:  1 * time.Millisecond,
 		finishBlockTickerChan: make(chan bool, 1),
@@ -233,11 +234,8 @@ func (rpcClient *RPCClient) CastContext(requestID uint64, method string, args ..
 func preparePayload(requestID uint64, method string, payload []byte, parse func(buffer []byte) (interface{}, error), message chan interface{}) (Call, error) {
 	// add length of payload
 	lenPay := len(payload)
-	lenByt := make([]byte, 2)
 	bytPay := make([]byte, lenPay+2)
-	binary.BigEndian.PutUint16(lenByt, uint16(lenPay))
-	bytPay[0] = lenByt[0]
-	bytPay[1] = lenByt[1]
+	binary.BigEndian.PutUint16(bytPay[:2], uint16(lenPay))
 	for i, s := range payload {
 		bytPay[i+2] = byte(s)
 	}

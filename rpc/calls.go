@@ -12,6 +12,9 @@ func (rpcClient *RPCClient) totalCallLength() int {
 func (rpcClient *RPCClient) addCall(c Call) {
 	rpcClient.rm.Lock()
 	defer rpcClient.rm.Unlock()
+	if !c.inserted {
+		c.inserted = true
+	}
 	rpcClient.calls[c.id] = c
 }
 
@@ -26,9 +29,7 @@ func (rpcClient *RPCClient) notifyCalls(signal Signal) {
 func (rpcClient *RPCClient) recall() {
 	rpcClient.rm.Lock()
 	defer rpcClient.rm.Unlock()
-	// copy calls
 	calls := rpcClient.calls
-	rpcClient.calls = make(map[uint64]Call)
 	for _, call := range calls {
 		call.retryTimes--
 		if call.retryTimes >= 0 && !rpcClient.Closed() {
