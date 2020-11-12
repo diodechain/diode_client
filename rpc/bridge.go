@@ -98,7 +98,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			connDevice := &ConnectedDevice{}
 
 			// connect to stream service
-			host := net.JoinHostPort(localhost, strconv.Itoa(portOpen.SrcPortNumber))
+			host := net.JoinHostPort(publishedPort.SrcHost, strconv.Itoa(portOpen.SrcPortNumber))
 
 			network := "tcp"
 			if portOpen.Protocol == config.UDPProtocol {

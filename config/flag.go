@@ -226,6 +226,7 @@ type Bind struct {
 
 // Port struct for listening port
 type Port struct {
+	SrcHost   string
 	Src       int
 	To        int
 	Mode      int

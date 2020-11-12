@@ -11,7 +11,6 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/pprof"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -470,32 +469,6 @@ func (dio *Diode) SetProxyServer(proxyServer *rpc.ProxyServer) {
 // TODO: close unused config api server?
 func (dio *Diode) SetConfigAPIServer(configAPIServer *ConfigAPIServer) {
 	dio.configAPIServer = configAPIServer
-}
-
-// PublishPorts publish local resource to diode network
-func (dio *Diode) PublishPorts() {
-	cfg := config.AppConfig
-	if len(cfg.PublishedPorts) > 0 {
-		cfg.PrintInfo("")
-		dio.datapool.SetPublishedPorts(cfg.PublishedPorts)
-		for _, port := range cfg.PublishedPorts {
-			if port.To == 80 {
-				if port.Mode == config.PublicPublishedMode {
-					cfg.PrintLabel("Http Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", cfg.ClientAddr.HexString()))
-				}
-				break
-			}
-		}
-		cfg.PrintLabel("Port      <name>", "<extern>     <mode>    <protocol>     <allowlist>")
-		for _, port := range cfg.PublishedPorts {
-			addrs := make([]string, 0, len(port.Allowlist))
-			for addr := range port.Allowlist {
-				addrs = append(addrs, addr.HexString())
-			}
-
-			cfg.PrintLabel(fmt.Sprintf("Port      %5d", port.Src), fmt.Sprintf("%8d  %10s       %s        %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol), strings.Join(addrs, ",")))
-		}
-	}
 }
 
 // Wait till user signal int to diode application
