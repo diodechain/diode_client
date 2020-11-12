@@ -4,6 +4,7 @@
 package main
 
 import (
+	"fmt"
 	"runtime"
 
 	"github.com/diodechain/diode_go_client/command"
@@ -23,10 +24,12 @@ var (
 
 func versionHandler() (err error) {
 	goVersion := runtime.Version()
+	goOS := runtime.GOOS
+	goARCH := runtime.GOARCH
+	cpus := runtime.NumCPU()
 	cfg := config.AppConfig
-	cfg.PrintLabel("GO version", goVersion)
-	// cpus := runtime.NumCPU()
-	// cfg.PrintLabel("CPU usage", fmt.Sprintf("%d", cpus))
-	cfg.PrintLabel("Openssl version", openssl.OpensslVersion())
+	cfg.PrintLabel("GO Version", goVersion)
+	cfg.PrintLabel("Openssl Version", openssl.OpensslVersion())
+	cfg.PrintLabel("OS ARCH CPU", fmt.Sprintf("%s %s %d", goOS, goARCH, cpus))
 	return
 }
