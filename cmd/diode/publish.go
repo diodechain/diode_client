@@ -299,7 +299,7 @@ func publishHandler() (err error) {
 		app.SetConfigAPIServer(configAPIServer)
 	}
 	socksServer := rpc.NewSocksServer(app.datapool)
-	socksServer.SetConfig(&rpc.Config{
+	socksServer.SetConfig(rpc.Config{
 		Addr:            cfg.SocksServerAddr(),
 		FleetAddr:       cfg.FleetAddr,
 		Blocklists:      cfg.Blocklists,

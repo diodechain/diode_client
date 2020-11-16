@@ -304,6 +304,19 @@ func (s *SSL) readMessage() (msg edge.Message, err error) {
 	return msg, nil
 }
 
+func (s *SSL) sendMessage(buf []byte) (n int, err error) {
+	conn := s.getOpensslConn()
+	n, err = conn.Write(buf)
+	if err != nil {
+		return
+	}
+	if n != len(buf) {
+		err = fmt.Errorf("data was truncated")
+	}
+	s.incrementTotalBytes(n)
+	return
+}
+
 func (s *SSL) reconnect() error {
 	s.rm.Lock()
 	s.reconnecting = true
@@ -407,7 +420,7 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 		}
 	}
 
-	rpcConfig := &RPCConfig{
+	rpcConfig := RPCConfig{
 		ClientAddr:   config.ClientAddr,
 		RegistryAddr: config.RegistryAddr,
 		FleetAddr:    config.FleetAddr,

@@ -26,6 +26,26 @@ type BlockHeader struct {
 	nonce       uint64
 }
 
+// NewHeader creates a new block header from existing data
+func NewHeader(txHash []byte, stateHash []byte, prevBlock []byte, minerSig []byte, minerPubkey []byte, timestamp uint64, number uint64, nonce uint64) (bh BlockHeader, err error) {
+	header := BlockHeader{
+		txHash:      txHash,
+		stateHash:   stateHash,
+		prevBlock:   prevBlock,
+		minerSig:    minerSig,
+		minerPubkey: minerPubkey,
+		timestamp:   timestamp,
+		number:      number,
+		nonce:       nonce,
+	}
+	if !header.ValidateSig() {
+		err = fmt.Errorf("invalid block %v %v", header, header.Hash())
+		return
+	}
+	bh = header
+	return
+}
+
 // Serialize returns a serialized version
 func (bh *BlockHeader) Serialize() ([]byte, error) {
 	data, err := bert.Encode([7]bert.Term{
@@ -41,24 +61,6 @@ func (bh *BlockHeader) Serialize() ([]byte, error) {
 		return []byte{}, err
 	}
 	return data, nil
-}
-
-// NewHeader creates a new block header from existing data
-func NewHeader(txHash []byte, stateHash []byte, prevBlock []byte, minerSig []byte, minerPubkey []byte, timestamp uint64, number uint64, nonce uint64) (*BlockHeader, error) {
-	header := &BlockHeader{
-		txHash:      txHash,
-		stateHash:   stateHash,
-		prevBlock:   prevBlock,
-		minerSig:    minerSig,
-		minerPubkey: minerPubkey,
-		timestamp:   timestamp,
-		number:      number,
-		nonce:       nonce,
-	}
-	if !header.ValidateSig() {
-		return nil, fmt.Errorf("invalid block %v %v", header, header.Hash())
-	}
-	return header, nil
 }
 
 // Hash returns sha3 of bert encoded block header

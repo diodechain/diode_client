@@ -33,7 +33,7 @@ func timeHandler() (err error) {
 	client := app.datapool.GetNearestClient()
 	blocknr, _ := client.LastValid()
 	header := client.GetBlockHeaderValid(blocknr)
-	if header == nil {
+	if header.Number() == 0 {
 		err = ErrFailedToFetchHeader
 		return
 	}

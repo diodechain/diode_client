@@ -70,7 +70,7 @@ type Bind struct {
 // Server is the only instances of the Socks Server
 type Server struct {
 	datapool *DataPool
-	Config   *Config
+	Config   Config
 	logger   *config.Logger
 	listener net.Listener
 	udpconn  net.PacketConn
@@ -904,7 +904,7 @@ func (socksServer *Server) handleBind(conn net.Conn, bind config.Bind) {
 // NewSocksServer generate socksserver struct
 func NewSocksServer(pool *DataPool) *Server {
 	return &Server{
-		Config:   &Config{},
+		Config:   Config{},
 		logger:   config.AppConfig.Logger,
 		wg:       &sync.WaitGroup{},
 		datapool: pool,
@@ -913,7 +913,7 @@ func NewSocksServer(pool *DataPool) *Server {
 	}
 }
 
-func (socksServer *Server) SetConfig(config *Config) {
+func (socksServer *Server) SetConfig(config Config) {
 	socksServer.rm.Lock()
 	defer socksServer.rm.Unlock()
 	socksServer.Config = config

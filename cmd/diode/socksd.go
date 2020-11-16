@@ -52,7 +52,7 @@ func socksdHandler() (err error) {
 			cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
 		}
 	}
-	socksServer.SetConfig(&rpc.Config{
+	socksServer.SetConfig(rpc.Config{
 		Addr:            cfg.SocksServerAddr(),
 		FleetAddr:       cfg.FleetAddr,
 		Blocklists:      cfg.Blocklists,

@@ -326,8 +326,7 @@ func (rpcClient *RPCClient) sendMessage() {
 		}
 		rpcClient.Debug("Send new rpc: %s id: %d", call.method, call.id)
 		ts := time.Now()
-		conn := rpcClient.s.getOpensslConn()
-		n, err := conn.Write(call.data)
+		_, err := rpcClient.s.sendMessage(call.data)
 		if err != nil {
 			rpcClient.Error("Failed to write to node: %v", err)
 			if rpcClient.Closed() {
@@ -340,12 +339,6 @@ func (rpcClient *RPCClient) sendMessage() {
 			}
 			continue
 		}
-		if n != len(call.data) {
-			// exceeds the packet size, drop it
-			rpcClient.Error("Wrong length of data")
-			continue
-		}
-		rpcClient.s.incrementTotalBytes(n)
 		tsDiff := time.Since(ts)
 		if rpcClient.enableMetrics {
 			rpcClient.metrics.UpdateWriteTimer(tsDiff)
