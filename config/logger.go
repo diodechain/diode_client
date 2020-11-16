@@ -5,34 +5,60 @@ package config
 
 import (
 	"fmt"
-	"os"
+	// "os"
 	"sync"
 
-	"github.com/diodechain/log15"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+)
+
+const (
+	termDatetimeTempl = "01/02/2006 15:04:05"
 )
 
 // Logger represent log service for client
 type Logger struct {
 	mode    int
 	verbose bool
-	logger  log15.Logger
+	logger  *zap.Logger
 	closeCh chan struct{}
 	cd      sync.Once
 }
 
+func newZapLogger(cfg *Config) (logger *zap.Logger) {
+	var zapCfg zap.Config
+	if cfg.Debug {
+		zapCfg = zap.NewDevelopmentConfig()
+		zapCfg.EncoderConfig.EncodeCaller = zapcore.ShortCallerEncoder
+	} else {
+		zapCfg = zap.NewProductionConfig()
+		zapCfg.EncoderConfig.CallerKey = ""
+	}
+	if (cfg.LogMode & LogToFile) > 0 {
+		// TODO: check whether file is existed?
+		zapCfg.OutputPaths = []string{cfg.LogFilePath}
+		zapCfg.ErrorOutputPaths = []string{cfg.LogFilePath}
+		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
+	} else {
+		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	}
+	if !cfg.LogDateTime {
+		zapCfg.EncoderConfig.TimeKey = ""
+	} else {
+		zapCfg.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(termDatetimeTempl)
+	}
+	zapCfg.Sampling = nil
+	zapCfg.Encoding = "console"
+	zapCfg.EncoderConfig.ConsoleSeparator = " "
+	zapCfg.EncoderConfig.LevelKey = "[L]"
+	logger, _ = zapCfg.Build()
+	defer logger.Sync()
+	return
+}
+
 // NewLogger initialize logger with given config
 func NewLogger(cfg *Config) (l Logger, err error) {
-	var logHandler log15.Handler
-	logger := log15.New()
-	if (cfg.LogMode & LogToConsole) > 0 {
-		logHandler = log15.StreamHandler(os.Stderr, log15.TerminalFormat(cfg.LogDateTime))
-	} else if (cfg.LogMode & LogToFile) > 0 {
-		logHandler, err = log15.FileHandler(cfg.LogFilePath, log15.TerminalFormat(cfg.LogDateTime))
-		if err != nil {
-			return
-		}
-	}
-	logger.SetHandler(logHandler)
+	logger := newZapLogger(cfg)
 	l.logger = logger
 	l.verbose = cfg.Debug
 	l.closeCh = make(chan struct{})
@@ -40,31 +66,36 @@ func NewLogger(cfg *Config) (l Logger, err error) {
 	return
 }
 
+// ZapLogger returns *zap.Logger
+func (l *Logger) ZapLogger() *zap.Logger {
+	return l.logger
+}
+
 // InfoWithHost logs to logger in Info level
 func (l *Logger) InfoWithHost(msg string, host string) {
-	l.logger.Info(msg, "server", host)
+	l.logger.Info(msg, zap.String("server", host))
 }
 
 // DebugWithHost logs to logger in Debug level
 func (l *Logger) DebugWithHost(msg string, host string) {
 	if l.verbose {
-		l.logger.Debug(msg, "server", host)
+		l.logger.Debug(msg, zap.String("server", host))
 	}
 }
 
 // ErrorWithHost logs to logger in Error level
 func (l *Logger) ErrorWithHost(msg string, host string) {
-	l.logger.Error(msg, "server", host)
+	l.logger.Error(msg, zap.String("server", host))
 }
 
 // WarnWithHost logs to logger in Warn level
 func (l *Logger) WarnWithHost(msg string, host string) {
-	l.logger.Warn(msg, "server", host)
+	l.logger.Warn(msg, zap.String("server", host))
 }
 
 // CritWithHost logs to logger in Crit level
 func (l *Logger) CritWithHost(msg string, host string) {
-	l.logger.Crit(msg, "server", host)
+	l.logger.Fatal(msg, zap.String("server", host))
 }
 
 // Info logs to logger in Info level
@@ -91,16 +122,12 @@ func (l *Logger) Warn(msg string, args ...interface{}) {
 
 // Crit logs to logger in Crit level
 func (l *Logger) Crit(msg string, args ...interface{}) {
-	l.logger.Crit(fmt.Sprintf(msg, args...))
+	l.logger.Fatal(fmt.Sprintf(msg, args...))
 }
 
 // Close logger handler
 func (l *Logger) Close() {
 	l.cd.Do(func() {
 		close(l.closeCh)
-		handler := l.logger.GetHandler()
-		if closingHandler, ok := handler.(log15.ClosingHandler); ok {
-			closingHandler.WriteCloser.Close()
-		}
 	})
 }

@@ -342,6 +342,7 @@ func (proxyServer *ProxyServer) Start() error {
 			certmagic.DefaultACME.Agreed = true
 			certmagic.DefaultACME.DisableHTTPChallenge = true
 			certmagicCfg := certmagic.NewDefault()
+			certmagicCfg.Logger = config.AppConfig.Logger.ZapLogger()
 			certmagicCfg.OnDemand = &certmagic.OnDemandConfig{
 				DecisionFunc: func(name string) error {
 					_, _, deviceID, _, err := proxyServer.parseHost(name)

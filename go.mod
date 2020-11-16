@@ -11,7 +11,6 @@ require (
 	github.com/diodechain/go-cache v2.1.0+incompatible
 	github.com/diodechain/go-update v2.2.10+incompatible
 	github.com/diodechain/gobert v1.0.1
-	github.com/diodechain/log15 v0.0.0-20200728094332-8d155c475c8f
 	github.com/diodechain/openssl v1.0.14
 	github.com/dsnet/compress v0.0.1 // indirect
 	github.com/ethereum/go-ethereum v1.9.11
@@ -26,6 +25,7 @@ require (
 	github.com/kierdavis/ansi v0.0.0-20180105022324-90d93b0fcae2
 	github.com/klauspost/pgzip v1.2.3 // indirect
 	github.com/leodido/go-urn v1.2.0 // indirect
+	github.com/mattn/go-isatty v0.0.11 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20190826022208-cac0b30c2563
 	github.com/rs/cors v1.7.0
 	github.com/sc0vu/didyoumean v0.0.0-20201016060748-8033fa1fcd65
@@ -34,6 +34,8 @@ require (
 	github.com/stretchr/testify v1.4.0
 	github.com/ucirello/tcpkeepalive v0.0.0-20180903163222-92daabaeadac
 	github.com/ulikunitz/xz v0.5.7 // indirect
+	go.uber.org/multierr v1.6.0 // indirect
+	go.uber.org/zap v1.16.0
 	golang.org/x/crypto v0.0.0-20200728195943-123391ffb6de
 	golang.org/x/sys v0.0.0-20200808120158-1030fc2bf1d9
 	golang.org/x/tools v0.0.0-20201007032633-0806396f153e // indirect

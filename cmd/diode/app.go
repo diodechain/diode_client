@@ -67,25 +67,19 @@ func init() {
 	var fleetFake string
 	diodeCmd.Flag.StringVar(&fleetFake, "fleet", "", "@deprecated. Use: 'diode config set fleet=0x1234' instead")
 
-	// tcp keepalive for node connection
-	diodeCmd.Flag.BoolVar(&cfg.EnableKeepAlive, "keepalive", runtime.GOOS != "windows", "enable tcp keepalive (only Linux >= 2.4, DragonFly, FreeBSD, NetBSD and OS X >= 10.8 are supported)")
-	diodeCmd.Flag.IntVar(&cfg.KeepAliveCount, "keepalivecount", 4, "the maximum number of keepalive probes TCP should send before dropping the connection")
-	diodeCmd.Flag.DurationVar(&cfg.KeepAliveIdle, "keepaliveidle", 30*time.Second, "the time (in seconds) the connection needs to remain idle before TCP starts sending keepalive probes")
-	diodeCmd.Flag.DurationVar(&cfg.KeepAliveInterval, "keepaliveinterval", 5*time.Second, "the time (in seconds) between individual keepalive probes")
-
 	diodeCmd.Flag.DurationVar(&cfg.RemoteRPCTimeout, "timeout", 5*time.Second, "timeout seconds to connect to the remote rpc server")
 	diodeCmd.Flag.DurationVar(&cfg.RetryWait, "retrywait", 1*time.Second, "wait seconds before next retry")
 	diodeCmd.Flag.Var(&cfg.RemoteRPCAddrs, "diodeaddrs", "addresses of Diode node server (default: asia.prenet.diode.io:41046, europe.prenet.diode.io:41046, usa.prenet.diode.io:41046)")
 	diodeCmd.Flag.Var(&cfg.SBlocklists, "blocklists", "addresses are not allowed to connect to published resource (worked when allowlists is empty)")
 	diodeCmd.Flag.Var(&cfg.SAllowlists, "allowlists", "addresses are allowed to connect to published resource (worked when blocklists is empty)")
 	diodeCmd.Flag.Var(&cfg.SBinds, "bind", "bind a remote port to a local port. -bind <local_port>:<to_address>:<to_port>:(udp|tcp)")
-	if len(cfg.LogFilePath) > 0 {
-		// TODO: logrotate?
-		cfg.LogMode = config.LogToFile
-	} else {
-		cfg.LogMode = config.LogToConsole
-	}
+	// tcp keepalive for node connection
+	diodeCmd.Flag.BoolVar(&cfg.EnableKeepAlive, "keepalive", runtime.GOOS != "windows", "enable tcp keepalive (only Linux >= 2.4, DragonFly, FreeBSD, NetBSD and OS X >= 10.8 are supported)")
+	diodeCmd.Flag.IntVar(&cfg.KeepAliveCount, "keepalivecount", 4, "the maximum number of keepalive probes TCP should send before dropping the connection")
+	diodeCmd.Flag.DurationVar(&cfg.KeepAliveIdle, "keepaliveidle", 30*time.Second, "the time (in seconds) the connection needs to remain idle before TCP starts sending keepalive probes")
+	diodeCmd.Flag.DurationVar(&cfg.KeepAliveInterval, "keepaliveinterval", 5*time.Second, "the time (in seconds) between individual keepalive probes")
 	config.AppConfig = cfg
+	// Add diode commands
 	diodeCmd.AddSubCommand(bnsCmd)
 	diodeCmd.AddSubCommand(configCmd)
 	diodeCmd.AddSubCommand(gatewayCmd)
@@ -111,6 +105,13 @@ func prepareDiode() error {
 				cfg.LoadFromFile = true
 			}
 		}
+	}
+
+	if len(cfg.LogFilePath) > 0 {
+		// TODO: logrotate?
+		cfg.LogMode = config.LogToFile
+	} else {
+		cfg.LogMode = config.LogToConsole
 	}
 
 	logger, err := config.NewLogger(cfg)
