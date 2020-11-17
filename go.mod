@@ -12,6 +12,7 @@ require (
 	github.com/diodechain/go-update v2.2.10+incompatible
 	github.com/diodechain/gobert v1.0.1
 	github.com/diodechain/openssl v1.0.14
+	github.com/diodechain/zap v0.0.0-20201117101851-06f3cd5f3263
 	github.com/dsnet/compress v0.0.1 // indirect
 	github.com/ethereum/go-ethereum v1.9.11
 	github.com/go-playground/universal-translator v0.17.0 // indirect
@@ -34,8 +35,6 @@ require (
 	github.com/stretchr/testify v1.4.0
 	github.com/ucirello/tcpkeepalive v0.0.0-20180903163222-92daabaeadac
 	github.com/ulikunitz/xz v0.5.7 // indirect
-	go.uber.org/multierr v1.6.0 // indirect
-	go.uber.org/zap v1.16.0
 	golang.org/x/crypto v0.0.0-20200728195943-123391ffb6de
 	golang.org/x/sys v0.0.0-20200808120158-1030fc2bf1d9
 	golang.org/x/tools v0.0.0-20201007032633-0806396f153e // indirect

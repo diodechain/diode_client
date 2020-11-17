@@ -8,8 +8,8 @@ import (
 	// "os"
 	"sync"
 
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
+	"github.com/diodechain/zap"
+	"github.com/diodechain/zap/zapcore"
 )
 
 const (
@@ -48,7 +48,7 @@ func newZapLogger(cfg *Config) (logger *zap.Logger) {
 		zapCfg.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(termDatetimeTempl)
 	}
 	zapCfg.Sampling = nil
-	zapCfg.Encoding = "console"
+	zapCfg.Encoding = "consoleraw"
 	zapCfg.EncoderConfig.ConsoleSeparator = " "
 	zapCfg.EncoderConfig.LevelKey = "[L]"
 	logger, _ = zapCfg.Build()
