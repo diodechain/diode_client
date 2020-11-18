@@ -33,6 +33,7 @@ func newZapLogger(cfg *Config) (logger *zap.Logger) {
 	} else {
 		zapCfg = zap.NewProductionConfig()
 		zapCfg.EncoderConfig.CallerKey = ""
+		zapCfg.DisableStacktrace = true
 	}
 	if (cfg.LogMode & LogToFile) > 0 {
 		// TODO: check whether file is existed?

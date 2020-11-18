@@ -443,7 +443,7 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 
 func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, protocol int, mode string, idleTimeout time.Duration, fn func(*ConnectedDevice) (*DeviceConn, error)) error {
 	if protocol == config.TLSProtocol && strings.Contains(mode, "s") {
-		socksServer.logger.Info("Using no encryption for shared connection %v", mode)
+		socksServer.logger.Debug("Using no encryption for shared connection %v", mode)
 		protocol = config.TCPProtocol
 	}
 
@@ -648,9 +648,19 @@ func (socksServer *Server) Start() error {
 		for {
 			conn, err := tcp.Accept()
 			if err != nil {
-				// Accept will return op close error/syscall.EINVAL
-				if !isOpError(err) {
+				if socksServer.Closed() {
+					return
+				}
+				// Check whether error is temporary
+				// See: https://golang.org/src/net/net.go?h=Temporary
+				if ne, ok := err.(net.Error); ok && ne.Temporary() {
+					delayTime := 5 * time.Millisecond
+					socksServer.logger.Warn(fmt.Sprintf("socks: Accept error %v, retry in %v", err, delayTime))
+					time.Sleep(delayTime)
+					continue
+				} else {
 					socksServer.logger.Error(err.Error())
+					socksServer.Close()
 				}
 				break
 			}
@@ -873,9 +883,19 @@ func (socksServer *Server) startBind(bind *Bind) error {
 			for {
 				conn, err := bind.tcp.Accept()
 				if err != nil {
-					// Accept will return op close error/syscall.EINVAL
-					if !isOpError(err) {
+					if socksServer.Closed() {
+						return
+					}
+					// Check whether error is temporary
+					// See: https://golang.org/src/net/net.go?h=Temporary
+					if ne, ok := err.(net.Error); ok && ne.Temporary() {
+						delayTime := 5 * time.Millisecond
+						socksServer.logger.Warn(fmt.Sprintf("StartBind(): Accept error %v, retry in %v", err, delayTime))
+						time.Sleep(delayTime)
+						continue
+					} else {
 						socksServer.logger.Error(err.Error())
+						bind.tcp.Close()
 					}
 					break
 				}

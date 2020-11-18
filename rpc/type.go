@@ -5,7 +5,6 @@ package rpc
 
 import (
 	"fmt"
-	"net"
 	"time"
 
 	"github.com/diodechain/diode_go_client/crypto"
@@ -83,14 +82,6 @@ func (e RPCError) Error() string {
 // WindowSize returns the current blockquick window size
 func WindowSize() int {
 	return windowSize
-}
-
-func isOpError(netErr error) (isOpError bool) {
-	switch netErr.(type) {
-	case *net.OpError:
-		isOpError = true
-	}
-	return
 }
 
 // LastValid returns the last valid block number and block header
