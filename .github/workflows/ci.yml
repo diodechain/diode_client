@@ -7,32 +7,56 @@ jobs:
     strategy:
       matrix:
         os: ["windows-latest", "ubuntu-latest", "macOS-latest"]
-        go: ["1.14.x"]
+        go: ["1.15.x"]
     runs-on: ${{ matrix.os }}
     steps:
+    - uses: msys2/setup-msys2@v2
+      if: runner.os == 'Windows'
+      with:
+          install: pacman-mirrors pkg-config base-devel mingw-w64-x86_64-toolchain mingw-w64-x86_64-go upx
+          update: false
     - if: runner.os == 'Windows'
+      shell: msys2 {0}  
       run: |
-        echo "::add-path::C:\\msys64\\usr\\bin"
-        echo "::add-path::C:\\msys64\\mingw64\\bin"
-        echo "::set-env name=PKG_CONFIG_PATH::/mingw64/lib/pkgconfig"
-    - if: runner.os == 'Windows'
-      run: |
-        pacman -S --noconfirm pacman-mirrors pkg-config
-        pacman -S --noconfirm --needed base-devel mingw-w64-i686-toolchain mingw-w64-x86_64-toolchain mingw-w64-x86_64-openssl upx gnu-netcat
+        echo "Build and install openssl......"
+        wget -O openssl.tar.gz https://github.com/openssl/openssl/archive/OpenSSL_1_0_2u.tar.gz
+        [ "82fa58e3f273c53128c6fe7e3635ec8cda1319a10ce1ad50a987c3df0deeef05" = "$(sha256sum openssl.tar.gz | cut -d ' ' -f1)" ]
+        tar -xzf openssl.tar.gz
+        cd ./openssl-OpenSSL_1_0_2u
+        ./Configure no-ssl2 no-ssl3 no-dtls no-dtls1 no-idea no-mdc2 no-rc5 no-zlib shared mingw64 --prefix=/mingw64
+        make depend && make && make install
+        echo "PKG_CONFIG_PATH=/mingw64/lib/pkgconfig" >> $GITHUB_ENV
     - if: runner.os == 'macOS'
       run: |
-        brew install binutils
-        brew tap diodechain/homebrew-upx
-        brew install diodechain/upx/upx
+        brew install binutils diodechain/openssl/openssl diodechain/upx/upx
         rm /usr/local/opt/openssl/lib/*.dylib
-        echo "::add-path::/usr/local/opt/binutils/bin"
+        echo "/usr/local/opt/binutils/bin" >> $GITHUB_PATH
+    - if: runner.os == 'Linux'
+      run: |
+        echo "Build and install openssl......"
+        sudo mkdir /usr/local/openssl
+        wget -O openssl.tar.gz https://github.com/openssl/openssl/archive/OpenSSL_1_0_2u.tar.gz && \
+            [ "82fa58e3f273c53128c6fe7e3635ec8cda1319a10ce1ad50a987c3df0deeef05" = "$(sha256sum openssl.tar.gz | cut -d ' ' -f1)" ] && \
+            tar -xzf openssl.tar.gz
+        cd ./openssl-OpenSSL_1_0_2u
+        ./config no-ssl2 no-ssl3 no-dtls no-dtls1 no-idea no-mdc2 no-rc5 no-zlib --prefix=/usr/local/openssl
+        sudo make depend && sudo make && sudo make install
+        echo "PKG_CONFIG_PATH=/usr/local/openssl/lib/pkgconfig" >> $GITHUB_ENV
     - uses: actions/checkout@v1
     - uses: actions/setup-go@v1
+      if: runner.os != 'Windows'
       with:
         go-version: ${{ matrix.go }}
-    - run: make ci_test
-    - run: make dist
-    - run: echo "::set-env name=ZIPNAME::`./deployment/zipname.sh`"
+    - if: runner.os == 'Windows'
+      shell: msys2 {0}
+      run: |
+        make windows_test
+        make dist
+    - if: runner.os != 'Windows'
+      run: |
+        make ci_test
+        make dist
+    - run: echo "ZIPNAME=`./deployment/zipname.sh`" >> $GITHUB_ENV
       shell: bash
     - if: runner.os == 'macOS'
       run: |
@@ -60,7 +84,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v2
-    - run: echo "::set-env name=ZIPNAME::`./deployment/zipname.sh`"
+    - run: echo "ZIPNAME=`./deployment/zipname.sh`" >> $GITHUB_ENV
       shell: bash
     - uses: actions/download-artifact@v2
       with:
