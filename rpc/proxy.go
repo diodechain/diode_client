@@ -220,6 +220,17 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 			return nil, nil
 		}
 		conn, buf, err := hj.Hijack()
+
+		// Add origin because some server validate origin header
+		proto := "https"
+		if r.TLS == nil {
+			proto = "http"
+		}
+		protoHost := fmt.Sprintf("%s://%s", proto, host)
+		r.Header.Set("Origin", protoHost)
+		r.Header.Set("X-Forward-Host", "diode.link")
+		r.Header.Set("X-Forward-Proto", proto)
+
 		header := bytes.NewBuffer([]byte{})
 		r.Write(header)
 
