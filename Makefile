@@ -27,7 +27,11 @@ all: $(BINS)
 
 .PHONY: test
 test:
-	go test -race $(TESTS)
+	go test -tags openssl_static -race $(TESTS)
+
+.PHONY: windows_test
+windows_test:
+	go test -tags openssl_static $(TESTS)
 
 .PHONY: lint
 lint:
@@ -99,7 +103,7 @@ client_debug$(EXE):
 
 .PHONY: diode_race_test
 diode_race_test:
-	$(GOBUILD) -race -o diode_race_test cmd/diode/*.go
+	$(GOBUILD) -tags openssl_static -race -o diode_race_test cmd/diode/*.go
 
 .PHONY: ci_test
 ci_test:
