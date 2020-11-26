@@ -588,6 +588,30 @@ func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, device *
 	tunnel.Copy()
 }
 
+func lookupFallbackHost(h string) (string, error) {
+	var host, port string
+	sh := strings.Split(h, ":")
+	if len(sh) > 1 {
+		host = sh[0]
+		port = sh[1]
+	} else {
+		host = h
+	}
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return "", err
+	}
+	if len(ips) == 0 {
+		return "", fmt.Errorf("host not found")
+	}
+	for _, ip := range ips {
+		if ip.IsLoopback() {
+			return "", fmt.Errorf("proxy to loopback is not allowed")
+		}
+	}
+	return net.JoinHostPort(ips[0].String(), port), err
+}
+
 func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 	defer conn.Close()
 	defer socksServer.wg.Done()
@@ -602,7 +626,13 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 	}
 	if !isDiodeHost(host) {
 		if socksServer.Config.Fallback == "localhost" {
-			socksServer.pipeFallback(conn, ver, host)
+			fallbackHost, err := lookupFallbackHost(host)
+			if err != nil {
+				socksServer.logger.Error("Target not a valid fallback ip %v %v", host, err)
+				writeSocksError(conn, ver, socksRepRefused)
+				return
+			}
+			socksServer.pipeFallback(conn, ver, fallbackHost)
 		} else {
 			socksServer.logger.Error("Target not a diode host %v", host)
 			writeSocksError(conn, ver, socksRepRefused)
