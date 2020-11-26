@@ -36,6 +36,7 @@ require (
 	github.com/ucirello/tcpkeepalive v0.0.0-20180903163222-92daabaeadac
 	github.com/ulikunitz/xz v0.5.7 // indirect
 	golang.org/x/crypto v0.0.0-20200728195943-123391ffb6de
+	golang.org/x/net v0.0.0-20200822124328-c89045814202
 	golang.org/x/sys v0.0.0-20200808120158-1030fc2bf1d9
 	golang.org/x/tools v0.0.0-20201007032633-0806396f153e // indirect
 	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
