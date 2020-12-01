@@ -111,3 +111,7 @@ ci_test:
 	$(MAKE) diode_race_test
 	chmod +x ./diode_race_test 
 	./ci_test.sh
+
+.PHONY: debug
+debug:
+	go build -ldflags="-r ./" -gcflags="-N -l" -tags openssl_static -o diode_debug cmd/diode/*.go
