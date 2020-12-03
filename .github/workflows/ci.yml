@@ -106,16 +106,29 @@ jobs:
         echo "Clone diodechain/cross-compile"
         git clone https://github.com/diodechain/cross-compile.git
     - run: |
-        echo "Build docker image......"
+        echo "Build docker image for arm32......"
         docker build --build-arg branch=master -t pi-zero cross-compile/pi-zero
     - run: |
-        echo "Build diode linux arm......"
+        echo "Build diode linux arm32......"
         docker run -v ${{ github.workspace }}:/build/diode_go_client pi-zero make archive
+        mv diode_linux_amd64.zip diode_linux_arm.zip
     - name: Archive production artifacts
       uses: actions/upload-artifact@v2
       with:
         name: "diode_linux_arm.zip"
-        path: ${{ github.workspace }}/diode_linux_amd64.zip
+        path: ${{ github.workspace }}/diode_linux_arm.zip
+    - run: |
+        echo "Build docker image for arm64......"
+        docker build --build-arg branch=master -t pi-arm64 cross-compile/pi-arm64
+    - run: |
+        echo "Build diode linux arm64......"
+        docker run -v ${{ github.workspace }}:/build/diode_go_client pi-arm64 make archive
+        mv diode_linux_amd64.zip diode_linux_arm64.zip
+    - name: Archive production artifacts
+      uses: actions/upload-artifact@v2
+      with:
+        name: "diode_linux_arm64.zip"
+        path: ${{ github.workspace }}/diode_linux_arm64.zip
 
   lint:
     name: "Run static analysis"
