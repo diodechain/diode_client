@@ -6,6 +6,7 @@ package staticserver
 import (
 	"crypto/tls"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -87,15 +88,54 @@ func TestSecureStaticServer(t *testing.T) {
 	staticServer := NewStaticHTTPServer(config)
 	go func() {
 		staticServer.ListenAndServeTLS("./test.crt", "./test.key")
-		// if err := staticServer.ListenAndServeTLS("./test.crt", "./test.key"); err != nil {
-		// 	if err != http.ErrServerClosed {
-		// 			t.Fatal(err)
-		// 	}
-		// }
 	}()
 
 	for _, st := range staticServerTests {
-		testHTTPSGetStatus(t, fmt.Sprintf("https://%s%s", staticServer.Addr(), st.Path), st.Status)
+		testHTTPSGetStatus(t, fmt.Sprintf("https://%s%s", staticServer.Addr, st.Path), st.Status)
 	}
 	staticServer.Close()
+}
+
+func TestServeStaticServer(t *testing.T) {
+	config := Config{
+		RootDirectory: ".",
+		Host:          "localhost",
+		Port:          1234,
+	}
+	staticServer := NewStaticHTTPServer(config)
+	ln, err := net.Listen("tcp", staticServer.Addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	go func() {
+		staticServer.Serve(ln)
+	}()
+
+	for _, st := range staticServerTests {
+		testHTTPSGetStatus(t, fmt.Sprintf("http://%s%s", staticServer.Addr, st.Path), st.Status)
+	}
+}
+
+func TestServeTLSStaticServer(t *testing.T) {
+	config := Config{
+		RootDirectory: ".",
+		Host:          "localhost",
+		Port:          1234,
+	}
+	staticServer := NewStaticHTTPServer(config)
+	ln, err := net.Listen("tcp", staticServer.Addr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+
+	go func() {
+		staticServer.ServeTLS(ln, "test.crt", "test.key")
+	}()
+
+	for _, st := range staticServerTests {
+		testHTTPSGetStatus(t, fmt.Sprintf("https://%s%s", staticServer.Addr, st.Path), st.Status)
+	}
 }

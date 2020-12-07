@@ -81,27 +81,16 @@ type Config struct {
 // TODO: Serve listener function
 type StaticHTTPServer struct {
 	Config Config
-	server *http.Server
+	Addr   string
+	srv    *http.Server
 	cd     sync.Once
 }
 
 // NewStaticHTTPServer returns a StaticHTTPServer that host static files for the given config
 func NewStaticHTTPServer(config Config) (sv StaticHTTPServer) {
 	sv.Config = config
-	addr := net.JoinHostPort(config.Host, strconv.Itoa(config.Port))
-	handler := sv.Handler()
-	srv := &http.Server{
-		Addr:      addr,
-		Handler:   handler,
-		TLSConfig: config.TLSConfig,
-	}
-	sv.server = srv
+	sv.Addr = net.JoinHostPort(config.Host, strconv.Itoa(config.Port))
 	return
-}
-
-// Addr returns address that static file server listen to
-func (sv *StaticHTTPServer) Addr() string {
-	return sv.server.Addr
 }
 
 // Handler returns http handler of static file server
@@ -111,19 +100,46 @@ func (sv *StaticHTTPServer) Handler() (handler http.Handler) {
 	return
 }
 
-// Close http static file server
-func (sv *StaticHTTPServer) Close() {
-	sv.cd.Do(func() {
-		sv.server.Close()
-	})
+func (sv *StaticHTTPServer) server() *http.Server {
+	handler := sv.Handler()
+	return &http.Server{
+		Addr:      sv.Addr,
+		Handler:   handler,
+		TLSConfig: sv.Config.TLSConfig,
+	}
 }
 
 // ListenAndServe http static file server
 func (sv *StaticHTTPServer) ListenAndServe() error {
-	return sv.server.ListenAndServe()
+	srv := sv.server()
+	sv.srv = srv
+	return srv.ListenAndServe()
 }
 
 // ListenAndServeTLS https static file server
 func (sv *StaticHTTPServer) ListenAndServeTLS(certFile, keyFile string) error {
-	return sv.server.ListenAndServeTLS(certFile, keyFile)
+	srv := sv.server()
+	sv.srv = srv
+	return srv.ListenAndServeTLS(certFile, keyFile)
+}
+
+// Serve serve http static file server for net.Listener
+func (sv *StaticHTTPServer) Serve(ln net.Listener) error {
+	handler := sv.Handler()
+	return http.Serve(ln, handler)
+}
+
+// ServeTLS serve https static file server for net.Listener
+func (sv *StaticHTTPServer) ServeTLS(ln net.Listener, certFile, keyFile string) error {
+	handler := sv.Handler()
+	return http.ServeTLS(ln, handler, certFile, keyFile)
+}
+
+// Close the static file server that created by ListenAndServe or ListenAndServeTLS
+func (sv *StaticHTTPServer) Close() {
+	sv.cd.Do(func() {
+		if sv.srv != nil {
+			sv.srv.Close()
+		}
+	})
 }

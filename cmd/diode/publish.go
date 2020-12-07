@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"regexp"
@@ -242,9 +243,13 @@ func publishHandler() (err error) {
 		// publish the static when user didn't publish 80 port
 		if _, ok := cfg.PublishedPorts[httpPort]; !ok {
 			staticServer = staticserver.NewStaticHTTPServer(scfg)
+			var ln net.Listener
+			ln, err = net.Listen("tcp", staticServer.Addr)
+			if err != nil {
+				return
+			}
 			go func() {
-				err := staticServer.ListenAndServe()
-				if err != nil {
+				if err := staticServer.Serve(ln); err != nil {
 					if err != http.ErrServerClosed {
 						cfg.PrintError("Couldn't listen to http: ", err)
 					}
@@ -252,7 +257,9 @@ func publishHandler() (err error) {
 				}
 			}()
 			app.Defer(func() {
-				staticServer.Close()
+				// Since we didn't use ListenAndServe, call
+				// ln.Close() instead of staticServer.Close()
+				ln.Close()
 			})
 
 			cfg.PublishedPorts[httpPort] = &config.Port{
