@@ -14,6 +14,7 @@ import (
 	"github.com/diodechain/diode_go_client/command"
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/rpc"
+	"github.com/diodechain/diode_go_client/staticserver"
 	"github.com/diodechain/diode_go_client/util"
 )
 
@@ -30,22 +31,25 @@ var (
 		Type:             command.DaemonCommand,
 		SingleConnection: true,
 	}
-	staticServer rpc.StaticHTTPServer
+	enableStaticServer = false
+	staticServer       staticserver.StaticHTTPServer
+	scfg               staticserver.Config
 )
 
 func init() {
 	cfg := config.AppConfig
+
 	publishCmd.Flag.Var(&cfg.PublicPublishedPorts, "public", "expose ports to public users, so that user could connect to")
 	publishCmd.Flag.Var(&cfg.ProtectedPublishedPorts, "protected", "expose ports to protected users (in fleet contract), so that user could connect to")
 	publishCmd.Flag.Var(&cfg.PrivatePublishedPorts, "private", "expose ports to private users, so that user could connect to")
 	publishCmd.Flag.StringVar(&cfg.SocksServerHost, "proxy_host", "127.0.0.1", "host of socksd proxy server")
 	publishCmd.Flag.IntVar(&cfg.SocksServerPort, "proxy_port", 1080, "port of socksd proxy server")
 	publishCmd.Flag.BoolVar(&cfg.EnableSocksServer, "socksd", false, "enable socksd proxy server")
-	publishCmd.Flag.BoolVar(&staticServer.Indexed, "indexed", false, "enable directory indexing in http static file server")
-	publishCmd.Flag.BoolVar(&staticServer.Enabled, "http", false, "enable http static file server")
-	publishCmd.Flag.StringVar(&staticServer.RootDirectory, "http_dir", "", "the root directory of http static file server")
-	publishCmd.Flag.StringVar(&staticServer.Host, "http_host", "127.0.0.1", "the host of http static file server")
-	publishCmd.Flag.IntVar(&staticServer.Port, "http_port", 8080, "the port of http static file server")
+	publishCmd.Flag.BoolVar(&enableStaticServer, "http", false, "enable http static file server")
+	publishCmd.Flag.StringVar(&scfg.RootDirectory, "http_dir", "", "the root directory of http static file server")
+	publishCmd.Flag.StringVar(&scfg.Host, "http_host", "127.0.0.1", "the host of http static file server")
+	publishCmd.Flag.IntVar(&scfg.Port, "http_port", 8080, "the port of http static file server")
+	publishCmd.Flag.BoolVar(&scfg.Indexed, "indexed", false, "enable directory indexing in http static file server")
 }
 
 var portPattern = regexp.MustCompile(`^((\d+\.\d+\.\d+\.\d+):)?(\d+)(:(\d*)(:(tcp|tls|udp))?)?$`)
@@ -234,7 +238,8 @@ func publishHandler() (err error) {
 	}
 	cfg.PublishedPorts = portString
 
-	if staticServer.Enabled || len(staticServer.RootDirectory) > 0 {
+	if enableStaticServer || len(scfg.RootDirectory) > 0 {
+		staticServer = staticserver.NewStaticHTTPServer(scfg)
 		go func() {
 			err := staticServer.ListenAndServe()
 			if err != nil {
@@ -250,7 +255,7 @@ func publishHandler() (err error) {
 		// publish the static by default if enabled
 		if len(cfg.PublishedPorts) == 0 {
 			cfg.PublishedPorts[httpPort] = &config.Port{
-				Src:      staticServer.Port,
+				Src:      scfg.Port,
 				To:       httpPort,
 				Mode:     config.PublicPublishedMode,
 				Protocol: config.AnyProtocol,

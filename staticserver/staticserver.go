@@ -1,15 +1,21 @@
 // Diode Network Client
 // Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 // Licensed under the Diode License, Version 1.0
-package rpc
+package staticserver
 
 import (
+	"crypto/tls"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+)
+
+var (
+	ErrRequireTLSConfig = fmt.Errorf("tls config is required for ListenAndServeTLS")
 )
 
 // containsDotFile reports whether name contains a path element starting with a period.
@@ -62,21 +68,45 @@ func (fs staticFileSystem) Open(name string) (http.File, error) {
 	return staticFile{file, fs.Indexed}, err
 }
 
-// StaticHTTPServer represents static file server
-// TODO: https static file server
-type StaticHTTPServer struct {
-	Enabled       bool
+type Config struct {
 	RootDirectory string
 	Host          string
 	Port          int
 	Indexed       bool
-	server        *http.Server
-	cd            sync.Once
+	TLSConfig     *tls.Config
+}
+
+// StaticHTTPServer represents static file server
+// TODO: resolve different path?
+// TODO: Serve listener function
+type StaticHTTPServer struct {
+	Config Config
+	server *http.Server
+	cd     sync.Once
+}
+
+// NewStaticHTTPServer returns a StaticHTTPServer that host static files for the given config
+func NewStaticHTTPServer(config Config) (sv StaticHTTPServer) {
+	sv.Config = config
+	addr := net.JoinHostPort(config.Host, strconv.Itoa(config.Port))
+	handler := sv.Handler()
+	srv := &http.Server{
+		Addr:      addr,
+		Handler:   handler,
+		TLSConfig: config.TLSConfig,
+	}
+	sv.server = srv
+	return
+}
+
+// Addr returns address that static file server listen to
+func (sv *StaticHTTPServer) Addr() string {
+	return sv.server.Addr
 }
 
 // Handler returns http handler of static file server
 func (sv *StaticHTTPServer) Handler() (handler http.Handler) {
-	fs := staticFileSystem{http.Dir(sv.RootDirectory), sv.Indexed}
+	fs := staticFileSystem{http.Dir(sv.Config.RootDirectory), sv.Config.Indexed}
 	handler = http.FileServer(fs)
 	return
 }
@@ -90,8 +120,10 @@ func (sv *StaticHTTPServer) Close() {
 
 // ListenAndServe http static file server
 func (sv *StaticHTTPServer) ListenAndServe() error {
-	handler := sv.Handler()
-	addr := net.JoinHostPort(sv.Host, strconv.Itoa(sv.Port))
-	sv.server = &http.Server{Addr: addr, Handler: handler}
 	return sv.server.ListenAndServe()
+}
+
+// ListenAndServeTLS https static file server
+func (sv *StaticHTTPServer) ListenAndServeTLS(certFile, keyFile string) error {
+	return sv.server.ListenAndServeTLS(certFile, keyFile)
 }
