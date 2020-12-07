@@ -239,21 +239,22 @@ func publishHandler() (err error) {
 	cfg.PublishedPorts = portString
 
 	if enableStaticServer || len(scfg.RootDirectory) > 0 {
-		staticServer = staticserver.NewStaticHTTPServer(scfg)
-		go func() {
-			err := staticServer.ListenAndServe()
-			if err != nil {
-				if err != http.ErrServerClosed {
-					cfg.PrintError("Couldn't listen to http: ", err)
+		// publish the static when user didn't publish 80 port
+		if _, ok := cfg.PublishedPorts[httpPort]; !ok {
+			staticServer = staticserver.NewStaticHTTPServer(scfg)
+			go func() {
+				err := staticServer.ListenAndServe()
+				if err != nil {
+					if err != http.ErrServerClosed {
+						cfg.PrintError("Couldn't listen to http: ", err)
+					}
+					return
 				}
-				return
-			}
-		}()
-		app.Defer(func() {
-			staticServer.Close()
-		})
-		// publish the static by default if enabled
-		if len(cfg.PublishedPorts) == 0 {
+			}()
+			app.Defer(func() {
+				staticServer.Close()
+			})
+
 			cfg.PublishedPorts[httpPort] = &config.Port{
 				Src:      scfg.Port,
 				To:       httpPort,
@@ -297,6 +298,7 @@ func publishHandler() (err error) {
 			cfg.PrintLabel(fmt.Sprintf("Port %10s:%d", port.SrcHost, port.Src), fmt.Sprintf("%8d  %10s       %s        %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol), strings.Join(addrs, ",")))
 		}
 	}
+
 	if cfg.EnableAPIServer {
 		configAPIServer := NewConfigAPIServer(cfg)
 		configAPIServer.SetAddr(cfg.APIServerAddr)

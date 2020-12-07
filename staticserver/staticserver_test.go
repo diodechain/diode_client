@@ -86,11 +86,12 @@ func TestSecureStaticServer(t *testing.T) {
 	}
 	staticServer := NewStaticHTTPServer(config)
 	go func() {
-		if err := staticServer.ListenAndServeTLS("./test.crt", "./test.key"); err != nil {
-			if err != http.ErrServerClosed {
-				t.Fatal(err)
-			}
-		}
+		staticServer.ListenAndServeTLS("./test.crt", "./test.key")
+		// if err := staticServer.ListenAndServeTLS("./test.crt", "./test.key"); err != nil {
+		// 	if err != http.ErrServerClosed {
+		// 			t.Fatal(err)
+		// 	}
+		// }
 	}()
 
 	for _, st := range staticServerTests {
