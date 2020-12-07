@@ -46,14 +46,14 @@ func (httpError HttpError) Error() string {
 }
 
 type ProxyServer struct {
-	Config      ProxyConfig
-	logger      *config.Logger
-	socksServer *Server
-	httpServer  *http.Server
-	httpsServer *http.Server
-	closeCh     chan struct{}
-	mx          sync.Mutex
-	cd          sync.Once
+	Config       ProxyConfig
+	logger       *config.Logger
+	socksServer  *Server
+	httpServer   *http.Server
+	httpsServers []*http.Server
+	closeCh      chan struct{}
+	mx           sync.Mutex
+	cd           sync.Once
 }
 
 var proxyTransport http.Transport = http.Transport{
@@ -305,7 +305,16 @@ func (proxyServer *ProxyServer) SetConfig(config ProxyConfig) error {
 		return fmt.Errorf("wrong parameters, need started httpsd server for http redirect")
 	}
 	proxyServer.Config = config
+	if config.EnableSProxy {
+		proxyServer.httpsServers = make([]*http.Server, len(config.SProxyServerPorts)+1)
+	}
 	return nil
+}
+
+func (proxyServer *ProxyServer) serveListener(srv *http.Server, ln net.Listener) {
+	if err := srv.Serve(ln); err != http.ErrServerClosed {
+		proxyServer.logger.Error("Couldn't serve gateway for listener: %v", err)
+	}
 }
 
 func (proxyServer *ProxyServer) Start() error {
@@ -318,7 +327,6 @@ func (proxyServer *ProxyServer) Start() error {
 	if proxyServer.Closed() {
 		return nil
 	}
-	proxyServer.logger.Info("Start gateway server %s", proxyServer.Config.ProxyServerAddr)
 	prox, _ := url.Parse(fmt.Sprintf("socks5://%s", proxyServer.socksServer.Config.Addr))
 	proxyTransport.Proxy = http.ProxyURL(prox)
 	httpdHandler := http.HandlerFunc(proxyServer.pipeProxy)
@@ -333,34 +341,32 @@ func (proxyServer *ProxyServer) Start() error {
 			}
 		})
 	}
-	httpdAddr := proxyServer.Config.ProxyServerAddr
-	proxyServer.httpServer = &http.Server{Addr: httpdAddr, Handler: httpdHandler}
-	go func() {
-		if err := proxyServer.httpServer.ListenAndServe(); err != nil {
-			proxyServer.httpServer = nil
-			if err != http.ErrServerClosed {
-				proxyServer.logger.Error("Couldn't start http proxy: %v", err)
-			}
+	if proxyServer.httpServer == nil {
+		httpdAddr := proxyServer.Config.ProxyServerAddr
+		httpLn, err := net.Listen("tcp", httpdAddr)
+		if err != nil {
+			return err
 		}
-	}()
+		proxyServer.logger.Info("Start gateway server %s", proxyServer.Config.ProxyServerAddr)
+		proxyServer.httpServer = &http.Server{Handler: httpdHandler}
+		go proxyServer.serveListener(proxyServer.httpServer, httpLn)
+	}
 
 	// start httpsd proxy server
 	if proxyServer.Config.EnableSProxy {
-		proxyServer.logger.Info("Start gateway server %s", proxyServer.Config.SProxyServerAddr)
+		var httpsdAddr string
 		httpsdHandler := http.HandlerFunc(proxyServer.pipeProxy)
-		httpsdAddr := proxyServer.Config.SProxyServerAddr
 		protos := make(map[string]func(*http.Server, *tls.Conn, http.Handler))
-		proxyServer.httpsServer = &http.Server{Addr: httpsdAddr, Handler: httpsdHandler, TLSNextProto: protos}
+		httpsServer := &http.Server{Handler: httpsdHandler, TLSNextProto: protos}
 		// load pem format certificate key pair
 		cert, err := tls.LoadX509KeyPair(proxyServer.Config.CertPath, proxyServer.Config.PrivPath)
 		if err != nil {
 			return err
 		}
 		var tlsConfig *tls.Config
-		var addr string
 		if proxyServer.Config.EdgeACME {
 			// must listen to 443 for ACME
-			addr = config.AppConfig.SProxyServerAddrForPort(443)
+			httpsdAddr = config.AppConfig.SProxyServerAddrForPort(443)
 			certmagic.DefaultACME.CA = certmagic.LetsEncryptProductionCA
 			certmagic.DefaultACME.Email = proxyServer.Config.EdgeACMEEmail
 			certmagic.DefaultACME.Agreed = true
@@ -389,7 +395,7 @@ func (proxyServer *ProxyServer) Start() error {
 			// 	return err
 			// }
 		} else {
-			addr = config.AppConfig.SProxyServerAddr()
+			httpsdAddr = config.AppConfig.SProxyServerAddr()
 			tlsConfig = &tls.Config{
 				Certificates: []tls.Certificate{
 					cert,
@@ -397,42 +403,28 @@ func (proxyServer *ProxyServer) Start() error {
 			}
 		}
 
-		ln, err := tls.Listen("tcp", addr, tlsConfig)
+		httpsLn, err := tls.Listen("tcp", httpsdAddr, tlsConfig)
 		if err != nil {
 			proxyServer.logger.Error("Couldn't listen to tls server: %v", err)
 			return err
 		}
+		proxyServer.httpsServers[0] = httpsServer
+		proxyServer.logger.Info("Start gateway server %s", proxyServer.Config.SProxyServerAddr)
+		go proxyServer.serveListener(httpsServer, httpsLn)
 
-		go func() {
-			httpsServer := &http.Server{Handler: httpsdHandler, TLSNextProto: protos}
-			err := httpsServer.Serve(ln)
-			if err != http.ErrServerClosed {
-				proxyServer.logger.Error("Couldn't start https proxy: %v", err)
-			}
-		}()
-		if len(proxyServer.Config.SProxyServerPorts) > 0 {
-			proxyServer.logger.Info("Starting %d additional httpsd servers", len(proxyServer.Config.SProxyServerPorts))
-		}
+		i := 1
 		for _, port := range proxyServer.Config.SProxyServerPorts {
-			addr = config.AppConfig.SProxyServerAddrForPort(port)
-			httpsServer := &http.Server{Addr: addr, Handler: httpsdHandler, TLSNextProto: protos}
-			proxyServer.logger.Info("Starting %s additional httpsd servers", addr)
-			ln, err = tls.Listen("tcp", addr, tlsConfig)
+			httpsdAddr = config.AppConfig.SProxyServerAddrForPort(port)
+			httpsServers := &http.Server{Handler: httpsdHandler, TLSNextProto: protos}
+			httpsLns, err := tls.Listen("tcp", httpsdAddr, tlsConfig)
 			if err != nil {
-				proxyServer.logger.Error("Couldn't listen to %s, error: %s", addr, err.Error())
+				proxyServer.logger.Error("Couldn't listen to %s, error: %s", httpsdAddr, err.Error())
 				continue
 			}
-			go func() {
-				err := httpsServer.Serve(ln)
-				if err != http.ErrServerClosed {
-					proxyServer.logger.Error("Couldn't start https proxy: %v", err)
-				}
-			}()
-		}
-	} else {
-		if proxyServer.httpsServer != nil {
-			proxyServer.httpsServer.Close()
-			proxyServer.httpsServer = nil
+			proxyServer.logger.Info("Start additional gateway server %s", httpsdAddr)
+			proxyServer.httpsServers[i] = httpsServers
+			i++
+			go proxyServer.serveListener(httpsServers, httpsLns)
 		}
 	}
 	return nil
@@ -448,8 +440,8 @@ func (proxyServer *ProxyServer) Close() {
 		if proxyServer.httpServer != nil {
 			proxyServer.httpServer.Close()
 		}
-		if proxyServer.httpsServer != nil {
-			proxyServer.httpsServer.Close()
+		for _, srv := range proxyServer.httpsServers {
+			srv.Close()
 		}
 	})
 }
