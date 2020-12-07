@@ -6,7 +6,6 @@ package main
 import (
 	"fmt"
 	"net"
-	"net/http"
 	"os"
 	"regexp"
 	"strconv"
@@ -250,7 +249,7 @@ func publishHandler() (err error) {
 			}
 			go func() {
 				if err := staticServer.Serve(ln); err != nil {
-					if err != http.ErrServerClosed {
+					if !strings.Contains(err.Error(), "use of closed network connection") {
 						cfg.PrintError("Couldn't listen to http: ", err)
 					}
 					return
