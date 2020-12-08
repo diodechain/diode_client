@@ -24,7 +24,7 @@ SYNOPSYS
         [-bind=] [-blocklists=] [-blockprofile=] [-blockprofilerate=1]
         [-configpath=] [-cpuprofile=] [-dbpath=/Users/...] [-debug=false]
         [-diodeaddrs=] [-e2e=true] [-fleet=] [-keepalive=true]
-        [-keepalivecount=4] [-keepaliveidle=30s] [-keepaliveinterval=5s] [-logdatetime=false]
+        [-keepaliveinterval=5s] [-logdatetime=false]
         [-logfilepath=] [-memprofile=] [-metrics=false] [-mutexprofile=]
         [-mutexprofilerate=1] [-retrytimes=3] [-retrywait=1s] [-rlimit_nofile=0]
         [-timeout=5s] [-update=true] COMMAND <args>

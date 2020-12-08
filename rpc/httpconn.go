@@ -4,19 +4,28 @@
 package rpc
 
 import (
+	"bufio"
+	"bytes"
+	"github.com/sc0vu/didyoumean"
 	"net"
+	"net/http"
 	"time"
 )
 
+var httpMethods = []string{http.MethodGet, http.MethodPost, http.MethodHead, http.MethodDelete, http.MethodPut, http.MethodConnect, http.MethodOptions}
+
 // NewHTTPConn returns wrapper of gorilla websocket connection
-func NewHTTPConn(unread []byte, conn net.Conn) *HTTPConn {
-	return &HTTPConn{unread, conn}
+func NewHTTPConn(unread []byte, conn net.Conn, host, forwardedHost, forwardedProto string) *HTTPConn {
+	return &HTTPConn{unread, conn, host, forwardedHost, forwardedProto}
 }
 
 // HTTPConn reads first the leftover from the socket hijack
 type HTTPConn struct {
-	unread []byte
-	conn   net.Conn
+	unread         []byte
+	conn           net.Conn
+	host           string
+	forwardedHost  string
+	forwardedProto string
 }
 
 // Close the connection
@@ -31,7 +40,24 @@ func (c *HTTPConn) Read(buf []byte) (n int, err error) {
 		c.unread = c.unread[n:]
 		return
 	}
-	return c.conn.Read(buf)
+	// fix http header for keep alive connection
+	var r *http.Request
+	r, err = http.ReadRequest(bufio.NewReader(c.conn))
+	if err != nil {
+		return
+	}
+	didyoumean.ThresholdRate = 0.4
+	method := didyoumean.FirstMatch(r.Method, httpMethods)
+	if r.Method != method {
+		r.Method = method
+	}
+	r.Header.Set("Host", c.host)
+	r.Header.Set("X-Forwarded-Host", c.forwardedHost)
+	r.Header.Set("X-Forwarded-Proto", c.forwardedProto)
+	header := bytes.NewBuffer([]byte{})
+	r.Write(header)
+	n = copy(buf, header.Bytes())
+	return
 }
 
 // Write binary data to the connectionn

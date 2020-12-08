@@ -49,10 +49,7 @@ func testConfig() (cfg *config.Config) {
 		LogDateTime:     false,
 		LogMode:         config.LogToConsole,
 		EnableKeepAlive: runtime.GOOS != "windows",
-		KeepAliveCount:  4,
 	}
-	keepaliveIdleTime, _ := time.ParseDuration("30s")
-	cfg.KeepAliveIdle = keepaliveIdleTime
 	keepaliveIntervalTime, _ := time.ParseDuration("5s")
 	cfg.KeepAliveInterval = keepaliveIntervalTime
 	remoteRPCTimeoutTime, _ := time.ParseDuration("5s")
