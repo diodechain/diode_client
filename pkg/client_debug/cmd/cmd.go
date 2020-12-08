@@ -105,6 +105,9 @@ func clientDebugHandler(cmd *cobra.Command, args []string) (err error) {
 					t1 = time.Now()
 				},
 				ConnectStart: func(network, addr string) {
+					if t0.IsZero() {
+						t0 = time.Now()
+					}
 					if t1.IsZero() {
 						t1 = time.Now()
 					}
