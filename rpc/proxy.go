@@ -312,7 +312,7 @@ func (proxyServer *ProxyServer) SetConfig(config ProxyConfig) error {
 }
 
 func (proxyServer *ProxyServer) serveListener(srv *http.Server, ln net.Listener) {
-	if err := srv.Serve(ln); !strings.Contains(err.Error(), "use of closed network connection") {
+	if err := srv.Serve(ln); err != http.ErrServerClosed {
 		proxyServer.logger.Error("Couldn't serve gateway for listener: %v", err)
 	}
 }
