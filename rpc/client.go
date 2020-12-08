@@ -6,6 +6,7 @@ package rpc
 import (
 	"encoding/binary"
 	"fmt"
+	"math/big"
 	"os"
 	"sync"
 	"sync/atomic"
@@ -28,10 +29,11 @@ const (
 var (
 	RequestID uint64 = 0
 	// ErrEmptyBNSresult indicates that the BNS name could not be found
-	ErrEmptyBNSresult   = fmt.Errorf("couldn't resolve name (null)")
-	errRPCClientClosed  = fmt.Errorf("rpc client was closed")
-	DefaultRegistryAddr = [20]byte{80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-	DefaultFleetAddr    = [20]byte{96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	ErrEmptyBNSresult        = fmt.Errorf("couldn't resolve name (null)")
+	ErrSendTransactionFailed = fmt.Errorf("server returned false")
+	errRPCClientClosed       = fmt.Errorf("rpc client was closed")
+	DefaultRegistryAddr      = [20]byte{80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	DefaultFleetAddr         = [20]byte{96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 )
 
 // RPCConfig struct for rpc client
@@ -687,6 +689,9 @@ func (rpcClient *RPCClient) SendTransaction(tx *edge.Transaction) (result bool, 
 	res, err = rpcClient.CallContext("sendtransaction", nil, encodedRLPTx)
 	if res, ok = res.(string); ok {
 		result = res == "ok"
+		if !result {
+			err = ErrSendTransactionFailed
+		}
 		return
 	}
 	return
@@ -765,6 +770,16 @@ func (rpcClient *RPCClient) GetAccountValue(blockNumber uint64, account [20]byte
 	return nil, nil
 }
 
+func (rpcClient *RPCClient) GetAccountValueInt(blockNumber uint64, addr [20]byte, key []byte) big.Int {
+	raw, err := rpcClient.GetAccountValueRaw(blockNumber, addr, key)
+	var ret big.Int
+	if err != nil {
+		return ret
+	}
+	ret.SetBytes(raw)
+	return ret
+}
+
 // GetAccountValueRaw returns account value
 func (rpcClient *RPCClient) GetAccountValueRaw(blockNumber uint64, addr [20]byte, key []byte) ([]byte, error) {
 	if blockNumber <= 0 {
@@ -809,21 +824,55 @@ func (rpcClient *RPCClient) GetAccountRoots(blockNumber uint64, account [20]byte
 	return nil, nil
 }
 
-// ResolveBNS resolves the (primary) destination of the BNS entry
-func (rpcClient *RPCClient) ResolveBNS(name string) (addr Address, err error) {
-	rpcClient.Info("Resolving BNS: %s", name)
-	key := contract.BNSEntryLocation(name)
+// ResolveReverseBNS resolves the (primary) destination of the BNS entry
+func (rpcClient *RPCClient) ResolveReverseBNS(addr Address) (name string, err error) {
+	key := contract.BNSReverseEntryLocation(addr)
 	raw, err := rpcClient.GetAccountValueRaw(0, contract.BNSAddr, key)
 	if err != nil {
-		return [20]byte{}, err
+		return name, err
 	}
 	if string(raw) == "null" {
-		return [20]byte{}, ErrEmptyBNSresult
+		return name, ErrEmptyBNSresult
 	}
 
-	copy(addr[:], raw[12:])
-	if addr == [20]byte{} {
-		return [20]byte{}, ErrEmptyBNSresult
+	return string(raw), nil
+}
+
+// ResolveBNS resolves the (primary) destination of the BNS entry
+func (rpcClient *RPCClient) ResolveBNS(name string) (addr []Address, err error) {
+	rpcClient.Info("Resolving BNS: %s", name)
+	arrayKey := contract.BNSDestinationArrayLocation(name)
+	size := rpcClient.GetAccountValueInt(0, contract.BNSAddr, arrayKey)
+
+	// Fallback for old style DNS entries
+	if size.Int64() == 0 {
+		key := contract.BNSEntryLocation(name)
+		raw, err := rpcClient.GetAccountValueRaw(0, contract.BNSAddr, key)
+		if err != nil {
+			return addr, err
+		}
+		if string(raw) == "null" {
+			return addr, ErrEmptyBNSresult
+		}
+
+		addr = make([]util.Address, 1)
+		copy(addr[0][:], raw[12:])
+		if addr[0] == [20]byte{} {
+			return addr, ErrEmptyBNSresult
+		}
+		return addr, nil
+	}
+
+	intSize := size.Int64()
+	addr = make([]util.Address, intSize)
+	for i := int64(0); i < intSize; i++ {
+		key := contract.BNSDestinationArrayElementLocation(name, int(i))
+		raw, err := rpcClient.GetAccountValueRaw(0, contract.BNSAddr, key)
+		if err != nil {
+			return []Address{}, err
+		}
+
+		copy(addr[i][:], raw[12:])
 	}
 	return addr, nil
 }

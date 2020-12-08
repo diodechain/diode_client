@@ -67,6 +67,7 @@ type Config struct {
 	Command                 string           `yaml:"-" json:"-"`
 	FleetAddr               Address          `yaml:"-" json:"-"`
 	ClientAddr              Address          `yaml:"-" json:"-"`
+	ClientName              string           `yaml:"-" json:"-"`
 	RegistryAddr            Address          `yaml:"-" json:"-"`
 	ProxyServerHost         string           `yaml:"-" json:"-"`
 	ProxyServerPort         int              `yaml:"-" json:"-"`
@@ -99,6 +100,7 @@ type Config struct {
 	Logger                  *Logger          `yaml:"-" json:"-"`
 	ConfigFilePath          string           `yaml:"-" json:"-"`
 	Binds                   []Bind           `yaml:"-" json:"-"`
+	BNSForce                bool             `yaml:"-" json:"-"`
 	BNSRegister             string           `yaml:"-" json:"-"`
 	BNSUnregister           string           `yaml:"-" json:"-"`
 	BNSTransfer             string           `yaml:"-" json:"-"`

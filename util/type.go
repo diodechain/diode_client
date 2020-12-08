@@ -73,3 +73,24 @@ func PubkeyToAddress(pubkey []byte) (addr Address) {
 	copy(addr[:], hashPubkey[12:])
 	return
 }
+
+func Equal(a, b []Address) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, v := range a {
+		if v != b[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func Filter(input []Address, test func(Address) bool) (ret []Address) {
+	for _, addr := range input {
+		if test(addr) {
+			ret = append(ret, addr)
+		}
+	}
+	return
+}
