@@ -30,6 +30,7 @@ var (
 
 func init() {
 	cfg := config.AppConfig
+	bnsCmd.Flag.BoolVar(&cfg.BNSForce, "force", false, "Force re-registration in case of registration, even if the name is already registered.")
 	bnsCmd.Flag.StringVar(&cfg.BNSRegister, "register", "", "Register a new BNS name with <name>=<address>.")
 	bnsCmd.Flag.StringVar(&cfg.BNSUnregister, "unregister", "", "Free a new BNS name with <name>.")
 	bnsCmd.Flag.StringVar(&cfg.BNSTransfer, "transfer", "", "Transfer an existing BNS name with <name>=<new_owner>.")
@@ -86,7 +87,7 @@ func handleLookup() (done bool, err error) {
 	}
 	done = true
 
-	var obnsAddr util.Address
+	var obnsAddr []util.Address
 	var ownerAddr util.Address
 	client := app.datapool.GetNearestClient()
 	obnsAddr, err = client.ResolveBNS(lookupName)
@@ -94,7 +95,9 @@ func handleLookup() (done bool, err error) {
 		cfg.PrintError("Lookup error: ", err)
 		return
 	}
-	cfg.PrintLabel("Lookup result: ", fmt.Sprintf("%s=0x%s", lookupName, obnsAddr.Hex()))
+	for _, addr := range obnsAddr {
+		cfg.PrintLabel("Lookup result: ", fmt.Sprintf("%s=0x%s", lookupName, addr.Hex()))
+	}
 	ownerAddr, err = client.ResolveBNSOwner(lookupName)
 	if err != nil {
 		cfg.PrintError("Couldn't lookup owner: ", err)
@@ -112,6 +115,7 @@ func handleRegister() (done bool, err error) {
 	}
 	registerPair := strings.Split(cfg.BNSRegister, "=")
 	done = true
+	registerReverse := true
 
 	client := app.datapool.GetNearestClient()
 	var bnsContract contract.BNSContract
@@ -121,7 +125,7 @@ func handleRegister() (done bool, err error) {
 		return
 	}
 
-	var obnsAddr util.Address
+	var obnsAddr []util.Address
 	// should lowercase bns name
 	bnsName := strings.ToLower(registerPair[0])
 	if !isValidBNS(bnsName) {
@@ -129,41 +133,60 @@ func handleRegister() (done bool, err error) {
 		return
 	}
 	nonce := client.GetAccountNonce(0, cfg.ClientAddr)
-	var bnsAddr util.Address
+	var bnsAddr []util.Address
 	if len(registerPair) > 1 {
-		bnsAddr, err = util.DecodeAddress(registerPair[1])
-		if err != nil {
-			cfg.PrintError("Invalid diode address", err)
-			return
+		for _, strAddr := range strings.Split(registerPair[1], ",") {
+			var addr util.Address
+			addr, err = util.DecodeAddress(strAddr)
+			if err != nil {
+				cfg.PrintError("Invalid diode address", err)
+				return
+			}
+			bnsAddr = append(bnsAddr, addr)
 		}
 	} else {
-		bnsAddr = cfg.ClientAddr
+		bnsAddr = append(bnsAddr, cfg.ClientAddr)
 	}
 	// check bns
 	obnsAddr, err = client.ResolveBNS(bnsName)
-	if err == nil {
-		if obnsAddr == bnsAddr {
-			cfg.PrintError("BNS name is already mapped to this address", err)
+	if err == nil && len(obnsAddr) == len(bnsAddr) {
+		if util.Equal(obnsAddr, bnsAddr) && !cfg.BNSForce {
+			cfg.PrintError("BNS name is already mapped to this address", fmt.Errorf("ignored"))
 			return
 		}
 	}
+
 	// send register transaction
-	var res bool
 	registerData, _ := bnsContract.Register(bnsName, bnsAddr)
 	ntx := edge.NewTransaction(nonce, 0, 10000000, contract.BNSAddr, 0, registerData, 0)
-	res, err = client.SendTransaction(ntx)
+	_, err = client.SendTransaction(ntx)
 	if err != nil {
-		cfg.PrintError("Cannot register blockchain name service: ", err)
+		cfg.PrintError("Cannot register with blockchain name service: ", err)
 		return
 	}
-	if !res {
-		cfg.PrintError("Cannot register blockchain name service: ", fmt.Errorf("server return false"))
-		return
+	for _, addr := range bnsAddr {
+		cfg.PrintLabel("Registering BNS: ", fmt.Sprintf("%s=>%s", bnsName, addr.HexString()))
 	}
-	cfg.PrintLabel("Register bns: ", fmt.Sprintf("%s=%s", bnsName, bnsAddr.HexString()))
+	nonce = nonce + 1
+
+	// Registering reverse entry as well
+	if registerReverse {
+		for _, addr := range bnsAddr {
+			registerData, _ := bnsContract.RegisterReverse(addr, bnsName)
+			ntx := edge.NewTransaction(nonce, 0, 10000000, contract.BNSAddr, 0, registerData, 0)
+			_, err = client.SendTransaction(ntx)
+			if err != nil {
+				cfg.PrintError("Cannot register reverse name entry: ", err)
+				return
+			}
+			cfg.PrintLabel("Registering rBNS: ", fmt.Sprintf("%s=>%s", addr.HexString(), bnsName))
+			nonce = nonce + 1
+		}
+
+	}
 	wait(client, func() bool {
 		current, err := client.ResolveBNS(bnsName)
-		return err == nil && current == bnsAddr
+		return err == nil && util.Equal(current, bnsAddr)
 	})
 	return
 }
@@ -217,13 +240,9 @@ func handleTransfer() (done bool, err error) {
 	}
 
 	// send register transaction
-	var res bool
 	registerData, _ := bnsContract.Transfer(bnsName, newOwner)
 	ntx := edge.NewTransaction(nonce, 0, 10000000, contract.BNSAddr, 0, registerData, 0)
-	res, err = client.SendTransaction(ntx)
-	if err == nil && !res {
-		err = fmt.Errorf("server returned false")
-	}
+	_, err = client.SendTransaction(ntx)
 	if err != nil {
 		cfg.PrintError("Cannot transfer blockchain name: ", err)
 		return
@@ -272,13 +291,9 @@ func handleUnregister() (done bool, err error) {
 	}
 
 	// send register transaction
-	var res bool
 	registerData, _ := bnsContract.Unregister(bnsName)
 	ntx := edge.NewTransaction(nonce, 0, 10000000, contract.BNSAddr, 0, registerData, 0)
-	res, err = client.SendTransaction(ntx)
-	if err == nil && !res {
-		err = fmt.Errorf("server returned false")
-	}
+	_, err = client.SendTransaction(ntx)
 	if err != nil {
 		cfg.PrintError("Cannot unregister blockchain name: ", err)
 		return

@@ -381,6 +381,11 @@ func (dio *Diode) Start() error {
 	}
 	lvbn, lvbh = client.LastValid()
 	cfg.Logger.Info(fmt.Sprintf("Network is validated, last valid block: %d 0x%x", lvbn, lvbh))
+	name, err := client.ResolveReverseBNS(cfg.ClientAddr)
+	if err == nil {
+		cfg.PrintLabel("Client name", fmt.Sprintf("%s.diode", name))
+		cfg.ClientName = name
+	}
 	return nil
 }
 

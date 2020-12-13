@@ -285,11 +285,15 @@ func publishHandler() (err error) {
 	}
 	if len(cfg.PublishedPorts) > 0 {
 		cfg.PrintInfo("")
+		name := cfg.ClientAddr.HexString()
+		if cfg.ClientName != "" {
+			name = cfg.ClientName
+		}
 		pool.SetPublishedPorts(cfg.PublishedPorts)
 		for _, port := range cfg.PublishedPorts {
 			if port.To == httpPort {
 				if port.Mode == config.PublicPublishedMode {
-					cfg.PrintLabel("HTTP Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", cfg.ClientAddr.HexString()))
+					cfg.PrintLabel("HTTP Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", name))
 				}
 				break
 			}

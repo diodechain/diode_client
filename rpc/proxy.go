@@ -141,7 +141,7 @@ func (proxyServer *ProxyServer) parseHost(host string) (isWS bool, mode string, 
 // TODO: add enable/disable in bns smart contract
 func (proxyServer *ProxyServer) isAllowedDevice(deviceName string) (err error) {
 	// Resolving BNS if needed
-	var deviceID Address
+	var deviceIDs []Address
 	socksServer := proxyServer.socksServer
 	client := socksServer.datapool.GetNearestClient()
 	if client == nil {
@@ -151,19 +151,21 @@ func (proxyServer *ProxyServer) isAllowedDevice(deviceName string) (err error) {
 	if !util.IsHex([]byte(deviceName)) {
 		bnsKey := fmt.Sprintf("bns:%s", deviceName)
 		var ok bool
-		deviceID, ok = socksServer.datapool.GetCacheBNS(bnsKey)
+		deviceIDs, ok = socksServer.datapool.GetCacheBNS(bnsKey)
 		if !ok {
-			deviceID, err = client.ResolveBNS(deviceName)
+			deviceIDs, err = client.ResolveBNS(deviceName)
 			if err != nil {
 				return
 			}
-			socksServer.datapool.SetCacheBNS(bnsKey, deviceID)
+			socksServer.datapool.SetCacheBNS(bnsKey, deviceIDs)
 		}
 	} else {
 		// reject hex encoding device name
 		err = fmt.Errorf("unsupported device name")
 		return
 	}
+
+	deviceID := deviceIDs[0]
 
 	// Checking blocklist and allowlist
 	if len(socksServer.Config.Blocklists) > 0 {
