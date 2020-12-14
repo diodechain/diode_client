@@ -73,10 +73,8 @@ func init() {
 	diodeCmd.Flag.Var(&cfg.SBlocklists, "blocklists", "addresses are not allowed to connect to published resource (worked when allowlists is empty)")
 	diodeCmd.Flag.Var(&cfg.SAllowlists, "allowlists", "addresses are allowed to connect to published resource (worked when blocklists is empty)")
 	diodeCmd.Flag.Var(&cfg.SBinds, "bind", "bind a remote port to a local port. -bind <local_port>:<to_address>:<to_port>:(udp|tcp)")
-	// tcp keepalive for node connection
+	// tcp keepalive for server connection
 	diodeCmd.Flag.BoolVar(&cfg.EnableKeepAlive, "keepalive", runtime.GOOS != "windows", "enable tcp keepalive (only Linux >= 2.4, DragonFly, FreeBSD, NetBSD and OS X >= 10.8 are supported)")
-	diodeCmd.Flag.IntVar(&cfg.KeepAliveCount, "keepalivecount", 4, "the maximum number of keepalive probes TCP should send before dropping the connection")
-	diodeCmd.Flag.DurationVar(&cfg.KeepAliveIdle, "keepaliveidle", 30*time.Second, "the time (in seconds) the connection needs to remain idle before TCP starts sending keepalive probes")
 	diodeCmd.Flag.DurationVar(&cfg.KeepAliveInterval, "keepaliveinterval", 5*time.Second, "the time (in seconds) between individual keepalive probes")
 	config.AppConfig = cfg
 	// Add diode commands

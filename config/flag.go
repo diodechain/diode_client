@@ -45,8 +45,6 @@ type Config struct {
 	EnableUpdate      bool          `yaml:"update,omitempty" json:"update,omitempty"`
 	EnableMetrics     bool          `yaml:"metrics,omitempty" json:"metrics,omitempty"`
 	EnableKeepAlive   bool          `yaml:"keepalive,omitempty" json:"keepalive,omitempty"`
-	KeepAliveCount    int           `yaml:"keepalivecount,omitempty" json:"keepalivecount,omitempty"`
-	KeepAliveIdle     time.Duration `yaml:"keepaliveidle,omitempty" json:"keepaliveidle,omitempty"`
 	KeepAliveInterval time.Duration `yaml:"keepaliveinterval,omitempty" json:"keepaliveinterval,omitempty"`
 	RemoteRPCAddrs    stringValues  `yaml:"diodeaddrs,omitempty" json:"diodeaddrs,omitempty"`
 	RemoteRPCTimeout  time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`

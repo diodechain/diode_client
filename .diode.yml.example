@@ -13,9 +13,7 @@ retrywait: 10s
 # registry:
 # dbpath: ./db
 # keepalive: true
-# keepalivecount: 5
 # keepaliveinterval: 5s
-# keepaliveidle: 30s
 # blocklists:
 #     -
 # allowlists:

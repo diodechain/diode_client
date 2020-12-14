@@ -62,13 +62,23 @@ func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*op
 	}
 	e2eServer.opensslConn = conn
 	go func() {
-		// tunnelOpenssl.Close()
-		// tunnelDiode.Close()
+		ts := time.Now()
 		if err = e2eServer.handshake(conn); err != nil {
 			e2eServer.client.Error(err.Error())
 			e2eServer.Close()
 			return
 		}
+		te := time.Since(ts)
+		e2eServer.client.Debug(fmt.Sprintf("E2E handshake time: %s", te))
+		// Since we use in memory network, and there is no fd in the connection.
+		// The keepalive won't work.
+		// netConn := conn.UnderlyingConn()
+		// if tcpConn, ok := netConn.(*net.TCPConn); ok {
+		// 	err = tcpConn.SetKeepAlive(true)
+		// 	if err == nil {
+		// 		tcpConn.SetKeepAlivePeriod(10*time.Second)
+		// 	}
+		// }
 		tunnel := NewTunnel(conn, e2eServer.remoteConn, e2eServer.idleTimeout, e2eBufferSize)
 		tunnel.Copy()
 		e2eServer.Close()
@@ -92,10 +102,6 @@ func (e2eServer *E2EServer) ctx() *openssl.Ctx {
 }
 
 func (e2eServer *E2EServer) checkPeer(ssl *openssl.Conn) error {
-	err := ssl.Handshake()
-	if err != nil {
-		return err
-	}
 	address, err := GetConnectionID(ssl)
 	if err != nil {
 		return err

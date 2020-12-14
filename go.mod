@@ -33,7 +33,6 @@ require (
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/stretchr/testify v1.4.0
-	github.com/ucirello/tcpkeepalive v0.0.0-20180903163222-92daabaeadac
 	github.com/ulikunitz/xz v0.5.7 // indirect
 	golang.org/x/crypto v0.0.0-20200728195943-123391ffb6de
 	golang.org/x/net v0.0.0-20200822124328-c89045814202

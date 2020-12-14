@@ -111,6 +111,12 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 				rpcClient.Error("Failed to connect local: %v", err)
 				return
 			}
+			if tcpConn, ok := remoteConn.(*net.TCPConn); ok {
+				err := tcpConn.SetKeepAlive(true)
+				if err == nil {
+					tcpConn.SetKeepAlivePeriod(10 * time.Second)
+				}
+			}
 
 			deviceKey := rpcClient.GetDeviceKey(portOpen.Ref)
 			connDevice.Ref = portOpen.Ref

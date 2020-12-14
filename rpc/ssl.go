@@ -20,7 +20,6 @@ import (
 	"github.com/diodechain/diode_go_client/edge"
 	"github.com/diodechain/diode_go_client/util"
 	"github.com/diodechain/openssl"
-	"github.com/ucirello/tcpkeepalive"
 )
 
 const (
@@ -40,12 +39,10 @@ const (
 type SSL struct {
 	conn              *openssl.Conn
 	ctx               *openssl.Ctx
-	tcpConn           *tcpkeepalive.Conn
+	tcpConn           *net.TCPConn
 	addr              string
 	mode              openssl.DialFlags
 	enableKeepAlive   bool
-	keepAliveCount    int
-	keepAliveIdle     time.Duration
 	keepAliveInterval time.Duration
 	reconnecting      bool
 	totalConnections  uint64
@@ -148,33 +145,17 @@ func (s *SSL) Close() {
 // EnableKeepAlive enable the tcp keepalive package in os level, could use ping instead
 func (s *SSL) EnableKeepAlive() error {
 	netConn := s.conn.UnderlyingConn()
-	tcpConn, err := tcpkeepalive.EnableKeepAlive(netConn)
+	tcpConn, ok := netConn.(*net.TCPConn)
+	if !ok {
+		return fmt.Errorf("wrong conn type for keepalive")
+	}
+	err := tcpConn.SetKeepAlive(true)
 	if err != nil {
 		return err
 	}
 	s.tcpConn = tcpConn
 	s.enableKeepAlive = true
 	return nil
-}
-
-// SetKeepAliveIdle sets the time (in seconds) the connection needs to remain
-// idle before TCP starts sending keepalive probes.
-func (s *SSL) SetKeepAliveIdle(d time.Duration) error {
-	if !s.enableKeepAlive {
-		return fmt.Errorf("should enable keepalive first")
-	}
-	s.keepAliveIdle = d
-	return s.tcpConn.SetKeepAliveIdle(d)
-}
-
-// SetKeepAliveCount sets the maximum number of keepalive probes TCP should
-// send before dropping the connection.
-func (s *SSL) SetKeepAliveCount(n int) error {
-	if !s.enableKeepAlive {
-		return fmt.Errorf("should enable keepalive first")
-	}
-	s.keepAliveCount = n
-	return s.tcpConn.SetKeepAliveCount(n)
 }
 
 // SetKeepAliveInterval sets the time (in seconds) between individual keepalive
@@ -184,7 +165,7 @@ func (s *SSL) SetKeepAliveInterval(d time.Duration) error {
 		return fmt.Errorf("should enable keepalive first")
 	}
 	s.keepAliveInterval = d
-	return s.tcpConn.SetKeepAliveInterval(d)
+	return s.tcpConn.SetKeepAlivePeriod(d)
 }
 
 // GetServerID returns server address
@@ -330,14 +311,6 @@ func (s *SSL) reconnect() error {
 	s.rm.Unlock()
 	if s.enableKeepAlive {
 		s.EnableKeepAlive()
-		err = s.SetKeepAliveCount(s.keepAliveCount)
-		if err != nil {
-			return err
-		}
-		err = s.SetKeepAliveIdle(s.keepAliveIdle)
-		if err != nil {
-			return err
-		}
 		err = s.SetKeepAliveInterval(s.keepAliveInterval)
 		if err != nil {
 			return err
@@ -403,14 +376,6 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 	// enable keepalive
 	if config.EnableKeepAlive {
 		err = client.EnableKeepAlive()
-		if err != nil {
-			return nil, err
-		}
-		err = client.SetKeepAliveCount(config.KeepAliveCount)
-		if err != nil {
-			return nil, err
-		}
-		err = client.SetKeepAliveIdle(config.KeepAliveIdle)
 		if err != nil {
 			return nil, err
 		}

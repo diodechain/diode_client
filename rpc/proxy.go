@@ -10,11 +10,9 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/caddyserver/certmagic"
 	"github.com/diodechain/diode_go_client/config"
@@ -54,23 +52,6 @@ type ProxyServer struct {
 	closeCh      chan struct{}
 	mx           sync.Mutex
 	cd           sync.Once
-}
-
-var proxyTransport http.Transport = http.Transport{
-	Proxy: http.ProxyURL(&url.URL{
-		Scheme: "socks5:",
-		Host:   "localhost:33",
-	}),
-	DialContext: (&net.Dialer{
-		Timeout:   30 * time.Second,
-		KeepAlive: 30 * time.Second,
-		DualStack: true,
-	}).DialContext,
-	ForceAttemptHTTP2:     true,
-	MaxIdleConns:          100,
-	IdleConnTimeout:       90 * time.Second,
-	TLSHandshakeTimeout:   10 * time.Second,
-	ExpectContinueTimeout: 1 * time.Second,
 }
 
 func httpError(w http.ResponseWriter, code int, str string) {
@@ -185,7 +166,7 @@ func (proxyServer *ProxyServer) isAllowedDevice(deviceName string) (err error) {
 }
 
 func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request) {
-	proxyServer.logger.Debug("Got proxy request from: %s", r.RemoteAddr)
+	proxyServer.logger.Info("Got proxy request from: %s", r.RemoteAddr)
 	host := r.Host
 	if len(host) == 0 {
 		badRequest(w, "Host was wrong")
@@ -242,9 +223,9 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 			proto = "http"
 		}
 		protoHost := fmt.Sprintf("%s://%s", proto, host)
-		r.Header.Set("Origin", protoHost)
-		r.Header.Set("X-Forward-Host", "diode.link")
-		r.Header.Set("X-Forward-Proto", proto)
+		r.Header.Set("Host", protoHost)
+		r.Header.Set("X-Forwarded-Host", "diode.link")
+		r.Header.Set("X-Forwarded-Proto", proto)
 
 		header := bytes.NewBuffer([]byte{})
 		r.Write(header)
@@ -260,8 +241,9 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 			conn.Close()
 			return nil, nil
 		}
+		httpConn := NewHTTPConn(header.Bytes(), conn, protoHost, "diode.link", proto)
 		return &DeviceConn{
-			Conn:       NewHTTPConn(header.Bytes(), conn),
+			Conn:       httpConn,
 			bufferSize: sslBufferSize,
 			closeCh:    make(chan struct{}),
 		}, nil
@@ -329,8 +311,6 @@ func (proxyServer *ProxyServer) Start() error {
 	if proxyServer.Closed() {
 		return nil
 	}
-	prox, _ := url.Parse(fmt.Sprintf("socks5://%s", proxyServer.socksServer.Config.Addr))
-	proxyTransport.Proxy = http.ProxyURL(prox)
 	httpdHandler := http.HandlerFunc(proxyServer.pipeProxy)
 	if proxyServer.Config.AllowRedirect {
 		httpdHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
