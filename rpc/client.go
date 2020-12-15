@@ -163,15 +163,19 @@ func (rpcClient *RPCClient) GetDeviceKey(ref string) string {
 }
 
 func (rpcClient *RPCClient) enqueueCall(call Call) error {
+	timer := time.NewTimer(enqueueTimeout)
+	defer timer.Stop()
 	select {
 	case rpcClient.callQueue <- call:
 		return nil
-	case <-time.After(enqueueTimeout):
+	case <-timer.C:
 		return fmt.Errorf("send call to channel timeout")
 	}
 }
 
 func (rpcClient *RPCClient) waitResponse(call Call, rpcTimeout time.Duration) (res interface{}, err error) {
+	timer := time.NewTimer(rpcTimeout)
+	defer timer.Stop()
 	select {
 	case resp := <-call.response:
 		if rpcError, ok := resp.(edge.Error); ok {
@@ -188,7 +192,7 @@ func (rpcClient *RPCClient) waitResponse(call Call, rpcTimeout time.Duration) (r
 			err = CancelledError{rpcClient.Host()}
 		}
 		return
-	case <-time.After(rpcTimeout):
+	case <-timer.C:
 		err = TimeoutError{rpcTimeout}
 		return
 	}

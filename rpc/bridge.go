@@ -20,10 +20,12 @@ var (
 )
 
 func (c *Call) enqueueResponse(msg interface{}) error {
+	timer := time.NewTimer(enqueueTimeout)
+	defer timer.Stop()
 	select {
 	case c.response <- msg:
 		return nil
-	case <-time.After(enqueueTimeout):
+	case <-timer.C:
 		return fmt.Errorf("send response to channel timeout")
 	}
 }
