@@ -587,7 +587,7 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, devices []
 		if config.AppConfig.EnableEdgeE2E {
 			protocol = config.TLSProtocol
 		}
-		err := socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, defaultIdleTimeout, func(connDevice *ConnectedDevice) (*DeviceConn, error) {
+		err = socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, defaultIdleTimeout, func(connDevice *ConnectedDevice) (*DeviceConn, error) {
 			// send data or receive data from ref
 			connDevice.Client.Debug("Connect remote success @ %s %s %v", clientIP, deviceID, port)
 			writeSocksReturn(conn, ver, connDevice.Client.s.LocalAddr(), port)
