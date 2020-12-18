@@ -90,7 +90,7 @@ jobs:
       with:
         name: ${{ env.ZIPNAME }}
     - if: runner.os == 'macOS'
-      run: brew remove openssl
+      run: brew uninstall --ignore-dependencies openssl
     - run: |
         chmod +x ./diode 
         ./diode config -list

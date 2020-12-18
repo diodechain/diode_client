@@ -10,12 +10,12 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"regexp"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
-
-	"regexp"
-	"strconv"
 
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/edge"
@@ -46,6 +46,7 @@ const (
 	socksRepHostUnreachable    = 0x04
 	socksRepRefused            = 0x05
 	socksRepTTLExpired         = 0x06
+	stackBufferSize            = 2048
 )
 
 // Config is Socks Server configuration
@@ -562,7 +563,6 @@ func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
 		return
 	}
 	defer remoteConn.Close()
-	defer conn.Close()
 
 	port := remoteConn.RemoteAddr().(*net.TCPAddr).Port
 
@@ -606,22 +606,6 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, devices []
 	writeSocksError(conn, ver, socksRepNetworkUnreachable)
 }
 
-func (socksServer *Server) pipeSocksWSThenClose(conn net.Conn, ver int, devices []*edge.DeviceTicket, port int, mode string) {
-	remoteConn, err := net.DialTimeout("tcp", socksServer.Config.ProxyServerAddr, time.Duration(time.Second*15))
-	if err != nil {
-		socksServer.logger.Error("Failed to connect remote: %s", err.Error())
-		writeSocksError(conn, ver, socksRepNetworkUnreachable)
-		return
-	}
-	defer remoteConn.Close()
-	defer conn.Close()
-
-	writeSocksReturn(conn, ver, remoteConn.LocalAddr(), port)
-
-	tunnel := NewTunnel(conn, remoteConn, defaultIdleTimeout, sslBufferSize)
-	tunnel.Copy()
-}
-
 func lookupFallbackHost(h string) (string, error) {
 	var host, port string
 	sh := strings.Split(h, ":")
@@ -647,8 +631,15 @@ func lookupFallbackHost(h string) (string, error) {
 }
 
 func (socksServer *Server) handleSocksConnection(conn net.Conn) {
-	defer conn.Close()
-	defer socksServer.wg.Done()
+	defer func() {
+		if err := recover(); err != nil {
+			buf := make([]byte, stackBufferSize)
+			buf = buf[:runtime.Stack(buf, false)]
+			socksServer.logger.Error("panic serving socks connection %s: %v\n%s", conn.RemoteAddr().String(), err, buf)
+		}
+		conn.Close()
+		socksServer.wg.Done()
+	}()
 	ver, host, err := handShake(conn)
 	if err != nil {
 		socksServer.logger.Error("Dialed to handshake %v", err)
@@ -687,10 +678,8 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 	}
 	if !isWS {
 		socksServer.pipeSocksThenClose(conn, ver, devices, port, mode)
-	} else if socksServer.Config.EnableProxy {
-		socksServer.pipeSocksWSThenClose(conn, ver, devices, port, mode)
 	} else {
-		socksServer.logger.Error("Proxy not enabled, can't forward websocket connection")
+		socksServer.logger.Error("Couldn't forward socks connection")
 		writeSocksError(conn, ver, socksRepNotAllowed)
 	}
 }

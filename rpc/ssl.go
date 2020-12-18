@@ -287,6 +287,17 @@ func (s *SSL) readMessage() (msg edge.Message, err error) {
 
 func (s *SSL) sendMessage(buf []byte) (n int, err error) {
 	conn := s.getOpensslConn()
+	// write message length
+	byteLen := make([]byte, 2)
+	binary.BigEndian.PutUint16(byteLen, uint16(len(buf)))
+	n, err = conn.Write(byteLen)
+	if err != nil {
+		return
+	}
+	if n != len(byteLen) {
+		err = fmt.Errorf("data was truncated")
+		return
+	}
 	n, err = conn.Write(buf)
 	if err != nil {
 		return
@@ -294,7 +305,7 @@ func (s *SSL) sendMessage(buf []byte) (n int, err error) {
 	if n != len(buf) {
 		err = fmt.Errorf("data was truncated")
 	}
-	s.incrementTotalBytes(n)
+	s.incrementTotalBytes(n + len(byteLen))
 	return
 }
 

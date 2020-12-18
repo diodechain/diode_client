@@ -4,7 +4,7 @@
 package rpc
 
 import (
-	"encoding/binary"
+	"bytes"
 	"fmt"
 	"math/big"
 	"os"
@@ -205,11 +205,12 @@ func (rpcClient *RPCClient) RespondContext(requestID uint64, responseType string
 		return
 	}
 	var msg []byte
-	msg, _, err = rpcClient.edgeProtocol.NewResponseMessage(requestID, responseType, method, args...)
+	buf := bytes.NewBuffer(msg)
+	_, err = rpcClient.edgeProtocol.NewResponseMessage(buf, requestID, responseType, method, args...)
 	if err != nil {
 		return
 	}
-	call, err = preparePayload(requestID, method, msg, nil, nil)
+	call, err = preparePayload(requestID, method, buf, nil, nil)
 	if err != nil {
 		return
 	}
@@ -225,11 +226,12 @@ func (rpcClient *RPCClient) CastContext(requestID uint64, method string, args ..
 	}
 	var msg []byte
 	var parseCallback func([]byte) (interface{}, error)
-	msg, parseCallback, err = rpcClient.edgeProtocol.NewMessage(requestID, method, args...)
+	buf := bytes.NewBuffer(msg)
+	parseCallback, err = rpcClient.edgeProtocol.NewMessage(buf, requestID, method, args...)
 	if err != nil {
 		return
 	}
-	call, err = preparePayload(requestID, method, msg, parseCallback, make(chan interface{}))
+	call, err = preparePayload(requestID, method, buf, parseCallback, make(chan interface{}))
 	if err != nil {
 		return
 	}
@@ -237,21 +239,14 @@ func (rpcClient *RPCClient) CastContext(requestID uint64, method string, args ..
 	return
 }
 
-func preparePayload(requestID uint64, method string, payload []byte, parse func(buffer []byte) (interface{}, error), message chan interface{}) (Call, error) {
-	// add length of payload
-	lenPay := len(payload)
-	bytPay := make([]byte, lenPay+2)
-	binary.BigEndian.PutUint16(bytPay[:2], uint16(lenPay))
-	for i, s := range payload {
-		bytPay[i+2] = byte(s)
-	}
+func preparePayload(requestID uint64, method string, buf *bytes.Buffer, parse func(buffer []byte) (interface{}, error), message chan interface{}) (Call, error) {
 	call := Call{
 		id:         requestID,
 		method:     method,
 		retryTimes: rpcCallRetryTimes,
 		response:   message,
 		signal:     make(chan Signal),
-		data:       bytPay,
+		data:       buf,
 		Parse:      parse,
 	}
 	// atomic.AddInt64(&rpcID, 1)

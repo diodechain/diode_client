@@ -180,7 +180,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 		if cachedConnDevice != nil {
 			cachedConnDevice.Write(decData)
 		} else {
-			rpcClient.Debug("Cannot find the portsend connected device %x", portSend.Ref)
+			rpcClient.Debug("Couldn't find the portsend connected device %x", portSend.Ref)
 			rpcClient.CastPortClose(portSend.Ref)
 		}
 	} else if portClose, ok := inboundRequest.(*edge.PortClose); ok {
@@ -190,7 +190,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			cachedConnDevice.Close()
 			rpcClient.pool.SetDevice(deviceKey, nil)
 		} else {
-			rpcClient.Debug("Cannot find the portclose connected device %x", portClose.Ref)
+			rpcClient.Debug("Couldn't find the portclose connected device %x", portClose.Ref)
 		}
 	} else if goodbye, ok := inboundRequest.(edge.Goodbye); ok {
 		rpcClient.Warn("server disconnected, reason: %v", goodbye.Reason)
@@ -259,7 +259,7 @@ func (rpcClient *RPCClient) handleInboundMessage(msg edge.Message) {
 		}
 		res, err := call.Parse(msg.Buffer)
 		if err != nil {
-			rpcClient.Debug("Cannot decode response: %s", err.Error())
+			rpcClient.Debug("Couldn't decode response: %s", err.Error())
 			rpcError := edge.Error{
 				Message: err.Error(),
 			}
@@ -334,7 +334,7 @@ func (rpcClient *RPCClient) sendMessage() {
 		}
 		rpcClient.Debug("Send new rpc: %s id: %d", call.method, call.id)
 		ts := time.Now()
-		_, err := rpcClient.s.sendMessage(call.data)
+		_, err := rpcClient.s.sendMessage(call.data.Bytes())
 		if err != nil {
 			rpcClient.Error("Failed to write to node: %v", err)
 			if rpcClient.Closed() {
