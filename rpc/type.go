@@ -4,6 +4,7 @@
 package rpc
 
 import (
+	"bytes"
 	"fmt"
 	"time"
 
@@ -33,7 +34,7 @@ type Call struct {
 	inserted   bool
 	response   chan interface{}
 	signal     chan Signal
-	data       []byte
+	data       *bytes.Buffer
 	Parse      func(buffer []byte) (interface{}, error)
 }
 

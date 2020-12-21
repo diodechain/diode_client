@@ -3,6 +3,10 @@
 // Licensed under the Diode License, Version 1.0
 package edge
 
+import (
+	"io"
+)
+
 // EdgeProtocol interface defines functions that are required to diode edge protocol
 type EdgeProtocol interface {
 	// parse response of rpc call
@@ -33,8 +37,8 @@ type EdgeProtocol interface {
 	ResponseID(buffer []byte) uint64
 	NewMerkleTree(rawTree []interface{}) (MerkleTree, error)
 	NewErrorResponse(err error) Error
-	NewMessage(requestID uint64, method string, args ...interface{}) ([]byte, func(buffer []byte) (interface{}, error), error)
-	NewResponseMessage(requestID uint64, responseType string, method string, args ...interface{}) ([]byte, func(buffer []byte) (interface{}, error), error)
+	NewMessage(writer io.Writer, requestID uint64, method string, args ...interface{}) (func(buffer []byte) (interface{}, error), error)
+	NewResponseMessage(writer io.Writer, requestID uint64, responseType string, method string, args ...interface{}) (func(buffer []byte) (interface{}, error), error)
 }
 
 // MerkleTreeParser interface defines functions that are required to diode merkle tree

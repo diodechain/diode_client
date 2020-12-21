@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"io"
 
 	"github.com/diodechain/diode_go_client/blockquick"
 	"github.com/diodechain/diode_go_client/config"
@@ -564,7 +565,7 @@ func (rlpV2 RLP_V2) NewErrorResponse(err error) (rpcErr Error) {
 	return
 }
 
-func (rlpV2 RLP_V2) NewMessage(requestID uint64, method string, args ...interface{}) ([]byte, func(buffer []byte) (interface{}, error), error) {
+func (rlpV2 RLP_V2) NewMessage(writer io.Writer, requestID uint64, method string, args ...interface{}) (func(buffer []byte) (interface{}, error), error) {
 	request := generalRequest{}
 	request.RequestID = requestID
 	request.Payload = make([]interface{}, len(args)+1)
@@ -572,50 +573,50 @@ func (rlpV2 RLP_V2) NewMessage(requestID uint64, method string, args ...interfac
 	for i, arg := range args {
 		request.Payload[i+1] = arg
 	}
-	encodedRlp, err := rlp.EncodeToBytes(request)
+	err := rlp.Encode(writer, request)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
 	switch method {
 	case "hello":
-		return encodedRlp, nil, nil
+		return nil, nil
 	case "portsend":
-		return encodedRlp, nil, nil
+		return nil, nil
 	case "portclose":
-		return encodedRlp, nil, nil
+		return nil, nil
 	case "getblock":
-		return encodedRlp, rlpV2.parseBlockResponse, nil
+		return rlpV2.parseBlockResponse, nil
 	case "getblockpeak":
-		return encodedRlp, rlpV2.parseBlockPeakResponse, nil
+		return rlpV2.parseBlockPeakResponse, nil
 	case "getblockheader2":
-		return encodedRlp, rlpV2.parseBlockHeaderResponse, nil
+		return rlpV2.parseBlockHeaderResponse, nil
 	case "getblockquick2":
-		return encodedRlp, rlpV2.parseBlockquickResponse, nil
+		return rlpV2.parseBlockquickResponse, nil
 	case "getaccount":
-		return encodedRlp, rlpV2.parseAccountResponse, nil
+		return rlpV2.parseAccountResponse, nil
 	case "getaccountroots":
-		return encodedRlp, rlpV2.parseAccountRootsResponse, nil
+		return rlpV2.parseAccountRootsResponse, nil
 	case "getaccountvalue":
-		return encodedRlp, rlpV2.parseAccountValueResponse, nil
+		return rlpV2.parseAccountValueResponse, nil
 	case "ticket":
-		return encodedRlp, rlpV2.parseDeviceTicketResponse, nil
+		return rlpV2.parseDeviceTicketResponse, nil
 	case "portopen":
-		return encodedRlp, rlpV2.parsePortOpenResponse, nil
+		return rlpV2.parsePortOpenResponse, nil
 	case "getobject":
-		return encodedRlp, rlpV2.parseDeviceObjectResponse, nil
+		return rlpV2.parseDeviceObjectResponse, nil
 	case "getnode":
-		return encodedRlp, rlpV2.parseServerObjResponse, nil
+		return rlpV2.parseServerObjResponse, nil
 	case "getstateroots":
-		return encodedRlp, rlpV2.parseStateRootsResponse, nil
+		return rlpV2.parseStateRootsResponse, nil
 	case "sendtransaction":
-		return encodedRlp, rlpV2.parseTransactionResponse, nil
+		return rlpV2.parseTransactionResponse, nil
 	default:
-		return nil, nil, ErrRPCNotSupport
+		return nil, ErrRPCNotSupport
 	}
 }
 
-func (rlpV2 RLP_V2) NewResponseMessage(requestID uint64, responseType string, method string, args ...interface{}) ([]byte, func(buffer []byte) (interface{}, error), error) {
+func (rlpV2 RLP_V2) NewResponseMessage(writer io.Writer, requestID uint64, responseType string, method string, args ...interface{}) (func(buffer []byte) (interface{}, error), error) {
 	request := generalRequest{}
 	request.RequestID = requestID
 	request.Payload = make([]interface{}, len(args)+1)
@@ -630,11 +631,11 @@ func (rlpV2 RLP_V2) NewResponseMessage(requestID uint64, responseType string, me
 	case "portsend":
 	case "portclose":
 	default:
-		return nil, nil, ErrRPCNotSupport
+		return nil, ErrRPCNotSupport
 	}
-	decodedRlp, err := rlp.EncodeToBytes(request)
+	err := rlp.Encode(writer, request)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return decodedRlp, nil, nil
+	return nil, nil
 }
