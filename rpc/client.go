@@ -930,15 +930,15 @@ func (rpcClient *RPCClient) IsDeviceAllowlisted(fleetAddr Address, clientAddr Ad
 func (rpcClient *RPCClient) Reconnect() bool {
 	isOk := false
 	for i := 1; i <= config.AppConfig.RetryTimes; i++ {
-		rpcClient.Info("Retry to connect to %s (%d/%d), wait %s", rpcClient.s.addr, i, config.AppConfig.RetryTimes, config.AppConfig.RetryWait.String())
 		if rpcClient.s.Closed() {
 			break
 		}
+		retryWait := rpcClient.backoff.Duration()
+		rpcClient.Info("Retry to connect to %s (%d/%d), wait %s", rpcClient.s.addr, i, config.AppConfig.RetryTimes, retryWait)
+		time.Sleep(retryWait)
 		err := rpcClient.s.reconnect()
 		if err != nil {
-			duration := rpcClient.backoff.Duration()
-			rpcClient.Error("Failed to reconnect: %s, reconnecting in %s", err, duration)
-			time.Sleep(duration)
+			rpcClient.Error("Failed to reconnect to %s, %s", rpcClient.s.addr, err)
 			continue
 		}
 		rpcClient.backoff.Reset()
