@@ -7,15 +7,17 @@ import (
 	"crypto/tls"
 	"fmt"
 	"github.com/diodechain/diode_go_client/config"
-	"github.com/spf13/cobra"
+	"github.com/gdamore/tcell/v2"
 	"io/ioutil"
-	"log"
 	"net"
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
+	"os"
 	"sync"
 	"time"
+	// "github.com/gdamore/tcell/v2/views"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -28,15 +30,71 @@ var (
 	cfg                      = &Config{}
 	ErrUnsupportTransport    = fmt.Errorf("unsupported transport, make sure you use these options (proxy, sproxy, socks5)")
 	ErrFailedSetRlimitNofile = fmt.Errorf("cannot set rlimit nofile")
-	headerTemplate           = `
-
-|                |    DNS Lookup   |  TCP Connection    |  Server Process    | Content Transfer |    Total     |
+	headerTemplate           = `|                |    DNS Lookup   |  TCP Connection    |  Server Process    | Content Transfer |    Total     |
 `
 	rowTemplate = `|    Fetch #%-3d  |    %-10s   |    %-12s    |    %-12s    |   %-12s   | %-12s |
 `
+	errorRowTemplate = `|    Fetch #%-3d  |    %-10s
+`
+	a App
 )
 
+type App struct {
+	screen tcell.Screen
+	style  tcell.Style
+}
+
+func (app *App) Init() (err error) {
+	app.style = tcell.StyleDefault.Background(tcell.ColorReset).Foreground(tcell.ColorReset)
+	app.screen, err = tcell.NewScreen()
+	if err != nil {
+		return
+	}
+	if err = app.screen.Init(); err != nil {
+		return
+	}
+	app.screen.SetStyle(app.style)
+	return
+}
+
+func (app *App) LoopEvent() {
+	for {
+		// Poll event
+		ev := app.screen.PollEvent()
+
+		// Process event
+		switch ev := ev.(type) {
+		case *tcell.EventResize:
+			app.screen.Sync()
+		case *tcell.EventKey:
+			if ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyCtrlC {
+				app.Quit()
+			}
+		}
+	}
+}
+
+func (app *App) Println(x1, y1 int, text string) {
+	col := x1
+	row := y1
+	for _, c := range text {
+		app.screen.SetContent(col, row, c, nil, app.style)
+		col++
+	}
+	app.screen.Show()
+}
+
+func (app *App) Quit() {
+	app.screen.Fini()
+	os.Exit(1)
+}
+
 func clientDebugHandler(cmd *cobra.Command, args []string) (err error) {
+	// initialize app
+	a = App{}
+	if e := a.Init(); e != nil {
+		return err
+	}
 	var proxyTransport *http.Transport = &http.Transport{
 		Proxy: http.ProxyURL(&url.URL{
 			Scheme: "socks5:",
@@ -90,11 +148,16 @@ func clientDebugHandler(cmd *cobra.Command, args []string) (err error) {
 			return
 		}
 	}
-	fmt.Printf("\nStart to connect to %s for %d times", cfg.Target, cfg.Conn)
-	fmt.Print(headerTemplate)
+	col := 0
+	row := 0
+	a.Println(col, row, fmt.Sprintf("Start to connect to %s for %d times", cfg.Target, cfg.Conn))
+	row++
+	a.Println(col, row, headerTemplate)
+	row++
 	wg.Add(cfg.Conn)
 	for i := 0; i < cfg.Conn; i++ {
-		go func(j int) {
+		a.Println(col, row, fmt.Sprintf(rowTemplate, i, "", "", "", "", ""))
+		go func(j, row int) {
 			var t0, t1, t2, t3, t4 time.Time
 			req, _ := http.NewRequest("GET", cfg.Target, nil)
 			trace := &httptrace.ClientTrace{
@@ -111,40 +174,46 @@ func clientDebugHandler(cmd *cobra.Command, args []string) (err error) {
 					if t1.IsZero() {
 						t1 = time.Now()
 					}
+					a.Println(col, row, fmt.Sprintf(rowTemplate, j, t1.Sub(t0), "", "", "", ""))
 				},
 				ConnectDone: func(network, addr string, err error) {
 					if err == nil {
 						t2 = time.Now()
 					}
+					a.Println(col, row, fmt.Sprintf(rowTemplate, j, t1.Sub(t0), t2.Sub(t1), "", "", ""))
 				},
 				GotConn: func(_ httptrace.GotConnInfo) {
 					t3 = time.Now()
 				},
 				GotFirstResponseByte: func() {
 					t4 = time.Now()
+					a.Println(col, row, fmt.Sprintf(rowTemplate, j, t1.Sub(t0), t2.Sub(t1), t4.Sub(t3), "", ""))
 				},
 			}
 			req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 			resp, err := transport.RoundTrip(req)
 			if err != nil {
-				log.Printf("Failed to get target #%d: %s\n", j, err.Error())
+				a.Println(col, row, fmt.Sprintf(errorRowTemplate, j, err.Error()))
 				wg.Done()
 				return
 			}
 			_, err = ioutil.ReadAll(resp.Body)
 			if err != nil {
-				log.Printf("Failed to read from body #%d: %s\n", j, err.Error())
+				a.Println(col, row, fmt.Sprintf(errorRowTemplate, j, err.Error()))
 				resp.Body.Close()
 				wg.Done()
 				return
 			}
 			t5 := time.Now()
-			fmt.Printf(rowTemplate, j, t1.Sub(t0), t2.Sub(t1), t4.Sub(t3), t5.Sub(t4), t5.Sub(t0))
+			a.Println(col, row, fmt.Sprintf(rowTemplate, j, t1.Sub(t0), t2.Sub(t1), t4.Sub(t3), t5.Sub(t4), t5.Sub(t0)))
 			resp.Body.Close()
 			wg.Done()
-		}(i + 1)
+		}(i+1, row)
+		row++
 	}
 	wg.Wait()
+	a.Println(col, row, "Press ctrl + c or ESC to exit")
+	a.LoopEvent()
 	return
 }
 

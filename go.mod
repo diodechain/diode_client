@@ -15,6 +15,7 @@ require (
 	github.com/diodechain/zap v0.0.0-20201117101851-06f3cd5f3263
 	github.com/dsnet/compress v0.0.1 // indirect
 	github.com/ethereum/go-ethereum v1.9.11
+	github.com/gdamore/tcell/v2 v2.1.0
 	github.com/go-playground/universal-translator v0.17.0 // indirect
 	github.com/go-playground/validator v9.31.0+incompatible
 	github.com/google/go-github v17.0.0+incompatible // indirect
