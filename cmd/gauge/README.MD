@@ -1,6 +1,6 @@
 # Diode go client test
 
-This is a debug program for connecting the target through diode network concurrently.
+This is a client program to send multiple requests through diode network concurrently.
 
 ![Client debug demo](/docs/client_debug.gif)
 
@@ -8,34 +8,36 @@ This is a debug program for connecting the target through diode network concurre
 
 1. Normal connection
 ```BASH
-$ go run client_debug.go -conn 10
+$ gauge -conn 10
 ```
 
 2. Transport with socks5 server
 ```BASH
-$ go run client_debug.go -conn 10 -transport -socks5
+$ gauge -conn 10 -transport -socks5
 ```
 
 3. Transport with http proxy server
 ```BASH
-$ go run client_debug.go -conn 10 -transport -socks5=false -proxy
+$ gauge --conn 10 --transport --socks5=false --proxy
 ```
 
 4. Transport with https proxy serve
 > Note: make sure you host the tls server if the target is https protocol (in this condition, proxy will establish a https tunnel and send CONNECT request).
 ```BASH
-$ go run client_debug.go -conn 10 -transport -socks5=false -proxy
+$ go run gauge.go --conn 10 --transport --socks5=false --proxy
 ```
 
 # Command line options
 
 ```BASH
+This is a client program to send multiple requests through diode network concurrently.
+
 Usage:
-  client_debug [flags]
+  gauge [flags]
 
 Flags:
   -c, --conn int             total connection concurrently (default 100)
-  -h, --help                 help for client_debug
+  -h, --help                 help for gauge
   -g, --proxy                enable proxy transport
   -i, --proxy_host string    host of proxy server (default "127.0.0.1")
   -j, --proxy_port int       port of proxy server (default 80)

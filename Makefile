@@ -97,9 +97,9 @@ diode_static:
 config_server$(EXE):
 	GODEBUG=netdns=go CGO_ENABLED=0 $(GOBUILD) -ldflags "-X main.serverAddress=localhost:1081 -X main.configPath=./.diode.yml" -o config_server$(EXE) cmd/config_server/config_server.go
 
-.PHONY: client_debug$(EXE)
-client_debug$(EXE):
-	$(GOBUILD) -o client_debug$(EXE) cmd/client_debug/*.go
+.PHONY: gauge$(EXE)
+gauge$(EXE):
+	$(GOBUILD) -o gauge$(EXE) cmd/gauge/*.go
 
 .PHONY: diode_race_test
 diode_race_test:

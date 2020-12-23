@@ -5,7 +5,7 @@ package main
 
 import (
 	"fmt"
-	"github.com/diodechain/diode_go_client/pkg/client_debug/cmd"
+	"github.com/diodechain/diode_go_client/pkg/gauge/cmd"
 	"os"
 )
 

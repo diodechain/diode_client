@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"net/http/httptrace"
 	"net/url"
-	"os"
 	"sync"
 	"time"
 	// "github.com/gdamore/tcell/v2/views"
@@ -21,10 +20,10 @@ import (
 )
 
 var (
-	clientDebugCmd = &cobra.Command{
-		Use:   "client_debug",
-		Short: "A debug program for testing diode network.",
-		Long:  `This is a debug program for connecting the target through diode network concurrently.`,
+	gaugeCmd = &cobra.Command{
+		Use:   "gauge",
+		Short: "A client application to send request through diode network.",
+		Long:  `This is a client program to send multiple requests through diode network concurrently.`,
 		RunE:  clientDebugHandler,
 	}
 	cfg                      = &Config{}
@@ -39,11 +38,13 @@ var (
 	a App
 )
 
+// App represents command line application for gauge
 type App struct {
 	screen tcell.Screen
 	style  tcell.Style
 }
 
+// Init initialize the command line application
 func (app *App) Init() (err error) {
 	app.style = tcell.StyleDefault.Background(tcell.ColorReset).Foreground(tcell.ColorReset)
 	app.screen, err = tcell.NewScreen()
@@ -57,23 +58,24 @@ func (app *App) Init() (err error) {
 	return
 }
 
+// LoopEvent keep consuming the event from command line
 func (app *App) LoopEvent() {
 	for {
-		// Poll event
 		ev := app.screen.PollEvent()
 
-		// Process event
 		switch ev := ev.(type) {
 		case *tcell.EventResize:
 			app.screen.Sync()
 		case *tcell.EventKey:
 			if ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyCtrlC {
-				app.Quit()
+				app.Stop()
+				return
 			}
 		}
 	}
 }
 
+// Println print the text at col x1, row y1
 func (app *App) Println(x1, y1 int, text string) {
 	col := x1
 	row := y1
@@ -84,9 +86,9 @@ func (app *App) Println(x1, y1 int, text string) {
 	app.screen.Show()
 }
 
-func (app *App) Quit() {
+// Stop the application
+func (app *App) Stop() {
 	app.screen.Fini()
-	os.Exit(1)
 }
 
 func clientDebugHandler(cmd *cobra.Command, args []string) (err error) {
@@ -218,24 +220,23 @@ func clientDebugHandler(cmd *cobra.Command, args []string) (err error) {
 }
 
 func init() {
-	// parseFlag()
-	clientDebugCmd.PersistentFlags().StringVarP(&cfg.Target, "target", "a", "http://pi-taipei.diode", "test target")
-	clientDebugCmd.PersistentFlags().BoolVarP(&cfg.EnableTransport, "transport", "b", true, "enable http transport")
-	clientDebugCmd.PersistentFlags().IntVarP(&cfg.Conn, "conn", "c", 100, "total connection concurrently")
-	clientDebugCmd.PersistentFlags().BoolVarP(&cfg.EnableSocks5Transport, "socks5", "d", true, "enable socks5 transport")
-	clientDebugCmd.PersistentFlags().StringVarP(&cfg.SocksServerHost, "socksd_host", "e", "127.0.0.1", "host of socks server")
-	clientDebugCmd.PersistentFlags().IntVarP(&cfg.SocksServerPort, "socksd_port", "f", 1080, "port of socks server")
-	clientDebugCmd.PersistentFlags().BoolVarP(&cfg.EnableProxyTransport, "proxy", "g", false, "enable proxy transport")
-	clientDebugCmd.PersistentFlags().StringVarP(&cfg.ProxyServerHost, "proxy_host", "i", "127.0.0.1", "host of proxy server")
-	clientDebugCmd.PersistentFlags().IntVarP(&cfg.ProxyServerPort, "proxy_port", "j", 80, "port of proxy server")
-	clientDebugCmd.PersistentFlags().BoolVarP(&cfg.EnableSProxyTransport, "sproxy", "k", false, "enable secure proxy transport")
-	clientDebugCmd.PersistentFlags().StringVarP(&cfg.SProxyServerHost, "sproxy_host", "l", "127.0.0.1", "host of secure proxy server")
-	clientDebugCmd.PersistentFlags().IntVarP(&cfg.SProxyServerPort, "sproxy_port", "m", 443, "port of secure proxy server")
-	clientDebugCmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", false, "enable verbose to show the response body")
-	clientDebugCmd.PersistentFlags().IntVarP(&cfg.RlimitNofile, "rlimit_nofile", "r", 0, "specify the file descriptor numbers that can be opened by this process")
+	gaugeCmd.PersistentFlags().StringVarP(&cfg.Target, "target", "a", "http://pi-taipei.diode", "test target")
+	gaugeCmd.PersistentFlags().BoolVarP(&cfg.EnableTransport, "transport", "b", true, "enable http transport")
+	gaugeCmd.PersistentFlags().IntVarP(&cfg.Conn, "conn", "c", 100, "total connection concurrently")
+	gaugeCmd.PersistentFlags().BoolVarP(&cfg.EnableSocks5Transport, "socks5", "d", true, "enable socks5 transport")
+	gaugeCmd.PersistentFlags().StringVarP(&cfg.SocksServerHost, "socksd_host", "e", "127.0.0.1", "host of socks server")
+	gaugeCmd.PersistentFlags().IntVarP(&cfg.SocksServerPort, "socksd_port", "f", 1080, "port of socks server")
+	gaugeCmd.PersistentFlags().BoolVarP(&cfg.EnableProxyTransport, "proxy", "g", false, "enable proxy transport")
+	gaugeCmd.PersistentFlags().StringVarP(&cfg.ProxyServerHost, "proxy_host", "i", "127.0.0.1", "host of proxy server")
+	gaugeCmd.PersistentFlags().IntVarP(&cfg.ProxyServerPort, "proxy_port", "j", 80, "port of proxy server")
+	gaugeCmd.PersistentFlags().BoolVarP(&cfg.EnableSProxyTransport, "sproxy", "k", false, "enable secure proxy transport")
+	gaugeCmd.PersistentFlags().StringVarP(&cfg.SProxyServerHost, "sproxy_host", "l", "127.0.0.1", "host of secure proxy server")
+	gaugeCmd.PersistentFlags().IntVarP(&cfg.SProxyServerPort, "sproxy_port", "m", 443, "port of secure proxy server")
+	gaugeCmd.PersistentFlags().BoolVarP(&cfg.Verbose, "verbose", "v", false, "enable verbose to show the response body")
+	gaugeCmd.PersistentFlags().IntVarP(&cfg.RlimitNofile, "rlimit_nofile", "r", 0, "specify the file descriptor numbers that can be opened by this process")
 }
 
 // Execute the diode command
 func Execute() error {
-	return clientDebugCmd.Execute()
+	return gaugeCmd.Execute()
 }
