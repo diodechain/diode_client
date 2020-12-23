@@ -2,7 +2,7 @@
 
 This is a client program to send multiple requests through diode network concurrently.
 
-![Client debug demo](/docs/client_debug.gif)
+![gauge demo](/docs/gauge.gif)
 
 # Run
 
