@@ -452,7 +452,9 @@ func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]blo
 	// copy responses to headers
 	headers := make([]blockquick.BlockHeader, headersCount)
 	for i, bn := range blockNumbers {
-		headers[i] = responses[bn]
+		if bh, ok := responses[bn]; ok {
+			headers[i] = bh
+		}
 	}
 	return headers, nil
 }

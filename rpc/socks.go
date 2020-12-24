@@ -413,7 +413,6 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 	if err != nil {
 		return nil, err
 	}
-
 	for _, device := range devices {
 		// decode device id
 		var deviceID Address
@@ -444,12 +443,12 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 		portOpen, err = client.PortOpen(deviceID, portName, mode)
 		if err != nil {
 			// This might fail when a device has reconnected. Clearing the cache and trying once more
-			socksServer.logger.Error("PortOpen() failed: %v", err)
+			socksServer.logger.Debug("PortOpen() failed: %v", err)
 			socksServer.datapool.SetCacheDevice(deviceID, nil)
 			continue
 		}
 		if portOpen != nil && portOpen.Err != nil {
-			socksServer.logger.Error("PortOpen() failed(2): %v", portOpen.Err)
+			socksServer.logger.Debug("PortOpen() failed(2): %v", portOpen.Err)
 			continue
 		}
 		return &ConnectedDevice{
@@ -463,7 +462,7 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 		return socksServer.doConnectDevice(deviceName, port, protocol, mode, retry-1)
 	}
 
-	socksServer.logger.Error("doConnectDevice() failed: Last error: %v", err)
+	socksServer.logger.Error("doConnectDevice() failed: %v", err)
 	if _, ok := err.(RPCError); ok {
 		return nil, HttpError{404, DeviceError{err}}
 	}
@@ -556,6 +555,13 @@ func writeSocksReturn(conn net.Conn, ver int, addr net.Addr, port int) {
 }
 
 func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
+	defer func() {
+		if err := recover(); err != nil {
+			buf := make([]byte, stackBufferSize)
+			buf = buf[:runtime.Stack(buf, false)]
+			socksServer.logger.Error("panic pipeFallback %s: %v\n%s", conn.RemoteAddr().String(), err, buf)
+		}
+	}()
 	remoteConn, err := net.Dial("tcp", host)
 	if err != nil {
 		socksServer.logger.Error("Failed to connect host: %v", host)
@@ -574,6 +580,13 @@ func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
 }
 
 func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, devices []*edge.DeviceTicket, port int, mode string) {
+	defer func() {
+		if err := recover(); err != nil {
+			buf := make([]byte, stackBufferSize)
+			buf = buf[:runtime.Stack(buf, false)]
+			socksServer.logger.Error("panic pipeSocksThenClose %s: %v\n%s", conn.RemoteAddr().String(), err, buf)
+		}
+	}()
 	// bind request to remote tls server
 	var deviceID string
 	var err error
@@ -635,7 +648,7 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 		if err := recover(); err != nil {
 			buf := make([]byte, stackBufferSize)
 			buf = buf[:runtime.Stack(buf, false)]
-			socksServer.logger.Error("panic serving socks connection %s: %v\n%s", conn.RemoteAddr().String(), err, buf)
+			socksServer.logger.Error("panic handleSocksConnection %s: %v\n%s", conn.RemoteAddr().String(), err, buf)
 		}
 		conn.Close()
 		socksServer.wg.Done()

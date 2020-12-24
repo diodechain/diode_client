@@ -88,14 +88,21 @@ func (rlpV2 RLP_V2) parseResponse(buffer []byte) (interface{}, error) {
 	return nil, ErrResponseHandlerNotFound
 }
 
-func (rlpV2 RLP_V2) parseError(buffer []byte) (Error, error) {
+func (rlpV2 RLP_V2) parseError(buffer []byte) (rpcErr Error, err error) {
 	var response errorResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
-	_ = decodeStream.Decode(&response)
-	err := Error{
-		Message: response.Payload[len(response.Payload)-1],
+	err = decodeStream.Decode(&response)
+	if err != nil {
+		rpcErr.Message = err.Error()
+		err = nil
+		return
 	}
-	return err, nil
+	if len(response.Payload) > 0 {
+		rpcErr.Message = response.Payload[len(response.Payload)-1]
+		return
+	}
+	rpcErr.Message = "unknown error"
+	return
 }
 
 // parse response of rpc call
