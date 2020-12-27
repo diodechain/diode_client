@@ -23,6 +23,7 @@ import (
 
 const (
 	// 4194304 = 1024 * 4096 (server limit is 41943040)
+	packetLimit    = 65000
 	ticketBound    = 4194304
 	callsQueueSize = 1024
 )
@@ -655,6 +656,14 @@ func (rpcClient *RPCClient) ResponsePortOpen(portOpen *edge.PortOpen, err error)
 // PortSend call portsend RPC
 func (rpcClient *RPCClient) PortSend(ref string, data []byte) (err error) {
 	// fmt.Printf("PortSend(): %s\n", data)
+	if len(data) > packetLimit {
+		_, err = rpcClient.CastContext(getRequestID(), "portsend", ref, data[:packetLimit])
+		if err != nil {
+			return err
+		}
+		return rpcClient.PortSend(ref, data[packetLimit:])
+	}
+
 	_, err = rpcClient.CastContext(getRequestID(), "portsend", ref, data)
 	return err
 }
