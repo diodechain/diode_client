@@ -5,6 +5,7 @@ package rpc
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"math/big"
 	"os"
@@ -836,7 +837,13 @@ func (rpcClient *RPCClient) ResolveReverseBNS(addr Address) (name string, err er
 		return name, ErrEmptyBNSresult
 	}
 
-	return string(raw), nil
+	size := binary.BigEndian.Uint16(raw[len(raw)-2:])
+	if size%2 == 0 {
+		size = size / 2
+		return string(raw[:size]), nil
+	}
+	// Todo fetch additional string parts
+	return string(raw[:30]), nil
 }
 
 // ResolveBNS resolves the (primary) destination of the BNS entry
