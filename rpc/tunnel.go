@@ -7,27 +7,22 @@ import (
 	"io"
 	"net"
 	"sync"
-	"time"
 )
 
 // Tunnel is a multiplex net copier in diode
 type Tunnel struct {
-	closeCh     chan struct{}
-	conna       net.Conn
-	connb       net.Conn
-	idleTimeout time.Duration
-	bufferSize  int
-	cd          sync.Once
+	closeCh chan struct{}
+	conna   net.Conn
+	connb   net.Conn
+	cd      sync.Once
 }
 
 // NewTunnel returns a newly created Tunnel
-func NewTunnel(conna, connb net.Conn, idleTimeout time.Duration, bufferSize int) (tun *Tunnel) {
+func NewTunnel(conna, connb net.Conn) (tun *Tunnel) {
 	tun = &Tunnel{
-		conna:       conna,
-		connb:       connb,
-		idleTimeout: idleTimeout,
-		bufferSize:  bufferSize,
-		closeCh:     make(chan struct{}),
+		conna:   conna,
+		connb:   connb,
+		closeCh: make(chan struct{}),
 	}
 	return
 }
@@ -41,57 +36,13 @@ func isClosed(closedCh <-chan struct{}) bool {
 	}
 }
 
-func (tun *Tunnel) netCopyWithoutTimeout(input, output net.Conn, bufferSize int) (err error) {
-	_, err = io.Copy(output, input)
-	return
-}
-
-func (tun *Tunnel) netCopy(input, output net.Conn, timeout time.Duration, bufferSize int) (err error) {
-	buf := make([]byte, bufferSize)
-	for {
-		var count int
-		var written int
-		if isClosed(tun.closeCh) {
-			return
-		}
-		input.SetReadDeadline(time.Now().Add(timeout))
-		count, err = input.Read(buf)
-		if count > 0 {
-			if isClosed(tun.closeCh) {
-				return
-			}
-			output.SetWriteDeadline(time.Now().Add(timeout))
-			written, err = output.Write(buf[:count])
-			if err != nil {
-				return
-			}
-			if written == 0 {
-				err = io.EOF
-				return
-			}
-		}
-		// if count == 0 {
-		// 	err = io.EOF
-		// 	return
-		// }
-		if err != nil {
-			return
-		}
-	}
-}
-
 // Copy start to bridge connections
 func (tun *Tunnel) Copy() bool {
 	if isClosed(tun.closeCh) {
 		return true
 	}
-	if tun.idleTimeout > 0 {
-		go tun.netCopy(tun.conna, tun.connb, tun.idleTimeout, tun.bufferSize)
-		tun.netCopy(tun.connb, tun.conna, tun.idleTimeout, tun.bufferSize)
-	} else {
-		go tun.netCopyWithoutTimeout(tun.conna, tun.connb, tun.bufferSize)
-		tun.netCopyWithoutTimeout(tun.connb, tun.conna, tun.bufferSize)
-	}
+	go io.Copy(tun.conna, tun.connb)
+	io.Copy(tun.connb, tun.conna)
 	tun.Close()
 	return isClosed(tun.closeCh)
 }

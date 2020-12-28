@@ -137,7 +137,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 					_ = rpcClient.ResponsePortOpen(portOpen, err)
 					return
 				}
-				e2eServer := rpcClient.NewE2EServer(remoteConn, portOpen.DeviceID, defaultIdleTimeout)
+				e2eServer := rpcClient.NewE2EServer(remoteConn, portOpen.DeviceID)
 				err := e2eServer.InternalServerConnect()
 				if err != nil {
 					_ = rpcClient.ResponsePortOpen(portOpen, err)

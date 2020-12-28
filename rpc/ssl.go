@@ -22,20 +22,6 @@ import (
 	"github.com/diodechain/openssl"
 )
 
-const (
-	// proxy buffer size
-	readBufferSize  = 16382
-	writeBufferSize = 16382
-	// SSL buffer size should be 16KB - 2B (The minimum TCP packet size is 20KB, the 4KB should be header, the 16 KB should be application data)
-	// because the first 2 bytes is the length of rpc payload, example: 00[“portsend”,”data”], the SSL buffer should be 16KB - 2B
-	// more information, see: https://www.igvita.com/2013/10/24/optimizing-tls-record-size-and-buffering-latency/
-	sslBufferSize = 16382
-	// As we mentioned before, the 4KB of tcp packet should be header
-	// when we use e2e in diode network, the e2e tcp packet is sended through a portsend rpc (buffer size 16382)
-	// the e2e buffer size should be 16382 - 4KB (4KB is tcp header)
-	e2eBufferSize = 12286
-)
-
 type SSL struct {
 	conn              *openssl.Conn
 	ctx               *openssl.Ctx

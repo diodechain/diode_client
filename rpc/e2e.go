@@ -23,15 +23,13 @@ type E2EServer struct {
 	remoteConn  net.Conn
 	localConn   net.Conn
 	opensslConn *openssl.Conn
-	idleTimeout time.Duration
 }
 
 // NewE2EServer returns e2e server rpcClient.Error(err.Error())
-func (rpcClient *RPCClient) NewE2EServer(remoteConn net.Conn, peer Address, idleTimeout time.Duration) (e2eServer E2EServer) {
+func (rpcClient *RPCClient) NewE2EServer(remoteConn net.Conn, peer Address) (e2eServer E2EServer) {
 	e2eServer.remoteConn = remoteConn
 	e2eServer.peer = peer
 	e2eServer.client = rpcClient
-	e2eServer.idleTimeout = idleTimeout
 	e2eServer.closeCh = make(chan struct{})
 	rpcClient.Debug("Enable e2e Tunnel")
 	return
@@ -79,7 +77,7 @@ func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*op
 		// 		tcpConn.SetKeepAlivePeriod(10*time.Second)
 		// 	}
 		// }
-		tunnel := NewTunnel(conn, e2eServer.remoteConn, e2eServer.idleTimeout, e2eBufferSize)
+		tunnel := NewTunnel(conn, e2eServer.remoteConn)
 		tunnel.Copy()
 		e2eServer.Close()
 	}()

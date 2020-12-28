@@ -191,11 +191,9 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 	}
 
 	// TODO: expose proxy timeout to command line flag
-	err = proxyServer.socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, defaultIdleTimeout, func(*ConnectedDevice) (*DeviceConn, error) {
+	err = proxyServer.socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, func(*ConnectedDevice) (*DeviceConn, error) {
 		if isWS {
 			upgrader := websocket.Upgrader{
-				ReadBufferSize:    readBufferSize,
-				WriteBufferSize:   writeBufferSize,
 				CheckOrigin:       func(_ *http.Request) bool { return true },
 				EnableCompression: true,
 			}
