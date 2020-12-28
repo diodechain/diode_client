@@ -42,42 +42,15 @@ func isClosed(closedCh <-chan struct{}) bool {
 }
 
 func (tun *Tunnel) netCopyWithoutTimeout(input, output net.Conn, bufferSize int) (err error) {
-	buf := make([]byte, bufferSize)
-	for {
-		var count int
-		var writed int
-		if isClosed(tun.closeCh) {
-			return
-		}
-		count, err = input.Read(buf)
-		if count > 0 {
-			if isClosed(tun.closeCh) {
-				return
-			}
-			writed, err = output.Write(buf[:count])
-			if err != nil {
-				return
-			}
-			if writed == 0 {
-				err = io.EOF
-				return
-			}
-		}
-		// if count == 0 {
-		// 	err = io.EOF
-		// 	return
-		// }
-		if err != nil {
-			return
-		}
-	}
+	_, err = io.Copy(output, input)
+	return
 }
 
 func (tun *Tunnel) netCopy(input, output net.Conn, timeout time.Duration, bufferSize int) (err error) {
 	buf := make([]byte, bufferSize)
 	for {
 		var count int
-		var writed int
+		var written int
 		if isClosed(tun.closeCh) {
 			return
 		}
@@ -88,11 +61,11 @@ func (tun *Tunnel) netCopy(input, output net.Conn, timeout time.Duration, buffer
 				return
 			}
 			output.SetWriteDeadline(time.Now().Add(timeout))
-			writed, err = output.Write(buf[:count])
+			written, err = output.Write(buf[:count])
 			if err != nil {
 				return
 			}
-			if writed == 0 {
+			if written == 0 {
 				err = io.EOF
 				return
 			}
