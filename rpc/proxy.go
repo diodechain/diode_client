@@ -204,11 +204,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 				internalError(w, "Websocket upgrade failed")
 				return nil, nil
 			}
-			return &DeviceConn{
-				Conn:       NewWSConn(conn),
-				bufferSize: sslBufferSize,
-				closeCh:    make(chan struct{}),
-			}, nil
+			return NewDeviceConn(NewWSConn(conn)), nil
 		}
 		hj, ok := w.(http.Hijacker)
 		if !ok {
@@ -242,11 +238,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 			return nil, nil
 		}
 		httpConn := NewHTTPConn(header.Bytes(), conn, protoHost, "diode.link", proto)
-		return &DeviceConn{
-			Conn:       httpConn,
-			bufferSize: sslBufferSize,
-			closeCh:    make(chan struct{}),
-		}, nil
+		return NewDeviceConn(httpConn), nil
 	})
 
 	if err != nil {

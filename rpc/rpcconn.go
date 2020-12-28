@@ -25,17 +25,11 @@ func (c *RPCConn) Close() error {
 	return nil
 }
 
-// Read data from the connectionn
-// TODO: Read message?
-func (c *RPCConn) Read(buf []byte) (n int, err error) {
-	return
-}
-
 // Write binary data to the connectionn
 func (c *RPCConn) Write(data []byte) (n int, err error) {
 	err = c.conn.PortSend(c.ref, data)
 	if err == nil {
-		// how to validate writeed length
+		// how to validate written length
 		n = len(data)
 	}
 	return

@@ -496,24 +496,15 @@ func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, pro
 			connDevice.Client.Error("Failed to tunnel openssl client: %v", err.Error())
 			return err
 		}
-
-		// The buffer to copy to diode network should be the same with sslBufferSize
-		connDevice.Conn = &DeviceConn{
-			Conn:       e2eServer.localConn,
-			e2eServer:  &e2eServer,
-			bufferSize: sslBufferSize,
-			closeCh:    make(chan struct{}),
-		}
+		connDevice.Conn = NewE2EDeviceConn(&e2eServer)
 	}
 
 	socksServer.datapool.SetDevice(deviceKey, connDevice)
 
 	// rpc client might be different with socks server
 	rpcConn := NewRPCConn(connDevice.Client, connDevice.Ref)
-	tunnel := NewTunnel(connDevice.Conn, rpcConn, idleTimeout, sslBufferSize)
-	tunnel.netCopyWithoutTimeout(connDevice.Conn, rpcConn, sslBufferSize)
+	io.Copy(rpcConn, connDevice.Conn)
 	connDevice.Close()
-	tunnel.Close()
 	return nil
 }
 
@@ -604,11 +595,7 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, devices []
 			// send data or receive data from ref
 			connDevice.Client.Debug("Connect remote success @ %s %s %v", clientIP, deviceID, port)
 			writeSocksReturn(conn, ver, connDevice.Client.s.LocalAddr(), port)
-			return &DeviceConn{
-				Conn:       conn,
-				bufferSize: sslBufferSize,
-				closeCh:    make(chan struct{}),
-			}, nil
+			return NewDeviceConn(conn), nil
 		})
 
 		if err == nil {
@@ -848,11 +835,7 @@ func (socksServer *Server) forwardUDP(addr net.Addr, deviceName string, port int
 		if err != nil {
 			connDevice2.Client.Error("forwardUDP error: PortSend(): %v", err)
 		}
-		return &DeviceConn{
-			Conn:       conn,
-			bufferSize: sslBufferSize,
-			closeCh:    make(chan struct{}),
-		}, err
+		return NewDeviceConn(conn), err
 	})
 
 	if err != nil {
@@ -975,11 +958,7 @@ func (socksServer *Server) startBind(bind *Bind) error {
 }
 func (socksServer *Server) handleBind(conn net.Conn, bind config.Bind) {
 	err := socksServer.connectDeviceAndLoop(bind.To, bind.ToPort, bind.Protocol, "rw", defaultIdleTimeout, func(*ConnectedDevice) (*DeviceConn, error) {
-		return &DeviceConn{
-			Conn:       conn,
-			bufferSize: sslBufferSize,
-			closeCh:    make(chan struct{}),
-		}, nil
+		return NewDeviceConn(conn), nil
 	})
 
 	if err != nil {

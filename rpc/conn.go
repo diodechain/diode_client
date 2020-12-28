@@ -27,13 +27,28 @@ type ConnectedDevice struct {
 
 // DeviceConn connected net/websocket connection
 type DeviceConn struct {
-	Conn       net.Conn
-	cd         sync.Once
-	bufferSize int
-	closeCh    chan struct{}
+	Conn    net.Conn
+	cd      sync.Once
+	closeCh chan struct{}
 
 	// E2E
 	e2eServer *E2EServer
+}
+
+func NewE2EDeviceConn(e2e *E2EServer) *DeviceConn {
+	return &DeviceConn{
+		Conn:      NewBufferedConn(e2e.localConn),
+		closeCh:   make(chan struct{}),
+		e2eServer: e2e,
+	}
+}
+
+func NewDeviceConn(conn net.Conn) *DeviceConn {
+	return &DeviceConn{
+		Conn:      NewBufferedConn(conn),
+		closeCh:   make(chan struct{}),
+		e2eServer: nil,
+	}
 }
 
 // Close the connection of device
@@ -125,13 +140,11 @@ func (conn *DeviceConn) SetDeadline(ti time.Time) error {
 }
 
 // SetReadDeadline set read deadline of the connection
-// TODO: set the read deadline of device connection?
 func (conn *DeviceConn) SetReadDeadline(ti time.Time) error {
-	return nil
+	return conn.Conn.SetReadDeadline(ti)
 }
 
 // SetWriteDeadline set write deadline of the connection
-// TODO: set the write deadline of device connection?
 func (conn *DeviceConn) SetWriteDeadline(ti time.Time) error {
-	return nil
+	return conn.Conn.SetWriteDeadline(ti)
 }

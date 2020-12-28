@@ -128,11 +128,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			connDevice.ClientID = clientID
 			connDevice.DeviceID = portOpen.DeviceID
 			connDevice.Client = rpcClient
-			connDevice.Conn = &DeviceConn{
-				Conn:       remoteConn,
-				bufferSize: sslBufferSize,
-				closeCh:    make(chan struct{}),
-			}
+			connDevice.Conn = NewDeviceConn(remoteConn)
 
 			// For the E2E encryption we're wrapping remoteConn in TLS
 			if portOpen.Protocol == config.TLSProtocol {
@@ -150,12 +146,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 				}
 
 				// The buffer to copy to diode network should be the same with sslBufferSize
-				connDevice.Conn = &DeviceConn{
-					Conn:       e2eServer.localConn,
-					e2eServer:  &e2eServer,
-					bufferSize: sslBufferSize,
-					closeCh:    make(chan struct{}),
-				}
+				connDevice.Conn = NewE2EDeviceConn(&e2eServer)
 			}
 			rpcClient.Debug("Bridge local resource :%d external :%d protocol :%s", portOpen.SrcPortNumber, portOpen.PortNumber, config.ProtocolName(portOpen.Protocol))
 
@@ -163,10 +154,8 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			_ = rpcClient.ResponsePortOpen(portOpen, nil)
 
 			rpcConn := NewRPCConn(rpcClient, connDevice.Ref)
-			tunnel := NewTunnel(connDevice.Conn, rpcConn, defaultIdleTimeout, sslBufferSize)
-			tunnel.netCopyWithoutTimeout(connDevice.Conn, rpcConn, sslBufferSize)
+			io.Copy(rpcConn, connDevice.Conn)
 			connDevice.Close()
-			tunnel.Close()
 		}()
 	} else if portSend, ok := inboundRequest.(*edge.PortSend); ok {
 		if portSend.Err != nil {

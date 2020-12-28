@@ -4,9 +4,6 @@
 package rpc
 
 import (
-	"bufio"
-	"bytes"
-	"github.com/sc0vu/didyoumean"
 	"net"
 	"net/http"
 	"time"
@@ -40,24 +37,7 @@ func (c *HTTPConn) Read(buf []byte) (n int, err error) {
 		c.unread = c.unread[n:]
 		return
 	}
-	// fix http header for keep alive connection
-	var r *http.Request
-	r, err = http.ReadRequest(bufio.NewReader(c.conn))
-	if err != nil {
-		return
-	}
-	didyoumean.ThresholdRate = 0.4
-	method := didyoumean.FirstMatch(r.Method, httpMethods)
-	if r.Method != method {
-		r.Method = method
-	}
-	r.Header.Set("Host", c.host)
-	r.Header.Set("X-Forwarded-Host", c.forwardedHost)
-	r.Header.Set("X-Forwarded-Proto", c.forwardedProto)
-	header := bytes.NewBuffer([]byte{})
-	r.Write(header)
-	n = copy(buf, header.Bytes())
-	return
+	return c.conn.Read(buf)
 }
 
 // Write binary data to the connectionn
