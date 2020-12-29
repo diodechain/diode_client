@@ -26,13 +26,14 @@ type E2EServer struct {
 }
 
 // NewE2EServer returns e2e server rpcClient.Error(err.Error())
-func (rpcClient *RPCClient) NewE2EServer(remoteConn net.Conn, peer Address) (e2eServer E2EServer) {
-	e2eServer.remoteConn = remoteConn
-	e2eServer.peer = peer
-	e2eServer.client = rpcClient
-	e2eServer.closeCh = make(chan struct{})
+func (rpcClient *RPCClient) NewE2EServer(remoteConn net.Conn, peer Address) *E2EServer {
 	rpcClient.Debug("Enable e2e Tunnel")
-	return
+	return &E2EServer{
+		remoteConn: remoteConn,
+		peer:       peer,
+		client:     rpcClient,
+		closeCh:    make(chan struct{}),
+	}
 }
 
 func (e2eServer *E2EServer) handshake(conn *openssl.Conn) (err error) {

@@ -191,7 +191,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 	}
 
 	// TODO: expose proxy timeout to command line flag
-	err = proxyServer.socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, func(*ConnectedDevice) (*DeviceConn, error) {
+	err = proxyServer.socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, func(*ConnectedPort) (net.Conn, error) {
 		if isWS {
 			upgrader := websocket.Upgrader{
 				CheckOrigin:       func(_ *http.Request) bool { return true },
@@ -202,7 +202,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 				internalError(w, "Websocket upgrade failed")
 				return nil, nil
 			}
-			return NewDeviceConn(NewWSConn(conn)), nil
+			return NewWSConn(conn), nil
 		}
 		hj, ok := w.(http.Hijacker)
 		if !ok {
@@ -236,7 +236,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 			return nil, nil
 		}
 		httpConn := NewHTTPConn(header.Bytes(), conn, protoHost, "diode.link", proto)
-		return NewDeviceConn(httpConn), nil
+		return httpConn, nil
 	})
 
 	if err != nil {

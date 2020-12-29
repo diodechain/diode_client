@@ -5,11 +5,8 @@ package rpc
 
 import (
 	"net"
-	"net/http"
 	"time"
 )
-
-var httpMethods = []string{http.MethodGet, http.MethodPost, http.MethodHead, http.MethodDelete, http.MethodPut, http.MethodConnect, http.MethodOptions}
 
 // NewHTTPConn returns wrapper of gorilla websocket connection
 func NewHTTPConn(unread []byte, conn net.Conn, host, forwardedHost, forwardedProto string) *HTTPConn {
@@ -37,12 +34,14 @@ func (c *HTTPConn) Read(buf []byte) (n int, err error) {
 		c.unread = c.unread[n:]
 		return
 	}
-	return c.conn.Read(buf)
+	n, err = c.conn.Read(buf)
+	return
 }
 
 // Write binary data to the connectionn
 func (c *HTTPConn) Write(data []byte) (n int, err error) {
-	return c.conn.Write(data)
+	n, err = c.conn.Write(data)
+	return
 }
 
 // LocalAddr returns local network address of device

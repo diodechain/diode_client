@@ -97,7 +97,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			// TODO check that this format %x%x conforms with the read side
 			portOpen.SrcPortNumber = int(publishedPort.Src)
 			clientID := fmt.Sprintf("%x%x", portOpen.DeviceID, portOpen.Ref)
-			connDevice := &ConnectedDevice{}
+			port := NewConnectedPort(portOpen.Ref, portOpen.DeviceID, rpcClient)
 
 			// connect to stream service
 			host := net.JoinHostPort(publishedPort.SrcHost, strconv.Itoa(portOpen.SrcPortNumber))
@@ -121,14 +121,12 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 			}
 
 			deviceKey := rpcClient.GetDeviceKey(portOpen.Ref)
-			connDevice.Ref = portOpen.Ref
-			connDevice.Protocol = portOpen.Protocol
-			connDevice.PortNumber = portOpen.PortNumber
-			connDevice.SrcPortNumber = portOpen.SrcPortNumber
-			connDevice.ClientID = clientID
-			connDevice.DeviceID = portOpen.DeviceID
-			connDevice.Client = rpcClient
-			connDevice.Conn = NewDeviceConn(remoteConn)
+			port.Protocol = portOpen.Protocol
+			port.PortNumber = portOpen.PortNumber
+			port.SrcPortNumber = portOpen.SrcPortNumber
+			port.ClientID = clientID
+			port.Conn = remoteConn
+			// port.Conn = NewLoggingConn("local", remoteConn)
 
 			// For the E2E encryption we're wrapping remoteConn in TLS
 			if portOpen.Protocol == config.TLSProtocol {
@@ -137,25 +135,18 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 					_ = rpcClient.ResponsePortOpen(portOpen, err)
 					return
 				}
-				e2eServer := rpcClient.NewE2EServer(remoteConn, portOpen.DeviceID)
-				err := e2eServer.InternalServerConnect()
+				err := port.UpgradeTLSServer()
 				if err != nil {
 					_ = rpcClient.ResponsePortOpen(portOpen, err)
 					rpcClient.Error("Failed to tunnel openssl server: %v", err)
 					return
 				}
-
-				// The buffer to copy to diode network should be the same with sslBufferSize
-				connDevice.Conn = NewE2EDeviceConn(&e2eServer)
 			}
 			rpcClient.Debug("Bridge local resource :%d external :%d protocol :%s", portOpen.SrcPortNumber, portOpen.PortNumber, config.ProtocolName(portOpen.Protocol))
 
-			rpcClient.pool.SetDevice(deviceKey, connDevice)
+			rpcClient.pool.SetPort(deviceKey, port)
 			_ = rpcClient.ResponsePortOpen(portOpen, nil)
-
-			rpcConn := NewRPCConn(rpcClient, connDevice.Ref)
-			io.Copy(rpcConn, connDevice.Conn)
-			connDevice.Close()
+			port.Copy()
 		}()
 	} else if portSend, ok := inboundRequest.(*edge.PortSend); ok {
 		if portSend.Err != nil {
@@ -167,7 +158,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 		deviceKey := rpcClient.GetDeviceKey(portSend.Ref)
 		cachedConnDevice := rpcClient.pool.GetDevice(deviceKey)
 		if cachedConnDevice != nil {
-			cachedConnDevice.Write(decData)
+			cachedConnDevice.SendLocal(decData)
 		} else {
 			rpcClient.Debug("Couldn't find the portsend connected device %x", portSend.Ref)
 			rpcClient.CastPortClose(portSend.Ref)
@@ -177,7 +168,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 		cachedConnDevice := rpcClient.pool.GetDevice(deviceKey)
 		if cachedConnDevice != nil {
 			cachedConnDevice.Close()
-			rpcClient.pool.SetDevice(deviceKey, nil)
+			rpcClient.pool.SetPort(deviceKey, nil)
 		} else {
 			rpcClient.Debug("Couldn't find the portclose connected device %x", portClose.Ref)
 		}

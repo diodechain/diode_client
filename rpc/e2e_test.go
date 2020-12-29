@@ -21,10 +21,9 @@ var (
 	letterBytes = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 )
 
-func newTestE2EServer(remoteConn net.Conn, peer Address, idleTimeout time.Duration) (e2eServer E2EServer) {
+func newTestE2EServer(remoteConn net.Conn, peer Address) (e2eServer E2EServer) {
 	e2eServer.remoteConn = remoteConn
 	e2eServer.peer = peer
-	e2eServer.idleTimeout = idleTimeout
 	e2eServer.client = &RPCClient{
 		s: &SSL{
 			addr: "localhost:41046",
@@ -98,7 +97,11 @@ func TestE2ETunnels(t *testing.T) {
 		defer fc.Close()
 		defer fs.Close()
 		// e2e server for fc and fs
-		e2eServer := newTestE2EServer(fs, ID, 2*time.Second)
+		e2eServer := newTestE2EServer(fs, ID)
+		go func() {
+			time.Sleep(2 * time.Second)
+			fc.Close()
+		}()
 		defer e2eServer.Close()
 		err := e2eServer.InternalClientConnect()
 		if err != nil {
@@ -106,7 +109,7 @@ func TestE2ETunnels(t *testing.T) {
 			return
 		}
 		// copy local tunnel
-		tunnel := NewTunnel(e2eServer.localConn, ca, 1*time.Second, tunnelSize)
+		tunnel := NewTunnel(e2eServer.localConn, ca)
 		defer tunnel.Close()
 		tunnel.Copy()
 		errCh <- nil
@@ -118,7 +121,11 @@ func TestE2ETunnels(t *testing.T) {
 		defer fc.Close()
 		defer fs.Close()
 		// e2e client for fc and fs
-		e2eServer := newTestE2EServer(fs, ID, 2*time.Second)
+		e2eServer := newTestE2EServer(fs, ID)
+		go func() {
+			time.Sleep(2 * time.Second)
+			fc.Close()
+		}()
 		defer e2eServer.Close()
 		err := e2eServer.InternalServerConnect()
 		if err != nil {
@@ -126,7 +133,7 @@ func TestE2ETunnels(t *testing.T) {
 			return
 		}
 		// copy local tunnel to c
-		tunnel := NewTunnel(e2eServer.localConn, cb, 1*time.Second, tunnelSize)
+		tunnel := NewTunnel(e2eServer.localConn, cb)
 		defer tunnel.Close()
 		tunnel.Copy()
 	}()

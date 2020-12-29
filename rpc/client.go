@@ -653,21 +653,6 @@ func (rpcClient *RPCClient) ResponsePortOpen(portOpen *edge.PortOpen, err error)
 	return nil
 }
 
-// PortSend call portsend RPC
-func (rpcClient *RPCClient) PortSend(ref string, data []byte) (err error) {
-	// fmt.Printf("PortSend(): %s\n", data)
-	if len(data) > packetLimit {
-		_, err = rpcClient.CastContext(getRequestID(), "portsend", ref, data[:packetLimit])
-		if err != nil {
-			return err
-		}
-		return rpcClient.PortSend(ref, data[packetLimit:])
-	}
-
-	_, err = rpcClient.CastContext(getRequestID(), "portsend", ref, data)
-	return err
-}
-
 // CastPortClose cast portclose RPC
 func (rpcClient *RPCClient) CastPortClose(ref string) (err error) {
 	_, err = rpcClient.CastContext(getRequestID(), "portclose", ref)

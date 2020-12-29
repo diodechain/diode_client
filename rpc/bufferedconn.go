@@ -1,3 +1,6 @@
+// Diode Network Client
+// Copyright 2020 IoT Blockchain Technology Corporation LLC (IBTC)
+// Licensed under the Diode License, Version 1.0
 package rpc
 
 import (
@@ -12,6 +15,7 @@ type bufferedConn struct {
 	flusher chan bool
 }
 
+// NewBufferedConn creates a new buffered connection
 func NewBufferedConn(conn net.Conn) *bufferedConn {
 	buffConn := &bufferedConn{
 		conn:    conn,

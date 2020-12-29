@@ -18,7 +18,7 @@ type DataPool struct {
 	clientOrder    uint64
 	rm             sync.RWMutex
 	clients        map[util.Address]*RPCClient
-	devices        map[string]*ConnectedDevice
+	devices        map[string]*ConnectedPort
 	publishedPorts map[int]*config.Port
 	memoryCache    *cache.Cache
 	done           chan struct{}
@@ -29,7 +29,7 @@ func NewPool() *DataPool {
 	return &DataPool{
 		memoryCache:    cache.New(5*time.Minute, 10*time.Minute),
 		clients:        make(map[util.Address]*RPCClient),
-		devices:        make(map[string]*ConnectedDevice),
+		devices:        make(map[string]*ConnectedPort),
 		publishedPorts: make(map[int]*config.Port),
 		done:           make(chan struct{}),
 	}
@@ -102,14 +102,18 @@ func (p *DataPool) SetCache(key string, tck *edge.DeviceTicket) {
 	}
 }
 
-func (p *DataPool) GetDevice(key string) *ConnectedDevice {
+func (p *DataPool) GetDevice(key string) *ConnectedPort {
 	p.rm.RLock()
 	defer p.rm.RUnlock()
-	return p.devices[key]
+	port := p.devices[key]
+	if port.Closed() {
+		return nil
+	}
+	return port
 }
 
-// FindDevice tries to locate a connection based on local conn
-func (p *DataPool) FindDevice(clientID string) *ConnectedDevice {
+// FindPort tries to locate a connection based on local conn
+func (p *DataPool) FindPort(clientID string) *ConnectedPort {
 	p.rm.RLock()
 	defer p.rm.RUnlock()
 	for _, v := range p.devices {
@@ -120,7 +124,7 @@ func (p *DataPool) FindDevice(clientID string) *ConnectedDevice {
 	return nil
 }
 
-func (p *DataPool) SetDevice(key string, dev *ConnectedDevice) {
+func (p *DataPool) SetPort(key string, dev *ConnectedPort) {
 	p.rm.Lock()
 	defer p.rm.Unlock()
 	if dev == nil {

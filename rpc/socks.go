@@ -405,7 +405,7 @@ func (socksServer *Server) checkAccess(deviceName string) (ret []*edge.DeviceTic
 	return ret, nil
 }
 
-func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol int, mode string, retry int) (*ConnectedDevice, error) {
+func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol int, mode string, retry int) (*ConnectedPort, error) {
 	// This is double checked in some cases, but it does not hurt since
 	// checkAccess internally caches
 	devices, err := socksServer.checkAccess(deviceName)
@@ -450,11 +450,7 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 			socksServer.logger.Debug("PortOpen() failed(2): %v", portOpen.Err)
 			continue
 		}
-		return &ConnectedDevice{
-			Ref:      portOpen.Ref,
-			DeviceID: deviceID,
-			Client:   client,
-		}, nil
+		return NewConnectedPort(portOpen.Ref, deviceID, client), nil
 	}
 
 	if retry > 0 {
@@ -468,42 +464,38 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 	return nil, HttpError{500, fmt.Errorf("doConnectDevice() failed: %v", err)}
 }
 
-func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, protocol int, mode string, fn func(*ConnectedDevice) (*DeviceConn, error)) error {
+func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, protocol int, mode string, fn func(*ConnectedPort) (net.Conn, error)) error {
 	if protocol == config.TLSProtocol && strings.Contains(mode, "s") {
 		socksServer.logger.Debug("Using no encryption for shared connection %v", mode)
 		protocol = config.TCPProtocol
 	}
 
-	connDevice, err := socksServer.doConnectDevice(deviceName, port, protocol, mode, 1)
+	connPort, err := socksServer.doConnectDevice(deviceName, port, protocol, mode, 1)
 	if err != nil {
 		return err
 	}
-	deviceKey := connDevice.Client.GetDeviceKey(connDevice.Ref)
+	deviceKey := connPort.GetDeviceKey()
 
-	conn, err := fn(connDevice)
+	conn, err := fn(connPort)
 	if err != nil || conn == nil {
 		return err
 	}
 
-	connDevice.Conn = conn
-	connDevice.ClientID = conn.Conn.RemoteAddr().String()
+	connPort.Conn = conn
+	connPort.ClientID = conn.RemoteAddr().String()
 
 	if protocol == config.TLSProtocol {
-		e2eServer := connDevice.Client.NewE2EServer(conn.Conn, connDevice.DeviceID)
-		err := e2eServer.InternalClientConnect()
+		err := connPort.UpgradeTLSClient()
 		if err != nil {
-			connDevice.Client.Error("Failed to tunnel openssl client: %v", err.Error())
+			socksServer.logger.Error("Failed to tunnel openssl client: %v", err.Error())
 			return err
 		}
-		connDevice.Conn = NewE2EDeviceConn(&e2eServer)
 	}
 
-	socksServer.datapool.SetDevice(deviceKey, connDevice)
+	socksServer.datapool.SetPort(deviceKey, connPort)
 
 	// rpc client might be different with socks server
-	rpcConn := NewRPCConn(connDevice.Client, connDevice.Ref)
-	io.Copy(rpcConn, connDevice.Conn)
-	connDevice.Close()
+	connPort.Copy()
 	return nil
 }
 
@@ -590,11 +582,11 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, devices []
 		if config.AppConfig.EnableEdgeE2E {
 			protocol = config.TLSProtocol
 		}
-		err = socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, func(connDevice *ConnectedDevice) (*DeviceConn, error) {
+		err = socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, func(connPort *ConnectedPort) (net.Conn, error) {
 			// send data or receive data from ref
-			connDevice.Client.Debug("Connect remote success @ %s %s %v", clientIP, deviceID, port)
-			writeSocksReturn(conn, ver, connDevice.Client.s.LocalAddr(), port)
-			return NewDeviceConn(conn), nil
+			socksServer.logger.Debug("Connect remote success @ %s %s %v", clientIP, deviceID, port)
+			writeSocksReturn(conn, ver, connPort.ClientLocalAddr(), port)
+			return conn, nil
 		})
 
 		if err == nil {
@@ -813,11 +805,11 @@ func (socksServer *Server) handleUDP(packet []byte) {
 }
 
 func (socksServer *Server) forwardUDP(addr net.Addr, deviceName string, port int, mode string, data []byte) {
-	connDevice := socksServer.datapool.FindDevice(addr.String())
-	if connDevice != nil {
-		err := connDevice.Client.PortSend(connDevice.Ref, data)
+	connPort := socksServer.datapool.FindPort(addr.String())
+	if connPort != nil {
+		err := connPort.SendRemote(data)
 		if err != nil {
-			connDevice.Client.Error("forwardUDP error: PortSend(): %v", err)
+			socksServer.logger.Error("forwardUDP error: PortSend(): %v", err)
 		}
 		return
 	}
@@ -829,12 +821,12 @@ func (socksServer *Server) forwardUDP(addr net.Addr, deviceName string, port int
 		return
 	}
 
-	err = socksServer.connectDeviceAndLoop(deviceName, port, config.UDPProtocol, mode, func(connDevice2 *ConnectedDevice) (*DeviceConn, error) {
-		err := connDevice2.Client.PortSend(connDevice2.Ref, data)
+	err = socksServer.connectDeviceAndLoop(deviceName, port, config.UDPProtocol, mode, func(connPort2 *ConnectedPort) (net.Conn, error) {
+		err := connPort2.SendRemote(data)
 		if err != nil {
-			connDevice2.Client.Error("forwardUDP error: PortSend(): %v", err)
+			socksServer.logger.Error("forwardUDP error: PortSend(): %v", err)
 		}
-		return NewDeviceConn(conn), err
+		return conn, err
 	})
 
 	if err != nil {
@@ -956,8 +948,8 @@ func (socksServer *Server) startBind(bind *Bind) error {
 	return nil
 }
 func (socksServer *Server) handleBind(conn net.Conn, bind config.Bind) {
-	err := socksServer.connectDeviceAndLoop(bind.To, bind.ToPort, bind.Protocol, "rw", func(*ConnectedDevice) (*DeviceConn, error) {
-		return NewDeviceConn(conn), nil
+	err := socksServer.connectDeviceAndLoop(bind.To, bind.ToPort, bind.Protocol, "rw", func(*ConnectedPort) (net.Conn, error) {
+		return conn, nil
 	})
 
 	if err != nil {
@@ -1053,10 +1045,6 @@ func (socksServer *Server) Close() {
 			socksServer.listener.Close()
 			socksServer.listener = nil
 		}
-		// if socksServer.udpconn != nil {
-		// 	socksServer.udpconn.Close()
-		// 	socksServer.udpconn = nil
-		// }
 		for _, bind := range socksServer.binds {
 			if bind.tcp != nil {
 				bind.tcp.Close()

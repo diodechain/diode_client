@@ -41,8 +41,19 @@ func (tun *Tunnel) Copy() bool {
 	if isClosed(tun.closeCh) {
 		return true
 	}
-	go io.Copy(tun.conna, tun.connb)
-	io.Copy(tun.connb, tun.conna)
+
+	m := &sync.Mutex{}
+	c := sync.NewCond(m)
+	m.Lock()
+	go func() {
+		io.Copy(tun.conna, tun.connb)
+		c.Broadcast()
+	}()
+	go func() {
+		io.Copy(tun.connb, tun.conna)
+		c.Broadcast()
+	}()
+	c.Wait()
 	tun.Close()
 	return isClosed(tun.closeCh)
 }
