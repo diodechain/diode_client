@@ -12,7 +12,7 @@ import (
 
 // NewWSConn returns wrapper of gorilla websocket connection
 func NewWSConn(wsConn *websocket.Conn) *WSConn {
-	return &WSConn{wsConn, websocket.BinaryMessage}
+	return &WSConn{conn: wsConn, messageType: websocket.BinaryMessage}
 }
 
 // WSConn is a net wrapper for gorilla websocket connection
@@ -21,6 +21,7 @@ func NewWSConn(wsConn *websocket.Conn) *WSConn {
 type WSConn struct {
 	conn        *websocket.Conn
 	messageType int
+	readBuffer  []byte
 }
 
 // Close the connection
@@ -30,11 +31,17 @@ func (c *WSConn) Close() error {
 
 // Read data from the connectionn
 func (c *WSConn) Read(buf []byte) (n int, err error) {
+	if c.readBuffer != nil && len(c.readBuffer) > 0 {
+		n = copy(buf, c.readBuffer)
+		c.readBuffer = c.readBuffer[n:]
+		return
+	}
+
 	var b []byte
 	_, b, err = c.conn.ReadMessage()
 	if err == nil {
-		n = len(b)
-		copy(buf, b[:n])
+		n = copy(buf, b)
+		c.readBuffer = b[n:]
 	}
 	return
 }
@@ -43,7 +50,6 @@ func (c *WSConn) Read(buf []byte) (n int, err error) {
 func (c *WSConn) Write(data []byte) (n int, err error) {
 	err = c.conn.WriteMessage(c.messageType, data)
 	if err == nil {
-		// how to validate writeed length
 		n = len(data)
 	}
 	return

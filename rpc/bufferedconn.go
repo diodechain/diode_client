@@ -4,22 +4,23 @@
 package rpc
 
 import (
-	"bufio"
 	"net"
 	"time"
 )
 
 type bufferedConn struct {
 	conn    net.Conn
-	buffer  *bufio.Writer
+	err     error
+	message []byte
+	buffer  chan []byte
 	flusher chan bool
 }
 
 // NewBufferedConn creates a new buffered connection
-func NewBufferedConn(conn net.Conn) *bufferedConn {
+func NewBufferedConn(conn net.Conn) net.Conn {
 	buffConn := &bufferedConn{
 		conn:    conn,
-		buffer:  bufio.NewWriter(conn),
+		buffer:  make(chan []byte, 128),
 		flusher: make(chan bool, 128),
 	}
 
@@ -29,25 +30,68 @@ func NewBufferedConn(conn net.Conn) *bufferedConn {
 			if x {
 				return
 			}
-			buffConn.buffer.Flush()
+			buffConn.Flush()
 		}
 	}()
 
 	return buffConn
 }
 
+// Flush flushes the current buffer data
+// TODO: Fix or remove bufferedconn
+func (buffConn *bufferedConn) Flush() (n int, err error) {
+	moreMessages := true
+	waitOnce := true
+	for moreMessages || waitOnce {
+		select {
+		case msg := <-buffConn.buffer:
+			buffConn.message = append(buffConn.message, msg...)
+		default:
+			moreMessages = false
+			if waitOnce && len(buffConn.message) < 1024 {
+				moreMessages = true
+				waitOnce = false
+				time.Sleep(5 * time.Millisecond)
+			}
+		}
+	}
+
+	for len(buffConn.message) > 0 {
+		var nw int
+		nw, err = buffConn.conn.Write(buffConn.message)
+		n = n + nw
+		buffConn.message = buffConn.message[nw:]
+		if err != nil {
+			buffConn.err = err
+			return
+		}
+		if nw == 0 {
+			return
+		}
+	}
+	return
+}
+
 // Read reads data from the connection.
 // Read can be made to time out and return an error after a fixed
 // time limit; see SetDeadline and SetReadDeadline.
 func (buffConn *bufferedConn) Read(b []byte) (n int, err error) {
-	return buffConn.conn.Read(b)
+	n, err = buffConn.conn.Read(b)
+	if err != nil {
+		buffConn.err = err
+	}
+	return
 }
 
 // Write writes data to the connection.
 // Write can be made to time out and return an error after a fixed
 // time limit; see SetDeadline and SetWriteDeadline.
 func (buffConn *bufferedConn) Write(b []byte) (n int, err error) {
-	n, err = buffConn.buffer.Write(b)
+	if buffConn.err != nil {
+		return 0, buffConn.err
+	}
+	n = len(b)
+	buffConn.buffer <- b
 	buffConn.flusher <- false
 	return
 }
@@ -55,8 +99,9 @@ func (buffConn *bufferedConn) Write(b []byte) (n int, err error) {
 // Close closes the connection.
 // Any blocked Read or Write operations will be unblocked and return errors.
 func (buffConn *bufferedConn) Close() error {
-	err := buffConn.conn.Close()
 	buffConn.flusher <- true
+	buffConn.Flush()
+	err := buffConn.conn.Close()
 	return err
 }
 

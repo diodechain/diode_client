@@ -156,7 +156,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 		decData := portSend.Data
 		// start to write data
 		deviceKey := rpcClient.GetDeviceKey(portSend.Ref)
-		cachedConnDevice := rpcClient.pool.GetDevice(deviceKey)
+		cachedConnDevice := rpcClient.pool.GetPort(deviceKey)
 		if cachedConnDevice != nil {
 			cachedConnDevice.SendLocal(decData)
 		} else {
@@ -165,7 +165,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 		}
 	} else if portClose, ok := inboundRequest.(*edge.PortClose); ok {
 		deviceKey := rpcClient.GetDeviceKey(portClose.Ref)
-		cachedConnDevice := rpcClient.pool.GetDevice(deviceKey)
+		cachedConnDevice := rpcClient.pool.GetPort(deviceKey)
 		if cachedConnDevice != nil {
 			cachedConnDevice.Close()
 			rpcClient.pool.SetPort(deviceKey, nil)

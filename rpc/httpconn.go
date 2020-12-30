@@ -9,17 +9,14 @@ import (
 )
 
 // NewHTTPConn returns wrapper of gorilla websocket connection
-func NewHTTPConn(unread []byte, conn net.Conn, host, forwardedHost, forwardedProto string) *HTTPConn {
-	return &HTTPConn{unread, conn, host, forwardedHost, forwardedProto}
+func NewHTTPConn(unread []byte, conn net.Conn) *HTTPConn {
+	return &HTTPConn{unread, conn}
 }
 
 // HTTPConn reads first the leftover from the socket hijack
 type HTTPConn struct {
-	unread         []byte
-	conn           net.Conn
-	host           string
-	forwardedHost  string
-	forwardedProto string
+	unread []byte
+	conn   net.Conn
 }
 
 // Close the connection

@@ -490,11 +490,10 @@ func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, pro
 			socksServer.logger.Error("Failed to tunnel openssl client: %v", err.Error())
 			return err
 		}
+		// connPort.Conn = NewLoggingConnRef("e2e", connPort.Conn, conn)
 	}
 
 	socksServer.datapool.SetPort(deviceKey, connPort)
-
-	// rpc client might be different with socks server
 	connPort.Copy()
 	return nil
 }

@@ -190,7 +190,6 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 		protocol = config.TLSProtocol
 	}
 
-	// TODO: expose proxy timeout to command line flag
 	err = proxyServer.socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, func(*ConnectedPort) (net.Conn, error) {
 		if isWS {
 			upgrader := websocket.Upgrader{
@@ -210,17 +209,6 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 			return nil, nil
 		}
 		conn, buf, err := hj.Hijack()
-
-		// Add origin because some server validate origin header
-		proto := "https"
-		if r.TLS == nil {
-			proto = "http"
-		}
-		protoHost := fmt.Sprintf("%s://%s", proto, host)
-		r.Header.Set("Host", protoHost)
-		r.Header.Set("X-Forwarded-Host", "diode.link")
-		r.Header.Set("X-Forwarded-Proto", proto)
-
 		header := bytes.NewBuffer([]byte{})
 		r.Write(header)
 
@@ -235,7 +223,8 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 			conn.Close()
 			return nil, nil
 		}
-		httpConn := NewHTTPConn(header.Bytes(), conn, protoHost, "diode.link", proto)
+		httpConn := NewHTTPConn(header.Bytes(), conn)
+		// httpConn = NewLoggingConn("http", httpConn)
 		return httpConn, nil
 	})
 

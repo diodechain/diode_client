@@ -102,7 +102,8 @@ func (p *DataPool) SetCache(key string, tck *edge.DeviceTicket) {
 	}
 }
 
-func (p *DataPool) GetDevice(key string) *ConnectedPort {
+// GetPort locates the port by it's key
+func (p *DataPool) GetPort(key string) *ConnectedPort {
 	p.rm.RLock()
 	defer p.rm.RUnlock()
 	port := p.devices[key]

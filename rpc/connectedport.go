@@ -79,7 +79,7 @@ func (port *ConnectedPort) Close() error {
 		}
 		deviceKey := port.client.GetDeviceKey(port.Ref)
 		// check whether is disconnected
-		if port.client.pool.GetDevice(deviceKey) != nil {
+		if port.client.pool.GetPort(deviceKey) != nil {
 			port.client.pool.SetPort(deviceKey, nil)
 		}
 

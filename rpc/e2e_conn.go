@@ -22,7 +22,8 @@ type E2EConn struct {
 // NewE2EConn creates a new E2E encrypted connection
 func NewE2EConn(e2e *E2EServer) net.Conn {
 	return &E2EConn{
-		Conn:      NewBufferedConn(e2e.localConn),
+		// Conn: NewBufferedConn(e2e.localConn),
+		Conn:      e2e.localConn,
 		e2eServer: e2e,
 	}
 }
