@@ -847,7 +847,14 @@ func (rpcClient *RPCClient) ResolveBNS(name string) (addr []Address, err error) 
 	size := rpcClient.GetAccountValueInt(0, contract.BNSAddr, arrayKey)
 
 	// Fallback for old style DNS entries
-	if size.Int64() == 0 {
+	intSize := size.Int64()
+
+	if intSize > 10 {
+		rpcClient.Error("Read Invalid BNS entry count: %d", intSize)
+		intSize = 0
+	}
+
+	if intSize == 0 {
 		key := contract.BNSEntryLocation(name)
 		raw, err := rpcClient.GetAccountValueRaw(0, contract.BNSAddr, key)
 		if err != nil {
@@ -865,7 +872,6 @@ func (rpcClient *RPCClient) ResolveBNS(name string) (addr []Address, err error) 
 		return addr, nil
 	}
 
-	intSize := size.Int64()
 	addr = make([]util.Address, intSize)
 	for i := int64(0); i < intSize; i++ {
 		key := contract.BNSDestinationArrayElementLocation(name, int(i))
