@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"net/http"
+	_ "net/http/pprof"
+
 	"os"
 	"os/signal"
 	"runtime"
@@ -59,6 +62,7 @@ func init() {
 	diodeCmd.Flag.StringVar(&cfg.CPUProfile, "cpuprofile", "", "file path for cpu profiling")
 	// diodeCmd.Flag.IntVar(&cfg.CPUProfileRate, "cpuprofilerate", 100, "the CPU profiling rate to hz samples per second")
 	diodeCmd.Flag.StringVar(&cfg.MEMProfile, "memprofile", "", "file path for memory profiling")
+	diodeCmd.Flag.IntVar(&cfg.PProfPort, "pprofport", 0, "localhost port for pprof for memory debugging")
 	diodeCmd.Flag.StringVar(&cfg.BlockProfile, "blockprofile", "", "file path for block profiling")
 	diodeCmd.Flag.IntVar(&cfg.BlockProfileRate, "blockprofilerate", 1, "the fraction of goroutine blocking events that are reported in the blocking profile")
 	diodeCmd.Flag.StringVar(&cfg.MutexProfile, "mutexprofile", "", "file path for mutex profiling")
@@ -260,6 +264,14 @@ func (dio *Diode) Init() error {
 		dio.Defer(func() {
 			fd.Close()
 		})
+	}
+
+	if cfg.PProfPort > 0 {
+		addr := fmt.Sprintf("localhost:%d", cfg.PProfPort)
+		cfg.PrintInfo(fmt.Sprintf("Starting pprof debug endpoint on http://%s/ (check https://pkg.go.dev/net/http/pprof for docs)", addr))
+		go func() {
+			cfg.PrintInfo(fmt.Sprintf("Pprof Server: %v", http.ListenAndServe(addr, nil)))
+		}()
 	}
 
 	if cfg.BlockProfile != "" {

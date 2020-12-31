@@ -58,6 +58,7 @@ type Config struct {
 	CPUProfile        string        `yaml:"cpuprofile,omitempty" json:"-"`
 	// CPUProfileRate          int              `yaml:"cpuprofilerate,omitempty" json:"-"`
 	MEMProfile              string           `yaml:"memprofile,omitempty"`
+	PProfPort               int              `yaml:"pprofport,omitempty"`
 	BlockProfile            string           `yaml:"blockprofile,omitempty" json:"-"`
 	BlockProfileRate        int              `yaml:"blockprofilerate,omitempty" json:"-"`
 	MutexProfile            string           `yaml:"mutexprofile,omitempty" json:"-"`
