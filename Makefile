@@ -41,6 +41,7 @@ lint:
 
 # Exclude rules from security check:
 # G104 (CWE-703): Errors unhandled.
+# G108 (CWE-200): Profiling endpoint is automatically exposed on /debug/pprof
 # G110 (CWE-409): Potential DoS vulnerability via decompression bomb.
 # G204 (CWE-78): Subprocess launched with variable.
 # G304 (CWE-22): Potential file inclusion via variable.
@@ -50,7 +51,7 @@ lint:
 seccheck:
 	go vet ./...
 	GO111MODULE=on go get github.com/securego/gosec/v2/cmd/gosec
-	$(GOPATH)/bin/gosec -exclude=G104,G110,G204,G304,G402,G404 ./...
+	$(GOPATH)/bin/gosec -exclude=G104,G108,G110,G204,G304,G402,G404 ./...
 
 .PHONY: clean
 clean:
