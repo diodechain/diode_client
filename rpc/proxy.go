@@ -254,18 +254,30 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 	}
 }
 
-func NewProxyServer(socksServer *Server) *ProxyServer {
+func validateProxyConfig(proxyCfg ProxyConfig) error {
+	if proxyCfg.AllowRedirect && !proxyCfg.EnableSProxy {
+		return fmt.Errorf("wrong parameters, need started httpsd server for http redirect")
+	}
+	return nil
+}
+
+func NewProxyServer(proxyCfg ProxyConfig, socksServer *Server) (*ProxyServer, error) {
+	if err := validateProxyConfig(proxyCfg); err != nil {
+		return nil, err
+	}
 	proxyServer := &ProxyServer{
 		socksServer: socksServer,
 		logger:      config.AppConfig.Logger,
 		closeCh:     make(chan struct{}),
 	}
-	return proxyServer
+	return proxyServer, nil
 }
 
+// SetConfig update the config of proxy server
+// TODO: restart proxy server
 func (proxyServer *ProxyServer) SetConfig(config ProxyConfig) error {
-	if config.AllowRedirect && !config.EnableSProxy {
-		return fmt.Errorf("wrong parameters, need started httpsd server for http redirect")
+	if err := validateProxyConfig(config); err != nil {
+		return err
 	}
 	proxyServer.Config = config
 	if config.EnableSProxy {

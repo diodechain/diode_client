@@ -52,11 +52,19 @@ func gatewayHandler() (err error) {
 	cfg.EnableProxyServer = true
 	if cfg.EnableAPIServer {
 		configAPIServer := NewConfigAPIServer(cfg)
-		configAPIServer.SetAddr(cfg.APIServerAddr)
 		configAPIServer.ListenAndServe()
 		app.SetConfigAPIServer(configAPIServer)
 	}
-	socksServer := rpc.NewSocksServer(app.datapool)
+	socksCfg := rpc.Config{
+		Addr:            cfg.SocksServerAddr(),
+		FleetAddr:       cfg.FleetAddr,
+		Blocklists:      cfg.Blocklists,
+		Allowlists:      cfg.Allowlists,
+		EnableProxy:     true,
+		ProxyServerAddr: cfg.ProxyServerAddr(),
+		Fallback:        cfg.SocksFallback,
+	}
+	socksServer := rpc.NewSocksServer(socksCfg, app.datapool)
 	if len(cfg.Binds) > 0 {
 		socksServer.SetBinds(cfg.Binds)
 		cfg.PrintInfo("")
@@ -65,22 +73,12 @@ func gatewayHandler() (err error) {
 			cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
 		}
 	}
-	socksServer.SetConfig(rpc.Config{
-		Addr:            cfg.SocksServerAddr(),
-		FleetAddr:       cfg.FleetAddr,
-		Blocklists:      cfg.Blocklists,
-		Allowlists:      cfg.Allowlists,
-		EnableProxy:     true,
-		ProxyServerAddr: cfg.ProxyServerAddr(),
-		Fallback:        cfg.SocksFallback,
-	})
 	app.SetSocksServer(socksServer)
 	if err = socksServer.Start(); err != nil {
 		cfg.Logger.Error(err.Error())
 		return
 	}
-	proxyServer := rpc.NewProxyServer(socksServer)
-	proxyServer.SetConfig(rpc.ProxyConfig{
+	proxyCfg := rpc.ProxyConfig{
 		EnableSProxy:      cfg.EnableSProxyServer,
 		ProxyServerAddr:   cfg.ProxyServerAddr(),
 		SProxyServerAddr:  cfg.SProxyServerAddr(),
@@ -90,7 +88,12 @@ func gatewayHandler() (err error) {
 		AllowRedirect:     cfg.AllowRedirectToSProxy,
 		EdgeACME:          edgeACME,
 		EdgeACMEEmail:     edgeACMEEmail,
-	})
+	}
+	var proxyServer *rpc.ProxyServer
+	proxyServer, err = rpc.NewProxyServer(proxyCfg, socksServer)
+	if err != nil {
+		return
+	}
 	// Start proxy server
 	app.SetProxyServer(proxyServer)
 	if err := proxyServer.Start(); err != nil {

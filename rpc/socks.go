@@ -957,9 +957,9 @@ func (socksServer *Server) handleBind(conn net.Conn, bind config.Bind) {
 }
 
 // NewSocksServer generate socksserver struct
-func NewSocksServer(pool *DataPool) *Server {
+func NewSocksServer(socksCfg Config, pool *DataPool) *Server {
 	return &Server{
-		Config:   Config{},
+		Config:   socksCfg,
 		logger:   config.AppConfig.Logger,
 		wg:       &sync.WaitGroup{},
 		datapool: pool,
@@ -968,6 +968,8 @@ func NewSocksServer(pool *DataPool) *Server {
 	}
 }
 
+// SetConfig update the config of socks server
+// TODO: restart socks server
 func (socksServer *Server) SetConfig(config Config) {
 	socksServer.rm.Lock()
 	defer socksServer.rm.Unlock()

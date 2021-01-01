@@ -311,12 +311,10 @@ func publishHandler() (err error) {
 
 	if cfg.EnableAPIServer {
 		configAPIServer := NewConfigAPIServer(cfg)
-		configAPIServer.SetAddr(cfg.APIServerAddr)
 		configAPIServer.ListenAndServe()
 		app.SetConfigAPIServer(configAPIServer)
 	}
-	socksServer := rpc.NewSocksServer(app.datapool)
-	socksServer.SetConfig(rpc.Config{
+	socksCfg := rpc.Config{
 		Addr:            cfg.SocksServerAddr(),
 		FleetAddr:       cfg.FleetAddr,
 		Blocklists:      cfg.Blocklists,
@@ -324,7 +322,8 @@ func publishHandler() (err error) {
 		EnableProxy:     true,
 		ProxyServerAddr: cfg.ProxyServerAddr(),
 		Fallback:        cfg.SocksFallback,
-	})
+	}
+	socksServer := rpc.NewSocksServer(socksCfg, app.datapool)
 	if cfg.EnableSocksServer {
 		app.SetSocksServer(socksServer)
 		if err = socksServer.Start(); err != nil {

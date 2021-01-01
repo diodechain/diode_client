@@ -39,11 +39,19 @@ func socksdHandler() (err error) {
 	cfg.ProxyServerPort = 8080
 	if cfg.EnableAPIServer {
 		configAPIServer := NewConfigAPIServer(cfg)
-		configAPIServer.SetAddr(cfg.APIServerAddr)
 		configAPIServer.ListenAndServe()
 		app.SetConfigAPIServer(configAPIServer)
 	}
-	socksServer := rpc.NewSocksServer(app.datapool)
+	socksCfg := rpc.Config{
+		Addr:            cfg.SocksServerAddr(),
+		FleetAddr:       cfg.FleetAddr,
+		Blocklists:      cfg.Blocklists,
+		Allowlists:      cfg.Allowlists,
+		EnableProxy:     false,
+		ProxyServerAddr: cfg.ProxyServerAddr(),
+		Fallback:        cfg.SocksFallback,
+	}
+	socksServer := rpc.NewSocksServer(socksCfg, app.datapool)
 	if len(cfg.Binds) > 0 {
 		socksServer.SetBinds(cfg.Binds)
 		cfg.PrintInfo("")
@@ -52,15 +60,6 @@ func socksdHandler() (err error) {
 			cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
 		}
 	}
-	socksServer.SetConfig(rpc.Config{
-		Addr:            cfg.SocksServerAddr(),
-		FleetAddr:       cfg.FleetAddr,
-		Blocklists:      cfg.Blocklists,
-		Allowlists:      cfg.Allowlists,
-		EnableProxy:     false,
-		ProxyServerAddr: cfg.ProxyServerAddr(),
-		Fallback:        cfg.SocksFallback,
-	})
 	app.SetSocksServer(socksServer)
 	if err = socksServer.Start(); err != nil {
 		cfg.Logger.Error(err.Error())
