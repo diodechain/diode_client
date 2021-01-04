@@ -16,6 +16,8 @@ import (
 
 var (
 	ErrRequireTLSConfig = fmt.Errorf("tls config is required for ListenAndServeTLS")
+	ErrServerClosed     = fmt.Errorf("static file server was closed")
+	ErrServerCreated    = fmt.Errorf("static file server was created")
 )
 
 // containsDotFile reports whether name contains a path element starting with a period.
@@ -80,16 +82,27 @@ type Config struct {
 // TODO: resolve different path?
 // TODO: Serve listener function
 type StaticHTTPServer struct {
-	Config Config
-	Addr   string
-	srv    *http.Server
-	cd     sync.Once
+	Config   Config
+	Addr     string
+	srv      *http.Server
+	closedCh chan struct{}
+	cd       sync.Once
+}
+
+func isClosed(closedCh <-chan struct{}) bool {
+	select {
+	case <-closedCh:
+		return true
+	default:
+		return false
+	}
 }
 
 // NewStaticHTTPServer returns a StaticHTTPServer that host static files for the given config
 func NewStaticHTTPServer(config Config) (sv StaticHTTPServer) {
 	sv.Config = config
 	sv.Addr = net.JoinHostPort(config.Host, strconv.Itoa(config.Port))
+	sv.closedCh = make(chan struct{})
 	return
 }
 
@@ -109,8 +122,19 @@ func (sv *StaticHTTPServer) server() *http.Server {
 	}
 }
 
+// Closed returns whether static file server is closed
+func (sv *StaticHTTPServer) Closed() bool {
+	return isClosed(sv.closedCh)
+}
+
 // ListenAndServe http static file server
 func (sv *StaticHTTPServer) ListenAndServe() error {
+	if sv.Closed() {
+		return ErrServerClosed
+	}
+	if sv.srv != nil {
+		return ErrServerCreated
+	}
 	srv := sv.server()
 	sv.srv = srv
 	return srv.ListenAndServe()
@@ -118,6 +142,12 @@ func (sv *StaticHTTPServer) ListenAndServe() error {
 
 // ListenAndServeTLS https static file server
 func (sv *StaticHTTPServer) ListenAndServeTLS(certFile, keyFile string) error {
+	if sv.Closed() {
+		return ErrServerClosed
+	}
+	if sv.srv != nil {
+		return ErrServerCreated
+	}
 	srv := sv.server()
 	sv.srv = srv
 	return srv.ListenAndServeTLS(certFile, keyFile)
@@ -138,6 +168,7 @@ func (sv *StaticHTTPServer) ServeTLS(ln net.Listener, certFile, keyFile string) 
 // Close the static file server that created by ListenAndServe or ListenAndServeTLS
 func (sv *StaticHTTPServer) Close() {
 	sv.cd.Do(func() {
+		close(sv.closedCh)
 		if sv.srv != nil {
 			sv.srv.Close()
 		}

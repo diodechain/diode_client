@@ -81,7 +81,7 @@ func TestStaticServer(t *testing.T) {
 
 // waitTilAddrListened will dail address with simplified backoff implementation
 // untill the address is ready for connecting
-func waitTilAddrListened(ctx context.Context, network, addr string, back time.Duration) (err error) {
+func waitTilAddrListened(ctx context.Context, network, addr string, backoff time.Duration) (err error) {
 	i := 1
 	for {
 		select {
@@ -92,14 +92,13 @@ func waitTilAddrListened(ctx context.Context, network, addr string, back time.Du
 		}
 		c, err := net.DialTimeout(network, addr, 10*time.Millisecond)
 		if err != nil {
-			time.Sleep(time.Duration(i) * back)
+			time.Sleep(time.Duration(i) * backoff)
 			i += 1
 			continue
 		}
 		c.Close()
-		break
+		return err
 	}
-	return err
 }
 
 // The test request might send before the goroutine execute
@@ -109,17 +108,18 @@ func TestSecureStaticServer(t *testing.T) {
 		TLSConfig:     tlsConfig,
 		RootDirectory: ".",
 		Host:          "localhost",
-		Port:          1234,
+		Port:          7999,
 	}
 	staticServer := NewStaticHTTPServer(config)
 	defer staticServer.Close()
 	go func() {
 		staticServer.ListenAndServeTLS("./test.crt", "./test.key")
 	}()
-	magicTime := 100 * time.Millisecond
+	magicTime := 1 * time.Second
+	backoffTime := 100 * time.Millisecond
 	ctx, cancel := context.WithTimeout(context.Background(), magicTime)
 	defer cancel()
-	err := waitTilAddrListened(ctx, "tcp", staticServer.Addr, magicTime)
+	err := waitTilAddrListened(ctx, "tcp", staticServer.Addr, backoffTime)
 	if err == nil {
 		for _, st := range staticServerTests {
 			testHTTPSGetStatus(t, fmt.Sprintf("https://%s%s", staticServer.Addr, st.Path), st.Status)
@@ -133,7 +133,7 @@ func TestServeStaticServer(t *testing.T) {
 	config := Config{
 		RootDirectory: ".",
 		Host:          "localhost",
-		Port:          1234,
+		Port:          8000,
 	}
 	staticServer := NewStaticHTTPServer(config)
 	ln, err := net.Listen("tcp", staticServer.Addr)
@@ -155,7 +155,7 @@ func TestServeTLSStaticServer(t *testing.T) {
 	config := Config{
 		RootDirectory: ".",
 		Host:          "localhost",
-		Port:          1234,
+		Port:          8001,
 	}
 	staticServer := NewStaticHTTPServer(config)
 	ln, err := net.Listen("tcp", staticServer.Addr)
