@@ -957,7 +957,7 @@ func (socksServer *Server) handleBind(conn net.Conn, bind config.Bind) {
 }
 
 func validateSocksConfig(socksCfg Config) error {
-	if len(socksCfg.Fallback) > 0 && socksCfg.Fallback != "localhost" {
+	if len(socksCfg.Fallback) > 0 && socksCfg.Fallback != "localhost" && socksCfg.Fallback != "false" {
 		return fmt.Errorf("wrong parameters for socks fallback")
 	}
 	return nil
