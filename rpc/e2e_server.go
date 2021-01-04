@@ -15,7 +15,7 @@ import (
 
 // E2EServer represents a proxy server that port ssl connection to local resource connection
 type E2EServer struct {
-	client  *RPCClient
+	client  *Client
 	peer    Address
 	closeCh chan struct{}
 	cd      sync.Once
@@ -26,7 +26,7 @@ type E2EServer struct {
 }
 
 // NewE2EServer returns e2e server rpcClient.Error(err.Error())
-func (rpcClient *RPCClient) NewE2EServer(remoteConn net.Conn, peer Address) *E2EServer {
+func (rpcClient *Client) NewE2EServer(remoteConn net.Conn, peer Address) *E2EServer {
 	rpcClient.Debug("Enable e2e Tunnel")
 	return &E2EServer{
 		remoteConn: remoteConn,

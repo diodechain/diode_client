@@ -30,7 +30,7 @@ func (c *Call) enqueueResponse(msg interface{}) error {
 	}
 }
 
-func (rpcClient *RPCClient) addWorker(worker func()) {
+func (rpcClient *Client) addWorker(worker func()) {
 	rpcClient.wg.Add(1)
 	go func() {
 		defer rpcClient.wg.Done()
@@ -39,12 +39,12 @@ func (rpcClient *RPCClient) addWorker(worker func()) {
 }
 
 // Wait until goroutines finish
-func (rpcClient *RPCClient) Wait() {
+func (rpcClient *Client) Wait() {
 	rpcClient.wg.Wait()
 }
 
 // handle inbound request
-func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
+func (rpcClient *Client) handleInboundRequest(inboundRequest interface{}) {
 	if portOpen, ok := inboundRequest.(*edge.PortOpen); ok {
 		go func() {
 			if portOpen.Err != nil {
@@ -183,7 +183,7 @@ func (rpcClient *RPCClient) handleInboundRequest(inboundRequest interface{}) {
 }
 
 // isAllowlisted returns true if device is allowlisted
-func (rpcClient *RPCClient) isAllowlisted(port *config.Port, addr Address) bool {
+func (rpcClient *Client) isAllowlisted(port *config.Port, addr Address) bool {
 	switch port.Mode {
 	case config.PublicPublishedMode:
 		return true
@@ -199,8 +199,8 @@ func (rpcClient *RPCClient) isAllowlisted(port *config.Port, addr Address) bool 
 		}
 
 		for _, fleetAddr := range allowFleets {
-			isAccessWhilisted, err := rpcClient.IsDeviceAllowlisted(fleetAddr, addr)
-			if err == nil && isAccessWhilisted {
+			isAccessWhilisted := rpcClient.IsDeviceAllowlisted(fleetAddr, addr)
+			if isAccessWhilisted {
 				return true
 			}
 		}
@@ -214,7 +214,7 @@ func (rpcClient *RPCClient) isAllowlisted(port *config.Port, addr Address) bool 
 }
 
 // handle inbound message
-func (rpcClient *RPCClient) handleInboundMessage(msg edge.Message) {
+func (rpcClient *Client) handleInboundMessage(msg edge.Message) {
 	go rpcClient.CheckTicket()
 	if msg.IsResponse(rpcClient.edgeProtocol) {
 		rpcClient.backoff.StepBack()
@@ -260,7 +260,7 @@ func (rpcClient *RPCClient) handleInboundMessage(msg edge.Message) {
 }
 
 // infinite loop to read message from server
-func (rpcClient *RPCClient) recvMessage() {
+func (rpcClient *Client) recvMessage() {
 	for {
 		msg, err := rpcClient.s.readMessage()
 		if err != nil {
@@ -301,7 +301,7 @@ func (rpcClient *RPCClient) recvMessage() {
 }
 
 // infinite loop to send message to server
-func (rpcClient *RPCClient) sendMessage() {
+func (rpcClient *Client) sendMessage() {
 	for {
 		call, ok := <-rpcClient.callQueue
 		if !ok {
@@ -335,7 +335,7 @@ func (rpcClient *RPCClient) sendMessage() {
 	}
 }
 
-func (rpcClient *RPCClient) watchLatestBlock() {
+func (rpcClient *Client) watchLatestBlock() {
 	var lastblock uint64
 	rpcClient.rm.Lock()
 	rpcClient.blockTicker = time.NewTicker(rpcClient.blockTickerDuration)
@@ -390,7 +390,7 @@ func (rpcClient *RPCClient) watchLatestBlock() {
 }
 
 // Start process rpc inbound message and outbound message
-func (rpcClient *RPCClient) Start() {
+func (rpcClient *Client) Start() {
 	rpcClient.addWorker(rpcClient.recvMessage)
 	rpcClient.addWorker(rpcClient.sendMessage)
 	rpcClient.addWorker(rpcClient.watchLatestBlock)

@@ -340,7 +340,7 @@ func EnsurePrivatePEM() []byte {
 	return key
 }
 
-func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, error) {
+func DoConnect(host string, config *config.Config, pool *DataPool) (*Client, error) {
 	ctx := initSSLCtx(config)
 	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification)
 	if err != nil {
@@ -382,14 +382,14 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*RPCClient, 
 		}
 	}
 
-	rpcConfig := RPCConfig{
+	rpcConfig := clientConfig{
 		ClientAddr:   config.ClientAddr,
 		RegistryAddr: config.RegistryAddr,
 		FleetAddr:    config.FleetAddr,
 		Blocklists:   config.Blocklists,
 		Allowlists:   config.Allowlists,
 	}
-	rpcClient := NewRPCClient(client, rpcConfig, pool)
+	rpcClient := NewClient(client, rpcConfig, pool)
 
 	rpcClient.Verbose = config.Debug
 	rpcClient.logger = config.Logger

@@ -86,7 +86,7 @@ func WindowSize() int {
 }
 
 // LastValid returns the last valid block number and block header
-func (rpcClient *RPCClient) LastValid() (uint64, crypto.Sha3) {
+func (rpcClient *Client) LastValid() (uint64, crypto.Sha3) {
 	if rpcClient.bq == nil {
 		return restoreLastValid()
 	}
@@ -108,7 +108,7 @@ func restoreLastValid() (uint64, crypto.Sha3) {
 	return 500, [32]byte{0, 0, 91, 137, 111, 20, 109, 80, 251, 76, 143, 80, 134, 152, 142, 201, 98, 250, 205, 7, 108, 135, 20, 235, 135, 65, 44, 186, 4, 161, 71, 238}
 }
 
-func (rpcClient *RPCClient) storeLastValid() {
+func (rpcClient *Client) storeLastValid() {
 	lvbn, lvbh := rpcClient.LastValid()
 	db.DB.Put(lvbnKey, util.DecodeUintToBytes(lvbn))
 	db.DB.Put(lvbhKey, lvbh[:])

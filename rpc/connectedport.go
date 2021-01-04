@@ -22,12 +22,12 @@ type ConnectedPort struct {
 	DeviceID      Address
 	Conn          net.Conn
 	cd            sync.Once
-	client        *RPCClient
+	client        *Client
 	sendErr       error
 }
 
 // NewConnectedPort returns a new connected port
-func NewConnectedPort(ref string, deviceID Address, client *RPCClient) *ConnectedPort {
+func NewConnectedPort(ref string, deviceID Address, client *Client) *ConnectedPort {
 	return &ConnectedPort{Ref: ref, DeviceID: deviceID, client: client}
 }
 

@@ -235,8 +235,8 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 			case 400:
 				errMsg = fmt.Sprintf("Bad request: %s", httpErr.Error())
 			case 404:
-				// why not err == ErrEmptyBNSresult
-				if err.Error() == ErrEmptyBNSresult.Error() {
+				// why not err == errEmptyBNSresult
+				if err.Error() == errEmptyBNSresult.Error() {
 					errMsg = "BNS name not found. Please check spelling."
 				} else if _, ok := httpErr.err.(DeviceError); ok {
 					errMsg = "Device is currently offline."

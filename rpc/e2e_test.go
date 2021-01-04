@@ -24,7 +24,7 @@ var (
 func newTestE2EServer(remoteConn net.Conn, peer Address) (e2eServer E2EServer) {
 	e2eServer.remoteConn = remoteConn
 	e2eServer.peer = peer
-	e2eServer.client = &RPCClient{
+	e2eServer.client = &Client{
 		s: &SSL{
 			addr: "localhost:41046",
 		},

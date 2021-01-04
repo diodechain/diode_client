@@ -306,7 +306,7 @@ func handleUnregister() (done bool, err error) {
 	return
 }
 
-func wait(client *rpc.RPCClient, condition func() bool) {
+func wait(client *rpc.Client, condition func() bool) {
 	cfg := config.AppConfig
 	cfg.PrintInfo("Waiting for block to be confirmed - expect to wait 5 minutes")
 	for i := 0; i < 6000; i++ {

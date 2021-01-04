@@ -421,7 +421,7 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 			continue
 		}
 
-		var client *RPCClient
+		var client *Client
 		client, err = socksServer.GetServer(device.ServerID)
 		if err != nil {
 			socksServer.logger.Error("GetServer() failed: %v", err)
@@ -990,7 +990,7 @@ func (socksServer *Server) SetConfig(config Config) error {
 }
 
 // GetServer gets or creates a new SSL connection to the given server
-func (socksServer *Server) GetServer(nodeID Address) (client *RPCClient, err error) {
+func (socksServer *Server) GetServer(nodeID Address) (client *Client, err error) {
 	socksServer.rm.Lock()
 	defer socksServer.rm.Unlock()
 	client = socksServer.datapool.GetClient(nodeID)

@@ -17,7 +17,7 @@ import (
 type DataPool struct {
 	clientOrder    uint64
 	rm             sync.RWMutex
-	clients        map[util.Address]*RPCClient
+	clients        map[util.Address]*Client
 	devices        map[string]*ConnectedPort
 	publishedPorts map[int]*config.Port
 	memoryCache    *cache.Cache
@@ -28,7 +28,7 @@ type DataPool struct {
 func NewPool() *DataPool {
 	return &DataPool{
 		memoryCache:    cache.New(5*time.Minute, 10*time.Minute),
-		clients:        make(map[util.Address]*RPCClient),
+		clients:        make(map[util.Address]*Client),
 		devices:        make(map[string]*ConnectedPort),
 		publishedPorts: make(map[int]*config.Port),
 		done:           make(chan struct{}),
@@ -151,13 +151,13 @@ func (p *DataPool) WaitClients() {
 	<-p.done
 }
 
-func (p *DataPool) GetClient(nodeID util.Address) *RPCClient {
+func (p *DataPool) GetClient(nodeID util.Address) *Client {
 	p.rm.RLock()
 	defer p.rm.RUnlock()
 	return p.clients[nodeID]
 }
 
-func (p *DataPool) SetClient(nodeID util.Address, client *RPCClient) {
+func (p *DataPool) SetClient(nodeID util.Address, client *Client) {
 	p.rm.Lock()
 	defer p.rm.Unlock()
 	if client == nil {
@@ -176,7 +176,7 @@ func (p *DataPool) SetClient(nodeID util.Address, client *RPCClient) {
 	}
 }
 
-func (p *DataPool) GetClientByOrder(order int) (client *RPCClient) {
+func (p *DataPool) GetClientByOrder(order int) (client *Client) {
 	for _, client = range p.clients {
 		if client.Order == order {
 			return
@@ -186,7 +186,7 @@ func (p *DataPool) GetClientByOrder(order int) (client *RPCClient) {
 	return
 }
 
-func (p *DataPool) GetNearestClient() (client *RPCClient) {
+func (p *DataPool) GetNearestClient() (client *Client) {
 	min := int(p.clientOrder)
 	for _, c := range p.clients {
 		if c.Order > 0 && c.Order <= min {

@@ -3,13 +3,13 @@
 // Licensed under the Diode License, Version 1.0
 package rpc
 
-func (rpcClient *RPCClient) totalCallLength() int {
+func (rpcClient *Client) totalCallLength() int {
 	rpcClient.rm.Lock()
 	defer rpcClient.rm.Unlock()
 	return len(rpcClient.calls)
 }
 
-func (rpcClient *RPCClient) addCall(c Call) {
+func (rpcClient *Client) addCall(c Call) {
 	rpcClient.rm.Lock()
 	defer rpcClient.rm.Unlock()
 	if !c.inserted {
@@ -18,7 +18,7 @@ func (rpcClient *RPCClient) addCall(c Call) {
 	rpcClient.calls[c.id] = c
 }
 
-func (rpcClient *RPCClient) notifyCalls(signal Signal) {
+func (rpcClient *Client) notifyCalls(signal Signal) {
 	rpcClient.rm.Lock()
 	defer rpcClient.rm.Unlock()
 	for _, call := range rpcClient.calls {
@@ -26,7 +26,7 @@ func (rpcClient *RPCClient) notifyCalls(signal Signal) {
 	}
 }
 
-func (rpcClient *RPCClient) recall() {
+func (rpcClient *Client) recall() {
 	rpcClient.rm.Lock()
 	defer rpcClient.rm.Unlock()
 	calls := rpcClient.calls
@@ -51,7 +51,7 @@ func (rpcClient *RPCClient) recall() {
 	}
 }
 
-func (rpcClient *RPCClient) firstCallByID(id uint64) (c Call) {
+func (rpcClient *Client) firstCallByID(id uint64) (c Call) {
 	rpcClient.rm.Lock()
 	defer rpcClient.rm.Unlock()
 	c = rpcClient.calls[id]
@@ -59,7 +59,7 @@ func (rpcClient *RPCClient) firstCallByID(id uint64) (c Call) {
 	return
 }
 
-func (rpcClient *RPCClient) removeCallByID(id uint64) {
+func (rpcClient *Client) removeCallByID(id uint64) {
 	rpcClient.rm.Lock()
 	defer rpcClient.rm.Unlock()
 	delete(rpcClient.calls, id)

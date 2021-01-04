@@ -370,7 +370,7 @@ func (dio *Diode) Start() error {
 	}
 	var lvbn uint64
 	var lvbh crypto.Sha3
-	var client *rpc.RPCClient
+	var client *rpc.Client
 
 	// waiting for first client
 	for {
@@ -399,10 +399,10 @@ func (dio *Diode) Start() error {
 	return nil
 }
 
-func (dio *Diode) waitForFirstClient(onlyNeedOne bool) (client *rpc.RPCClient) {
+func (dio *Diode) waitForFirstClient(onlyNeedOne bool) (client *rpc.Client) {
 	cfg := dio.config
 	rpcAddrLen := len(cfg.RemoteRPCAddrs)
-	c := make(chan *rpc.RPCClient, rpcAddrLen)
+	c := make(chan *rpc.Client, rpcAddrLen)
 
 	wg := &sync.WaitGroup{}
 	wg.Add(1)

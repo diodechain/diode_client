@@ -39,7 +39,7 @@ func main() {
 	os.Exit(0)
 }
 
-func connect(c chan *rpc.RPCClient, host string, cfg *config.Config, pool *rpc.DataPool) {
+func connect(c chan *rpc.Client, host string, cfg *config.Config, pool *rpc.DataPool) {
 	client, err := rpc.DoConnect(host, cfg, pool)
 	if err != nil {
 		if client != nil {
@@ -56,7 +56,7 @@ func connect(c chan *rpc.RPCClient, host string, cfg *config.Config, pool *rpc.D
 // since account state will change after transaction
 // we try to confirm the transactions by validate the account state
 // to prevent from fork, maybe wait more blocks
-func watchAccount(client *rpc.RPCClient, to util.Address) (res bool) {
+func watchAccount(client *rpc.Client, to util.Address) (res bool) {
 	var bn uint64
 	var startBN uint64
 	var err error

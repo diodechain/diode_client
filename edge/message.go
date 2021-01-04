@@ -11,7 +11,7 @@ type Message struct {
 }
 
 // ResponseID returns response identifier of the message
-func (msg *Message) ResponseID(edgeProtocol EdgeProtocol) uint64 {
+func (msg *Message) ResponseID(edgeProtocol Protocol) uint64 {
 	if !msg.IsResponse(edgeProtocol) {
 		return 0
 	}
@@ -29,33 +29,33 @@ func (msg *Message) pivotBuffer() []byte {
 }
 
 // IsResponse returns true if the message is response
-func (msg *Message) IsResponse(edgeProtocol EdgeProtocol) bool {
+func (msg *Message) IsResponse(edgeProtocol Protocol) bool {
 	pivot := msg.pivotBuffer()
 	return edgeProtocol.IsResponseType(pivot) || edgeProtocol.IsErrorType(pivot)
 }
 
 // IsRequest returns true if the message is request
-func (msg *Message) IsRequest(edgeProtocol EdgeProtocol) bool {
+func (msg *Message) IsRequest(edgeProtocol Protocol) bool {
 	return !msg.IsResponse(edgeProtocol)
 }
 
 // IsError returns true if the message is error
-func (msg *Message) IsError(edgeProtocol EdgeProtocol) bool {
+func (msg *Message) IsError(edgeProtocol Protocol) bool {
 	pivot := msg.pivotBuffer()
 	return edgeProtocol.IsErrorType(pivot)
 }
 
 // ReadAsResponse returns Response of the message
-func (msg *Message) ReadAsResponse(edgeProtocol EdgeProtocol) (interface{}, error) {
+func (msg *Message) ReadAsResponse(edgeProtocol Protocol) (interface{}, error) {
 	return edgeProtocol.parseResponse(msg.Buffer)
 }
 
 // ReadAsInboundRequest returns Request of the message
-func (msg *Message) ReadAsInboundRequest(edgeProtocol EdgeProtocol) (interface{}, error) {
+func (msg *Message) ReadAsInboundRequest(edgeProtocol Protocol) (interface{}, error) {
 	return edgeProtocol.parseInboundRequest(msg.Buffer)
 }
 
 // ReadAsError returns Error of the message
-func (msg *Message) ReadAsError(edgeProtocol EdgeProtocol) (Error, error) {
+func (msg *Message) ReadAsError(edgeProtocol Protocol) (Error, error) {
 	return edgeProtocol.parseError(msg.Buffer)
 }

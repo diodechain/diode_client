@@ -30,7 +30,7 @@ func init() {
 	resetCmd.Flag.BoolVar(&cfg.Experimental, "experimental", false, "send transactions of fleet deployment and device allowlist at seme time")
 }
 
-func doInit(cfg *config.Config, client *rpc.RPCClient) error {
+func doInit(cfg *config.Config, client *rpc.Client) error {
 	if cfg.FleetAddr != config.DefaultFleetAddr {
 		cfg.PrintInfo("Your client has been already initialized, try to publish or browse through Diode Network.")
 		return nil
@@ -109,7 +109,7 @@ func doInit(cfg *config.Config, client *rpc.RPCClient) error {
 	return err
 }
 
-func doInitExp(cfg *config.Config, client *rpc.RPCClient) error {
+func doInitExp(cfg *config.Config, client *rpc.Client) error {
 	if cfg.FleetAddr != config.DefaultFleetAddr {
 		cfg.PrintInfo("Your client has been already initialized, try to publish or browse through Diode Network.")
 		return nil

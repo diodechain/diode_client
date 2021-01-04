@@ -29,18 +29,15 @@ const (
 )
 
 var (
-	RequestID uint64 = 0
-	// ErrEmptyBNSresult indicates that the BNS name could not be found
-	ErrEmptyBNSresult        = fmt.Errorf("couldn't resolve name (null)")
-	ErrSendTransactionFailed = fmt.Errorf("server returned false")
-	ErrRPCClientClosed       = fmt.Errorf("rpc client was closed")
-	ErrPortOpenTimeout       = fmt.Errorf("portopen timeout")
-	DefaultRegistryAddr      = [20]byte{80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-	DefaultFleetAddr         = [20]byte{96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	requestID                uint64 = 0
+	errEmptyBNSresult               = fmt.Errorf("couldn't resolve name (null)")
+	errSendTransactionFailed        = fmt.Errorf("server returned false")
+	errClientClosed                 = fmt.Errorf("rpc client was closed")
+	errPortOpenTimeout              = fmt.Errorf("portopen timeout")
 )
 
-// RPCConfig struct for rpc client
-type RPCConfig struct {
+// clientConfig struct for rpc client
+type clientConfig struct {
 	ClientAddr   Address
 	RegistryAddr Address
 	FleetAddr    Address
@@ -48,8 +45,8 @@ type RPCConfig struct {
 	Allowlists   map[Address]bool
 }
 
-// RPCClient struct for rpc client
-type RPCClient struct {
+// Client struct for rpc client
+type Client struct {
 	backoff               Backoff
 	callQueue             chan Call
 	s                     *SSL
@@ -69,8 +66,8 @@ type RPCClient struct {
 	rm                    sync.Mutex
 	pool                  *DataPool
 	signal                chan Signal
-	edgeProtocol          edge.EdgeProtocol
-	Config                RPCConfig
+	edgeProtocol          edge.Protocol
+	Config                clientConfig
 	bq                    *blockquick.Window
 	serverID              util.Address
 	Order                 int
@@ -78,12 +75,12 @@ type RPCClient struct {
 }
 
 func getRequestID() uint64 {
-	return atomic.AddUint64(&RequestID, 1)
+	return atomic.AddUint64(&requestID, 1)
 }
 
-// NewRPCClient returns rpc client
-func NewRPCClient(s *SSL, config RPCConfig, pool *DataPool) RPCClient {
-	return RPCClient{
+// NewClient returns rpc client
+func NewClient(s *SSL, config clientConfig, pool *DataPool) Client {
+	return Client{
 		s:                     s,
 		callQueue:             make(chan Call, callsQueueSize),
 		calls:                 make(map[uint64]Call, callsQueueSize),
@@ -100,50 +97,50 @@ func NewRPCClient(s *SSL, config RPCConfig, pool *DataPool) RPCClient {
 			Factor: 2,
 			Jitter: true,
 		},
-		edgeProtocol: edge.RLP_V2{},
+		edgeProtocol: edge.Protocol{},
 		Config:       config,
 	}
 }
 
 // Info logs to logger in Info level
-func (rpcClient *RPCClient) Info(msg string, args ...interface{}) {
+func (rpcClient *Client) Info(msg string, args ...interface{}) {
 	rpcClient.logger.InfoWithHost(fmt.Sprintf(msg, args...), rpcClient.s.addr)
 }
 
 // Debug logs to logger in Debug level
-func (rpcClient *RPCClient) Debug(msg string, args ...interface{}) {
+func (rpcClient *Client) Debug(msg string, args ...interface{}) {
 	if rpcClient.Verbose {
 		rpcClient.logger.DebugWithHost(fmt.Sprintf(msg, args...), rpcClient.s.addr)
 	}
 }
 
 // Error logs to logger in Error level
-func (rpcClient *RPCClient) Error(msg string, args ...interface{}) {
+func (rpcClient *Client) Error(msg string, args ...interface{}) {
 	rpcClient.logger.ErrorWithHost(fmt.Sprintf(msg, args...), rpcClient.s.addr)
 }
 
 // Warn logs to logger in Warn level
-func (rpcClient *RPCClient) Warn(msg string, args ...interface{}) {
+func (rpcClient *Client) Warn(msg string, args ...interface{}) {
 	rpcClient.logger.WarnWithHost(fmt.Sprintf(msg, args...), rpcClient.s.addr)
 }
 
 // Crit logs to logger in Crit level
-func (rpcClient *RPCClient) Crit(msg string, args ...interface{}) {
+func (rpcClient *Client) Crit(msg string, args ...interface{}) {
 	rpcClient.logger.CritWithHost(fmt.Sprintf(msg, args...), rpcClient.s.addr)
 }
 
 // Host returns the non-resolved addr name of the host
-func (rpcClient *RPCClient) Host() string {
+func (rpcClient *Client) Host() string {
 	return rpcClient.s.addr
 }
 
 // SetCloseCB set close callback of rpc client
-func (rpcClient *RPCClient) SetCloseCB(closeCB func()) {
+func (rpcClient *Client) SetCloseCB(closeCB func()) {
 	rpcClient.closeCB = closeCB
 }
 
 // GetServerID returns server address
-func (rpcClient *RPCClient) GetServerID() ([20]byte, error) {
+func (rpcClient *Client) GetServerID() ([20]byte, error) {
 	if rpcClient.serverID != util.EmptyAddress {
 		return rpcClient.serverID, nil
 	}
@@ -156,7 +153,7 @@ func (rpcClient *RPCClient) GetServerID() ([20]byte, error) {
 }
 
 // GetDeviceKey returns device key of given ref
-func (rpcClient *RPCClient) GetDeviceKey(ref string) string {
+func (rpcClient *Client) GetDeviceKey(ref string) string {
 	prefixByt, err := rpcClient.s.GetServerID()
 	if err != nil {
 		return ""
@@ -165,7 +162,7 @@ func (rpcClient *RPCClient) GetDeviceKey(ref string) string {
 	return fmt.Sprintf("%s:%s", prefix, ref)
 }
 
-func (rpcClient *RPCClient) enqueueCall(call Call) error {
+func (rpcClient *Client) enqueueCall(call Call) error {
 	timer := time.NewTimer(enqueueTimeout)
 	defer timer.Stop()
 	select {
@@ -176,7 +173,7 @@ func (rpcClient *RPCClient) enqueueCall(call Call) error {
 	}
 }
 
-func (rpcClient *RPCClient) waitResponse(call Call, rpcTimeout time.Duration) (res interface{}, err error) {
+func (rpcClient *Client) waitResponse(call Call, rpcTimeout time.Duration) (res interface{}, err error) {
 	timer := time.NewTimer(rpcTimeout)
 	defer timer.Stop()
 	select {
@@ -202,9 +199,9 @@ func (rpcClient *RPCClient) waitResponse(call Call, rpcTimeout time.Duration) (r
 }
 
 // RespondContext sends a message without expecting a response
-func (rpcClient *RPCClient) RespondContext(requestID uint64, responseType string, method string, args ...interface{}) (call Call, err error) {
+func (rpcClient *Client) RespondContext(requestID uint64, responseType string, method string, args ...interface{}) (call Call, err error) {
 	if rpcClient.Closed() {
-		err = ErrRPCClientClosed
+		err = errClientClosed
 		return
 	}
 	var msg []byte
@@ -222,9 +219,9 @@ func (rpcClient *RPCClient) RespondContext(requestID uint64, responseType string
 }
 
 // CastContext returns a response future after calling the rpc
-func (rpcClient *RPCClient) CastContext(requestID uint64, method string, args ...interface{}) (call Call, err error) {
+func (rpcClient *Client) CastContext(requestID uint64, method string, args ...interface{}) (call Call, err error) {
 	if rpcClient.Closed() {
-		err = ErrRPCClientClosed
+		err = errClientClosed
 		return
 	}
 	var msg []byte
@@ -257,7 +254,7 @@ func preparePayload(requestID uint64, method string, buf *bytes.Buffer, parse fu
 }
 
 // CallContext returns the response after calling the rpc
-func (rpcClient *RPCClient) CallContext(method string, parse func(buffer []byte) (interface{}, error), args ...interface{}) (res interface{}, err error) {
+func (rpcClient *Client) CallContext(method string, parse func(buffer []byte) (interface{}, error), args ...interface{}) (res interface{}, err error) {
 	var resCall Call
 	var ts time.Time
 	var tsDiff time.Duration
@@ -298,7 +295,7 @@ func (rpcClient *RPCClient) CallContext(method string, parse func(buffer []byte)
 }
 
 // CheckTicket should client send traffic ticket to server
-func (rpcClient *RPCClient) CheckTicket() error {
+func (rpcClient *Client) CheckTicket() error {
 	counter := rpcClient.s.Counter()
 	if rpcClient.s.TotalBytes() > counter+ticketBound {
 		return rpcClient.SubmitNewTicket()
@@ -308,7 +305,7 @@ func (rpcClient *RPCClient) CheckTicket() error {
 
 // ValidateNetwork validate blockchain network is secure and valid
 // Run blockquick algorithm, more information see: https://eprint.iacr.org/2019/579.pdf
-func (rpcClient *RPCClient) ValidateNetwork() (bool, error) {
+func (rpcClient *Client) ValidateNetwork() (bool, error) {
 
 	lvbn, lvbh := restoreLastValid()
 	blockNumMin := lvbn - windowSize + 1
@@ -392,7 +389,7 @@ func (rpcClient *RPCClient) ValidateNetwork() (bool, error) {
  */
 
 // GetBlockPeak returns block peak
-func (rpcClient *RPCClient) GetBlockPeak() (uint64, error) {
+func (rpcClient *Client) GetBlockPeak() (uint64, error) {
 	rawBlockPeak, err := rpcClient.CallContext("getblockpeak", nil)
 	if err != nil {
 		return 0, err
@@ -404,7 +401,7 @@ func (rpcClient *RPCClient) GetBlockPeak() (uint64, error) {
 }
 
 // GetBlockquick returns block headers used for blockquick algorithm
-func (rpcClient *RPCClient) GetBlockquick(lastValid uint64, windowSize uint64) ([]blockquick.BlockHeader, error) {
+func (rpcClient *Client) GetBlockquick(lastValid uint64, windowSize uint64) ([]blockquick.BlockHeader, error) {
 	rawSequence, err := rpcClient.CallContext("getblockquick2", nil, lastValid, windowSize)
 	if err != nil {
 		return nil, err
@@ -416,7 +413,7 @@ func (rpcClient *RPCClient) GetBlockquick(lastValid uint64, windowSize uint64) (
 }
 
 // GetBlockHeaderUnsafe returns an unchecked block header from the server
-func (rpcClient *RPCClient) GetBlockHeaderUnsafe(blockNum uint64) (bh blockquick.BlockHeader, err error) {
+func (rpcClient *Client) GetBlockHeaderUnsafe(blockNum uint64) (bh blockquick.BlockHeader, err error) {
 	var rawHeader interface{}
 	rawHeader, err = rpcClient.CallContext("getblockheader2", nil, blockNum)
 	if err != nil {
@@ -431,7 +428,7 @@ func (rpcClient *RPCClient) GetBlockHeaderUnsafe(blockNum uint64) (bh blockquick
 
 // GetBlockHeadersUnsafe2 returns a range of block headers
 // TODO: use copy instead reference of BlockHeader
-func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]blockquick.BlockHeader, error) {
+func (rpcClient *Client) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]blockquick.BlockHeader, error) {
 	count := len(blockNumbers)
 	headersCount := 0
 	responses := make(map[uint64]blockquick.BlockHeader, count)
@@ -464,14 +461,14 @@ func (rpcClient *RPCClient) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]blo
 
 // GetBlockHeaderValid returns a validated recent block header
 // (only available for the last windowsSize blocks)
-func (rpcClient *RPCClient) GetBlockHeaderValid(blockNum uint64) blockquick.BlockHeader {
+func (rpcClient *Client) GetBlockHeaderValid(blockNum uint64) blockquick.BlockHeader {
 	// rpcClient.rm.Lock()
 	// defer rpcClient.rm.Unlock()
 	return rpcClient.bq.GetBlockHeader(blockNum)
 }
 
 // GetBlockHeadersUnsafe returns a consecutive range of block headers
-func (rpcClient *RPCClient) GetBlockHeadersUnsafe(blockNumMin uint64, blockNumMax uint64) ([]blockquick.BlockHeader, error) {
+func (rpcClient *Client) GetBlockHeadersUnsafe(blockNumMin uint64, blockNumMax uint64) ([]blockquick.BlockHeader, error) {
 	if blockNumMin > blockNumMax {
 		return nil, fmt.Errorf("GetBlockHeadersUnsafe(): blockNumMin needs to be <= max")
 	}
@@ -485,12 +482,12 @@ func (rpcClient *RPCClient) GetBlockHeadersUnsafe(blockNumMin uint64, blockNumMa
 
 // GetBlock returns block
 // TODO: make sure this rpc works (disconnect from server)
-func (rpcClient *RPCClient) GetBlock(blockNum uint64) (interface{}, error) {
+func (rpcClient *Client) GetBlock(blockNum uint64) (interface{}, error) {
 	return rpcClient.CallContext("getblock", nil, blockNum)
 }
 
 // GetObject returns network object for device
-func (rpcClient *RPCClient) GetObject(deviceID [20]byte) (*edge.DeviceTicket, error) {
+func (rpcClient *Client) GetObject(deviceID [20]byte) (*edge.DeviceTicket, error) {
 	if len(deviceID) != 20 {
 		return nil, fmt.Errorf("device ID must be 20 bytes")
 	}
@@ -507,7 +504,7 @@ func (rpcClient *RPCClient) GetObject(deviceID [20]byte) (*edge.DeviceTicket, er
 }
 
 // GetNode returns network address for node
-func (rpcClient *RPCClient) GetNode(nodeID [20]byte) (*edge.ServerObj, error) {
+func (rpcClient *Client) GetNode(nodeID [20]byte) (*edge.ServerObj, error) {
 	rawNode, err := rpcClient.CallContext("getnode", nil, nodeID[:])
 	if err != nil {
 		return nil, err
@@ -520,7 +517,7 @@ func (rpcClient *RPCClient) GetNode(nodeID [20]byte) (*edge.ServerObj, error) {
 
 // Greet Initiates the connection
 // TODO: test compression flag
-func (rpcClient *RPCClient) Greet() error {
+func (rpcClient *Client) Greet() error {
 	var requestID uint64
 	var flag uint64
 	requestID = getRequestID()
@@ -533,7 +530,7 @@ func (rpcClient *RPCClient) Greet() error {
 }
 
 // SubmitNewTicket creates and submits a new ticket
-func (rpcClient *RPCClient) SubmitNewTicket() error {
+func (rpcClient *Client) SubmitNewTicket() error {
 	rpcClient.rm.Lock()
 	if rpcClient.bq == nil {
 		rpcClient.rm.Unlock()
@@ -548,7 +545,7 @@ func (rpcClient *RPCClient) SubmitNewTicket() error {
 }
 
 // SignTransaction return signed transaction
-func (rpcClient *RPCClient) SignTransaction(tx *edge.Transaction) error {
+func (rpcClient *Client) SignTransaction(tx *edge.Transaction) error {
 	privKey, err := rpcClient.s.GetClientPrivateKey()
 	if err != nil {
 		return err
@@ -557,7 +554,7 @@ func (rpcClient *RPCClient) SignTransaction(tx *edge.Transaction) error {
 }
 
 // NewTicket returns ticket
-func (rpcClient *RPCClient) newTicket() (*edge.DeviceTicket, error) {
+func (rpcClient *Client) newTicket() (*edge.DeviceTicket, error) {
 	serverID, err := rpcClient.s.GetServerID()
 	if err != nil {
 		return nil, err
@@ -594,7 +591,7 @@ func (rpcClient *RPCClient) newTicket() (*edge.DeviceTicket, error) {
 
 // SubmitTicket submit ticket to server
 // TODO: resend when got too old error
-func (rpcClient *RPCClient) submitTicket(ticket *edge.DeviceTicket) error {
+func (rpcClient *Client) submitTicket(ticket *edge.DeviceTicket) error {
 	resp, err := rpcClient.CallContext("ticket", nil, uint64(ticket.BlockNumber), ticket.FleetAddr[:], uint64(ticket.TotalConnections), uint64(ticket.TotalBytes), ticket.LocalAddr, ticket.DeviceSig)
 	if err != nil {
 		rpcClient.Error("Failed to submit ticket: %v", err)
@@ -630,12 +627,12 @@ func (rpcClient *RPCClient) submitTicket(ticket *edge.DeviceTicket) error {
 }
 
 // PortOpen call portopen RPC
-func (rpcClient *RPCClient) PortOpen(deviceID [20]byte, port string, mode string) (*edge.PortOpen, error) {
+func (rpcClient *Client) PortOpen(deviceID [20]byte, port string, mode string) (*edge.PortOpen, error) {
 	rawPortOpen, err := rpcClient.CallContext("portopen", nil, deviceID[:], port, mode)
 	if err != nil {
 		// if error string is 4 bytes string, it's the timeout error from server
 		if len(err.Error()) == 4 {
-			err = ErrPortOpenTimeout
+			err = errPortOpenTimeout
 		}
 		return nil, err
 	}
@@ -646,7 +643,7 @@ func (rpcClient *RPCClient) PortOpen(deviceID [20]byte, port string, mode string
 }
 
 // ResponsePortOpen response portopen request
-func (rpcClient *RPCClient) ResponsePortOpen(portOpen *edge.PortOpen, err error) error {
+func (rpcClient *Client) ResponsePortOpen(portOpen *edge.PortOpen, err error) error {
 	if err != nil {
 		_, err = rpcClient.RespondContext(portOpen.RequestID, "error", "portopen", portOpen.Ref, err.Error())
 	} else {
@@ -659,23 +656,23 @@ func (rpcClient *RPCClient) ResponsePortOpen(portOpen *edge.PortOpen, err error)
 }
 
 // CastPortClose cast portclose RPC
-func (rpcClient *RPCClient) CastPortClose(ref string) (err error) {
+func (rpcClient *Client) CastPortClose(ref string) (err error) {
 	_, err = rpcClient.CastContext(getRequestID(), "portclose", ref)
 	return err
 }
 
 // PortClose portclose RPC
-func (rpcClient *RPCClient) PortClose(ref string) (interface{}, error) {
+func (rpcClient *Client) PortClose(ref string) (interface{}, error) {
 	return rpcClient.CallContext("portclose", nil, ref)
 }
 
 // Ping call ping RPC
-func (rpcClient *RPCClient) Ping() (interface{}, error) {
+func (rpcClient *Client) Ping() (interface{}, error) {
 	return rpcClient.CallContext("ping", nil)
 }
 
 // SendTransaction send signed transaction to server
-func (rpcClient *RPCClient) SendTransaction(tx *edge.Transaction) (result bool, err error) {
+func (rpcClient *Client) SendTransaction(tx *edge.Transaction) (result bool, err error) {
 	var encodedRLPTx []byte
 	var res interface{}
 	var ok bool
@@ -691,7 +688,7 @@ func (rpcClient *RPCClient) SendTransaction(tx *edge.Transaction) (result bool, 
 	if res, ok = res.(string); ok {
 		result = res == "ok"
 		if !result {
-			err = ErrSendTransactionFailed
+			err = errSendTransactionFailed
 		}
 		return
 	}
@@ -699,7 +696,7 @@ func (rpcClient *RPCClient) SendTransaction(tx *edge.Transaction) (result bool, 
 }
 
 // GetAccount returns account information: nonce, balance, storage root, code
-func (rpcClient *RPCClient) GetAccount(blockNumber uint64, account [20]byte) (*edge.Account, error) {
+func (rpcClient *Client) GetAccount(blockNumber uint64, account [20]byte) (*edge.Account, error) {
 	rawAccount, err := rpcClient.CallContext("getaccount", nil, blockNumber, account[:])
 	if err != nil {
 		return nil, err
@@ -711,7 +708,7 @@ func (rpcClient *RPCClient) GetAccount(blockNumber uint64, account [20]byte) (*e
 }
 
 // GetStateRoots returns state roots
-func (rpcClient *RPCClient) GetStateRoots(blockNumber uint64) (*edge.StateRoots, error) {
+func (rpcClient *Client) GetStateRoots(blockNumber uint64) (*edge.StateRoots, error) {
 	rawStateRoots, err := rpcClient.CallContext("getstateroots", nil, blockNumber)
 	if err != nil {
 		return nil, err
@@ -723,7 +720,7 @@ func (rpcClient *RPCClient) GetStateRoots(blockNumber uint64) (*edge.StateRoots,
 }
 
 // GetValidAccount returns valid account information: nonce, balance, storage root, code
-func (rpcClient *RPCClient) GetValidAccount(blockNumber uint64, account [20]byte) (*edge.Account, error) {
+func (rpcClient *Client) GetValidAccount(blockNumber uint64, account [20]byte) (*edge.Account, error) {
 	if blockNumber <= 0 {
 		bn, _ := rpcClient.LastValid()
 		blockNumber = uint64(bn)
@@ -736,14 +733,14 @@ func (rpcClient *RPCClient) GetValidAccount(blockNumber uint64, account [20]byte
 	if err != nil {
 		return nil, err
 	}
-	if uint64(sts.Find(act.StateRoot())) == act.StateTree().Module {
+	if uint64(sts.Find(act.StateRoot())) == act.StateTree().Modulo {
 		return act, nil
 	}
 	return nil, nil
 }
 
 // GetAccountNonce returns the nonce of the given account, or 0
-func (rpcClient *RPCClient) GetAccountNonce(blockNumber uint64, account [20]byte) uint64 {
+func (rpcClient *Client) GetAccountNonce(blockNumber uint64, account [20]byte) uint64 {
 	act, _ := rpcClient.GetValidAccount(blockNumber, account)
 	if act == nil {
 		return 0
@@ -752,7 +749,7 @@ func (rpcClient *RPCClient) GetAccountNonce(blockNumber uint64, account [20]byte
 }
 
 // GetAccountValue returns account storage value
-func (rpcClient *RPCClient) GetAccountValue(blockNumber uint64, account [20]byte, rawKey []byte) (*edge.AccountValue, error) {
+func (rpcClient *Client) GetAccountValue(blockNumber uint64, account [20]byte, rawKey []byte) (*edge.AccountValue, error) {
 	if blockNumber <= 0 {
 		bn, _ := rpcClient.LastValid()
 		blockNumber = uint64(bn)
@@ -771,7 +768,8 @@ func (rpcClient *RPCClient) GetAccountValue(blockNumber uint64, account [20]byte
 	return nil, nil
 }
 
-func (rpcClient *RPCClient) GetAccountValueInt(blockNumber uint64, addr [20]byte, key []byte) big.Int {
+// GetAccountValueInt returns account value as Integer
+func (rpcClient *Client) GetAccountValueInt(blockNumber uint64, addr [20]byte, key []byte) big.Int {
 	raw, err := rpcClient.GetAccountValueRaw(blockNumber, addr, key)
 	var ret big.Int
 	if err != nil {
@@ -782,7 +780,7 @@ func (rpcClient *RPCClient) GetAccountValueInt(blockNumber uint64, addr [20]byte
 }
 
 // GetAccountValueRaw returns account value
-func (rpcClient *RPCClient) GetAccountValueRaw(blockNumber uint64, addr [20]byte, key []byte) ([]byte, error) {
+func (rpcClient *Client) GetAccountValueRaw(blockNumber uint64, addr [20]byte, key []byte) ([]byte, error) {
 	if blockNumber <= 0 {
 		bn, _ := rpcClient.LastValid()
 		blockNumber = uint64(bn)
@@ -794,13 +792,12 @@ func (rpcClient *RPCClient) GetAccountValueRaw(blockNumber uint64, addr [20]byte
 	// get account roots
 	acr, err := rpcClient.GetAccountRoots(blockNumber, addr)
 	if err != nil {
-
 		return NullData, err
 	}
 	acvTree := acv.AccountTree()
-	// check account root existed, empty key
-	if uint64(acr.Find(acv.AccountRoot())) != acvTree.Module {
-		return NullData, nil
+	// Verify the calculated proof value matches the specific known root
+	if uint64(acr.Find(acv.AccountRoot())) != acvTree.Modulo {
+		return NullData, fmt.Errorf("wrong merkle proof")
 	}
 	raw, err := acvTree.Get(key)
 	if err != nil {
@@ -810,7 +807,7 @@ func (rpcClient *RPCClient) GetAccountValueRaw(blockNumber uint64, addr [20]byte
 }
 
 // GetAccountRoots returns account state roots
-func (rpcClient *RPCClient) GetAccountRoots(blockNumber uint64, account [20]byte) (*edge.AccountRoots, error) {
+func (rpcClient *Client) GetAccountRoots(blockNumber uint64, account [20]byte) (*edge.AccountRoots, error) {
 	if blockNumber <= 0 {
 		bn, _ := rpcClient.LastValid()
 		blockNumber = uint64(bn)
@@ -826,14 +823,11 @@ func (rpcClient *RPCClient) GetAccountRoots(blockNumber uint64, account [20]byte
 }
 
 // ResolveReverseBNS resolves the (primary) destination of the BNS entry
-func (rpcClient *RPCClient) ResolveReverseBNS(addr Address) (name string, err error) {
+func (rpcClient *Client) ResolveReverseBNS(addr Address) (name string, err error) {
 	key := contract.BNSReverseEntryLocation(addr)
 	raw, err := rpcClient.GetAccountValueRaw(0, contract.BNSAddr, key)
 	if err != nil {
 		return name, err
-	}
-	if string(raw) == "null" {
-		return name, ErrEmptyBNSresult
 	}
 
 	size := binary.BigEndian.Uint16(raw[len(raw)-2:])
@@ -846,7 +840,7 @@ func (rpcClient *RPCClient) ResolveReverseBNS(addr Address) (name string, err er
 }
 
 // ResolveBNS resolves the (primary) destination of the BNS entry
-func (rpcClient *RPCClient) ResolveBNS(name string) (addr []Address, err error) {
+func (rpcClient *Client) ResolveBNS(name string) (addr []Address, err error) {
 	rpcClient.Info("Resolving BNS: %s", name)
 	arrayKey := contract.BNSDestinationArrayLocation(name)
 	size := rpcClient.GetAccountValueInt(0, contract.BNSAddr, arrayKey)
@@ -856,16 +850,13 @@ func (rpcClient *RPCClient) ResolveBNS(name string) (addr []Address, err error) 
 
 	// Todo remove once memory issue is found
 	if intSize > 128 {
-		rpcClient.Error("Read Invalid BNS entry count: %d", intSize)
+		rpcClient.Error("Read invalid BNS entry count: %d", intSize)
 		intSize = 0
 	}
 
 	if intSize == 0 {
 		key := contract.BNSEntryLocation(name)
 		raw, err := rpcClient.GetAccountValueRaw(0, contract.BNSAddr, key)
-		if len(raw) != 32 {
-			err = ErrEmptyBNSresult
-		}
 		if err != nil {
 			return addr, err
 		}
@@ -873,7 +864,7 @@ func (rpcClient *RPCClient) ResolveBNS(name string) (addr []Address, err error) 
 		addr = make([]util.Address, 1)
 		copy(addr[0][:], raw[12:])
 		if addr[0] == [20]byte{} {
-			return addr, ErrEmptyBNSresult
+			return addr, errEmptyBNSresult
 		}
 		return addr, nil
 	}
@@ -881,7 +872,7 @@ func (rpcClient *RPCClient) ResolveBNS(name string) (addr []Address, err error) 
 	for i := int64(0); i < intSize; i++ {
 		key := contract.BNSDestinationArrayElementLocation(name, int(i))
 		raw, err := rpcClient.GetAccountValueRaw(0, contract.BNSAddr, key)
-		if err != nil || len(raw) != 32 {
+		if err != nil {
 			rpcClient.Error("Read invalid BNS record offset: %d %v (%v)", i, err, string(raw))
 			continue
 		}
@@ -891,31 +882,28 @@ func (rpcClient *RPCClient) ResolveBNS(name string) (addr []Address, err error) 
 		addr = append(addr, address)
 	}
 	if len(addr) == 0 {
-		return addr, ErrEmptyBNSresult
+		return addr, errEmptyBNSresult
 	}
 	return addr, nil
 }
 
 // ResolveBNSOwner resolves the owner of the BNS entry
-func (rpcClient *RPCClient) ResolveBNSOwner(name string) (addr Address, err error) {
+func (rpcClient *Client) ResolveBNSOwner(name string) (addr Address, err error) {
 	key := contract.BNSOwnerLocation(name)
 	raw, err := rpcClient.GetAccountValueRaw(0, contract.BNSAddr, key)
 	if err != nil {
 		return [20]byte{}, err
 	}
-	if string(raw) == "null" {
-		return [20]byte{}, ErrEmptyBNSresult
-	}
 
 	copy(addr[:], raw[12:])
 	if addr == [20]byte{} {
-		return [20]byte{}, ErrEmptyBNSresult
+		return [20]byte{}, errEmptyBNSresult
 	}
 	return addr, nil
 }
 
 // ResolveBlockHash resolves a missing blockhash by blocknumber
-func (rpcClient *RPCClient) ResolveBlockHash(blockNumber uint64) (blockHash []byte, err error) {
+func (rpcClient *Client) ResolveBlockHash(blockNumber uint64) (blockHash []byte, err error) {
 	if blockNumber == 0 {
 		return
 	}
@@ -934,20 +922,18 @@ func (rpcClient *RPCClient) ResolveBlockHash(blockNumber uint64) (blockHash []by
 }
 
 // IsDeviceAllowlisted returns is given address allowlisted
-func (rpcClient *RPCClient) IsDeviceAllowlisted(fleetAddr Address, clientAddr Address) (bool, error) {
-	if fleetAddr == DefaultFleetAddr {
-		return true, nil
+func (rpcClient *Client) IsDeviceAllowlisted(fleetAddr Address, clientAddr Address) bool {
+	if fleetAddr == config.DefaultFleetAddr {
+		return true
 	}
 	key := contract.DeviceAllowlistKey(clientAddr)
-	raw, err := rpcClient.GetAccountValueRaw(0, fleetAddr, key)
-	if err != nil {
-		return false, err
-	}
-	return (util.BytesToInt(raw) == 1), nil
+	num := rpcClient.GetAccountValueInt(0, fleetAddr, key)
+
+	return num.Int64() == 1
 }
 
 // Reconnect to diode node
-func (rpcClient *RPCClient) Reconnect() bool {
+func (rpcClient *Client) Reconnect() bool {
 	isOk := false
 	for i := 1; i <= config.AppConfig.RetryTimes; i++ {
 		if rpcClient.s.Closed() {
@@ -979,17 +965,17 @@ func (rpcClient *RPCClient) Reconnect() bool {
 }
 
 // Reconnecting returns whether connection is reconnecting
-func (rpcClient *RPCClient) Reconnecting() bool {
+func (rpcClient *Client) Reconnecting() bool {
 	return rpcClient.s.Reconnecting()
 }
 
 // Closed returns whether client had closed
-func (rpcClient *RPCClient) Closed() bool {
+func (rpcClient *Client) Closed() bool {
 	return isClosed(rpcClient.closeCh) && rpcClient.s.Closed()
 }
 
 // Close rpc client
-func (rpcClient *RPCClient) Close() {
+func (rpcClient *Client) Close() {
 	rpcClient.cd.Do(func() {
 		rpcClient.rm.Lock()
 		close(rpcClient.closeCh)
