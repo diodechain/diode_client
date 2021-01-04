@@ -323,7 +323,10 @@ func publishHandler() (err error) {
 		ProxyServerAddr: cfg.ProxyServerAddr(),
 		Fallback:        cfg.SocksFallback,
 	}
-	socksServer := rpc.NewSocksServer(socksCfg, app.datapool)
+	socksServer, err := rpc.NewSocksServer(socksCfg, app.datapool)
+	if err != nil {
+		return err
+	}
 	if cfg.EnableSocksServer {
 		app.SetSocksServer(socksServer)
 		if err = socksServer.Start(); err != nil {

@@ -956,24 +956,37 @@ func (socksServer *Server) handleBind(conn net.Conn, bind config.Bind) {
 	}
 }
 
+func validateSocksConfig(socksCfg Config) error {
+	if len(socksCfg.Fallback) > 0 && socksCfg.Fallback != "localhost" {
+		return fmt.Errorf("wrong parameters for socks fallback")
+	}
+	return nil
+}
+
 // NewSocksServer generate socksserver struct
-func NewSocksServer(socksCfg Config, pool *DataPool) *Server {
-	return &Server{
-		Config:   socksCfg,
+func NewSocksServer(socksCfg Config, pool *DataPool) (*Server, error) {
+	socksServer := &Server{
 		logger:   config.AppConfig.Logger,
 		wg:       &sync.WaitGroup{},
 		datapool: pool,
 		closeCh:  make(chan struct{}),
 		binds:    make([]Bind, 0),
 	}
+	if err := socksServer.SetConfig(socksCfg); err != nil {
+		return nil, err
+	}
+	return socksServer, nil
 }
 
 // SetConfig update the config of socks server
-// TODO: restart socks server
-func (socksServer *Server) SetConfig(config Config) {
+func (socksServer *Server) SetConfig(config Config) error {
 	socksServer.rm.Lock()
 	defer socksServer.rm.Unlock()
+	if err := validateSocksConfig(config); err != nil {
+		return err
+	}
 	socksServer.Config = config
+	return nil
 }
 
 // GetServer gets or creates a new SSL connection to the given server

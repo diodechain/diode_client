@@ -64,7 +64,10 @@ func gatewayHandler() (err error) {
 		ProxyServerAddr: cfg.ProxyServerAddr(),
 		Fallback:        cfg.SocksFallback,
 	}
-	socksServer := rpc.NewSocksServer(socksCfg, app.datapool)
+	socksServer, err := rpc.NewSocksServer(socksCfg, app.datapool)
+	if err != nil {
+		return err
+	}
 	if len(cfg.Binds) > 0 {
 		socksServer.SetBinds(cfg.Binds)
 		cfg.PrintInfo("")

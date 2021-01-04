@@ -262,20 +262,21 @@ func validateProxyConfig(proxyCfg ProxyConfig) error {
 }
 
 func NewProxyServer(proxyCfg ProxyConfig, socksServer *Server) (*ProxyServer, error) {
-	if err := validateProxyConfig(proxyCfg); err != nil {
-		return nil, err
-	}
 	proxyServer := &ProxyServer{
 		socksServer: socksServer,
 		logger:      config.AppConfig.Logger,
 		closeCh:     make(chan struct{}),
 	}
+	if err := proxyServer.SetConfig(proxyCfg); err != nil {
+		return nil, err
+	}
 	return proxyServer, nil
 }
 
 // SetConfig update the config of proxy server
-// TODO: restart proxy server
 func (proxyServer *ProxyServer) SetConfig(config ProxyConfig) error {
+	proxyServer.mx.Lock()
+	defer proxyServer.mx.Unlock()
 	if err := validateProxyConfig(config); err != nil {
 		return err
 	}
