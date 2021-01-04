@@ -33,7 +33,8 @@ var (
 	// ErrEmptyBNSresult indicates that the BNS name could not be found
 	ErrEmptyBNSresult        = fmt.Errorf("couldn't resolve name (null)")
 	ErrSendTransactionFailed = fmt.Errorf("server returned false")
-	errRPCClientClosed       = fmt.Errorf("rpc client was closed")
+	ErrRPCClientClosed       = fmt.Errorf("rpc client was closed")
+	ErrPortOpenTimeout       = fmt.Errorf("portopen timeout")
 	DefaultRegistryAddr      = [20]byte{80, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 	DefaultFleetAddr         = [20]byte{96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
 )
@@ -203,7 +204,7 @@ func (rpcClient *RPCClient) waitResponse(call Call, rpcTimeout time.Duration) (r
 // RespondContext sends a message without expecting a response
 func (rpcClient *RPCClient) RespondContext(requestID uint64, responseType string, method string, args ...interface{}) (call Call, err error) {
 	if rpcClient.Closed() {
-		err = errRPCClientClosed
+		err = ErrRPCClientClosed
 		return
 	}
 	var msg []byte
@@ -223,7 +224,7 @@ func (rpcClient *RPCClient) RespondContext(requestID uint64, responseType string
 // CastContext returns a response future after calling the rpc
 func (rpcClient *RPCClient) CastContext(requestID uint64, method string, args ...interface{}) (call Call, err error) {
 	if rpcClient.Closed() {
-		err = errRPCClientClosed
+		err = ErrRPCClientClosed
 		return
 	}
 	var msg []byte
@@ -632,6 +633,10 @@ func (rpcClient *RPCClient) submitTicket(ticket *edge.DeviceTicket) error {
 func (rpcClient *RPCClient) PortOpen(deviceID [20]byte, port string, mode string) (*edge.PortOpen, error) {
 	rawPortOpen, err := rpcClient.CallContext("portopen", nil, deviceID[:], port, mode)
 	if err != nil {
+		// if error string is 4 bytes string, it's the timeout error from server
+		if len(err.Error()) == 4 {
+			err = ErrPortOpenTimeout
+		}
 		return nil, err
 	}
 	if portOpen, ok := rawPortOpen.(*edge.PortOpen); ok {
