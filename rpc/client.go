@@ -849,7 +849,8 @@ func (rpcClient *RPCClient) ResolveBNS(name string) (addr []Address, err error) 
 	// Fallback for old style DNS entries
 	intSize := size.Int64()
 
-	if intSize > 10 {
+	// Todo remove once memory issue is found
+	if intSize > 128 {
 		rpcClient.Error("Read Invalid BNS entry count: %d", intSize)
 		intSize = 0
 	}
@@ -857,11 +858,11 @@ func (rpcClient *RPCClient) ResolveBNS(name string) (addr []Address, err error) 
 	if intSize == 0 {
 		key := contract.BNSEntryLocation(name)
 		raw, err := rpcClient.GetAccountValueRaw(0, contract.BNSAddr, key)
+		if len(raw) != 32 {
+			err = ErrEmptyBNSresult
+		}
 		if err != nil {
 			return addr, err
-		}
-		if string(raw) == "null" {
-			return addr, ErrEmptyBNSresult
 		}
 
 		addr = make([]util.Address, 1)
@@ -872,15 +873,20 @@ func (rpcClient *RPCClient) ResolveBNS(name string) (addr []Address, err error) 
 		return addr, nil
 	}
 
-	addr = make([]util.Address, intSize)
 	for i := int64(0); i < intSize; i++ {
 		key := contract.BNSDestinationArrayElementLocation(name, int(i))
 		raw, err := rpcClient.GetAccountValueRaw(0, contract.BNSAddr, key)
-		if err != nil {
-			return []Address{}, err
+		if err != nil || len(raw) != 32 {
+			rpcClient.Error("Read invalid BNS record offset: %d %v (%v)", i, err, string(raw))
+			continue
 		}
 
-		copy(addr[i][:], raw[12:])
+		var address util.Address
+		copy(address[:], raw[12:])
+		addr = append(addr, address)
+	}
+	if len(addr) == 0 {
+		return addr, ErrEmptyBNSresult
 	}
 	return addr, nil
 }
