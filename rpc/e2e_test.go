@@ -24,11 +24,13 @@ var (
 func newTestE2EServer(remoteConn net.Conn, peer Address) (e2eServer E2EServer) {
 	e2eServer.remoteConn = remoteConn
 	e2eServer.peer = peer
-	e2eServer.client = &Client{
-		s: &SSL{
-			addr: "localhost:41046",
+	e2eServer.port = &ConnectedPort{
+		client: &Client{
+			s: &SSL{
+				addr: "localhost:41046",
+			},
+			logger: config.AppConfig.Logger,
 		},
-		logger: config.AppConfig.Logger,
 	}
 	e2eServer.closeCh = make(chan struct{})
 	return

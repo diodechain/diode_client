@@ -4,15 +4,17 @@
 package rpc
 
 import (
+	"fmt"
 	"io"
 	"net"
 	"sync"
 
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/edge"
+	"github.com/diodechain/zap"
 )
 
-// ConnectedPort connected port
+// ConnectedPort represents connected port
 type ConnectedPort struct {
 	Ref           string
 	ClientID      string
@@ -27,8 +29,35 @@ type ConnectedPort struct {
 }
 
 // NewConnectedPort returns a new connected port
-func NewConnectedPort(ref string, deviceID Address, client *Client) *ConnectedPort {
-	return &ConnectedPort{Ref: ref, DeviceID: deviceID, client: client}
+func NewConnectedPort(ref string, deviceID Address, client *Client) (port *ConnectedPort) {
+	port = &ConnectedPort{Ref: ref, DeviceID: deviceID, client: client}
+	port.Debug("New connected port")
+	return
+}
+
+// Info logs to logger in Info level
+func (port *ConnectedPort) Info(msg string, args ...interface{}) {
+	port.client.logger.ZapLogger().Info(fmt.Sprintf(msg, args...), zap.String("server", port.client.Host()), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
+}
+
+// Debug logs to logger in Debug level
+func (port *ConnectedPort) Debug(msg string, args ...interface{}) {
+	port.client.logger.ZapLogger().Debug(fmt.Sprintf(msg, args...), zap.String("server", port.client.Host()), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
+}
+
+// Error logs to logger in Error level
+func (port *ConnectedPort) Error(msg string, args ...interface{}) {
+	port.client.logger.ZapLogger().Error(fmt.Sprintf(msg, args...), zap.String("server", port.client.Host()), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
+}
+
+// Warn logs to logger in Warn level
+func (port *ConnectedPort) Warn(msg string, args ...interface{}) {
+	port.client.logger.ZapLogger().Warn(fmt.Sprintf(msg, args...), zap.String("server", port.client.Host()), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
+}
+
+// Crit logs to logger in Crit level
+func (port *ConnectedPort) Crit(msg string, args ...interface{}) {
+	port.client.logger.ZapLogger().Fatal(fmt.Sprintf(msg, args...), zap.String("server", port.client.Host()), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
 }
 
 // GetDeviceKey returns this ports key
@@ -74,6 +103,7 @@ func (port *ConnectedPort) SendRemote(data []byte) (err error) {
 // Close the connection of port
 func (port *ConnectedPort) Close() error {
 	port.cd.Do(func() {
+		port.Debug("Close connected port")
 		if port.sendErr == nil {
 			port.sendErr = io.EOF
 		}
@@ -84,7 +114,7 @@ func (port *ConnectedPort) Close() error {
 		}
 
 		if port.Protocol > 0 {
-			port.client.Debug("Close local resource :%d external :%d protocol :%s", port.SrcPortNumber, port.PortNumber, config.ProtocolName(port.Protocol))
+			port.Debug("Close local resource :%d external :%d protocol :%s", port.SrcPortNumber, port.PortNumber, config.ProtocolName(port.Protocol))
 		}
 
 		// send portclose request and channel
@@ -106,7 +136,7 @@ func (port *ConnectedPort) SendLocal(data []byte) error {
 	}
 	_, err := port.Conn.Write(data)
 	if err != nil {
-		port.client.Debug("Write failed: %v client_id=%v device_id=%v", err, port.ClientID, port.DeviceID)
+		port.Debug("Write failed: %v", err)
 		port.Close()
 	}
 	return err
@@ -134,7 +164,7 @@ func (port *ConnectedPort) UpgradeTLSServer() error {
 }
 
 func (port *ConnectedPort) upgradeTLS(fn func(*E2EServer) error) error {
-	e2eServer := port.client.NewE2EServer(port.Conn, port.DeviceID)
+	e2eServer := port.NewE2EServer(port.Conn, port.DeviceID)
 	err := fn(e2eServer)
 	if err != nil {
 		port.client.Error("Failed to tunnel openssl client: %v", err.Error())

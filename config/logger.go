@@ -72,33 +72,6 @@ func (l *Logger) ZapLogger() *zap.Logger {
 	return l.logger
 }
 
-// InfoWithHost logs to logger in Info level
-func (l *Logger) InfoWithHost(msg string, host string) {
-	l.logger.Info(msg, zap.String("server", host))
-}
-
-// DebugWithHost logs to logger in Debug level
-func (l *Logger) DebugWithHost(msg string, host string) {
-	if l.verbose {
-		l.logger.Debug(msg, zap.String("server", host))
-	}
-}
-
-// ErrorWithHost logs to logger in Error level
-func (l *Logger) ErrorWithHost(msg string, host string) {
-	l.logger.Error(msg, zap.String("server", host))
-}
-
-// WarnWithHost logs to logger in Warn level
-func (l *Logger) WarnWithHost(msg string, host string) {
-	l.logger.Warn(msg, zap.String("server", host))
-}
-
-// CritWithHost logs to logger in Crit level
-func (l *Logger) CritWithHost(msg string, host string) {
-	l.logger.Fatal(msg, zap.String("server", host))
-}
-
 // Info logs to logger in Info level
 func (l *Logger) Info(msg string, args ...interface{}) {
 	l.logger.Info(fmt.Sprintf(msg, args...))

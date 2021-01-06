@@ -19,6 +19,7 @@ import (
 	"github.com/diodechain/diode_go_client/db"
 	"github.com/diodechain/diode_go_client/edge"
 	"github.com/diodechain/diode_go_client/util"
+	"github.com/diodechain/zap"
 )
 
 const (
@@ -59,7 +60,6 @@ type Client struct {
 	blockTickerDuration   time.Duration
 	finishBlockTickerChan chan bool
 	closeCh               chan struct{}
-	ticketTickerDuration  time.Duration
 	localTimeout          time.Duration
 	wg                    sync.WaitGroup
 	cd                    sync.Once
@@ -85,7 +85,6 @@ func NewClient(s *SSL, config clientConfig, pool *DataPool) Client {
 		callQueue:             make(chan Call, callsQueueSize),
 		calls:                 make(map[uint64]Call, callsQueueSize),
 		closeCh:               make(chan struct{}),
-		ticketTickerDuration:  1 * time.Millisecond,
 		finishBlockTickerChan: make(chan bool, 1),
 		blockTickerDuration:   15 * time.Second,
 		localTimeout:          100 * time.Millisecond,
@@ -104,29 +103,27 @@ func NewClient(s *SSL, config clientConfig, pool *DataPool) Client {
 
 // Info logs to logger in Info level
 func (rpcClient *Client) Info(msg string, args ...interface{}) {
-	rpcClient.logger.InfoWithHost(fmt.Sprintf(msg, args...), rpcClient.s.addr)
+	rpcClient.logger.ZapLogger().Info(fmt.Sprintf(msg, args...), zap.String("server", rpcClient.s.addr))
 }
 
 // Debug logs to logger in Debug level
 func (rpcClient *Client) Debug(msg string, args ...interface{}) {
-	if rpcClient.Verbose {
-		rpcClient.logger.DebugWithHost(fmt.Sprintf(msg, args...), rpcClient.s.addr)
-	}
+	rpcClient.logger.ZapLogger().Debug(fmt.Sprintf(msg, args...), zap.String("server", rpcClient.s.addr))
 }
 
 // Error logs to logger in Error level
 func (rpcClient *Client) Error(msg string, args ...interface{}) {
-	rpcClient.logger.ErrorWithHost(fmt.Sprintf(msg, args...), rpcClient.s.addr)
+	rpcClient.logger.ZapLogger().Error(fmt.Sprintf(msg, args...), zap.String("server", rpcClient.s.addr))
 }
 
 // Warn logs to logger in Warn level
 func (rpcClient *Client) Warn(msg string, args ...interface{}) {
-	rpcClient.logger.WarnWithHost(fmt.Sprintf(msg, args...), rpcClient.s.addr)
+	rpcClient.logger.ZapLogger().Warn(fmt.Sprintf(msg, args...), zap.String("server", rpcClient.s.addr))
 }
 
 // Crit logs to logger in Crit level
 func (rpcClient *Client) Crit(msg string, args ...interface{}) {
-	rpcClient.logger.CritWithHost(fmt.Sprintf(msg, args...), rpcClient.s.addr)
+	rpcClient.logger.ZapLogger().Fatal(fmt.Sprintf(msg, args...), zap.String("server", rpcClient.s.addr))
 }
 
 // Host returns the non-resolved addr name of the host

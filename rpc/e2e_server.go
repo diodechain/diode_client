@@ -15,7 +15,7 @@ import (
 
 // E2EServer represents a proxy server that port ssl connection to local resource connection
 type E2EServer struct {
-	client  *Client
+	port    *ConnectedPort
 	peer    Address
 	closeCh chan struct{}
 	cd      sync.Once
@@ -26,12 +26,12 @@ type E2EServer struct {
 }
 
 // NewE2EServer returns e2e server rpcClient.Error(err.Error())
-func (rpcClient *Client) NewE2EServer(remoteConn net.Conn, peer Address) *E2EServer {
-	rpcClient.Debug("Enable e2e Tunnel")
+func (port *ConnectedPort) NewE2EServer(remoteConn net.Conn, peer Address) *E2EServer {
+	port.Debug("Enable e2e Tunnel")
 	return &E2EServer{
 		remoteConn: remoteConn,
 		peer:       peer,
-		client:     rpcClient,
+		port:       port,
 		closeCh:    make(chan struct{}),
 	}
 }
@@ -63,12 +63,12 @@ func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*op
 	go func() {
 		ts := time.Now()
 		if err = e2eServer.handshake(conn); err != nil {
-			e2eServer.client.Error(err.Error())
+			e2eServer.port.Error(err.Error())
 			e2eServer.Close()
 			return
 		}
 		te := time.Since(ts)
-		e2eServer.client.Debug(fmt.Sprintf("E2E handshake time: %s", te))
+		e2eServer.port.Debug(fmt.Sprintf("E2E handshake time: %s", te))
 		// Since we use in memory network, and there is no fd in the connection.
 		// The keepalive won't work.
 		// netConn := conn.UnderlyingConn()
@@ -119,7 +119,7 @@ func (e2eServer *E2EServer) Closed() bool {
 // Close e2e server
 func (e2eServer *E2EServer) Close() {
 	e2eServer.cd.Do(func() {
-		e2eServer.client.Debug("Close e2e connections")
+		e2eServer.port.Debug("Close e2e connections")
 		e2eServer.remoteConn.Close()
 		e2eServer.opensslConn.Close()
 		close(e2eServer.closeCh)
