@@ -85,12 +85,18 @@ func (mt MerkleTreeParser) parseProof(proof interface{}, depth int) (rootHash []
 
 	// The bytPrefix is actually fully client calculatable based on tree depth and position
 	// The server provided prefix is encoded in base 2 encoding if the number of bits is not 8 dividable
-	if depth%8 == 0 {
+	mod := depth % 8
+	if mod == 0 {
 		prefix = bytPrefix
 	} else {
+		left := (8 - mod)
 		bits := make([]byte, len(bytPrefix))
-		for i, p := range bytPrefix {
-			bits[len(bytPrefix)-i-1] = p
+		copy(bits, bytPrefix)
+		if mod > 0 {
+			bits = append(bits, make([]byte, left)...)
+			for i := 0; i < left; i++ {
+				bits[len(bits)-i-1] = 48
+			}
 		}
 		var num big.Int
 		if _, succ := num.SetString(string(bits), 2); !succ {
