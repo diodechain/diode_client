@@ -126,7 +126,7 @@ func (port *ConnectedPort) Close() error {
 
 // Closed returns true if this has been closed
 func (port *ConnectedPort) Closed() bool {
-	return port.sendErr != nil
+	return port == nil || port.sendErr != nil
 }
 
 // SendLocal sends the data south-bound to the device

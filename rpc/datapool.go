@@ -107,7 +107,7 @@ func (p *DataPool) GetPort(key string) *ConnectedPort {
 	p.rm.RLock()
 	defer p.rm.RUnlock()
 	port := p.devices[key]
-	if port.Closed() {
+	if port == nil || port.Closed() {
 		return nil
 	}
 	return port
