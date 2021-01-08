@@ -8,8 +8,10 @@ ARCHIVE= $(shell ./deployment/zipname.sh)
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Darwin)
 	STRIP = echo nostrip
+	UPX = echo noupx
 else
 	STRIP = strip --strip-all
+	UPX = upx
 endif
 
 EXE = 
@@ -71,7 +73,7 @@ dist: diode_static
 	mkdir -p dist
 	cp diode$(EXE) dist/
 	$(STRIP) dist/diode$(EXE)
-	upx --force dist/diode$(EXE)
+	$(UPX) --force dist/diode$(EXE)
 
 .PHONY: archive
 archive: $(ARCHIVE)
@@ -80,8 +82,8 @@ $(ARCHIVE): dist
 
 .PHONY: gateway
 gateway: diode
-	strip -s diode
-	upx diode
+	$(STRIP) -s diode
+	$(UPX) diode
 	scp -C diode root@diode.ws:diode_go_client
 	ssh root@diode.ws 'svc -k .'
 

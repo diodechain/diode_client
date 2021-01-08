@@ -28,7 +28,7 @@ jobs:
         echo "PKG_CONFIG_PATH=/mingw64/lib/pkgconfig" >> $GITHUB_ENV
     - if: runner.os == 'macOS'
       run: |
-        brew install binutils diodechain/openssl/openssl diodechain/upx/upx
+        brew install binutils diodechain/openssl/openssl
         rm /usr/local/opt/openssl/lib/*.dylib
         echo "/usr/local/opt/binutils/bin" >> $GITHUB_PATH
     - if: runner.os == 'Linux'
