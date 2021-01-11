@@ -266,19 +266,19 @@ func (rpcClient *Client) CallContext(method string, parse func(buffer []byte) (i
 		res, err = rpcClient.waitResponse(resCall, rpcTimeout)
 		if err != nil {
 			tsDiff = time.Since(ts)
-			if _, ok := err.(ReconnectError); ok {
-				rpcClient.Warn("Call %s will resend after reconnect, keep waiting", method)
-				continue
-			}
-			if _, ok := err.(TimeoutError); ok {
+			switch err.(type) {
+			case TimeoutError:
 				rpcClient.Warn("Call %s timeout after %s, drop the call", method, tsDiff.String())
 				rpcClient.removeCallByID(requestID)
 				return
-			}
-			if _, ok := err.(CancelledError); ok {
+			case CancelledError:
 				rpcClient.Warn("Call %s has been cancelled, drop the call", method)
 				rpcClient.removeCallByID(requestID)
 				return
+			case ReconnectError:
+				// TODO: check whether reconnect success
+				rpcClient.Warn("Call %s will resend after reconnect, keep waiting", method)
+				continue
 			}
 		}
 		tsDiff = time.Since(ts)
