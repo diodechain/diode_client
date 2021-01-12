@@ -3,64 +3,75 @@
 // Licensed under the Diode License, Version 1.0
 package rpc
 
-func (rpcClient *Client) totalCallLength() int {
-	rpcClient.rm.Lock()
-	defer rpcClient.rm.Unlock()
-	return len(rpcClient.calls)
+import (
+	"sync"
+)
+
+// callManager represents call manager of rpc calls
+type callManager struct {
+	// we use slice to keep call queue in order
+	calls   map[uint64]*Call
+	mx      sync.Mutex
+	closeCh chan struct{}
+	OnCall  func(c *Call) (err error)
 }
 
-func (rpcClient *Client) addCall(c Call) {
-	rpcClient.rm.Lock()
-	defer rpcClient.rm.Unlock()
-	if !c.inserted {
-		c.inserted = true
-	}
-	rpcClient.calls[c.id] = c
-}
-
-func (rpcClient *Client) notifyCalls(signal Signal) {
-	rpcClient.rm.Lock()
-	defer rpcClient.rm.Unlock()
-	for _, call := range rpcClient.calls {
-		notifySignal(call.signal, signal, enqueueTimeout)
+// NewCallManager returns callManager
+func NewCallManager(queueSize int) (cm *callManager) {
+	return &callManager{
+		calls:   make(map[uint64]*Call, queueSize),
+		closeCh: make(chan struct{}),
 	}
 }
 
-func (rpcClient *Client) recall() {
-	rpcClient.rm.Lock()
-	defer rpcClient.rm.Unlock()
-	calls := rpcClient.calls
-	for _, call := range calls {
-		call.retryTimes--
-		if call.retryTimes >= 0 && !rpcClient.Closed() {
-			err := rpcClient.enqueueCall(call)
-			if err != nil {
-				rpcClient.Error("Failed to recall rpc: %s, might lead to rpc timeout", call.method)
-			} else {
-				rpcClient.Info("Recall rpc: %s", call.method)
-			}
-		} else {
-			// cancel the call
-			err := notifySignal(call.signal, CANCELLED, enqueueTimeout)
-			if err != nil {
-				rpcClient.Error("Cannot cancel rpc: %s, might lead to rpc timeout", call.method)
-			} else {
-				rpcClient.Debug("Cancel rpc: %s", call.method)
-			}
-		}
+// Insert the call into queue
+func (cm *callManager) Insert(c *Call) (err error) {
+	cm.mx.Lock()
+	defer cm.mx.Unlock()
+	if c.state != INITIALIZED {
+		return
 	}
-}
-
-func (rpcClient *Client) firstCallByID(id uint64) (c Call) {
-	rpcClient.rm.Lock()
-	defer rpcClient.rm.Unlock()
-	c = rpcClient.calls[id]
-	delete(rpcClient.calls, id)
+	c.state = STARTED
+	// if cc, ok := cm.calls[c.id]; ok {}
+	cm.calls[c.id] = c
+	if cm.OnCall != nil {
+		// To keep data integrety, we cannot write to tcp parallel
+		// go cm.OnCall(c)
+		err = cm.OnCall(c)
+	}
 	return
 }
 
-func (rpcClient *Client) removeCallByID(id uint64) {
-	rpcClient.rm.Lock()
-	defer rpcClient.rm.Unlock()
-	delete(rpcClient.calls, id)
+// TotalCallLength returns how many calls in queue
+func (cm *callManager) TotalCallLength() int {
+	cm.mx.Lock()
+	defer cm.mx.Unlock()
+	return len(cm.calls)
+}
+
+// CallByID returns first call
+func (cm *callManager) CallByID(id uint64) (c *Call) {
+	cm.mx.Lock()
+	defer cm.mx.Unlock()
+	c = cm.calls[id]
+	delete(cm.calls, id)
+	return
+}
+
+// RemoveCallByID remove call by id
+func (cm *callManager) RemoveCallByID(id uint64) {
+	cm.mx.Lock()
+	defer cm.mx.Unlock()
+	delete(cm.calls, id)
+}
+
+// RemoveCalls remove all calls in queue
+func (cm *callManager) RemoveCalls() {
+	cm.mx.Lock()
+	defer cm.mx.Unlock()
+	for _, c := range cm.calls {
+		c.state = CANCELLED
+		close(c.response)
+	}
+	cm.calls = make(map[uint64]*Call, len(cm.calls))
 }

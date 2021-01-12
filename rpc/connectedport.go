@@ -73,7 +73,7 @@ func (port *ConnectedPort) SendRemote(data []byte) (err error) {
 	}
 
 	if len(data) < packetLimit {
-		var call Call
+		var call *Call
 		call, err = port.client.CastContext(getRequestID(), "portsend", port.Ref, data)
 		// handling an error asynchronous
 		go func() {

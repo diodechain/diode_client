@@ -442,9 +442,9 @@ func (dio *Diode) waitForFirstClient(onlyNeedOne bool) (client *rpc.Client) {
 					client = rpcClient
 					wg.Done()
 				}
-				rpcClient.SetCloseCB(func() {
+				rpcClient.OnClose = func() {
 					dio.datapool.SetClient(serverID, nil)
-				})
+				}
 			} else {
 				if verbose {
 					if err != nil {

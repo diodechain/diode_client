@@ -31,7 +31,7 @@ type Call struct {
 	id         uint64
 	method     string
 	retryTimes int
-	inserted   bool
+	state      Signal
 	response   chan interface{}
 	signal     chan Signal
 	data       *bytes.Buffer
@@ -48,18 +48,6 @@ type TimeoutError struct {
 
 func (e TimeoutError) Error() string {
 	return fmt.Sprintf("remote timeout: %s", e.Timeout)
-}
-
-// ReconnectError is struct for reconnect error
-type ReconnectError struct {
-	Host string
-}
-
-func (e ReconnectError) Error() string {
-	if len(e.Host) > 0 {
-		return fmt.Sprintf("reconnect to server: %s", e.Host)
-	}
-	return "reconnect to server"
 }
 
 // CancelledError is struct for cancelled error

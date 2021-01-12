@@ -24,9 +24,9 @@ import (
 
 const (
 	// 4194304 = 1024 * 4096 (server limit is 41943040)
-	packetLimit    = 65000
-	ticketBound    = 4194304
-	callsQueueSize = 1024
+	packetLimit   = 65000
+	ticketBound   = 4194304
+	callQueueSize = 1024
 )
 
 var (
@@ -49,13 +49,12 @@ type clientConfig struct {
 // Client struct for rpc client
 type Client struct {
 	backoff               Backoff
-	callQueue             chan Call
 	s                     *SSL
 	logger                *config.Logger
 	enableMetrics         bool
 	metrics               *Metrics
 	Verbose               bool
-	calls                 map[uint64]Call
+	cm                    *callManager
 	blockTicker           *time.Ticker
 	blockTickerDuration   time.Duration
 	finishBlockTickerChan chan bool
@@ -71,7 +70,8 @@ type Client struct {
 	bq                    *blockquick.Window
 	serverID              util.Address
 	Order                 int
-	closeCB               func()
+	// close event
+	OnClose func()
 }
 
 func getRequestID() uint64 {
@@ -82,8 +82,7 @@ func getRequestID() uint64 {
 func NewClient(s *SSL, config clientConfig, pool *DataPool) Client {
 	return Client{
 		s:                     s,
-		callQueue:             make(chan Call, callsQueueSize),
-		calls:                 make(map[uint64]Call, callsQueueSize),
+		cm:                    NewCallManager(callQueueSize),
 		closeCh:               make(chan struct{}),
 		finishBlockTickerChan: make(chan bool, 1),
 		blockTickerDuration:   15 * time.Second,
@@ -131,11 +130,6 @@ func (rpcClient *Client) Host() string {
 	return rpcClient.s.addr
 }
 
-// SetCloseCB set close callback of rpc client
-func (rpcClient *Client) SetCloseCB(closeCB func()) {
-	rpcClient.closeCB = closeCB
-}
-
 // GetServerID returns server address
 func (rpcClient *Client) GetServerID() ([20]byte, error) {
 	if rpcClient.serverID != util.EmptyAddress {
@@ -159,36 +153,24 @@ func (rpcClient *Client) GetDeviceKey(ref string) string {
 	return fmt.Sprintf("%s:%s", prefix, ref)
 }
 
-func (rpcClient *Client) enqueueCall(call Call) error {
-	timer := time.NewTimer(enqueueTimeout)
-	defer timer.Stop()
-	select {
-	case rpcClient.callQueue <- call:
-		return nil
-	case <-timer.C:
-		return fmt.Errorf("send call to channel timeout")
-	}
-}
-
-func (rpcClient *Client) waitResponse(call Call, rpcTimeout time.Duration) (res interface{}, err error) {
+func (rpcClient *Client) waitResponse(call *Call, rpcTimeout time.Duration) (res interface{}, err error) {
 	timer := time.NewTimer(rpcTimeout)
 	defer timer.Stop()
 	select {
-	case resp := <-call.response:
+	case resp, ok := <-call.response:
+		if !ok {
+			// state should always be CANCELLED
+			if call.state == CANCELLED {
+				err = CancelledError{rpcClient.Host()}
+			}
+			return
+		}
 		if rpcError, ok := resp.(edge.Error); ok {
 			err = RPCError{rpcError}
 			return
 		}
 		res = resp
 		return res, nil
-	case signal := <-call.signal:
-		switch signal {
-		case RECONNECTING:
-			err = ReconnectError{rpcClient.Host()}
-		case CANCELLED:
-			err = CancelledError{rpcClient.Host()}
-		}
-		return
 	case <-timer.C:
 		err = TimeoutError{rpcTimeout}
 		return
@@ -196,7 +178,7 @@ func (rpcClient *Client) waitResponse(call Call, rpcTimeout time.Duration) (res 
 }
 
 // RespondContext sends a message without expecting a response
-func (rpcClient *Client) RespondContext(requestID uint64, responseType string, method string, args ...interface{}) (call Call, err error) {
+func (rpcClient *Client) RespondContext(requestID uint64, responseType string, method string, args ...interface{}) (call *Call, err error) {
 	if rpcClient.Closed() {
 		err = errClientClosed
 		return
@@ -211,12 +193,12 @@ func (rpcClient *Client) RespondContext(requestID uint64, responseType string, m
 	if err != nil {
 		return
 	}
-	err = rpcClient.enqueueCall(call)
+	err = rpcClient.cm.Insert(call)
 	return
 }
 
 // CastContext returns a response future after calling the rpc
-func (rpcClient *Client) CastContext(requestID uint64, method string, args ...interface{}) (call Call, err error) {
+func (rpcClient *Client) CastContext(requestID uint64, method string, args ...interface{}) (call *Call, err error) {
 	if rpcClient.Closed() {
 		err = errClientClosed
 		return
@@ -232,12 +214,12 @@ func (rpcClient *Client) CastContext(requestID uint64, method string, args ...in
 	if err != nil {
 		return
 	}
-	err = rpcClient.enqueueCall(call)
+	err = rpcClient.cm.Insert(call)
 	return
 }
 
-func preparePayload(requestID uint64, method string, buf *bytes.Buffer, parse func(buffer []byte) (interface{}, error), message chan interface{}) (Call, error) {
-	call := Call{
+func preparePayload(requestID uint64, method string, buf *bytes.Buffer, parse func(buffer []byte) (interface{}, error), message chan interface{}) (*Call, error) {
+	call := &Call{
 		id:         requestID,
 		method:     method,
 		retryTimes: rpcCallRetryTimes,
@@ -252,7 +234,7 @@ func preparePayload(requestID uint64, method string, buf *bytes.Buffer, parse fu
 
 // CallContext returns the response after calling the rpc
 func (rpcClient *Client) CallContext(method string, parse func(buffer []byte) (interface{}, error), args ...interface{}) (res interface{}, err error) {
-	var resCall Call
+	var resCall *Call
 	var ts time.Time
 	var tsDiff time.Duration
 	requestID := getRequestID()
@@ -260,7 +242,7 @@ func (rpcClient *Client) CallContext(method string, parse func(buffer []byte) (i
 	if err != nil {
 		return
 	}
-	rpcTimeout, _ := time.ParseDuration(fmt.Sprintf("%ds", (10 + rpcClient.totalCallLength())))
+	rpcTimeout, _ := time.ParseDuration(fmt.Sprintf("%ds", (10 + rpcClient.cm.TotalCallLength())))
 	for {
 		ts = time.Now()
 		res, err = rpcClient.waitResponse(resCall, rpcTimeout)
@@ -269,16 +251,12 @@ func (rpcClient *Client) CallContext(method string, parse func(buffer []byte) (i
 			switch err.(type) {
 			case TimeoutError:
 				rpcClient.Warn("Call %s timeout after %s, drop the call", method, tsDiff.String())
-				rpcClient.removeCallByID(requestID)
+				rpcClient.cm.RemoveCallByID(requestID)
 				return
 			case CancelledError:
 				rpcClient.Warn("Call %s has been cancelled, drop the call", method)
-				rpcClient.removeCallByID(requestID)
+				rpcClient.cm.RemoveCallByID(requestID)
 				return
-			case ReconnectError:
-				// TODO: check whether reconnect success
-				rpcClient.Warn("Call %s will resend after reconnect, keep waiting", method)
-				continue
 			}
 		}
 		tsDiff = time.Since(ts)
@@ -980,12 +958,11 @@ func (rpcClient *Client) Close() {
 			rpcClient.blockTicker.Stop()
 		}
 		rpcClient.finishBlockTickerChan <- true
-		if rpcClient.closeCB != nil {
-			rpcClient.closeCB()
+		if rpcClient.OnClose != nil {
+			rpcClient.OnClose()
 		}
 		rpcClient.rm.Unlock()
 
 		rpcClient.s.Close()
-		close(rpcClient.callQueue)
 	})
 }

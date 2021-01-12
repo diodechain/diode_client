@@ -218,7 +218,7 @@ func (rpcClient *Client) handleInboundMessage(msg edge.Message) {
 	go rpcClient.CheckTicket()
 	if msg.IsResponse(rpcClient.edgeProtocol) {
 		rpcClient.backoff.StepBack()
-		call := rpcClient.firstCallByID(msg.ResponseID(rpcClient.edgeProtocol))
+		call := rpcClient.cm.CallByID(msg.ResponseID(rpcClient.edgeProtocol))
 		if call.id == 0 {
 			// receive empty call, client might drop call because timeout, should drop message
 			return
@@ -228,6 +228,7 @@ func (rpcClient *Client) handleInboundMessage(msg edge.Message) {
 			rpcClient.Warn("Call.response is nil id: %d, method: %s, this might lead to rpc timeout error if you wait rpc response", call.id, call.method)
 			return
 		}
+		call.state = CLOSED
 		if msg.IsError(rpcClient.edgeProtocol) {
 			rpcError, _ := msg.ReadAsError(rpcClient.edgeProtocol)
 			call.enqueueResponse(rpcError)
@@ -268,26 +269,21 @@ func (rpcClient *Client) recvMessage() {
 			if err == io.EOF ||
 				strings.Contains(err.Error(), "connection reset by peer") {
 				if !rpcClient.s.Closed() {
-					// notify and remove calls
+					// remove existing calls
 					go func() {
-						rpcClient.notifyCalls(RECONNECTING)
+						rpcClient.cm.RemoveCalls()
 					}()
 					isOk := rpcClient.Reconnect()
 					if isOk {
-						// go func() {
-						// 	rpcClient.notifyCalls(RECONNECTED)
-						// }()
-						// Resetting buffers to not mix old messages with new messages
-						rpcClient.recall()
 						continue
 					}
 				}
 			}
 			// should close the connection and restart client if client did start in diode.go
 			if !rpcClient.Closed() {
-				// cancel all calls to prevent rpc timeout
+				// remove existing calls
 				go func() {
-					rpcClient.notifyCalls(CANCELLED)
+					rpcClient.cm.RemoveCalls()
 				}()
 				rpcClient.Close()
 			}
@@ -297,41 +293,6 @@ func (rpcClient *Client) recvMessage() {
 			rpcClient.Debug("Receive %d bytes data from ssl", msg.Len)
 			rpcClient.handleInboundMessage(msg)
 		}
-	}
-}
-
-// infinite loop to send message to server
-func (rpcClient *Client) sendMessage() {
-	for {
-		call, ok := <-rpcClient.callQueue
-		if !ok {
-			return
-		}
-		if rpcClient.Reconnecting() {
-			rpcClient.Debug("Resend rpc due to reconnect: %s", call.method)
-			rpcClient.addCall(call)
-			continue
-		}
-		rpcClient.Debug("Send new rpc: %s id: %d", call.method, call.id)
-		ts := time.Now()
-		_, err := rpcClient.s.sendMessage(call.data.Bytes())
-		if err != nil {
-			rpcClient.Error("Failed to write to node: %v", err)
-			if rpcClient.Closed() {
-				return
-			}
-			if rpcClient.Reconnecting() {
-				rpcClient.Debug("Resend rpc due to reconnect: %s", call.method)
-				rpcClient.addCall(call)
-				continue
-			}
-			continue
-		}
-		tsDiff := time.Since(ts)
-		if rpcClient.enableMetrics {
-			rpcClient.metrics.UpdateWriteTimer(tsDiff)
-		}
-		rpcClient.addCall(call)
 	}
 }
 
@@ -392,6 +353,36 @@ func (rpcClient *Client) watchLatestBlock() {
 // Start process rpc inbound message and outbound message
 func (rpcClient *Client) Start() {
 	rpcClient.addWorker(rpcClient.recvMessage)
-	rpcClient.addWorker(rpcClient.sendMessage)
+	rpcClient.cm.OnCall = func(c *Call) (err error) {
+		if rpcClient.Reconnecting() {
+			rpcClient.Debug("Resend rpc due to reconnect: %s", c.method)
+			// rpcClient.addCall(call)
+			// continue
+			return
+		}
+		rpcClient.Debug("Send new rpc: %s id: %d", c.method, c.id)
+		ts := time.Now()
+		_, err = rpcClient.s.sendMessage(c.data.Bytes())
+		if err != nil {
+			rpcClient.Error("Failed to write to node: %v", err)
+			if rpcClient.Closed() {
+				return
+			}
+			if rpcClient.Reconnecting() {
+				rpcClient.Debug("Resend rpc due to reconnect: %s", c.method)
+				// rpcClient.addCall(call)
+				// continue
+				return
+			}
+			// continue
+			return
+		}
+		tsDiff := time.Since(ts)
+		if rpcClient.enableMetrics {
+			rpcClient.metrics.UpdateWriteTimer(tsDiff)
+		}
+		// rpcClient.addCall(call)
+		return
+	}
 	rpcClient.addWorker(rpcClient.watchLatestBlock)
 }

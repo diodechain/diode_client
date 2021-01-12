@@ -1040,9 +1040,9 @@ func (socksServer *Server) GetServer(nodeID Address) (client *Client, err error)
 		return
 	}
 	socksServer.datapool.SetClient(nodeID, client)
-	client.SetCloseCB(func() {
+	client.OnClose = func() {
 		socksServer.datapool.SetClient(nodeID, nil)
-	})
+	}
 	return
 }
 
