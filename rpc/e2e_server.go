@@ -5,7 +5,9 @@ package rpc
 
 import (
 	"fmt"
+	"io"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,7 +27,7 @@ type E2EServer struct {
 	opensslConn *openssl.Conn
 }
 
-// NewE2EServer returns e2e server rpcClient.Error(err.Error())
+// NewE2EServer returns e2e server
 func (port *ConnectedPort) NewE2EServer(remoteConn net.Conn, peer Address) *E2EServer {
 	port.Debug("Enable e2e Tunnel")
 	return &E2EServer{
@@ -63,7 +65,11 @@ func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*op
 	go func() {
 		ts := time.Now()
 		if err = e2eServer.handshake(conn); err != nil {
-			e2eServer.port.Error(err.Error())
+			if err != io.EOF ||
+				!strings.Contains(err.Error(), "unexpected EOF") {
+				// might be ssl closed while init
+				e2eServer.port.Error("Failed to e2e handshake: %v", err)
+			}
 			e2eServer.Close()
 			return
 		}

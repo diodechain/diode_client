@@ -9,18 +9,17 @@ import (
 
 // callManager represents call manager of rpc calls
 type callManager struct {
-	// we use slice to keep call queue in order
-	calls   map[uint64]*Call
-	mx      sync.Mutex
-	closeCh chan struct{}
-	OnCall  func(c *Call) (err error)
+	size   int
+	calls  map[uint64]*Call
+	mx     sync.Mutex
+	OnCall func(c *Call) (err error)
 }
 
 // NewCallManager returns callManager
 func NewCallManager(queueSize int) (cm *callManager) {
 	return &callManager{
-		calls:   make(map[uint64]*Call, queueSize),
-		closeCh: make(chan struct{}),
+		size:  queueSize,
+		calls: make(map[uint64]*Call, queueSize),
 	}
 }
 
@@ -32,7 +31,6 @@ func (cm *callManager) Insert(c *Call) (err error) {
 		return
 	}
 	c.state = STARTED
-	// if cc, ok := cm.calls[c.id]; ok {}
 	cm.calls[c.id] = c
 	if cm.OnCall != nil {
 		// To keep data integrety, we cannot write to tcp parallel
@@ -43,10 +41,16 @@ func (cm *callManager) Insert(c *Call) (err error) {
 }
 
 // TotalCallLength returns how many calls in queue
-func (cm *callManager) TotalCallLength() int {
+func (cm *callManager) TotalCallLength() (cl int) {
 	cm.mx.Lock()
 	defer cm.mx.Unlock()
-	return len(cm.calls)
+	// for _, c := range cm.calls {
+	// 	if c.state == STARTED {
+	// 		cl += 1
+	// 	}
+	// }
+	cl = len(cm.calls)
+	return cl
 }
 
 // CallByID returns first call
@@ -62,7 +66,15 @@ func (cm *callManager) CallByID(id uint64) (c *Call) {
 func (cm *callManager) RemoveCallByID(id uint64) {
 	cm.mx.Lock()
 	defer cm.mx.Unlock()
-	delete(cm.calls, id)
+	if c, ok := cm.calls[id]; ok {
+		if c.state != CLOSED {
+			c.state = CANCELLED
+		}
+		if c.response != nil {
+			close(c.response)
+		}
+		delete(cm.calls, id)
+	}
 }
 
 // RemoveCalls remove all calls in queue
@@ -70,8 +82,12 @@ func (cm *callManager) RemoveCalls() {
 	cm.mx.Lock()
 	defer cm.mx.Unlock()
 	for _, c := range cm.calls {
-		c.state = CANCELLED
-		close(c.response)
+		if c.state != CLOSED {
+			c.state = CANCELLED
+		}
+		if c.response != nil {
+			close(c.response)
+		}
 	}
-	cm.calls = make(map[uint64]*Call, len(cm.calls))
+	cm.calls = make(map[uint64]*Call, cm.size)
 }

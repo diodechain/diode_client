@@ -28,14 +28,12 @@ var (
 )
 
 type Call struct {
-	id         uint64
-	method     string
-	retryTimes int
-	state      Signal
-	response   chan interface{}
-	signal     chan Signal
-	data       *bytes.Buffer
-	Parse      func(buffer []byte) (interface{}, error)
+	id       uint64
+	method   string
+	state    Signal
+	response chan interface{}
+	data     *bytes.Buffer
+	Parse    func(buffer []byte) (interface{}, error)
 }
 
 // Address represents an Ethereum address

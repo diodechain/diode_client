@@ -193,7 +193,11 @@ func (rpcClient *Client) RespondContext(requestID uint64, responseType string, m
 	if err != nil {
 		return
 	}
+	// send call directly because there is no response
+	// err = rpcClient.cm.OnCall(call)
+	// or
 	err = rpcClient.cm.Insert(call)
+	rpcClient.cm.RemoveCallByID(call.id)
 	return
 }
 
@@ -220,13 +224,11 @@ func (rpcClient *Client) CastContext(requestID uint64, method string, args ...in
 
 func preparePayload(requestID uint64, method string, buf *bytes.Buffer, parse func(buffer []byte) (interface{}, error), message chan interface{}) (*Call, error) {
 	call := &Call{
-		id:         requestID,
-		method:     method,
-		retryTimes: rpcCallRetryTimes,
-		response:   message,
-		signal:     make(chan Signal),
-		data:       buf,
-		Parse:      parse,
+		id:       requestID,
+		method:   method,
+		response: message,
+		data:     buf,
+		Parse:    parse,
 	}
 	// atomic.AddInt64(&rpcID, 1)
 	return call, nil

@@ -112,7 +112,7 @@ diode_race_test:
 ci_test:
 	$(MAKE) test
 	$(MAKE) diode_race_test
-	chmod +x ./diode_race_test 
+	chmod +x ./diode_race_test
 	./ci_test.sh
 
 .PHONY: debug
