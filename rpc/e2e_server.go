@@ -15,6 +15,10 @@ import (
 	"github.com/diodechain/openssl"
 )
 
+var (
+	handshakeTimeout = 1 * time.Second
+)
+
 // E2EServer represents a proxy server that port ssl connection to local resource connection
 type E2EServer struct {
 	port    *ConnectedPort
@@ -39,12 +43,28 @@ func (port *ConnectedPort) NewE2EServer(remoteConn net.Conn, peer Address) *E2ES
 }
 
 func (e2eServer *E2EServer) handshake(conn *openssl.Conn) (err error) {
-	err = conn.Handshake()
-	if err != nil {
+	timer := time.NewTimer(handshakeTimeout)
+	finCh := make(chan struct{})
+	defer timer.Stop()
+	go func() {
+		if err = conn.Handshake(); err != nil {
+			close(finCh)
+			return
+		}
+		if err = e2eServer.checkPeer(conn); err != nil {
+			close(finCh)
+			return
+		}
+		close(finCh)
 		return
-	}
-	if err = e2eServer.checkPeer(conn); err != nil {
-		return
+	}()
+	select {
+	case <-finCh:
+		if err != nil {
+			return
+		}
+	case <-timer.C:
+		return fmt.Errorf("handshake timeout")
 	}
 	return
 }

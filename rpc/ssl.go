@@ -278,7 +278,6 @@ func (s *SSL) sendMessage(buf []byte) (n int, err error) {
 	binary.BigEndian.PutUint16(byteLen, uint16(len(buf)))
 	n, err = conn.Write(byteLen)
 	if err != nil {
-		fmt.Println("Write two bytes error QQ")
 		return
 	}
 	if n != len(byteLen) {
@@ -287,7 +286,6 @@ func (s *SSL) sendMessage(buf []byte) (n int, err error) {
 	}
 	n, err = conn.Write(buf)
 	if err != nil {
-		fmt.Println("Write bytes error QQ")
 		return
 	}
 	if n != len(buf) {

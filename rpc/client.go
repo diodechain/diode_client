@@ -193,9 +193,6 @@ func (rpcClient *Client) RespondContext(requestID uint64, responseType string, m
 	if err != nil {
 		return
 	}
-	// send call directly because there is no response
-	// err = rpcClient.cm.OnCall(call)
-	// or
 	err = rpcClient.cm.Insert(call)
 	rpcClient.cm.RemoveCallByID(call.id)
 	return
