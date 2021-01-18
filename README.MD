@@ -23,20 +23,21 @@ SYNOPSYS
   diode [-allowlists=] [-api=false] [-apiaddr=localho...]
         [-bind=] [-blocklists=] [-blockprofile=] [-blockprofilerate=1]
         [-configpath=] [-cpuprofile=] [-dbpath=/Users/...] [-debug=false]
-        [-diodeaddrs=] [-e2e=true] [-fleet=] [-keepalive=true]
-        [-keepaliveinterval=5s] [-logdatetime=false]
-        [-logfilepath=] [-memprofile=] [-metrics=false] [-mutexprofile=]
-        [-mutexprofilerate=1] [-retrytimes=3] [-retrywait=1s] [-rlimit_nofile=0]
+        [-diodeaddrs=] [-e2e=true] [-e2etimeout=5s] [-fleet=]
+        [-keepalive=true] [-keepaliveinterval=5s] [-logdatetime=false] [-logfilepath=]
+        [-memprofile=] [-metrics=false] [-mutexprofile=] [-mutexprofilerate=1]
+        [-pprofport=0] [-retrytimes=3] [-retrywait=1s] [-rlimit_nofile=0]
         [-timeout=5s] [-update=true] COMMAND <args>
 
 COMMANDS
   bns          Register/Update name service on diode blockchain.
   config       Manage variables in the local config store.
-  gateway      Enable a public http server as is used by the "diode.link" website
+  gateway      Enable a public gateway server as is used by the "diode.link" website
   publish      Publish ports of the local device to the Diode Network.
   reset        Initialize a new account and a new fleet contract in the network. WARNING deletes current credentials!
   socksd       Enable a socks proxy for use with browsers and other apps.
   time         Lookup the current time from the blockchain consensus.
+  update       Force updating the diode client version.
   version      Print the diode client version.
 
 Run 'diode COMMAND --help' for more information on a command.
