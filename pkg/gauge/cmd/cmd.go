@@ -29,23 +29,26 @@ var (
 	cfg                      = &Config{}
 	ErrUnsupportTransport    = fmt.Errorf("unsupported transport, make sure you use these options (proxy, sproxy, socks5)")
 	ErrFailedSetRlimitNofile = fmt.Errorf("cannot set rlimit nofile")
-	headerTemplate           = `|                |    DNS Lookup   |  TCP Connection    |  Server Process    | Content Transfer |    Total     |
+	headerTemplate           = `                |    DNS Lookup   |  TCP Connection    |  Server Process    | Content Transfer |    Total     
 `
-	rowTemplate = `|    Fetch #%-3d  |    %-10s   |    %-12s    |    %-12s    |   %-12s   | %-12s |
+	rowTemplate = `    Fetch #%-3d  |    %-10s   |    %-12s    |    %-12s    |   %-12s   | %-12s 
 `
-	errorRowTemplate = `|    Fetch #%-3d  |    %-10s
+	errorRowTemplate = `    Fetch #%-3d  |    %-10s
 `
-	a App
+	a *App
 )
 
 // App represents command line application for gauge
 type App struct {
 	screen tcell.Screen
 	style  tcell.Style
+	mx     sync.Mutex
+	conns  map[net.Conn]net.Conn
 }
 
 // Init initialize the command line application
 func (app *App) Init() (err error) {
+	app.conns = make(map[net.Conn]net.Conn, cfg.Conn)
 	app.style = tcell.StyleDefault.Background(tcell.ColorReset).Foreground(tcell.ColorReset)
 	app.screen, err = tcell.NewScreen()
 	if err != nil {
@@ -88,12 +91,33 @@ func (app *App) Println(x1, y1 int, text string) {
 
 // Stop the application
 func (app *App) Stop() {
+	// clean connections
+	for _, c := range app.conns {
+		c.Close()
+	}
 	app.screen.Fini()
+}
+
+// addConn add new http connection
+func (app *App) addConn(c net.Conn) {
+	app.mx.Lock()
+	app.conns[c] = c
+	app.mx.Unlock()
+}
+
+// delConn delete existing http connection
+func (app *App) delConn(c net.Conn) {
+	app.mx.Lock()
+	if _, ok := app.conns[c]; ok {
+		c.Close()
+		delete(app.conns, c)
+	}
+	app.mx.Unlock()
 }
 
 func clientDebugHandler(cmd *cobra.Command, args []string) (err error) {
 	// initialize app
-	a = App{}
+	a = new(App)
 	if e := a.Init(); e != nil {
 		return err
 	}
@@ -152,14 +176,15 @@ func clientDebugHandler(cmd *cobra.Command, args []string) (err error) {
 	}
 	col := 0
 	row := 0
-	a.Println(col, row, fmt.Sprintf("Start to connect to %s for %d times", cfg.Target, cfg.Conn))
+	a.Println(col, row, fmt.Sprintf("    Start to connect to %s for %d times", cfg.Target, cfg.Conn))
 	row++
 	a.Println(col, row, headerTemplate)
 	row++
 	wg.Add(cfg.Conn)
 	for i := 0; i < cfg.Conn; i++ {
 		a.Println(col, row, fmt.Sprintf(rowTemplate, i, "", "", "", "", ""))
-		go func(j, row int) {
+		go func(j, row int, app *App) {
+			var c net.Conn
 			var t0, t1, t2, t3, t4 time.Time
 			req, _ := http.NewRequest("GET", cfg.Target, nil)
 			trace := &httptrace.ClientTrace{
@@ -184,8 +209,9 @@ func clientDebugHandler(cmd *cobra.Command, args []string) (err error) {
 					}
 					a.Println(col, row, fmt.Sprintf(rowTemplate, j, t1.Sub(t0), t2.Sub(t1), "", "", ""))
 				},
-				GotConn: func(_ httptrace.GotConnInfo) {
+				GotConn: func(cn httptrace.GotConnInfo) {
 					t3 = time.Now()
+					c = cn.Conn
 				},
 				GotFirstResponseByte: func() {
 					t4 = time.Now()
@@ -199,18 +225,19 @@ func clientDebugHandler(cmd *cobra.Command, args []string) (err error) {
 				wg.Done()
 				return
 			}
+			app.addConn(c)
+			defer app.delConn(c)
+			defer resp.Body.Close()
 			_, err = ioutil.ReadAll(resp.Body)
 			if err != nil {
 				a.Println(col, row, fmt.Sprintf(errorRowTemplate, j, err.Error()))
-				resp.Body.Close()
 				wg.Done()
 				return
 			}
 			t5 := time.Now()
 			a.Println(col, row, fmt.Sprintf(rowTemplate, j, t1.Sub(t0), t2.Sub(t1), t4.Sub(t3), t5.Sub(t4), t5.Sub(t0)))
-			resp.Body.Close()
 			wg.Done()
-		}(i+1, row)
+		}(i+1, row, a)
 		row++
 	}
 	wg.Wait()
