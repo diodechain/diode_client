@@ -73,7 +73,7 @@ func (port *ConnectedPort) SendRemote(data []byte) (err error) {
 	}
 
 	if len(data) < packetLimit {
-		var call Call
+		var call *Call
 		call, err = port.client.CastContext(getRequestID(), "portsend", port.Ref, data)
 		// handling an error asynchronous
 		go func() {
@@ -108,10 +108,7 @@ func (port *ConnectedPort) Close() error {
 			port.sendErr = io.EOF
 		}
 		deviceKey := port.client.GetDeviceKey(port.Ref)
-		// check whether is disconnected
-		if port.client.pool.GetPort(deviceKey) != nil {
-			port.client.pool.SetPort(deviceKey, nil)
-		}
+		port.client.pool.SetPort(deviceKey, nil)
 
 		if port.Protocol > 0 {
 			port.Debug("Close local resource :%d external :%d protocol :%s", port.SrcPortNumber, port.PortNumber, config.ProtocolName(port.Protocol))

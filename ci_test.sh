@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 
-./diode_race_test config -list
-./diode_race_test time
+./diode_race_test -update=false config -list
+./diode_race_test -update=false time
 
-./diode_race_test -diodeaddrs asia.testnet.diode.io:41046 -e2e=false socksd > /dev/null & 
+./diode_race_test -update=false -diodeaddrs asia.testnet.diode.io:41046 -e2e=false socksd > /dev/null & 
 
 diode_pid=$!
 echo "Start diode-cli pid: $diode_pid"

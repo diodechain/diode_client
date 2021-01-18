@@ -28,14 +28,12 @@ var (
 )
 
 type Call struct {
-	id         uint64
-	method     string
-	retryTimes int
-	inserted   bool
-	response   chan interface{}
-	signal     chan Signal
-	data       *bytes.Buffer
-	Parse      func(buffer []byte) (interface{}, error)
+	id       uint64
+	method   string
+	state    Signal
+	response chan interface{}
+	data     *bytes.Buffer
+	Parse    func(buffer []byte) (interface{}, error)
 }
 
 // Address represents an Ethereum address
@@ -48,18 +46,6 @@ type TimeoutError struct {
 
 func (e TimeoutError) Error() string {
 	return fmt.Sprintf("remote timeout: %s", e.Timeout)
-}
-
-// ReconnectError is struct for reconnect error
-type ReconnectError struct {
-	Host string
-}
-
-func (e ReconnectError) Error() string {
-	if len(e.Host) > 0 {
-		return fmt.Sprintf("reconnect to server: %s", e.Host)
-	}
-	return "reconnect to server"
 }
 
 // CancelledError is struct for cancelled error

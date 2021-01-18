@@ -9,10 +9,11 @@ import (
 )
 
 var (
+	INITIALIZED  = Signal(0)
 	STARTED      = Signal(1)
-	CLOSED       = Signal(2)
-	RECONNECTED  = Signal(3)
-	RECONNECTING = Signal(4)
+	RECONNECTED  = Signal(2)
+	RECONNECTING = Signal(3)
+	CLOSED       = Signal(4)
 	CANCELLED    = Signal(5)
 )
 
