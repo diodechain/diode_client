@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/diodechain/diode_go_client/command"
 	"github.com/diodechain/diode_go_client/config"
@@ -342,6 +343,22 @@ func publishHandler() (err error) {
 			cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
 		}
 	}
-	app.Wait()
-	return
+	for {
+		app.Wait()
+		if !app.Closed() {
+			// Restart to publish utill user send sigint to client
+			var client *rpc.Client
+			for {
+				client = app.WaitForFirstClient(true)
+				if client != nil {
+					break
+				}
+				cfg.Logger.Info("Could not connect to network trying again in 5 seconds")
+				// TODO: backoff?
+				time.Sleep(5 * time.Second)
+			}
+		} else {
+			return
+		}
+	}
 }

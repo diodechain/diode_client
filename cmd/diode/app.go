@@ -375,7 +375,7 @@ func (dio *Diode) Start() error {
 
 	// waiting for first client
 	for {
-		client = dio.waitForFirstClient(onlyNeedOne)
+		client = dio.WaitForFirstClient(onlyNeedOne)
 
 		if client != nil || isOneOffCommand {
 			break
@@ -400,7 +400,8 @@ func (dio *Diode) Start() error {
 	return nil
 }
 
-func (dio *Diode) waitForFirstClient(onlyNeedOne bool) (client *rpc.Client) {
+// WaitForFirstClient returns first client that is validated
+func (dio *Diode) WaitForFirstClient(onlyNeedOne bool) (client *rpc.Client) {
 	cfg := dio.config
 	rpcAddrLen := len(cfg.RemoteRPCAddrs)
 	c := make(chan *rpc.Client, rpcAddrLen)

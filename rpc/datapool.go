@@ -164,7 +164,18 @@ func (p *DataPool) SetClient(nodeID util.Address, client *Client) {
 		if p.clients[nodeID] != nil {
 			delete(p.clients, nodeID)
 			if len(p.clients) == 0 {
-				close(p.done)
+				// We don't close the p.done channel because the publisher
+				// will keep reconnecting and calling Wait(). We use select
+				// pattern to send empty struct in case blocking issue when
+				// handler didn't call Wait()
+				timer := time.NewTimer(1 * time.Millisecond)
+				defer timer.Stop()
+				select {
+				case p.done <- struct{}{}:
+					return
+				case <-timer.C:
+					return
+				}
 			}
 		}
 	} else {
