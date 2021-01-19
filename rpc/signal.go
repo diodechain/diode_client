@@ -3,11 +3,6 @@
 // Licensed under the Diode License, Version 1.0
 package rpc
 
-import (
-	"fmt"
-	"time"
-)
-
 var (
 	INITIALIZED  = Signal(0)
 	STARTED      = Signal(1)
@@ -18,14 +13,3 @@ var (
 )
 
 type Signal int
-
-func notifySignal(signalChan chan Signal, signal Signal, sendTimeout time.Duration) error {
-	timer := time.NewTimer(sendTimeout)
-	defer timer.Stop()
-	select {
-	case signalChan <- signal:
-		return nil
-	case <-timer.C:
-		return fmt.Errorf("notify signal to target timeout")
-	}
-}

@@ -54,6 +54,7 @@ type Client struct {
 	enableMetrics         bool
 	metrics               *Metrics
 	Verbose               bool
+	reconnecting          bool
 	cm                    *callManager
 	blockTicker           *time.Ticker
 	blockTickerDuration   time.Duration
@@ -245,27 +246,24 @@ func (rpcClient *Client) CallContext(method string, parse func(buffer []byte) (i
 		return
 	}
 	rpcTimeout, _ := time.ParseDuration(fmt.Sprintf("%ds", (10 + rpcClient.cm.TotalCallLength())))
-	for {
-		ts = time.Now()
-		res, err = rpcClient.waitResponse(resCall, rpcTimeout)
-		if err != nil {
-			tsDiff = time.Since(ts)
-			switch err.(type) {
-			case TimeoutError:
-				rpcClient.Warn("Call %s timeout after %s, drop the call", method, tsDiff.String())
-				rpcClient.cm.RemoveCallByID(requestID)
-				return
-			case CancelledError:
-				rpcClient.Warn("Call %s has been cancelled, drop the call", method)
-				rpcClient.cm.RemoveCallByID(requestID)
-				return
-			}
-		}
+	ts = time.Now()
+	res, err = rpcClient.waitResponse(resCall, rpcTimeout)
+	if err != nil {
 		tsDiff = time.Since(ts)
-		if rpcClient.enableMetrics {
-			rpcClient.metrics.UpdateRPCTimer(tsDiff)
+		switch err.(type) {
+		case TimeoutError:
+			rpcClient.Warn("Call %s timeout after %s, drop the call", method, tsDiff.String())
+			rpcClient.cm.RemoveCallByID(requestID)
+			return
+		case CancelledError:
+			rpcClient.Warn("Call %s has been cancelled, drop the call", method)
+			rpcClient.cm.RemoveCallByID(requestID)
+			return
 		}
-		break
+	}
+	tsDiff = time.Since(ts)
+	if rpcClient.enableMetrics {
+		rpcClient.metrics.UpdateRPCTimer(tsDiff)
 	}
 	rpcClient.Debug("Got response: %s [%v]", method, tsDiff)
 	return
@@ -909,9 +907,18 @@ func (rpcClient *Client) IsDeviceAllowlisted(fleetAddr Address, clientAddr Addre
 	return num.Int64() == 1
 }
 
+func (rpcClient *Client) setReconnecting(reconnecting bool) {
+	rpcClient.rm.Lock()
+	defer rpcClient.rm.Unlock()
+	rpcClient.reconnecting = reconnecting
+}
+
 // Reconnect to diode node
 func (rpcClient *Client) Reconnect() bool {
 	isOk := false
+	rpcClient.setReconnecting(true)
+	// Remove all existing calls
+	rpcClient.cm.RemoveCalls()
 	for i := 1; i <= config.AppConfig.RetryTimes; i++ {
 		if rpcClient.s.Closed() {
 			break
@@ -938,12 +945,15 @@ func (rpcClient *Client) Reconnect() bool {
 			break
 		}
 	}
+	rpcClient.setReconnecting(false)
 	return isOk
 }
 
-// Reconnecting returns whether connection is reconnecting
+// Reconnecting returns whether client is reconnecting
 func (rpcClient *Client) Reconnecting() bool {
-	return rpcClient.s.Reconnecting()
+	rpcClient.rm.Lock()
+	defer rpcClient.rm.Unlock()
+	return rpcClient.reconnecting
 }
 
 // Closed returns whether client had closed
@@ -956,6 +966,8 @@ func (rpcClient *Client) Close() {
 	rpcClient.cd.Do(func() {
 		rpcClient.rm.Lock()
 		close(rpcClient.closeCh)
+		// remove existing calls
+		rpcClient.cm.RemoveCalls()
 		if rpcClient.blockTicker != nil {
 			rpcClient.blockTicker.Stop()
 		}

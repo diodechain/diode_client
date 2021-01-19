@@ -30,7 +30,6 @@ type SSL struct {
 	mode              openssl.DialFlags
 	enableKeepAlive   bool
 	keepAliveInterval time.Duration
-	reconnecting      bool
 	totalConnections  uint64
 	totalBytes        uint64
 	counter           uint64
@@ -106,13 +105,6 @@ func (s *SSL) UnderlyingConn() net.Conn {
 	s.rm.RLock()
 	defer s.rm.RUnlock()
 	return s.conn.UnderlyingConn()
-}
-
-// Reconnecting returns whether connection is reconnecting
-func (s *SSL) Reconnecting() bool {
-	s.rm.RLock()
-	defer s.rm.RUnlock()
-	return s.reconnecting
 }
 
 // Closed returns connection is closed
@@ -297,9 +289,7 @@ func (s *SSL) sendMessage(buf []byte) (n int, err error) {
 
 func (s *SSL) reconnect() error {
 	s.rm.Lock()
-	s.reconnecting = true
 	conn, err := openssl.Dial("tcp", s.addr, s.ctx, s.mode)
-	s.reconnecting = false
 	if err != nil {
 		s.rm.Unlock()
 		return err

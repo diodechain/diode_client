@@ -271,8 +271,6 @@ func (rpcClient *Client) recvMessage() {
 			if err == io.EOF ||
 				strings.Contains(err.Error(), "connection reset by peer") {
 				if !rpcClient.s.Closed() {
-					// remove existing calls
-					rpcClient.cm.RemoveCalls()
 					isOk := rpcClient.Reconnect()
 					if isOk {
 						continue
@@ -281,8 +279,6 @@ func (rpcClient *Client) recvMessage() {
 			}
 			// should close the connection and restart client if client did start in diode.go
 			if !rpcClient.Closed() {
-				// remove existing calls
-				rpcClient.cm.RemoveCalls()
 				rpcClient.Close()
 			}
 			return

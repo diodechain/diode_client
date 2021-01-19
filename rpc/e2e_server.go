@@ -52,7 +52,6 @@ func (e2eServer *E2EServer) handshake(conn *openssl.Conn) (err error) {
 			return
 		}
 		close(finCh)
-		return
 	}()
 	select {
 	case <-finCh:
