@@ -67,12 +67,7 @@ func (cm *callManager) RemoveCallByID(id uint64) {
 	cm.mx.Lock()
 	defer cm.mx.Unlock()
 	if c, ok := cm.calls[id]; ok {
-		if c.state != CLOSED {
-			c.state = CANCELLED
-		}
-		if c.response != nil {
-			close(c.response)
-		}
+		c.Clean(CANCELLED)
 		delete(cm.calls, id)
 	}
 }
@@ -82,12 +77,7 @@ func (cm *callManager) RemoveCalls() {
 	cm.mx.Lock()
 	defer cm.mx.Unlock()
 	for _, c := range cm.calls {
-		if c.state != CLOSED {
-			c.state = CANCELLED
-		}
-		if c.response != nil {
-			close(c.response)
-		}
+		c.Clean(CANCELLED)
 	}
 	cm.calls = make(map[uint64]*Call, cm.size)
 }

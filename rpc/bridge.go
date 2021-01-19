@@ -19,18 +19,6 @@ var (
 	errPortNotPublished = fmt.Errorf("port was not published")
 )
 
-// enqueueResponse push response to the call
-func (c *Call) enqueueResponse(msg interface{}) error {
-	timer := time.NewTimer(enqueueTimeout)
-	defer timer.Stop()
-	select {
-	case c.response <- msg:
-		return nil
-	case <-timer.C:
-		return fmt.Errorf("send response to channel timeout")
-	}
-}
-
 // addWorker add another worker
 func (rpcClient *Client) addWorker(worker func()) {
 	rpcClient.wg.Add(1)

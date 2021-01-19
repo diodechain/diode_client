@@ -36,6 +36,26 @@ type Call struct {
 	Parse    func(buffer []byte) (interface{}, error)
 }
 
+// enqueueResponse push response to the call
+func (c *Call) enqueueResponse(msg interface{}) error {
+	timer := time.NewTimer(enqueueTimeout)
+	defer timer.Stop()
+	select {
+	case c.response <- msg:
+		return nil
+	case <-timer.C:
+		return fmt.Errorf("send response to channel timeout")
+	}
+}
+
+// Clean the call
+func (c *Call) Clean(state Signal) {
+	c.state = state
+	if c.response != nil {
+		close(c.response)
+	}
+}
+
 // Address represents an Ethereum address
 type Address = util.Address
 

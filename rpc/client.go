@@ -156,10 +156,8 @@ func (rpcClient *Client) GetDeviceKey(ref string) string {
 
 func (rpcClient *Client) waitResponse(call *Call, rpcTimeout time.Duration) (res interface{}, err error) {
 	timer := time.NewTimer(rpcTimeout)
-	defer func() {
-		timer.Stop()
-		close(call.response)
-	}()
+	defer timer.Stop()
+	defer call.Clean(CLOSED)
 	select {
 	case resp, ok := <-call.response:
 		if !ok {
