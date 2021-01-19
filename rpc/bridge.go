@@ -251,7 +251,6 @@ func (rpcClient *Client) handleInboundMessage(msg edge.Message) {
 			return
 		}
 		call.enqueueResponse(res)
-		close(call.response)
 		return
 	}
 	inboundRequest, err := msg.ReadAsInboundRequest(rpcClient.edgeProtocol)
