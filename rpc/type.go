@@ -42,6 +42,7 @@ type Call struct {
 func (c *Call) enqueueResponse(msg interface{}) error {
 	timer := time.NewTimer(enqueueTimeout)
 	defer timer.Stop()
+	defer c.Clean(CLOSED)
 	select {
 	case c.response <- msg:
 		return nil

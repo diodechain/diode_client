@@ -210,11 +210,16 @@ func (rpcClient *Client) handleInboundMessage(msg edge.Message) {
 	if msg.IsResponse(rpcClient.edgeProtocol) {
 		rpcClient.backoff.StepBack()
 		call := rpcClient.cm.CallByID(msg.ResponseID(rpcClient.edgeProtocol))
-		if call == nil || call.id == 0 {
+		if call == nil {
 			// receive empty call, client might drop call because timeout, should drop message
 			return
 		}
-		call.state = CLOSED
+		// enqueueResponse will call call.Clean(CLOSED) in success cases
+		defer call.Clean(CANCELLED)
+		if call.id == 0 {
+			rpcClient.Warn("Call.id is 0 ")
+			return
+		}
 		if call.response == nil {
 			// should not wait response for the call
 			rpcClient.Warn("Call.response is nil id: %d, method: %s, this might lead to rpc timeout error if you wait rpc response", call.id, call.method)
@@ -227,7 +232,6 @@ func (rpcClient *Client) handleInboundMessage(msg edge.Message) {
 		}
 		if call.Parse == nil {
 			// no Parse callback for hello and portclose
-			call.Clean(CLOSED)
 			rpcClient.Debug("No parse callback for rpc call id: %d, method: %s", call.id, call.method)
 			return
 		}
