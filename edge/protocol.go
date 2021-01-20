@@ -56,6 +56,8 @@ type Protocol struct{}
 func (edge Protocol) parseResponse(buffer []byte) (interface{}, error) {
 	if bytes.Contains(buffer, portOpenPivot) {
 		return edge.parsePortOpenResponse(buffer)
+	} else if bytes.Contains(buffer, portSendPivot) {
+		return edge.parsePortSendResponse(buffer)
 	} else if bytes.Contains(buffer, blockPivot) {
 		return edge.parseBlockResponse(buffer)
 	} else if bytes.Contains(buffer, block2Pivot) {
@@ -310,6 +312,19 @@ func (edge Protocol) parseAccountValueResponse(buffer []byte) (interface{}, erro
 	return accountValue, nil
 }
 
+func (edge Protocol) parsePortSendResponse(buffer []byte) (interface{}, error) {
+	var response portSendResponse
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	err := decodeStream.Decode(&response)
+	if err != nil {
+		return nil, err
+	}
+	portSend := &PortSend{
+		Ok: (response.Payload.Result == "ok"),
+	}
+	return portSend, nil
+}
+
 func (edge Protocol) parsePortOpenResponse(buffer []byte) (interface{}, error) {
 	var response portOpenResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
@@ -320,7 +335,6 @@ func (edge Protocol) parsePortOpenResponse(buffer []byte) (interface{}, error) {
 	portOpen := &PortOpen{
 		Ref: response.Payload.Ref,
 		Ok:  (response.Payload.Result == "ok"),
-		// RequestID: response.RequestID,
 	}
 	return portOpen, nil
 }
@@ -588,8 +602,6 @@ func (edge Protocol) NewMessage(writer io.Writer, requestID uint64, method strin
 	switch method {
 	case "hello":
 		return nil, nil
-	case "portsend":
-		return nil, nil
 	case "portclose":
 		return nil, nil
 	case "getblock":
@@ -610,6 +622,8 @@ func (edge Protocol) NewMessage(writer io.Writer, requestID uint64, method strin
 		return edge.parseDeviceTicketResponse, nil
 	case "portopen":
 		return edge.parsePortOpenResponse, nil
+	case "portsend":
+		return edge.parsePortSendResponse, nil
 	case "getobject":
 		return edge.parseDeviceObjectResponse, nil
 	case "getnode":

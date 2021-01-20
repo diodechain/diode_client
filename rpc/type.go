@@ -6,6 +6,7 @@ package rpc
 import (
 	"bytes"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/diodechain/diode_go_client/crypto"
@@ -34,6 +35,7 @@ type Call struct {
 	response chan interface{}
 	data     *bytes.Buffer
 	Parse    func(buffer []byte) (interface{}, error)
+	cd       sync.Once
 }
 
 // enqueueResponse push response to the call
@@ -50,10 +52,13 @@ func (c *Call) enqueueResponse(msg interface{}) error {
 
 // Clean the call
 func (c *Call) Clean(state Signal) {
-	c.state = state
-	if c.response != nil {
-		close(c.response)
-	}
+	c.cd.Do(func() {
+		c.state = state
+		if c.response != nil {
+			close(c.response)
+			c.response = nil
+		}
+	})
 }
 
 // Address represents an Ethereum address

@@ -133,10 +133,18 @@ type accountValueResponse struct {
 	}
 }
 
+type portSendResponse struct {
+	RequestID uint64
+	Payload   struct {
+		Type   string
+		Result string
+	}
+}
+
 type portOpenResponse struct {
 	RequestID uint64
 	Payload   struct {
-		Method string
+		Type   string
 		Result string
 		Ref    string
 	}

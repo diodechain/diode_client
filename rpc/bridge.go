@@ -226,6 +226,8 @@ func (rpcClient *Client) handleInboundMessage(msg edge.Message) {
 			return
 		}
 		if call.Parse == nil {
+			// no Parse callback for hello and portclose
+			call.Clean(CLOSED)
 			rpcClient.Debug("No parse callback for rpc call id: %d, method: %s", call.id, call.method)
 			return
 		}
