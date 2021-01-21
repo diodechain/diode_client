@@ -307,7 +307,7 @@ func (rpcClient *Client) watchLatestBlock() {
 			blockPeak, err := rpcClient.GetBlockPeak()
 			if err != nil {
 				rpcClient.Error("Couldn't getblockpeak: %v", err)
-				return
+				continue
 			}
 			blockNumMax := blockPeak - confirmationSize
 			if lastblock >= blockNumMax {
@@ -315,11 +315,13 @@ func (rpcClient *Client) watchLatestBlock() {
 				continue
 			}
 
+			isErr := false
 			for num := lastblock + 1; num <= blockNumMax; num++ {
 				blockHeader, err := rpcClient.GetBlockHeaderUnsafe(uint64(num))
 				if err != nil {
 					rpcClient.Error("Couldn't download block header %v", err)
-					return
+					isErr = true
+					break
 				}
 				err = rpcClient.bq.AddBlock(blockHeader, false)
 				if err != nil {
@@ -327,8 +329,12 @@ func (rpcClient *Client) watchLatestBlock() {
 					// This could happen on an uncle block, in that case we reset
 					// the counter the last finalized block
 					rpcClient.bq.Last()
-					return
+					isErr = true
+					break
 				}
+			}
+			if isErr {
+				continue
 			}
 
 			lastn, _ := rpcClient.bq.Last()
