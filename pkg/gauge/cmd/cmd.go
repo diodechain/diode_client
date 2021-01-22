@@ -6,8 +6,6 @@ package cmd
 import (
 	"crypto/tls"
 	"fmt"
-	"github.com/diodechain/diode_go_client/config"
-	"github.com/gdamore/tcell/v2"
 	"io/ioutil"
 	"net"
 	"net/http"
@@ -15,7 +13,10 @@ import (
 	"net/url"
 	"sync"
 	"time"
-	// "github.com/gdamore/tcell/v2/views"
+
+	"github.com/diodechain/diode_go_client/config"
+	"github.com/gdamore/tcell/v2"
+	"github.com/gdamore/tcell/v2/views"
 	"github.com/spf13/cobra"
 )
 
@@ -35,58 +36,62 @@ var (
 `
 	errorRowTemplate = `    Fetch #%-3d  |    %-10s
 `
-	a *App
+	app *App
 )
 
 // App represents command line application for gauge
 type App struct {
-	screen tcell.Screen
-	style  tcell.Style
-	mx     sync.Mutex
-	conns  map[net.Conn]net.Conn
+	style    tcell.Style
+	tcellApp *views.Application
+	window   *window
+	mx       sync.Mutex
+	conns    map[net.Conn]net.Conn
 }
 
 // Init initialize the command line application
-func (app *App) Init() (err error) {
+func (app *App) Init() {
 	app.conns = make(map[net.Conn]net.Conn, cfg.Conn)
 	app.style = tcell.StyleDefault.Background(tcell.ColorReset).Foreground(tcell.ColorReset)
-	app.screen, err = tcell.NewScreen()
-	if err != nil {
-		return
+	tcellApp := &views.Application{}
+	window := &window{}
+	totalRow := cfg.Conn + 2
+	window.model = &model{
+		endx: 200,
+		endy: totalRow,
+		rows: make([]string, totalRow),
 	}
-	if err = app.screen.Init(); err != nil {
-		return
-	}
-	app.screen.SetStyle(app.style)
-	return
+
+	title := views.NewTextBar()
+	title.SetStyle(app.style)
+	title.SetCenter("Diode Gauge", tcell.StyleDefault)
+
+	window.keybar = views.NewSimpleStyledText()
+
+	window.main = views.NewCellView()
+	window.main.SetModel(window.model)
+	window.main.SetStyle(app.style)
+
+	window.SetMenu(window.keybar)
+	window.SetTitle(title)
+	window.SetContent(window.main)
+
+	window.updateKeys()
+
+	tcellApp.SetStyle(app.style)
+	tcellApp.SetRootWidget(window)
+	app.tcellApp = tcellApp
+	app.window = window
 }
 
-// LoopEvent keep consuming the event from command line
-func (app *App) LoopEvent() {
-	for {
-		ev := app.screen.PollEvent()
-
-		switch ev := ev.(type) {
-		case *tcell.EventResize:
-			app.screen.Sync()
-		case *tcell.EventKey:
-			if ev.Key() == tcell.KeyEscape || ev.Key() == tcell.KeyCtrlC {
-				app.Stop()
-				return
-			}
-		}
-	}
+// Println print the text at row y1
+func (app *App) Println(y1 int, text string) {
+	app.window.model.SetRow(y1, text)
+	// app.tcellApp.Refresh()
+	app.tcellApp.Update()
 }
 
-// Println print the text at col x1, row y1
-func (app *App) Println(x1, y1 int, text string) {
-	col := x1
-	row := y1
-	for _, c := range text {
-		app.screen.SetContent(col, row, c, nil, app.style)
-		col++
-	}
-	app.screen.Show()
+func (app *App) Run() error {
+	return app.tcellApp.Run()
 }
 
 // Stop the application
@@ -95,7 +100,7 @@ func (app *App) Stop() {
 	for _, c := range app.conns {
 		c.Close()
 	}
-	app.screen.Fini()
+	app.tcellApp.Quit()
 }
 
 // addConn add new http connection
@@ -117,10 +122,8 @@ func (app *App) delConn(c net.Conn) {
 
 func clientDebugHandler(cmd *cobra.Command, args []string) (err error) {
 	// initialize app
-	a = new(App)
-	if e := a.Init(); e != nil {
-		return err
-	}
+	app = new(App)
+	app.Init()
 	var proxyTransport *http.Transport = &http.Transport{
 		Proxy: http.ProxyURL(&url.URL{
 			Scheme: "socks5:",
@@ -174,15 +177,20 @@ func clientDebugHandler(cmd *cobra.Command, args []string) (err error) {
 			return
 		}
 	}
-	col := 0
+	// Run the tcell application
+	wg.Add(1)
+	go func() {
+		app.Run()
+		wg.Done()
+	}()
 	row := 0
-	a.Println(col, row, fmt.Sprintf("    Start to connect to %s for %d times", cfg.Target, cfg.Conn))
+	app.Println(row, fmt.Sprintf("Start to connect to %s for %d times", cfg.Target, cfg.Conn))
 	row++
-	a.Println(col, row, headerTemplate)
+	app.Println(row, headerTemplate)
 	row++
 	wg.Add(cfg.Conn)
 	for i := 0; i < cfg.Conn; i++ {
-		a.Println(col, row, fmt.Sprintf(rowTemplate, i, "", "", "", "", ""))
+		app.Println(row, fmt.Sprintf(rowTemplate, i, "", "", "", "", ""))
 		go func(j, row int, app *App) {
 			var c net.Conn
 			var t0, t1, t2, t3, t4 time.Time
@@ -201,13 +209,13 @@ func clientDebugHandler(cmd *cobra.Command, args []string) (err error) {
 					if t1.IsZero() {
 						t1 = time.Now()
 					}
-					a.Println(col, row, fmt.Sprintf(rowTemplate, j, t1.Sub(t0), "", "", "", ""))
+					app.Println(row, fmt.Sprintf(rowTemplate, j, t1.Sub(t0), "", "", "", ""))
 				},
 				ConnectDone: func(network, addr string, err error) {
 					if err == nil {
 						t2 = time.Now()
 					}
-					a.Println(col, row, fmt.Sprintf(rowTemplate, j, t1.Sub(t0), t2.Sub(t1), "", "", ""))
+					app.Println(row, fmt.Sprintf(rowTemplate, j, t1.Sub(t0), t2.Sub(t1), "", "", ""))
 				},
 				GotConn: func(cn httptrace.GotConnInfo) {
 					t3 = time.Now()
@@ -215,13 +223,13 @@ func clientDebugHandler(cmd *cobra.Command, args []string) (err error) {
 				},
 				GotFirstResponseByte: func() {
 					t4 = time.Now()
-					a.Println(col, row, fmt.Sprintf(rowTemplate, j, t1.Sub(t0), t2.Sub(t1), t4.Sub(t3), "", ""))
+					app.Println(row, fmt.Sprintf(rowTemplate, j, t1.Sub(t0), t2.Sub(t1), t4.Sub(t3), "", ""))
 				},
 			}
 			req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 			resp, err := transport.RoundTrip(req)
 			if err != nil {
-				a.Println(col, row, fmt.Sprintf(errorRowTemplate, j, err.Error()))
+				app.Println(row, fmt.Sprintf(errorRowTemplate, j, err.Error()))
 				wg.Done()
 				return
 			}
@@ -230,19 +238,17 @@ func clientDebugHandler(cmd *cobra.Command, args []string) (err error) {
 			defer resp.Body.Close()
 			_, err = ioutil.ReadAll(resp.Body)
 			if err != nil {
-				a.Println(col, row, fmt.Sprintf(errorRowTemplate, j, err.Error()))
+				app.Println(row, fmt.Sprintf(errorRowTemplate, j, err.Error()))
 				wg.Done()
 				return
 			}
 			t5 := time.Now()
-			a.Println(col, row, fmt.Sprintf(rowTemplate, j, t1.Sub(t0), t2.Sub(t1), t4.Sub(t3), t5.Sub(t4), t5.Sub(t0)))
+			app.Println(row, fmt.Sprintf(rowTemplate, j, t1.Sub(t0), t2.Sub(t1), t4.Sub(t3), t5.Sub(t4), t5.Sub(t0)))
 			wg.Done()
-		}(i+1, row, a)
+		}(i+1, row, app)
 		row++
 	}
 	wg.Wait()
-	a.Println(col, row, "Press ctrl + c or ESC to exit")
-	a.LoopEvent()
 	return
 }
 
