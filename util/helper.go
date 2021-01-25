@@ -10,20 +10,26 @@ import (
 
 var (
 	bigOne    *big.Int
-	unitToWei = map[string]int{
-		"wei":        1,
-		"kwei":       1e3,
-		"mwei":       1e6,
-		"gwei":       1e9,
-		"microether": 1e12,
-		"milliether": 1e15,
-		"ether":      1e18,
-	}
+	unitToWei map[string]*big.Int
 )
 
 func init() {
-	bigOne = &big.Int{}
-	bigOne.SetInt64(1)
+	bigOne = newBig(1)
+	unitToWei = map[string]*big.Int{
+		"wei":        bigOne,
+		"kwei":       newBig(1e3),
+		"mwei":       newBig(1e6),
+		"gwei":       newBig(1e9),
+		"microether": newBig(1e12),
+		"milliether": newBig(1e15),
+		"ether":      newBig(1e18),
+	}
+}
+
+func newBig(num int64) (bigNum *big.Int) {
+	bigNum = new(big.Int)
+	bigNum.SetInt64(num)
+	return
 }
 
 // PaddingBytesSuffix added bytes after the given source
@@ -140,13 +146,11 @@ func StringsContain(src []string, pivot string) bool {
 
 // ToWei transform value to wei
 func ToWei(value int64, unit string) (bigWei *big.Int) {
-	if u, ok := unitToWei[unit]; !ok {
+	if bigU, ok := unitToWei[unit]; !ok {
 		return
 	} else {
 		bigV := new(big.Int)
 		bigV.SetInt64(value)
-		bigU := new(big.Int)
-		bigU.SetInt64(int64(u))
 		bigWei = new(big.Int)
 		bigWei.Mul(bigV, bigU)
 	}
