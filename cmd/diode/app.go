@@ -90,6 +90,7 @@ func init() {
 	diodeCmd.AddSubCommand(resetCmd)
 	diodeCmd.AddSubCommand(socksdCmd)
 	diodeCmd.AddSubCommand(timeCmd)
+	diodeCmd.AddSubCommand(tokenCmd)
 	diodeCmd.AddSubCommand(versionCmd)
 	diodeCmd.AddSubCommand(updateCmd)
 }

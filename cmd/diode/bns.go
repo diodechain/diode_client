@@ -17,10 +17,6 @@ import (
 	"github.com/diodechain/diode_go_client/util"
 )
 
-const (
-	ether = 1e18
-)
-
 var (
 	bnsCmd = &command.Command{
 		Name:        "bns",

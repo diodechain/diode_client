@@ -9,7 +9,16 @@ import (
 )
 
 var (
-	bigOne *big.Int
+	bigOne    *big.Int
+	unitToWei = map[string]int{
+		"wei":        1,
+		"kwei":       1e3,
+		"mwei":       1e6,
+		"gwei":       1e9,
+		"microether": 1e12,
+		"milliether": 1e15,
+		"ether":      1e18,
+	}
 )
 
 func init() {
@@ -127,4 +136,19 @@ func StringsContain(src []string, pivot string) bool {
 		}
 	}
 	return false
+}
+
+// ToWei transform value to wei
+func ToWei(value int64, unit string) (bigWei *big.Int) {
+	if u, ok := unitToWei[unit]; !ok {
+		return
+	} else {
+		bigV := new(big.Int)
+		bigV.SetInt64(value)
+		bigU := new(big.Int)
+		bigU.SetInt64(int64(u))
+		bigWei = new(big.Int)
+		bigWei.Mul(bigV, bigU)
+	}
+	return
 }
