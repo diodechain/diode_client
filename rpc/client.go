@@ -69,7 +69,6 @@ type Client struct {
 	edgeProtocol          edge.Protocol
 	Config                clientConfig
 	bq                    *blockquick.Window
-	serverID              util.Address
 	Order                 int
 	// close event
 	OnClose func()
@@ -133,14 +132,10 @@ func (rpcClient *Client) Host() string {
 
 // GetServerID returns server address
 func (rpcClient *Client) GetServerID() ([20]byte, error) {
-	if rpcClient.serverID != util.EmptyAddress {
-		return rpcClient.serverID, nil
-	}
 	serverID, err := rpcClient.s.GetServerID()
 	if err != nil {
 		return util.EmptyAddress, err
 	}
-	copy(rpcClient.serverID[:], serverID[:])
 	return serverID, nil
 }
 

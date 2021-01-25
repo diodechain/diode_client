@@ -37,6 +37,7 @@ type SSL struct {
 	rm                sync.RWMutex
 	cd                sync.Once
 	closeCh           chan struct{}
+	serverID          util.Address
 }
 
 // Host returns the non-resolved addr name of the host
@@ -148,7 +149,15 @@ func (s *SSL) SetKeepAliveInterval(d time.Duration) error {
 
 // GetServerID returns server address
 func (s *SSL) GetServerID() ([20]byte, error) {
-	return GetConnectionID(s.conn)
+	if s.serverID != util.EmptyAddress {
+		return s.serverID, nil
+	}
+	serverID, err := GetConnectionID(s.conn)
+	if err != nil {
+		return util.EmptyAddress, err
+	}
+	copy(s.serverID[:], serverID[:])
+	return serverID, nil
 }
 
 // GetConnectionID returns address from an openssl connection
