@@ -104,6 +104,7 @@ type Config struct {
 	BNSUnregister           string           `yaml:"-" json:"-"`
 	BNSTransfer             string           `yaml:"-" json:"-"`
 	BNSLookup               string           `yaml:"-" json:"-"`
+	BNSAccount              string           `yaml:"-" json:"-"`
 	Experimental            bool             `yaml:"-" json:"-"`
 	LoadFromFile            bool             `yaml:"-" json:"-"`
 }

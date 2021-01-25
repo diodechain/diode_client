@@ -17,6 +17,10 @@ import (
 	"github.com/diodechain/diode_go_client/util"
 )
 
+const (
+	ether = 1e18
+)
+
 var (
 	bnsCmd = &command.Command{
 		Name:        "bns",
@@ -35,6 +39,7 @@ func init() {
 	bnsCmd.Flag.StringVar(&cfg.BNSUnregister, "unregister", "", "Free a new BNS name with <name>.")
 	bnsCmd.Flag.StringVar(&cfg.BNSTransfer, "transfer", "", "Transfer an existing BNS name with <name>=<new_owner>.")
 	bnsCmd.Flag.StringVar(&cfg.BNSLookup, "lookup", "", "Lookup a given BNS name.")
+	bnsCmd.Flag.StringVar(&cfg.BNSAccount, "account", "", "Display the account information of a given BNS name")
 }
 
 func isValidBNS(name string) (isValid bool) {
@@ -74,8 +79,11 @@ func bnsHandler() (err error) {
 	if done, err = handleLookup(); done || err != nil {
 		return
 	}
+	if done, err = handleLookupAccount(); done || err != nil {
+		return
+	}
 
-	cfg.PrintError("Argument Error: ", fmt.Errorf("provide -register <name>=<address> or -lookup <name> or -unregister <name> or -transfer <name>=<new_owner> argument"))
+	cfg.PrintError("Argument Error: ", fmt.Errorf("provide -register <name>=<address> or -lookup <name> or -account <name> or -unregister <name> or -transfer <name>=<new_owner> argument"))
 	return
 }
 
@@ -97,6 +105,42 @@ func handleLookup() (done bool, err error) {
 	}
 	for _, addr := range obnsAddr {
 		cfg.PrintLabel("Lookup result: ", fmt.Sprintf("%s=0x%s", lookupName, addr.Hex()))
+	}
+	ownerAddr, err = client.ResolveBNSOwner(lookupName)
+	if err != nil {
+		cfg.PrintError("Couldn't lookup owner: ", err)
+		return
+	}
+	cfg.PrintLabel("Domain owner: ", fmt.Sprintf("0x%s", ownerAddr.Hex()))
+	return
+}
+
+func handleLookupAccount() (done bool, err error) {
+	cfg := config.AppConfig
+	lookupName := strings.ToLower(cfg.BNSAccount)
+	if len(lookupName) == 0 {
+		return
+	}
+	done = true
+
+	var obnsAddr []util.Address
+	var ownerAddr util.Address
+	client := app.datapool.GetNearestClient()
+	obnsAddr, err = client.ResolveBNS(lookupName)
+	if err != nil {
+		cfg.PrintError("Lookup error: ", err)
+		return
+	}
+	for _, addr := range obnsAddr {
+		cfg.PrintLabel("Lookup result: ", fmt.Sprintf("%s=0x%s", lookupName, addr.Hex()))
+		lvbn, _ := client.LastValid()
+		account, err := client.GetValidAccount(lvbn, addr)
+		if err != nil {
+			cfg.PrintError("Couldn't lookup the account: ", err)
+		}
+		cfg.PrintLabel("Nonce: ", fmt.Sprintf("%d", account.Nonce))
+		cfg.PrintLabel("Code: ", util.EncodeToString(account.Code))
+		cfg.PrintLabel("Balance: ", fmt.Sprintf("%d (wei)", account.Balance))
 	}
 	ownerAddr, err = client.ResolveBNSOwner(lookupName)
 	if err != nil {
