@@ -39,6 +39,6 @@ func (a *window) Draw() {
 }
 
 func (a *window) updateKeys() {
-	w := "[Q][CTRL+C][AESC][ENTER] Quit"
+	w := "[Q][CTRL+C][ESC][ENTER] Quit"
 	a.keybar.SetMarkup(w)
 }
