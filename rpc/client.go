@@ -8,7 +8,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/big"
-	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -292,11 +291,11 @@ func (rpcClient *Client) ValidateNetwork() (bool, error) {
 	// Checking last valid header
 	hash := blockHeaders[windowSize-1].Hash()
 	if hash != lvbh {
+		// the lvbh was different, remove the lvbn
 		if rpcClient.Verbose {
 			rpcClient.Error("DEBUG: Reference block does not match -- resetting lvbn.")
-			db.DB.Del(lvbnKey)
-			os.Exit(0)
 		}
+		db.DB.Del(lvbnKey)
 		return false, fmt.Errorf("sent reference block does not match %v: %v != %v", lvbn, lvbh, hash)
 	}
 

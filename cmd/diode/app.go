@@ -14,6 +14,7 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/pprof"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -429,6 +430,10 @@ func (dio *Diode) WaitForFirstClient(onlyNeedOne bool) (client *rpc.Client) {
 				i = i + 1
 			}
 			isValid, err := rpcClient.ValidateNetwork()
+			if err != nil && strings.Contains(err.Error(), "sent reference block does not match") {
+				// the lvbn was removed, we can validate network again
+				isValid, _ = rpcClient.ValidateNetwork()
+			}
 			if isValid {
 				serverID, err := rpcClient.GetServerID()
 				if err != nil {
