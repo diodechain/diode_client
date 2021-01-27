@@ -4,6 +4,7 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
 	"regexp"
 	"strconv"
@@ -36,7 +37,7 @@ type tokenConfig struct {
 
 func init() {
 	cfg = new(tokenConfig)
-	tokenCmd.Flag.StringVar(&cfg.To, "to", "", "To address that Dio will transfer to.")
+	tokenCmd.Flag.StringVar(&cfg.To, "to", "", "The address or BNS name that Dio will transfer to.")
 	tokenCmd.Flag.StringVar(&cfg.Value, "value", "", "How many value Dio will transfer.")
 	tokenCmd.Flag.StringVar(&cfg.GasPrice, "gasprice", "", "Transfer fee that paid to diode miner.")
 	tokenCmd.Flag.StringVar(&cfg.Gas, "gas", "21000", "Transfer gas that paid to diode miner.")
@@ -63,13 +64,6 @@ func parseUnitAndValue(src string) (val int, unit string) {
 }
 
 func tokenHandler() (err error) {
-	if !util.IsAddress([]byte(cfg.To)) {
-		return fmt.Errorf("to address was not valid")
-	}
-	toAddr, err := util.DecodeAddress(cfg.To)
-	if err != nil {
-		return err
-	}
 	valWei, _ := parseUnitAndValue(cfg.Value)
 	if valWei <= 0 {
 		return fmt.Errorf("value was not valid")
@@ -92,9 +86,32 @@ func tokenHandler() (err error) {
 	}
 	appCfg := config.AppConfig
 	client := app.datapool.GetNearestClient()
+	var toAddr util.Address
+	if !util.IsAddress([]byte(cfg.To)) {
+		// lookup the bns name
+		var lookupAddrs []util.Address
+		lookupAddrs, err = client.ResolveBNS(cfg.To)
+		if err != nil {
+			return
+		}
+		if len(lookupAddrs) <= 0 {
+			err = fmt.Errorf("the BNS was not registered yet")
+			return
+		}
+		if len(lookupAddrs) > 1 {
+			err = fmt.Errorf("we didn't support multi BNS yet")
+			return
+		}
+		toAddr = lookupAddrs[0]
+	} else {
+		toAddr, err = util.DecodeAddress(cfg.To)
+		if err != nil {
+			return
+		}
+	}
 	oaccount, err := client.GetValidAccount(0, appCfg.ClientAddr)
 	if err != nil {
-		return nil
+		return
 	}
 	tx := edge.NewTransaction(uint64(oaccount.Nonce), uint64(gasPriceWei), uint64(gasWei), toAddr, uint64(valWei), data, 0)
 	_, err = client.SendTransaction(tx)
@@ -104,7 +121,9 @@ func tokenHandler() (err error) {
 	}
 	wait(client, func() bool {
 		naccount, err := client.GetValidAccount(0, appCfg.ClientAddr)
-		return err == nil && naccount.Balance < oaccount.Balance
+		// Check state root in case the transaction is self transfer
+		// isSelfTx := appCfg.ClientAddr == toAddr
+		return err == nil && !bytes.Equal(naccount.StateRoot(), oaccount.StateRoot())
 	})
 	return
 }
