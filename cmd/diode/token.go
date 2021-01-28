@@ -18,30 +18,32 @@ import (
 var (
 	tokenCmd = &command.Command{
 		Name:        "token",
-		HelpText:    `  Transfer dio to the given address on diode blockchain.`,
-		ExampleText: `  diode token -to 0x...... -value 1ether -gasprice 10gwei`,
+		HelpText:    `  Transfer DIODEs to the given address on diode blockchain.`,
+		ExampleText: `  diode token -to 0x...... -value 1millidiode -gasprice 10gwei`,
 		Run:         tokenHandler,
 		Type:        command.OneOffCommand,
 	}
-	tokenPattern = regexp.MustCompile(`^([0-9]+)(wei|kwei|mwei|gwei|microether|milliether|ether)?$`)
+	tokenPattern = regexp.MustCompile(`^([0-9]+)(wei|kwei|mwei|gwei|microdiode|millidiode|diode)?$`)
 	cfg          *tokenConfig
 )
 
 type tokenConfig struct {
-	To       string
-	Value    string
-	GasPrice string
-	Gas      string
-	Data     string
+	CheckBalance bool
+	To           string
+	Value        string
+	GasPrice     string
+	Gas          string
+	Data         string
 }
 
 func init() {
 	cfg = new(tokenConfig)
-	tokenCmd.Flag.StringVar(&cfg.To, "to", "", "The address or BNS name that Dio will transfer to.")
-	tokenCmd.Flag.StringVar(&cfg.Value, "value", "", "How many value Dio will transfer.")
-	tokenCmd.Flag.StringVar(&cfg.GasPrice, "gasprice", "", "Transfer fee that paid to diode miner.")
-	tokenCmd.Flag.StringVar(&cfg.Gas, "gas", "21000", "Transfer gas that paid to diode miner.")
-	tokenCmd.Flag.StringVar(&cfg.Data, "data", "", "Transfer data that will keep in diode blockchain.")
+	tokenCmd.Flag.BoolVar(&cfg.CheckBalance, "balance", false, "Just check the balance and quit.")
+	tokenCmd.Flag.StringVar(&cfg.To, "to", "", "The address or BNS name that DIODEs will be transfered to.")
+	tokenCmd.Flag.StringVar(&cfg.Value, "value", "", "Amount of DIODEs to be transfered.")
+	tokenCmd.Flag.StringVar(&cfg.GasPrice, "gasprice", "", "Transfer gas price paid to diode miner.")
+	tokenCmd.Flag.StringVar(&cfg.Gas, "gas", "21000", "Transfer gas paid to diode miner.")
+	tokenCmd.Flag.StringVar(&cfg.Data, "data", "", "Data that will be submitted with the transaction.")
 }
 
 func parseUnitAndValue(src string) (val int, unit string) {
@@ -64,6 +66,11 @@ func parseUnitAndValue(src string) (val int, unit string) {
 }
 
 func tokenHandler() (err error) {
+	if cfg.CheckBalance {
+		showBalance()
+		return
+	}
+
 	valWei, _ := parseUnitAndValue(cfg.Value)
 	if valWei <= 0 {
 		return fmt.Errorf("value was not valid")
@@ -86,6 +93,10 @@ func tokenHandler() (err error) {
 	}
 	appCfg := config.AppConfig
 	client := app.datapool.GetNearestClient()
+	oaccount, err := client.GetValidAccount(0, appCfg.ClientAddr)
+	if err != nil {
+		return
+	}
 	var toAddr util.Address
 	if !util.IsAddress([]byte(cfg.To)) {
 		// lookup the bns name
@@ -95,11 +106,11 @@ func tokenHandler() (err error) {
 			return
 		}
 		if len(lookupAddrs) <= 0 {
-			err = fmt.Errorf("the BNS was not registered yet")
+			err = fmt.Errorf("that BNS was not found")
 			return
 		}
 		if len(lookupAddrs) > 1 {
-			err = fmt.Errorf("we didn't support multi BNS yet")
+			err = fmt.Errorf("that BNS name is backed by multiple addresses. Please select only one")
 			return
 		}
 		toAddr = lookupAddrs[0]
@@ -109,14 +120,10 @@ func tokenHandler() (err error) {
 			return
 		}
 	}
-	oaccount, err := client.GetValidAccount(0, appCfg.ClientAddr)
-	if err != nil {
-		return
-	}
 	tx := edge.NewTransaction(uint64(oaccount.Nonce), uint64(gasPriceWei), uint64(gasWei), toAddr, uint64(valWei), data, 0)
 	_, err = client.SendTransaction(tx)
 	if err != nil {
-		appCfg.PrintError("Cannot transfer dio: ", err)
+		appCfg.PrintError("Cannot transfer DIODEs: ", err)
 		return
 	}
 	wait(client, func() bool {
@@ -125,5 +132,20 @@ func tokenHandler() (err error) {
 		// isSelfTx := appCfg.ClientAddr == toAddr
 		return err == nil && !bytes.Equal(naccount.StateRoot(), oaccount.StateRoot())
 	})
+	return
+}
+
+func showBalance() (err error) {
+	err = app.Start()
+	if err != nil {
+		return
+	}
+	appCfg := config.AppConfig
+	client := app.datapool.GetNearestClient()
+	oaccount, err := client.GetValidAccount(0, appCfg.ClientAddr)
+	if err != nil {
+		return
+	}
+	appCfg.PrintLabel("Your Balance", util.ToString(oaccount.Balance))
 	return
 }

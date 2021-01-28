@@ -192,16 +192,19 @@ func RLPHash(src interface{}) ([]byte, error) {
 
 // DecodeBytesToInt returns int of given bytes
 func DecodeBytesToInt(src []byte) int {
+	return int(DecodeBytesToBigInt(src).Int64())
+}
+
+// DecodeBytesToBigInt returns big.Int of given bytes
+func DecodeBytesToBigInt(src []byte) *big.Int {
 	outBig := &big.Int{}
 	outBig.SetBytes(src)
-	return int(outBig.Int64())
+	return outBig
 }
 
 // DecodeBytesToUint returns int of given bytes
 func DecodeBytesToUint(src []byte) uint64 {
-	outBig := &big.Int{}
-	outBig.SetBytes(src)
-	return outBig.Uint64()
+	return DecodeBytesToBigInt(src).Uint64()
 }
 
 // DecodeIntToBytes returns bytes of the given int

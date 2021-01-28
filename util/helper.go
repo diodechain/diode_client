@@ -4,6 +4,7 @@
 package util
 
 import (
+	"fmt"
 	"math"
 	"math/big"
 )
@@ -20,9 +21,9 @@ func init() {
 		"kwei":       newBig(1e3),
 		"mwei":       newBig(1e6),
 		"gwei":       newBig(1e9),
-		"microether": newBig(1e12),
-		"milliether": newBig(1e15),
-		"ether":      newBig(1e18),
+		"microdiode": newBig(1e12),
+		"millidiode": newBig(1e15),
+		"diode":      newBig(1e18),
 	}
 }
 
@@ -155,4 +156,19 @@ func ToWei(value int64, unit string) (bigWei *big.Int) {
 		bigWei.Mul(bigV, bigU)
 	}
 	return
+}
+
+// ToString converts a value in wei to a string with two decimals
+func ToString(bigWei *big.Int) string {
+	maxUnit := "wei"
+	maxNum := bigOne
+	for unit, num := range unitToWei {
+		if bigWei.Cmp(num) > 0 && num.Cmp(maxNum) > 0 {
+			maxUnit = unit
+			maxNum = num
+		}
+	}
+	bigWei.Mul(bigWei, big.NewInt(100))
+	ret := float64(bigWei.Div(bigWei, maxNum).Int64()) / 100
+	return fmt.Sprintf("%.2g %s", ret, maxUnit)
 }

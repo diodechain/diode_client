@@ -267,7 +267,7 @@ func (edge Protocol) parseAccountResponse(buffer []byte) (interface{}, error) {
 	code, _ := findItemInItems(response.Payload.Items, "code")
 	balance, _ := findItemInItems(response.Payload.Items, "balance")
 	dnonce := util.DecodeBytesToInt(nonce.Value)
-	dbalance := util.DecodeBytesToInt(balance.Value)
+	dbalance := util.DecodeBytesToBigInt(balance.Value)
 	stateTree, err := edge.NewMerkleTree(response.Payload.MerkleProof)
 	if err != nil {
 		return nil, err
@@ -276,7 +276,7 @@ func (edge Protocol) parseAccountResponse(buffer []byte) (interface{}, error) {
 		StorageRoot: storageRoot.Value,
 		Nonce:       int64(dnonce),
 		Code:        code.Value,
-		Balance:     int64(dbalance),
+		Balance:     dbalance,
 		stateTree:   stateTree,
 	}
 	return account, nil

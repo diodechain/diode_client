@@ -5,6 +5,7 @@ package edge
 
 import (
 	"bytes"
+	"math/big"
 
 	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/util"
@@ -84,7 +85,7 @@ type Account struct {
 	StorageRoot []byte
 	Nonce       int64
 	Code        []byte
-	Balance     int64
+	Balance     *big.Int
 	AccountHash []byte
 	// TODO: Why is is this unused?
 	// proof       []byte
