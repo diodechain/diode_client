@@ -86,6 +86,7 @@ func init() {
 	// Add diode commands
 	diodeCmd.AddSubCommand(bnsCmd)
 	diodeCmd.AddSubCommand(configCmd)
+	diodeCmd.AddSubCommand(fetchCmd)
 	diodeCmd.AddSubCommand(gatewayCmd)
 	diodeCmd.AddSubCommand(publishCmd)
 	diodeCmd.AddSubCommand(resetCmd)
