@@ -94,8 +94,9 @@ func (l *Logger) Warn(msg string, args ...interface{}) {
 	l.logger.Warn(fmt.Sprintf(msg, args...))
 }
 
-// Crit logs to logger in Crit level
-func (l *Logger) Crit(msg string, args ...interface{}) {
+// Fatal logs to logger in Fatal level
+// Note: this will exit the program after flush the log
+func (l *Logger) Fatal(msg string, args ...interface{}) {
 	l.logger.Fatal(fmt.Sprintf(msg, args...))
 }
 

@@ -343,7 +343,7 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*Client, err
 	ctx := initSSLCtx(config)
 	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification)
 	if err != nil {
-		config.Logger.Crit(fmt.Sprintf("Failed to connect to: %s (%s)", host, err.Error()))
+		config.Logger.Error(fmt.Sprintf("Failed to connect to: %s (%s)", host, err.Error()))
 		// Retry to connect
 		isOk := false
 		backoff := Backoff{
