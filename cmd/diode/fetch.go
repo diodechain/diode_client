@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -28,11 +29,13 @@ var (
 )
 
 // TODO: http cookies
+// TODO: verbose mode
 type fetchConfig struct {
 	Method string
 	Data   string
 	Header config.StringValues
 	URL    string
+	Output string
 }
 
 func init() {
@@ -41,6 +44,7 @@ func init() {
 	fetchCmd.Flag.StringVar(&fetchCfg.Data, "data", "", "The http body that will be transfered.")
 	fetchCmd.Flag.Var(&fetchCfg.Header, "header", "The http header that will be transfered.")
 	fetchCmd.Flag.StringVar(&fetchCfg.URL, "url", "", "The http request URL.")
+	fetchCmd.Flag.StringVar(&fetchCfg.Output, "output", "", "The output file that keep response body.")
 }
 
 func fetchHandler() (err error) {
@@ -90,6 +94,21 @@ func fetchHandler() (err error) {
 	if err != nil {
 		return
 	}
-	cfg.PrintInfo(fmt.Sprintf("Response: %s", string(body)))
+	if len(fetchCfg.Output) > 0 {
+		var f *os.File
+		f, err = os.OpenFile(fetchCfg.Output, os.O_CREATE|os.O_WRONLY, 0600)
+		if err != nil {
+			return
+		}
+		defer func(f *os.File) {
+			f.Close()
+		}(f)
+		_, err = f.Write(body)
+		if err != nil {
+			return
+		}
+		return
+	}
+	fmt.Println(string(body))
 	return
 }
