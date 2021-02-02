@@ -69,6 +69,7 @@ type Bind struct {
 // Server is the only instances of the Socks Server
 type Server struct {
 	datapool *DataPool
+	resolver *Resolver
 	Config   Config
 	logger   *config.Logger
 	listener net.Listener
@@ -284,131 +285,10 @@ func isDiodeHost(host string) bool {
 	return len(subdomainPort) == 4
 }
 
-func (socksServer *Server) parseHost(host string) (isWS bool, mode string, deviceID string, port int, err error) {
-	mode = defaultMode
-	strPort := ":80"
-
-	subdomainPort := domainPattern.FindStringSubmatch(host)
-	var sub, domain string
-	if len(subdomainPort) != 4 {
-		err = fmt.Errorf("domain pattern not supported %v", host)
-		return
-	}
-
-	sub = subdomainPort[1]
-	domain = subdomainPort[2]
-	if len(subdomainPort[3]) > 0 {
-		strPort = subdomainPort[3]
-	}
-
-	isWS = domain == "diode.ws"
-	modeHostPort := subdomainPattern.FindStringSubmatch(sub)
-	if len(modeHostPort) != 4 {
-		err = fmt.Errorf("subdomain pattern not supported %v", sub)
-		return
-	}
-	if len(modeHostPort[1]) > 0 {
-		mode = modeHostPort[1]
-		mode = mode[:len(mode)-1]
-	}
-	deviceID = modeHostPort[2]
-	if len(modeHostPort[3]) > 0 {
-		strPort = modeHostPort[3]
-	}
-
-	port, err = strconv.Atoi(strPort[1:])
-	return
-}
-
-func (socksServer *Server) checkAccess(deviceName string) (ret []*edge.DeviceTicket, err error) {
-	// Resolving BNS if needed
-	var deviceIDs []Address
-	client := socksServer.datapool.GetNearestClient()
-	if client == nil {
-		return nil, HttpError{404, err}
-	}
-	if !util.IsHex([]byte(deviceName)) {
-		bnsKey := fmt.Sprintf("bns:%s", deviceName)
-		var ok bool
-		deviceIDs, ok = socksServer.datapool.GetCacheBNS(bnsKey)
-		if !ok {
-			deviceIDs, err = client.ResolveBNS(deviceName)
-			if err != nil {
-				return nil, HttpError{404, err}
-			}
-			socksServer.datapool.SetCacheBNS(bnsKey, deviceIDs)
-		}
-	} else {
-		id, err := util.DecodeAddress(deviceName)
-		if err != nil {
-			err = fmt.Errorf("DeviceAddress '%s' is not an address: %v", deviceName, err)
-			return nil, HttpError{400, err}
-		}
-		deviceIDs = make([]util.Address, 1)
-		deviceIDs[0] = id
-	}
-
-	deviceIDs = util.Filter(deviceIDs, func(addr Address) bool {
-		// Checking blocklist and allowlist
-		if len(socksServer.Config.Blocklists) > 0 {
-			if socksServer.Config.Blocklists[addr] {
-				return false
-			}
-		} else {
-			if len(socksServer.Config.Allowlists) > 0 {
-				if !socksServer.Config.Allowlists[addr] {
-					return false
-				}
-			}
-		}
-		return true
-	})
-
-	if len(deviceIDs) == 0 {
-		err := fmt.Errorf("device %x is not allowed", deviceName)
-		return nil, HttpError{403, err}
-	}
-
-	// Finding accessible deviceIDs
-	for _, deviceID := range deviceIDs {
-
-		// Calling GetObject to locate the device
-		cachedDevice := socksServer.datapool.GetCacheDevice(deviceID)
-		if cachedDevice != nil {
-			ret = append(ret, cachedDevice)
-			continue
-		}
-
-		device, err := client.GetObject(deviceID)
-		if err != nil {
-			continue
-			// return nil, HttpError{404, err}
-		}
-		if device.BlockHash, err = client.ResolveBlockHash(device.BlockNumber); err != nil {
-			client.Error("failed to resolve() %v", err)
-			continue
-		}
-		if device.Err != nil {
-			continue
-		}
-		if !device.ValidateDeviceSig(deviceID) {
-			client.Error("wrong device signature in device object")
-			continue
-		}
-		if !device.ValidateServerSig() {
-			client.Error("wrong server signature in device object")
-			continue
-		}
-		socksServer.datapool.SetCacheDevice(deviceID, device)
-		ret = append(ret, device)
-	}
-	return ret, nil
-}
-
 func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol int, mode string, retry int) (*ConnectedPort, error) {
 	// This is double checked in some cases, but it does not hurt since
-	// checkAccess internally caches
-	devices, err := socksServer.checkAccess(deviceName)
+	// ResolveDevice internally caches
+	devices, err := socksServer.resolver.ResolveDevice(deviceName)
 	if err != nil {
 		return nil, err
 	}
@@ -620,6 +500,42 @@ func lookupFallbackHost(h string) (string, error) {
 	return net.JoinHostPort(ips[0].String(), port), err
 }
 
+func parseHost(host string) (isWS bool, mode string, deviceID string, port int, err error) {
+	mode = defaultMode
+	strPort := ":80"
+
+	subdomainPort := domainPattern.FindStringSubmatch(host)
+	var sub, domain string
+	if len(subdomainPort) != 4 {
+		err = fmt.Errorf("domain pattern not supported %v", host)
+		return
+	}
+
+	sub = subdomainPort[1]
+	domain = subdomainPort[2]
+	if len(subdomainPort[3]) > 0 {
+		strPort = subdomainPort[3]
+	}
+
+	isWS = domain == "diode.ws"
+	modeHostPort := subdomainPattern.FindStringSubmatch(sub)
+	if len(modeHostPort) != 4 {
+		err = fmt.Errorf("subdomain pattern not supported %v", sub)
+		return
+	}
+	if len(modeHostPort[1]) > 0 {
+		mode = modeHostPort[1]
+		mode = mode[:len(mode)-1]
+	}
+	deviceID = modeHostPort[2]
+	if len(modeHostPort[3]) > 0 {
+		strPort = modeHostPort[3]
+	}
+
+	port, err = strconv.Atoi(strPort[1:])
+	return
+}
+
 func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 	defer func() {
 		if err := recover(); err != nil {
@@ -655,14 +571,14 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 		return
 	}
 
-	isWS, mode, deviceID, port, err := socksServer.parseHost(host)
+	isWS, mode, deviceID, port, err := parseHost(host)
 	if err != nil {
 		socksServer.logger.Error("Failed to parse host %v", err)
 		return
 	}
-	devices, httpErr := socksServer.checkAccess(deviceID)
+	devices, httpErr := socksServer.resolver.ResolveDevice(deviceID)
 	if len(devices) == 0 {
-		socksServer.logger.Error("Failed to checkAccess %v", httpErr.Error())
+		socksServer.logger.Error("Failed to ResolveDevice %v", httpErr.Error())
 		writeSocksError(conn, ver, socksRepNotAllowed)
 		return
 	}
@@ -789,7 +705,7 @@ func (socksServer *Server) handleUDP(packet []byte) {
 	data := packet[idDm0+dmLen+2:]
 
 	// Finished parsing packet
-	isWS, mode, deviceID, _, err := socksServer.parseHost(host)
+	isWS, mode, deviceID, _, err := parseHost(host)
 	if err != nil {
 		socksServer.logger.Error("handleUDP error: Failed to parse %s %v", host, err)
 		return
@@ -969,6 +885,7 @@ func NewSocksServer(socksCfg Config, pool *DataPool) (*Server, error) {
 		logger:   config.AppConfig.Logger,
 		wg:       &sync.WaitGroup{},
 		datapool: pool,
+		resolver: NewResolver(socksCfg, pool),
 		closeCh:  make(chan struct{}),
 		binds:    make([]Bind, 0),
 	}
