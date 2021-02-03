@@ -13,6 +13,7 @@ import (
 
 	"github.com/diodechain/diode_go_client/command"
 	"github.com/diodechain/diode_go_client/config"
+	"github.com/diodechain/diode_go_client/edge"
 	"github.com/diodechain/diode_go_client/rpc"
 )
 
@@ -40,11 +41,12 @@ var (
 
 // TODO: http cookies
 type fetchConfig struct {
-	Method string
-	Data   string
-	Header config.StringValues
-	URL    string
-	Output string
+	Method  string
+	Data    string
+	Header  config.StringValues
+	URL     string
+	Output  string
+	Verbose bool
 }
 
 func init() {
@@ -54,6 +56,7 @@ func init() {
 	fetchCmd.Flag.Var(&fetchCfg.Header, "header", "The http header that will be transfered.")
 	fetchCmd.Flag.StringVar(&fetchCfg.URL, "url", "", "The http request URL.")
 	fetchCmd.Flag.StringVar(&fetchCfg.Output, "output", "", "The output file that keep response body.")
+	fetchCmd.Flag.BoolVar(&fetchCfg.Verbose, "verbose", false, "Print more information about the connection.")
 }
 
 func fetchHandler() (err error) {
@@ -99,10 +102,33 @@ func fetchHandler() (err error) {
 	req, err = http.NewRequest(method, fetchCfg.URL, strings.NewReader(fetchCfg.Data))
 	for _, header := range fetchCfg.Header {
 		rawHeader := strings.Split(header, ":")
-		if len(rawHeader) == 2 {
-			req.Header.Add(rawHeader[0], rawHeader[1])
+		// there might be : sep in value
+		if len(rawHeader) >= 2 {
+			name := strings.Trim(rawHeader[0], " ")
+			value := strings.Trim(strings.Join(rawHeader[1:], ":"), " ")
+			req.Header.Add(name, value)
 		}
 	}
+	trace := &rpc.ClientTrace{
+		// BNSStart: func(name string) {
+		// 	if fetchCfg.Verbose {
+		// 		fmt.Printf("Look up %s\n", name)
+		// 	}
+		// },
+		BNSDone: func(devices []*edge.DeviceTicket) {
+			if fetchCfg.Verbose {
+				for _, device := range devices {
+					fmt.Printf("Found device %s connected to %s\n", device.GetDeviceID(), device.ServerID.HexString())
+				}
+			}
+		},
+		GotConn: func(connPort *rpc.ConnectedPort) {
+			if fetchCfg.Verbose {
+				fmt.Printf("Connected to %s %d\n", connPort.DeviceID.HexString(), connPort.PortNumber)
+			}
+		},
+	}
+	req = req.WithContext(rpc.WithClientTrace(req.Context(), trace))
 	var resp *http.Response
 	resp, err = transport.RoundTrip(req)
 	if err != nil {
@@ -126,6 +152,9 @@ func fetchHandler() (err error) {
 		_, err = f.Write(body)
 		if err != nil {
 			return
+		}
+		if fetchCfg.Verbose {
+			fmt.Println(string(body))
 		}
 		return
 	}

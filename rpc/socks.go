@@ -330,7 +330,8 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 			socksServer.logger.Debug("PortOpen() failed(2): %v", portOpen.Err)
 			continue
 		}
-		return NewConnectedPort(portOpen.Ref, deviceID, client), nil
+		portOpen.PortNumber = port
+		return NewConnectedPort(portOpen.Ref, deviceID, client, port), nil
 	}
 
 	if retry > 0 {

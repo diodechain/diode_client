@@ -23,14 +23,29 @@ func (socksServer *Server) DialContext(ctx context.Context, network, addr string
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse host %s %v", addr, err)
 	}
+	trace := ContextClientTrace(ctx)
+	if trace != nil {
+		if trace.BNSStart != nil {
+			trace.BNSStart(deviceID)
+		}
+	}
 	// TODO: handle context and error from connectDeviceAndLoop
-	// fmt.Println(ctx)
 	devices, err := socksServer.resolver.ResolveDevice(deviceID)
 	if len(devices) == 0 || err != nil {
+		if trace != nil {
+			if trace.BNSDone != nil {
+				trace.BNSDone(devices)
+			}
+		}
 		return nil, fmt.Errorf("failed to ResolveDevice %v", err)
 	}
 	if len(devices) > 1 {
 		return nil, fmt.Errorf("that BNS name is backed by multiple addresses. Please select only one")
+	}
+	if trace != nil {
+		if trace.BNSDone != nil {
+			trace.BNSDone(devices)
+		}
 	}
 	if !isWS {
 		// network pipe in memory
@@ -40,7 +55,11 @@ func (socksServer *Server) DialContext(ctx context.Context, network, addr string
 		protocol := config.TLSProtocol
 		go func() {
 			err := socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, func(connPort *ConnectedPort) (net.Conn, error) {
-				socksServer.logger.Info("Connect remote success @ %s %v", deviceID, port)
+				if trace != nil {
+					if trace.GotConn != nil {
+						trace.GotConn(connPort)
+					}
+				}
 				return connDiode, nil
 			})
 			if err != nil {

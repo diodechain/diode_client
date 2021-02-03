@@ -29,8 +29,8 @@ type ConnectedPort struct {
 }
 
 // NewConnectedPort returns a new connected port
-func NewConnectedPort(ref string, deviceID Address, client *Client) (port *ConnectedPort) {
-	port = &ConnectedPort{Ref: ref, DeviceID: deviceID, client: client}
+func NewConnectedPort(ref string, deviceID Address, client *Client, portNumber int) (port *ConnectedPort) {
+	port = &ConnectedPort{Ref: ref, DeviceID: deviceID, client: client, PortNumber: portNumber}
 	port.Debug("New connected port")
 	return
 }

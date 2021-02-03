@@ -88,7 +88,7 @@ func (rpcClient *Client) handleInboundRequest(inboundRequest interface{}) {
 			// TODO check that this format %x%x conforms with the read side
 			portOpen.SrcPortNumber = int(publishedPort.Src)
 			clientID := fmt.Sprintf("%x%x", portOpen.DeviceID, portOpen.Ref)
-			port := NewConnectedPort(portOpen.Ref, portOpen.DeviceID, rpcClient)
+			port := NewConnectedPort(portOpen.Ref, portOpen.DeviceID, rpcClient, portOpen.PortNumber)
 
 			// connect to stream service
 			host := net.JoinHostPort(publishedPort.SrcHost, strconv.Itoa(portOpen.SrcPortNumber))
