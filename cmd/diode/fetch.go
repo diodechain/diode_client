@@ -25,11 +25,20 @@ var (
 		Run:         fetchHandler,
 		Type:        command.OneOffCommand,
 	}
-	fetchCfg *fetchConfig
+	fetchCfg      *fetchConfig
+	allowedMethod = map[string]bool{
+		"GET":    true,
+		"POST":   true,
+		"PUT":    true,
+		"DELETE": true,
+		"OPTION": true,
+		"PATCH":  false,
+	}
+	errUrlRequired      = fmt.Errorf("request URL is required")
+	errMethodNotAllowed = fmt.Errorf("http method was not allowed")
 )
 
 // TODO: http cookies
-// TODO: verbose mode
 type fetchConfig struct {
 	Method string
 	Data   string
@@ -50,8 +59,18 @@ func init() {
 func fetchHandler() (err error) {
 	err = nil
 	if len(fetchCfg.URL) == 0 {
-		err = fmt.Errorf("request URL is required")
+		err = errUrlRequired
 		return
+	}
+	method := strings.ToUpper(fetchCfg.Method)
+	if allowed, ok := allowedMethod[method]; !ok {
+		err = errMethodNotAllowed
+		return
+	} else {
+		if !allowed {
+			err = errMethodNotAllowed
+			return
+		}
 	}
 	err = app.Start()
 	if err != nil {
@@ -73,10 +92,11 @@ func fetchHandler() (err error) {
 	}
 	transport := &http.Transport{
 		Dial:                socksServer.Dial,
+		DialContext:         socksServer.DialContext,
 		TLSHandshakeTimeout: 10 * time.Second,
 	}
 	var req *http.Request
-	req, err = http.NewRequest(strings.ToUpper(fetchCfg.Method), fetchCfg.URL, strings.NewReader(fetchCfg.Data))
+	req, err = http.NewRequest(method, fetchCfg.URL, strings.NewReader(fetchCfg.Data))
 	for _, header := range fetchCfg.Header {
 		rawHeader := strings.Split(header, ":")
 		if len(rawHeader) == 2 {
