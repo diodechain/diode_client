@@ -4,6 +4,7 @@
 package rpc
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -25,6 +26,7 @@ type E2EServer struct {
 	remoteConn  net.Conn
 	localConn   net.Conn
 	opensslConn *openssl.Conn
+	traceCtx    context.Context
 }
 
 // NewE2EServer returns e2e server
@@ -78,6 +80,13 @@ func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*op
 	}
 	e2eServer.opensslConn = conn
 	go func() {
+		var trace *ClientTrace
+		if e2eServer.traceCtx != nil {
+			trace = ContextClientTrace(e2eServer.traceCtx)
+		}
+		if trace != nil && trace.E2EHandshakeStart != nil {
+			trace.E2EHandshakeStart(e2eServer.peer)
+		}
 		ts := time.Now()
 		if err = e2eServer.handshake(conn); err != nil {
 			if err != io.EOF ||
@@ -86,7 +95,13 @@ func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*op
 				e2eServer.port.Error("Failed to e2e handshake: %v", err)
 			}
 			e2eServer.Close()
+			if trace != nil && trace.E2EHandshakeDone != nil {
+				trace.E2EHandshakeDone(e2eServer.peer, err)
+			}
 			return
+		}
+		if trace != nil && trace.E2EHandshakeDone != nil {
+			trace.E2EHandshakeDone(e2eServer.peer, nil)
 		}
 		te := time.Since(ts)
 		e2eServer.port.Debug(fmt.Sprintf("E2E handshake time: %s", te))

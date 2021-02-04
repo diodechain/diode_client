@@ -59,6 +59,7 @@ func (socksServer *Server) DialContext(ctx context.Context, network, addr string
 					if trace.GotConn != nil {
 						trace.GotConn(connPort)
 					}
+					connPort.SetTraceCtx(ctx)
 				}
 				return connDiode, nil
 			})

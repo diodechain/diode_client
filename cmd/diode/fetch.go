@@ -15,6 +15,7 @@ import (
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/edge"
 	"github.com/diodechain/diode_go_client/rpc"
+	"github.com/diodechain/diode_go_client/util"
 )
 
 // TODO: Currently, fetch command only support http protocol, will support more protocol in the future.
@@ -125,6 +126,20 @@ func fetchHandler() (err error) {
 		GotConn: func(connPort *rpc.ConnectedPort) {
 			if fetchCfg.Verbose {
 				fmt.Printf("Connected to %s %d\n", connPort.DeviceID.HexString(), connPort.PortNumber)
+			}
+		},
+		E2EHandshakeStart: func(peer util.Address) {
+			if fetchCfg.Verbose {
+				fmt.Printf("Start E2E handshake to %s\n", peer.HexString())
+			}
+		},
+		E2EHandshakeDone: func(peer util.Address, err error) {
+			if fetchCfg.Verbose {
+				if err != nil {
+					fmt.Printf("Failed E2E handshake to %s %+v\n", peer.HexString(), err)
+				} else {
+					fmt.Printf("Finish E2E handshake to %s\n", peer.HexString())
+				}
 			}
 		},
 	}
