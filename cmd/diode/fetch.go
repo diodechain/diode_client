@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
+	"net/http/httputil"
 	"os"
 	"strings"
 	"time"
@@ -139,6 +140,10 @@ func fetchHandler() (err error) {
 					fmt.Printf("Failed E2E handshake to %s %+v\n", peer.HexString(), err)
 				} else {
 					fmt.Printf("Finish E2E handshake to %s\n", peer.HexString())
+				}
+				rawRequest, err := httputil.DumpRequestOut(req, true)
+				if err == nil {
+					fmt.Println(string(rawRequest))
 				}
 			}
 		},
