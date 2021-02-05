@@ -6,12 +6,15 @@ GOBUILD=go build -ldflags '-s -r ./ -X "main.version=${COMMIT}${VARIANT}" -X "ma
 ARCHIVE= $(shell ./deployment/zipname.sh)
 
 UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Linux)
+	UPX = upx
+else
+	UPX = echo noupx
+endif
 ifeq ($(UNAME_S),Darwin)
 	STRIP = echo nostrip
-	UPX = echo noupx
 else
 	STRIP = strip --strip-all
-	UPX = upx
 endif
 
 EXE = 
