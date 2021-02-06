@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -39,6 +40,8 @@ var (
 	}
 	errUrlRequired      = fmt.Errorf("request URL is required")
 	errMethodNotAllowed = fmt.Errorf("http method was not allowed")
+	errWeb2URL          = fmt.Errorf("please use curl for good old web2 sites")
+	domainPattern       = regexp.MustCompile(`^(http|https|diode):\/\/(.+)\.(diode|diode\.link|diode\.ws)(:[\d]+)?$`)
 )
 
 // TODO: http cookies
@@ -61,11 +64,23 @@ func init() {
 	fetchCmd.Flag.BoolVar(&fetchCfg.Verbose, "verbose", false, "Print more information about the connection.")
 }
 
+//
 func fetchHandler() (err error) {
 	err = nil
 	if len(fetchCfg.URL) == 0 {
 		err = errUrlRequired
 		return
+	}
+	parsedURL := domainPattern.FindStringSubmatch(fetchCfg.URL)
+	if len(parsedURL) == 0 {
+		err = errWeb2URL
+		return
+	}
+	var uri string
+	if parsedURL[1] == "diode" {
+		uri = fmt.Sprintf("http://%s", fetchCfg.URL[8:])
+	} else {
+		uri = fetchCfg.URL
 	}
 	method := strings.ToUpper(fetchCfg.Method)
 	if allowed, ok := allowedMethod[method]; !ok {
@@ -101,7 +116,7 @@ func fetchHandler() (err error) {
 		TLSHandshakeTimeout: 10 * time.Second,
 	}
 	var req *http.Request
-	req, err = http.NewRequest(method, fetchCfg.URL, strings.NewReader(fetchCfg.Data))
+	req, err = http.NewRequest(method, uri, strings.NewReader(fetchCfg.Data))
 	for _, header := range fetchCfg.Header {
 		rawHeader := strings.Split(header, ":")
 		// there might be : sep in value
