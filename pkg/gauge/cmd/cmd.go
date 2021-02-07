@@ -25,7 +25,7 @@ var (
 		Use:   "gauge",
 		Short: "A client application to send request through diode network.",
 		Long:  `This is a client program to send multiple requests through diode network concurrently.`,
-		RunE:  clientDebugHandler,
+		RunE:  gaugeHandler,
 	}
 	cfg                      = &Config{}
 	ErrUnsupportTransport    = fmt.Errorf("unsupported transport, make sure you use these options (proxy, sproxy, socks5)")
@@ -120,7 +120,7 @@ func (app *App) delConn(c net.Conn) {
 	app.mx.Unlock()
 }
 
-func clientDebugHandler(cmd *cobra.Command, args []string) (err error) {
+func gaugeHandler(cmd *cobra.Command, args []string) (err error) {
 	// initialize app
 	app = new(App)
 	app.Init()

@@ -46,15 +46,15 @@ type Config struct {
 	EnableMetrics     bool          `yaml:"metrics,omitempty" json:"metrics,omitempty"`
 	EnableKeepAlive   bool          `yaml:"keepalive,omitempty" json:"keepalive,omitempty"`
 	KeepAliveInterval time.Duration `yaml:"keepaliveinterval,omitempty" json:"keepaliveinterval,omitempty"`
-	RemoteRPCAddrs    stringValues  `yaml:"diodeaddrs,omitempty" json:"diodeaddrs,omitempty"`
+	RemoteRPCAddrs    StringValues  `yaml:"diodeaddrs,omitempty" json:"diodeaddrs,omitempty"`
 	RemoteRPCTimeout  time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	RetryTimes        int           `yaml:"retrytimes,omitempty" json:"retrytimes,omitempty"`
 	RetryWait         time.Duration `yaml:"retrywait,omitempty" json:"retrywait,omitempty"`
 	RlimitNofile      int           `yaml:"rlimit_nofile,omitempty" json:"rlimit_nofile,omitempty"`
 	LogFilePath       string        `yaml:"logfilepath,omitempty" json:"logfilepath,omitempty"`
-	SBlocklists       stringValues  `yaml:"blocklists,omitempty" json:"blocklists,omitempty"`
-	SAllowlists       stringValues  `yaml:"allowlists,omitempty" json:"allowlists,omitempty"`
-	SBinds            stringValues  `yaml:"bind,omitempty" json:"bind,omitempty"`
+	SBlocklists       StringValues  `yaml:"blocklists,omitempty" json:"blocklists,omitempty"`
+	SAllowlists       StringValues  `yaml:"allowlists,omitempty" json:"allowlists,omitempty"`
+	SBinds            StringValues  `yaml:"bind,omitempty" json:"bind,omitempty"`
 	CPUProfile        string        `yaml:"cpuprofile,omitempty" json:"-"`
 	// CPUProfileRate          int              `yaml:"cpuprofilerate,omitempty" json:"-"`
 	MEMProfile              string           `yaml:"memprofile,omitempty"`
@@ -86,12 +86,12 @@ type Config struct {
 	SocksFallback           string           `yaml:"-" json:"-"`
 	ConfigUnsafe            bool             `yaml:"-" json:"-"`
 	ConfigList              bool             `yaml:"-" json:"-"`
-	ConfigDelete            stringValues     `yaml:"-" json:"-"`
-	ConfigSet               stringValues     `yaml:"-" json:"-"`
+	ConfigDelete            StringValues     `yaml:"-" json:"-"`
+	ConfigSet               StringValues     `yaml:"-" json:"-"`
 	PublishedPorts          map[int]*Port    `yaml:"-" json:"-"`
-	PublicPublishedPorts    stringValues     `yaml:"published_public_ports,omitempty" json:"-"`
-	ProtectedPublishedPorts stringValues     `yaml:"published_protected_ports,omitempty" json:"-"`
-	PrivatePublishedPorts   stringValues     `yaml:"published_private_ports,omitempty" json:"-"`
+	PublicPublishedPorts    StringValues     `yaml:"published_public_ports,omitempty" json:"-"`
+	ProtectedPublishedPorts StringValues     `yaml:"published_protected_ports,omitempty" json:"-"`
+	PrivatePublishedPorts   StringValues     `yaml:"published_private_ports,omitempty" json:"-"`
 	Blocklists              map[Address]bool `yaml:"-" json:"-"`
 	Allowlists              map[Address]bool `yaml:"-" json:"-"`
 	LogMode                 int              `yaml:"-" json:"-"`
@@ -298,13 +298,13 @@ func ProtocolName(protocol int) string {
 	return "?"
 }
 
-type stringValues []string
+type StringValues []string
 
-func (svs *stringValues) String() string {
+func (svs *StringValues) String() string {
 	return strings.Join(([]string)(*svs), ", ")
 }
 
-func (svs *stringValues) Set(value string) error {
+func (svs *StringValues) Set(value string) error {
 	*svs = append(*svs, value)
 	return nil
 }

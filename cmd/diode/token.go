@@ -24,7 +24,7 @@ var (
 		Type:        command.OneOffCommand,
 	}
 	tokenPattern = regexp.MustCompile(`^([0-9]+)(wei|kwei|mwei|gwei|microdiode|millidiode|diode)?$`)
-	cfg          *tokenConfig
+	tokenCfg     *tokenConfig
 )
 
 type tokenConfig struct {
@@ -37,13 +37,13 @@ type tokenConfig struct {
 }
 
 func init() {
-	cfg = new(tokenConfig)
-	tokenCmd.Flag.BoolVar(&cfg.CheckBalance, "balance", false, "Just check the balance and quit.")
-	tokenCmd.Flag.StringVar(&cfg.To, "to", "", "The address or BNS name that DIODEs will be transfered to.")
-	tokenCmd.Flag.StringVar(&cfg.Value, "value", "", "Amount of DIODEs to be transfered.")
-	tokenCmd.Flag.StringVar(&cfg.GasPrice, "gasprice", "", "Transfer gas price paid to diode miner.")
-	tokenCmd.Flag.StringVar(&cfg.Gas, "gas", "21000", "Transfer gas paid to diode miner.")
-	tokenCmd.Flag.StringVar(&cfg.Data, "data", "", "Data that will be submitted with the transaction.")
+	tokenCfg = new(tokenConfig)
+	tokenCmd.Flag.BoolVar(&tokenCfg.CheckBalance, "balance", false, "Just check the balance and quit.")
+	tokenCmd.Flag.StringVar(&tokenCfg.To, "to", "", "The address or BNS name that DIODEs will be transfered to.")
+	tokenCmd.Flag.StringVar(&tokenCfg.Value, "value", "", "Amount of DIODEs to be transfered.")
+	tokenCmd.Flag.StringVar(&tokenCfg.GasPrice, "gasprice", "", "Transfer gas price paid to diode miner.")
+	tokenCmd.Flag.StringVar(&tokenCfg.Gas, "gas", "21000", "Transfer gas paid to diode miner.")
+	tokenCmd.Flag.StringVar(&tokenCfg.Data, "data", "", "Data that will be submitted with the transaction.")
 }
 
 func parseUnitAndValue(src string) (val int, unit string) {
@@ -66,26 +66,26 @@ func parseUnitAndValue(src string) (val int, unit string) {
 }
 
 func tokenHandler() (err error) {
-	if cfg.CheckBalance {
+	if tokenCfg.CheckBalance {
 		showBalance()
 		return
 	}
 
-	valWei, _ := parseUnitAndValue(cfg.Value)
+	valWei, _ := parseUnitAndValue(tokenCfg.Value)
 	if valWei <= 0 {
 		return fmt.Errorf("value was not valid")
 	}
-	gasPriceWei, _ := parseUnitAndValue(cfg.GasPrice)
+	gasPriceWei, _ := parseUnitAndValue(tokenCfg.GasPrice)
 	if gasPriceWei <= 0 {
 		return fmt.Errorf("gas price was not valid")
 	}
-	gasWei, _ := parseUnitAndValue(cfg.Gas)
+	gasWei, _ := parseUnitAndValue(tokenCfg.Gas)
 	if gasWei <= 0 {
 		return fmt.Errorf("gas was not valid")
 	}
 	var data []byte
-	if len(cfg.Data) > 0 {
-		data, _ = util.DecodeString(cfg.Data)
+	if len(tokenCfg.Data) > 0 {
+		data, _ = util.DecodeString(tokenCfg.Data)
 	}
 	err = app.Start()
 	if err != nil {
@@ -98,10 +98,10 @@ func tokenHandler() (err error) {
 		return
 	}
 	var toAddr util.Address
-	if !util.IsAddress([]byte(cfg.To)) {
+	if !util.IsAddress([]byte(tokenCfg.To)) {
 		// lookup the bns name
 		var lookupAddrs []util.Address
-		lookupAddrs, err = client.ResolveBNS(cfg.To)
+		lookupAddrs, err = client.ResolveBNS(tokenCfg.To)
 		if err != nil {
 			return
 		}
@@ -115,7 +115,7 @@ func tokenHandler() (err error) {
 		}
 		toAddr = lookupAddrs[0]
 	} else {
-		toAddr, err = util.DecodeAddress(cfg.To)
+		toAddr, err = util.DecodeAddress(tokenCfg.To)
 		if err != nil {
 			return
 		}
