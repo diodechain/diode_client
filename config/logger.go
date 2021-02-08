@@ -5,7 +5,7 @@ package config
 
 import (
 	"fmt"
-	// "os"
+	"os"
 	"sync"
 
 	"github.com/diodechain/zap"
@@ -25,7 +25,7 @@ type Logger struct {
 	cd      sync.Once
 }
 
-func newZapLogger(cfg *Config) (logger *zap.Logger) {
+func newZapLogger(cfg *Config) (logger *zap.Logger, err error) {
 	var zapCfg zap.Config
 	if cfg.Debug {
 		zapCfg = zap.NewDevelopmentConfig()
@@ -36,10 +36,14 @@ func newZapLogger(cfg *Config) (logger *zap.Logger) {
 		zapCfg.DisableStacktrace = true
 	}
 	if (cfg.LogMode & LogToFile) > 0 {
-		// TODO: check whether file is existed?
-		zapCfg.OutputPaths = []string{cfg.LogFilePath}
-		zapCfg.ErrorOutputPaths = []string{cfg.LogFilePath}
-		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
+		_, err = os.Stat(cfg.LogFilePath)
+		if err == nil || (err != nil && os.IsExist(err)) {
+			zapCfg.OutputPaths = []string{cfg.LogFilePath}
+			zapCfg.ErrorOutputPaths = []string{cfg.LogFilePath}
+			zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
+		} else {
+			zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+		}
 	} else {
 		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
 	}
@@ -59,8 +63,7 @@ func newZapLogger(cfg *Config) (logger *zap.Logger) {
 
 // NewLogger initialize logger with given config
 func NewLogger(cfg *Config) (l Logger, err error) {
-	logger := newZapLogger(cfg)
-	l.logger = logger
+	l.logger, err = newZapLogger(cfg)
 	l.verbose = cfg.Debug
 	l.closeCh = make(chan struct{})
 	l.mode = cfg.LogMode

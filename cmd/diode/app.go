@@ -58,7 +58,7 @@ func init() {
 	diodeCmd.Flag.BoolVar(&cfg.EnableAPIServer, "api", false, "turn on the config api")
 	diodeCmd.Flag.StringVar(&cfg.APIServerAddr, "apiaddr", "localhost:1081", "define config api server address")
 	diodeCmd.Flag.IntVar(&cfg.RlimitNofile, "rlimit_nofile", 0, "specify the file descriptor numbers that can be opened by this process")
-	diodeCmd.Flag.StringVar(&cfg.LogFilePath, "logfilepath", "", "file path to log file")
+	diodeCmd.Flag.StringVar(&cfg.LogFilePath, "logfilepath", "", "absolute path to the log file")
 	diodeCmd.Flag.BoolVar(&cfg.LogDateTime, "logdatetime", false, "show the date time in log")
 	diodeCmd.Flag.StringVar(&cfg.ConfigFilePath, "configpath", "", "yaml file path to config file")
 	diodeCmd.Flag.StringVar(&cfg.CPUProfile, "cpuprofile", "", "file path for cpu profiling")
@@ -114,18 +114,22 @@ func prepareDiode() error {
 	}
 
 	if len(cfg.LogFilePath) > 0 {
-		// TODO: logrotate?
 		cfg.LogMode = config.LogToFile
 	} else {
 		cfg.LogMode = config.LogToConsole
 	}
 
 	logger, err := config.NewLogger(cfg)
-	if err != nil {
-		return err
-	}
 	// should not copy lock
 	cfg.Logger = &logger
+	if err != nil {
+		if cfg.Debug {
+			cfg.PrintError("Couldn't initialize the logger", err)
+		} else {
+			cfg.PrintInfo("Please specify the absolute path to the log file - example: /usr/myuser/diode.log")
+		}
+		return err
+	}
 
 	cfg.PrintLabel("Diode Client version", fmt.Sprintf("%s %s", version, buildTime))
 
