@@ -448,7 +448,7 @@ func (dio *Diode) WaitForFirstClient(onlyNeedOne bool) (client *rpc.Client) {
 				}
 				err = rpcClient.Greet()
 				if err != nil {
-					cfg.Logger.Warn("Failed to ubmitTicket to server: %v from %s", err, rpcClient.Host())
+					cfg.Logger.Warn("Failed to submitTicket to server: %v from %s", err, rpcClient.Host())
 				}
 				dio.datapool.SetClient(serverID, rpcClient)
 				if client == nil {
