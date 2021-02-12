@@ -31,10 +31,11 @@ type portCloseInboundRequest struct {
 	}
 }
 
-// TODO: test this
 type goodbyeInboundRequest struct {
 	RequestID uint64
 	Payload   struct {
-		Reason []string
+		Method  string
+		Reason  string
+		Message string
 	}
 }

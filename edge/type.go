@@ -56,8 +56,9 @@ type PortClose struct {
 }
 
 type Goodbye struct {
-	Reason []string
-	Err    error
+	Reason  string
+	Message string
+	Err     error
 }
 
 type ServerObj struct {

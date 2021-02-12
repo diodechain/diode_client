@@ -526,13 +526,14 @@ func (edge Protocol) parseInboundGoodbyeRequest(buffer []byte) (interface{}, err
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&inboundRequest)
 	goodbye := Goodbye{
-		Reason: []string{"unkown reason"},
+		Reason: "unkown reason",
 	}
 	if err != nil {
-		goodbye.Reason[0] = err.Error()
+		goodbye.Reason = err.Error()
 		return goodbye, nil
 	}
 	goodbye.Reason = inboundRequest.Payload.Reason
+	goodbye.Message = inboundRequest.Payload.Message
 	return goodbye, nil
 }
 
