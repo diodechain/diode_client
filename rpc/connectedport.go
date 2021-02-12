@@ -77,6 +77,9 @@ func (port *ConnectedPort) SendRemote(data []byte) (err error) {
 	if len(data) < packetLimit {
 		var call *Call
 		call, err = port.client.CastContext(getRequestID(), "portsend", port.Ref, data)
+		if err != nil || call == nil {
+			return
+		}
 		// handling an error asynchronous
 		// how to make sure the packet order here?
 		go func() {
