@@ -85,8 +85,6 @@ $(ARCHIVE): dist
 
 .PHONY: gateway
 gateway: diode
-	$(STRIP) -s diode
-	$(UPX) diode
 	scp -C diode root@diode.ws:diode_go_client
 	ssh root@diode.ws 'svc -k .'
 

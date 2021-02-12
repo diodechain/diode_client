@@ -352,6 +352,7 @@ func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, pro
 	}
 
 	connPort, err := socksServer.doConnectDevice(deviceName, port, protocol, mode, 1)
+	defer connPort.Shutdown()
 	if err != nil {
 		return err
 	}

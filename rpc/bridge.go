@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/diodechain/diode_go_client/blockquick"
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/edge"
 )
@@ -89,6 +90,7 @@ func (rpcClient *Client) handleInboundRequest(inboundRequest interface{}) {
 			portOpen.SrcPortNumber = int(publishedPort.Src)
 			clientID := fmt.Sprintf("%x%x", portOpen.DeviceID, portOpen.Ref)
 			port := NewConnectedPort(portOpen.Ref, portOpen.DeviceID, rpcClient, portOpen.PortNumber)
+			defer port.Shutdown()
 
 			// connect to stream service
 			host := net.JoinHostPort(publishedPort.SrcHost, strconv.Itoa(portOpen.SrcPortNumber))
@@ -207,9 +209,9 @@ func (rpcClient *Client) isAllowlisted(port *config.Port, addr Address) bool {
 // handleInboundMessage handle inbound message
 func (rpcClient *Client) handleInboundMessage(msg edge.Message) {
 	go rpcClient.CheckTicket()
-	if msg.IsResponse(rpcClient.edgeProtocol) {
+	if msg.IsResponse() {
 		rpcClient.backoff.StepBack()
-		call := rpcClient.cm.CallByID(msg.ResponseID(rpcClient.edgeProtocol))
+		call := rpcClient.cm.CallByID(msg.ResponseID())
 		if call == nil {
 			// receive empty call, client might drop call because timeout, should drop message
 			return
@@ -225,8 +227,8 @@ func (rpcClient *Client) handleInboundMessage(msg edge.Message) {
 			rpcClient.Warn("Call.response is nil id: %d, method: %s, this might lead to rpc timeout error if you wait rpc response", call.id, call.method)
 			return
 		}
-		if msg.IsError(rpcClient.edgeProtocol) {
-			rpcError, _ := msg.ReadAsError(rpcClient.edgeProtocol)
+		if msg.IsError() {
+			rpcError, _ := msg.ReadAsError()
 			call.enqueueResponse(rpcError)
 			return
 		}
@@ -247,7 +249,7 @@ func (rpcClient *Client) handleInboundMessage(msg edge.Message) {
 		call.enqueueResponse(res)
 		return
 	}
-	inboundRequest, err := msg.ReadAsInboundRequest(rpcClient.edgeProtocol)
+	inboundRequest, err := msg.ReadAsInboundRequest()
 	if err != nil {
 		rpcClient.Error("Not rpc request: %v", err)
 		return
@@ -261,20 +263,22 @@ func (rpcClient *Client) recvMessage() {
 	for {
 		msg, err := rpcClient.s.readMessage()
 		if err != nil {
-			// check error
-			if err == io.EOF ||
-				strings.Contains(err.Error(), "connection reset by peer") {
-				if !rpcClient.s.Closed() {
-					isOk := rpcClient.Reconnect()
-					if isOk {
-						continue
-					}
-				}
+			tryReconnect := false
+			if err == io.EOF {
+				rpcClient.Info("Client connection closed by remote.")
+				tryReconnect = true
+			} else if strings.Contains(err.Error(), "connection reset by peer") {
+				rpcClient.Info("Client connection closed: '%s'.", err.Error())
+				tryReconnect = true
 			}
+
+			// Reconnect is possible
+			if tryReconnect && !rpcClient.s.Closed() && rpcClient.Reconnect() {
+				continue
+			}
+
 			// should close the connection and restart client if client did start in diode.go
-			if !rpcClient.Closed() {
-				rpcClient.Close()
-			}
+			rpcClient.Close()
 			return
 		}
 		if msg.Len > 0 {
@@ -288,9 +292,7 @@ func (rpcClient *Client) recvMessage() {
 // make sure the network is safe
 func (rpcClient *Client) watchLatestBlock() {
 	var lastblock uint64
-	rpcClient.rm.Lock()
-	rpcClient.blockTicker = time.NewTicker(rpcClient.blockTickerDuration)
-	rpcClient.rm.Unlock()
+	rpcClient.call(func() { rpcClient.blockTicker = time.NewTicker(rpcClient.blockTickerDuration) })
 	for {
 		select {
 		case <-rpcClient.finishBlockTickerChan:
@@ -298,11 +300,13 @@ func (rpcClient *Client) watchLatestBlock() {
 		case <-rpcClient.blockTicker.C:
 			// use go routine might cause data race issue
 			// go func() {
-			if rpcClient.bq == nil {
+			var bq *blockquick.Window
+			rpcClient.call(func() { bq = rpcClient.bq })
+			if bq == nil {
 				continue
 			}
 			if lastblock == 0 {
-				lastblock, _ = rpcClient.bq.Last()
+				lastblock, _ = bq.Last()
 			}
 			blockPeak, err := rpcClient.GetBlockPeak()
 			if err != nil {
@@ -323,12 +327,12 @@ func (rpcClient *Client) watchLatestBlock() {
 					isErr = true
 					break
 				}
-				err = rpcClient.bq.AddBlock(blockHeader, false)
+				err = bq.AddBlock(blockHeader, false)
 				if err != nil {
 					rpcClient.Error("Couldn't add block %v %v: %v", num, blockHeader.Hash(), err)
 					// This could happen on an uncle block, in that case we reset
 					// the counter the last finalized block
-					rpcClient.bq.Last()
+					bq.Last()
 					isErr = true
 					break
 				}
@@ -337,21 +341,20 @@ func (rpcClient *Client) watchLatestBlock() {
 				continue
 			}
 
-			lastn, _ := rpcClient.bq.Last()
+			lastn, _ := bq.Last()
 			rpcClient.Debug("Added block(s) %v-%v, last valid %v", lastblock, blockNumMax, lastn)
 			lastblock = blockNumMax
 			rpcClient.storeLastValid()
-			// }()
 		}
 	}
 }
 
-// handleSendCall send the rpc call
+// sendCall send the rpc call
 // drop the call when client is reconnecting to server
-func (rpcClient *Client) handleSendCall(c *Call) (err error) {
+func (rpcClient *Client) sendCall(c *Call) (err error) {
 	if rpcClient.Reconnecting() {
 		rpcClient.Debug("Drop rpc due to reconnect: %s", c.method)
-		return
+		return fmt.Errorf("drop rpc due to reconnect: %s", c.method)
 	}
 	rpcClient.Debug("Send new rpc: %s id: %d", c.method, c.id)
 	ts := time.Now()
@@ -374,5 +377,5 @@ func (rpcClient *Client) handleSendCall(c *Call) (err error) {
 func (rpcClient *Client) Start() {
 	rpcClient.addWorker(rpcClient.recvMessage)
 	rpcClient.addWorker(rpcClient.watchLatestBlock)
-	rpcClient.cm.OnCall = rpcClient.handleSendCall
+	rpcClient.cm.SendCallPtr = rpcClient.sendCall
 }

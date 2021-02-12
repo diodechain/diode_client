@@ -9,10 +9,10 @@ import (
 
 // callManager represents call manager of rpc calls
 type callManager struct {
-	size   int
-	calls  map[uint64]*Call
-	mx     sync.Mutex
-	OnCall func(c *Call) (err error)
+	size        int
+	calls       map[uint64]*Call
+	mx          sync.Mutex
+	SendCallPtr func(c *Call) (err error)
 }
 
 // NewCallManager returns callManager
@@ -32,10 +32,8 @@ func (cm *callManager) Insert(c *Call) (err error) {
 	}
 	c.state = STARTED
 	cm.calls[c.id] = c
-	if cm.OnCall != nil {
-		// To keep data integrety, we cannot write to tcp parallel
-		// go cm.OnCall(c)
-		err = cm.OnCall(c)
+	if cm.SendCallPtr != nil {
+		err = cm.SendCallPtr(c)
 	}
 	return
 }

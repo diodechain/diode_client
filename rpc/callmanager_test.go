@@ -26,7 +26,7 @@ func mockServer(c *Call) (err error) {
 
 func TestCallmanager(t *testing.T) {
 	cm := NewCallManager(8)
-	cm.OnCall = mockServer
+	cm.SendCallPtr = mockServer
 	for i := reqID; i <= 10; i++ {
 		c := makeCall(reqID+i, "portopen")
 		err := cm.Insert(c)

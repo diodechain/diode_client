@@ -11,11 +11,11 @@ type Message struct {
 }
 
 // ResponseID returns response identifier of the message
-func (msg *Message) ResponseID(edgeProtocol Protocol) uint64 {
-	if !msg.IsResponse(edgeProtocol) {
+func (msg *Message) ResponseID() uint64 {
+	if !msg.IsResponse() {
 		return 0
 	}
-	return edgeProtocol.ResponseID(msg.Buffer)
+	return ResponseID(msg.Buffer)
 }
 
 func (msg *Message) pivotBuffer() []byte {
@@ -29,33 +29,33 @@ func (msg *Message) pivotBuffer() []byte {
 }
 
 // IsResponse returns true if the message is response
-func (msg *Message) IsResponse(edgeProtocol Protocol) bool {
+func (msg *Message) IsResponse() bool {
 	pivot := msg.pivotBuffer()
-	return edgeProtocol.IsResponseType(pivot) || edgeProtocol.IsErrorType(pivot)
+	return IsResponseType(pivot) || IsErrorType(pivot)
 }
 
 // IsRequest returns true if the message is request
-func (msg *Message) IsRequest(edgeProtocol Protocol) bool {
-	return !msg.IsResponse(edgeProtocol)
+func (msg *Message) IsRequest() bool {
+	return !msg.IsResponse()
 }
 
 // IsError returns true if the message is error
-func (msg *Message) IsError(edgeProtocol Protocol) bool {
+func (msg *Message) IsError() bool {
 	pivot := msg.pivotBuffer()
-	return edgeProtocol.IsErrorType(pivot)
+	return IsErrorType(pivot)
 }
 
 // ReadAsResponse returns Response of the message
-func (msg *Message) ReadAsResponse(edgeProtocol Protocol) (interface{}, error) {
-	return edgeProtocol.parseResponse(msg.Buffer)
+func (msg *Message) ReadAsResponse() (interface{}, error) {
+	return parseResponse(msg.Buffer)
 }
 
 // ReadAsInboundRequest returns Request of the message
-func (msg *Message) ReadAsInboundRequest(edgeProtocol Protocol) (interface{}, error) {
-	return edgeProtocol.parseInboundRequest(msg.Buffer)
+func (msg *Message) ReadAsInboundRequest() (interface{}, error) {
+	return parseInboundRequest(msg.Buffer)
 }
 
 // ReadAsError returns Error of the message
-func (msg *Message) ReadAsError(edgeProtocol Protocol) (Error, error) {
-	return edgeProtocol.parseError(msg.Buffer)
+func (msg *Message) ReadAsError() (Error, error) {
+	return parseError(msg.Buffer)
 }

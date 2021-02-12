@@ -50,47 +50,45 @@ var (
 	ErrRPCNotSupport           = fmt.Errorf("rpc method not support")
 )
 
-type Protocol struct{}
-
 // parse response
-func (edge Protocol) parseResponse(buffer []byte) (interface{}, error) {
+func parseResponse(buffer []byte) (interface{}, error) {
 	if bytes.Contains(buffer, portOpenPivot) {
-		return edge.parsePortOpenResponse(buffer)
+		return parsePortOpenResponse(buffer)
 	} else if bytes.Contains(buffer, portSendPivot) {
-		return edge.parsePortSendResponse(buffer)
+		return parsePortSendResponse(buffer)
 	} else if bytes.Contains(buffer, blockPivot) {
-		return edge.parseBlockResponse(buffer)
+		return parseBlockResponse(buffer)
 	} else if bytes.Contains(buffer, block2Pivot) {
-		return edge.parseBlockResponse(buffer)
+		return parseBlockResponse(buffer)
 	} else if bytes.Contains(buffer, blockHeaderPivot) {
-		return edge.parseBlockHeaderResponse(buffer)
+		return parseBlockHeaderResponse(buffer)
 	} else if bytes.Contains(buffer, blockHeader2Pivot) {
-		return edge.parseBlockHeaderResponse(buffer)
+		return parseBlockHeaderResponse(buffer)
 	} else if bytes.Contains(buffer, blockquickPivot) {
-		return edge.parseBlockquickResponse(buffer)
+		return parseBlockquickResponse(buffer)
 	} else if bytes.Contains(buffer, blockquick2Pivot) {
-		return edge.parseBlockquickResponse(buffer)
+		return parseBlockquickResponse(buffer)
 	} else if bytes.Contains(buffer, blockPeakPivot) {
-		return edge.parseBlockPeakResponse(buffer)
+		return parseBlockPeakResponse(buffer)
 	} else if bytes.Contains(buffer, accountPivot) {
-		return edge.parseAccountResponse(buffer)
+		return parseAccountResponse(buffer)
 	} else if bytes.Contains(buffer, accountValuePivot) {
-		return edge.parseAccountValueResponse(buffer)
+		return parseAccountValueResponse(buffer)
 	} else if bytes.Contains(buffer, accountRootsPivot) {
-		return edge.parseAccountRootsResponse(buffer)
+		return parseAccountRootsResponse(buffer)
 	} else if bytes.Contains(buffer, stateRootsPivot) {
-		return edge.parseStateRootsResponse(buffer)
+		return parseStateRootsResponse(buffer)
 	} else if bytes.Contains(buffer, objectPivot) {
-		return edge.parseDeviceObjectResponse(buffer)
+		return parseDeviceObjectResponse(buffer)
 	} else if bytes.Contains(buffer, nodePivot) {
-		return edge.parseServerObjResponse(buffer)
+		return parseServerObjResponse(buffer)
 	} else if bytes.Contains(buffer, ticketPivot) {
-		return edge.parseDeviceTicketResponse(buffer)
+		return parseDeviceTicketResponse(buffer)
 	}
 	return nil, ErrResponseHandlerNotFound
 }
 
-func (edge Protocol) parseError(buffer []byte) (rpcErr Error, err error) {
+func parseError(buffer []byte) (rpcErr Error, err error) {
 	var response errorResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err = decodeStream.Decode(&response)
@@ -108,7 +106,7 @@ func (edge Protocol) parseError(buffer []byte) (rpcErr Error, err error) {
 }
 
 // parse response of rpc call
-func (edge Protocol) parseBlockPeakResponse(buffer []byte) (interface{}, error) {
+func parseBlockPeakResponse(buffer []byte) (interface{}, error) {
 	var response blockPeakResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&response)
@@ -119,7 +117,7 @@ func (edge Protocol) parseBlockPeakResponse(buffer []byte) (interface{}, error) 
 }
 
 // TODO: parse block
-func (edge Protocol) parseBlockResponse(buffer []byte) (interface{}, error) {
+func parseBlockResponse(buffer []byte) (interface{}, error) {
 	var response blockResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&response)
@@ -135,7 +133,7 @@ func (edge Protocol) parseBlockResponse(buffer []byte) (interface{}, error) {
 
 // TODO: check error from findItemInItems
 // TODO: use big.Int instead of uint64?
-func (edge Protocol) parseBlockHeaderResponse(buffer []byte) (interface{}, error) {
+func parseBlockHeaderResponse(buffer []byte) (interface{}, error) {
 	var response blockHeaderResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&response)
@@ -173,7 +171,7 @@ func (edge Protocol) parseBlockHeaderResponse(buffer []byte) (interface{}, error
 	return header, nil
 }
 
-func (edge Protocol) parseBlockquickResponse(buffer []byte) (interface{}, error) {
+func parseBlockquickResponse(buffer []byte) (interface{}, error) {
 	var response blockquickResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&response)
@@ -185,7 +183,7 @@ func (edge Protocol) parseBlockquickResponse(buffer []byte) (interface{}, error)
 
 // TODO: check error from findItemInItems
 // TODO: use big.Int instead of uint64?
-func (edge Protocol) parseDeviceTicketResponse(buffer []byte) (interface{}, error) {
+func parseDeviceTicketResponse(buffer []byte) (interface{}, error) {
 	if bytes.Contains(buffer, ticketThanksPivot) {
 		var response ticketThanksResponse
 		decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
@@ -229,7 +227,7 @@ func (edge Protocol) parseDeviceTicketResponse(buffer []byte) (interface{}, erro
 	return nil, ErrFailedToParseTicket
 }
 
-func (edge Protocol) parseDeviceObjectResponse(buffer []byte) (interface{}, error) {
+func parseDeviceObjectResponse(buffer []byte) (interface{}, error) {
 	var response objectResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&response)
@@ -255,7 +253,7 @@ func (edge Protocol) parseDeviceObjectResponse(buffer []byte) (interface{}, erro
 }
 
 // TODO: decode merkle tree from message
-func (edge Protocol) parseAccountResponse(buffer []byte) (interface{}, error) {
+func parseAccountResponse(buffer []byte) (interface{}, error) {
 	var response accountResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&response)
@@ -268,7 +266,7 @@ func (edge Protocol) parseAccountResponse(buffer []byte) (interface{}, error) {
 	balance, _ := findItemInItems(response.Payload.Items, "balance")
 	dnonce := util.DecodeBytesToInt(nonce.Value)
 	dbalance := util.DecodeBytesToBigInt(balance.Value)
-	stateTree, err := edge.NewMerkleTree(response.Payload.MerkleProof)
+	stateTree, err := NewMerkleTree(response.Payload.MerkleProof)
 	if err != nil {
 		return nil, err
 	}
@@ -282,7 +280,7 @@ func (edge Protocol) parseAccountResponse(buffer []byte) (interface{}, error) {
 	return account, nil
 }
 
-func (edge Protocol) parseAccountRootsResponse(buffer []byte) (interface{}, error) {
+func parseAccountRootsResponse(buffer []byte) (interface{}, error) {
 	var response accountRootsResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&response)
@@ -295,14 +293,14 @@ func (edge Protocol) parseAccountRootsResponse(buffer []byte) (interface{}, erro
 	return accountRoots, nil
 }
 
-func (edge Protocol) parseAccountValueResponse(buffer []byte) (interface{}, error) {
+func parseAccountValueResponse(buffer []byte) (interface{}, error) {
 	var response accountValueResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&response)
 	if err != nil {
 		return nil, err
 	}
-	accountTree, err := edge.NewMerkleTree(response.Payload.MerkleProof)
+	accountTree, err := NewMerkleTree(response.Payload.MerkleProof)
 	if err != nil {
 		return nil, err
 	}
@@ -312,7 +310,7 @@ func (edge Protocol) parseAccountValueResponse(buffer []byte) (interface{}, erro
 	return accountValue, nil
 }
 
-func (edge Protocol) parsePortSendResponse(buffer []byte) (interface{}, error) {
+func parsePortSendResponse(buffer []byte) (interface{}, error) {
 	var response portSendResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&response)
@@ -325,7 +323,7 @@ func (edge Protocol) parsePortSendResponse(buffer []byte) (interface{}, error) {
 	return portSend, nil
 }
 
-func (edge Protocol) parsePortOpenResponse(buffer []byte) (interface{}, error) {
+func parsePortOpenResponse(buffer []byte) (interface{}, error) {
 	var response portOpenResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&response)
@@ -339,7 +337,7 @@ func (edge Protocol) parsePortOpenResponse(buffer []byte) (interface{}, error) {
 	return portOpen, nil
 }
 
-func (edge Protocol) parseServerObjResponse(buffer []byte) (interface{}, error) {
+func parseServerObjResponse(buffer []byte) (interface{}, error) {
 	return doParseServerObjResponse(buffer)
 }
 
@@ -416,7 +414,7 @@ func parseUint(data []byte) (num uint64) {
 }
 
 // TODO: check error from jsonparser
-func (edge Protocol) parseStateRootsResponse(buffer []byte) (interface{}, error) {
+func parseStateRootsResponse(buffer []byte) (interface{}, error) {
 	var response stateRootsResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&response)
@@ -429,7 +427,7 @@ func (edge Protocol) parseStateRootsResponse(buffer []byte) (interface{}, error)
 	return stateRoots, nil
 }
 
-func (edge Protocol) parseTransactionResponse(buffer []byte) (interface{}, error) {
+func parseTransactionResponse(buffer []byte) (interface{}, error) {
 	var response transactionResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&response)
@@ -440,7 +438,7 @@ func (edge Protocol) parseTransactionResponse(buffer []byte) (interface{}, error
 }
 
 // parse inbound request
-func (edge Protocol) parseInboundPortOpenRequest(buffer []byte) (interface{}, error) {
+func parseInboundPortOpenRequest(buffer []byte) (interface{}, error) {
 	var inboundRequest portOpenInboundRequest
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&inboundRequest)
@@ -491,7 +489,7 @@ func (edge Protocol) parseInboundPortOpenRequest(buffer []byte) (interface{}, er
 	return nil, fmt.Errorf("not supported port format: %v", inboundRequest.Payload.Port)
 }
 
-func (edge Protocol) parseInboundPortSendRequest(buffer []byte) (interface{}, error) {
+func parseInboundPortSendRequest(buffer []byte) (interface{}, error) {
 	var inboundRequest portSendInboundRequest
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&inboundRequest)
@@ -506,7 +504,7 @@ func (edge Protocol) parseInboundPortSendRequest(buffer []byte) (interface{}, er
 	return portSend, nil
 }
 
-func (edge Protocol) parseInboundPortCloseRequest(buffer []byte) (interface{}, error) {
+func parseInboundPortCloseRequest(buffer []byte) (interface{}, error) {
 	var inboundRequest portCloseInboundRequest
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&inboundRequest)
@@ -521,12 +519,12 @@ func (edge Protocol) parseInboundPortCloseRequest(buffer []byte) (interface{}, e
 }
 
 // TODO: should test it
-func (edge Protocol) parseInboundGoodbyeRequest(buffer []byte) (interface{}, error) {
+func parseInboundGoodbyeRequest(buffer []byte) (interface{}, error) {
 	var inboundRequest goodbyeInboundRequest
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&inboundRequest)
 	goodbye := Goodbye{
-		Reason: "unkown reason",
+		Reason: "unknown reason",
 	}
 	if err != nil {
 		goodbye.Reason = err.Error()
@@ -537,28 +535,28 @@ func (edge Protocol) parseInboundGoodbyeRequest(buffer []byte) (interface{}, err
 	return goodbye, nil
 }
 
-func (edge Protocol) parseInboundRequest(buffer []byte) (req interface{}, err error) {
+func parseInboundRequest(buffer []byte) (req interface{}, err error) {
 	if bytes.Contains(buffer, portOpenPivot) {
-		return edge.parseInboundPortOpenRequest(buffer)
+		return parseInboundPortOpenRequest(buffer)
 	} else if bytes.Contains(buffer, portSendPivot) {
-		return edge.parseInboundPortSendRequest(buffer)
+		return parseInboundPortSendRequest(buffer)
 	} else if bytes.Contains(buffer, portClosePivot) {
-		return edge.parseInboundPortCloseRequest(buffer)
+		return parseInboundPortCloseRequest(buffer)
 	} else if bytes.Contains(buffer, goodbyePivot) {
-		return edge.parseInboundGoodbyeRequest(buffer)
+		return parseInboundGoodbyeRequest(buffer)
 	}
 	return
 }
 
-func (edge Protocol) IsResponseType(rawData []byte) bool {
+func IsResponseType(rawData []byte) bool {
 	return bytes.Contains(rawData, responsePivot)
 }
 
-func (edge Protocol) IsErrorType(rawData []byte) bool {
+func IsErrorType(rawData []byte) bool {
 	return bytes.Contains(rawData, errorPivot)
 }
 
-func (edge Protocol) ResponseID(buffer []byte) uint64 {
+func ResponseID(buffer []byte) uint64 {
 	var response responseID
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	decodeStream.Decode(&response)
@@ -567,7 +565,7 @@ func (edge Protocol) ResponseID(buffer []byte) uint64 {
 
 // NewMerkleTree returns merkle tree of given byte of json
 // eg: ["0x", "0x1", ["0x2bbfda354b607b8cdd7d52c29344c76c17d76bb7d9187874a994144b55eaf931","0x0000000000000000000000000000000000000000000000000000000000000001"]]
-func (edge Protocol) NewMerkleTree(rawTree []interface{}) (mt MerkleTree, err error) {
+func NewMerkleTree(rawTree []interface{}) (mt MerkleTree, err error) {
 	mt = MerkleTree{
 		mtp:     MerkleTreeParser{},
 		RawTree: rawTree,
@@ -582,12 +580,12 @@ func (edge Protocol) NewMerkleTree(rawTree []interface{}) (mt MerkleTree, err er
 	return
 }
 
-func (edge Protocol) NewErrorResponse(err error) (rpcErr Error) {
+func NewErrorResponse(err error) (rpcErr Error) {
 	rpcErr.Message = err.Error()
 	return
 }
 
-func (edge Protocol) NewMessage(writer io.Writer, requestID uint64, method string, args ...interface{}) (func(buffer []byte) (interface{}, error), error) {
+func NewMessage(writer io.Writer, requestID uint64, method string, args ...interface{}) (func(buffer []byte) (interface{}, error), error) {
 	request := generalRequest{}
 	request.RequestID = requestID
 	request.Payload = make([]interface{}, len(args)+1)
@@ -606,39 +604,39 @@ func (edge Protocol) NewMessage(writer io.Writer, requestID uint64, method strin
 	case "portclose":
 		return nil, nil
 	case "getblock":
-		return edge.parseBlockResponse, nil
+		return parseBlockResponse, nil
 	case "getblockpeak":
-		return edge.parseBlockPeakResponse, nil
+		return parseBlockPeakResponse, nil
 	case "getblockheader2":
-		return edge.parseBlockHeaderResponse, nil
+		return parseBlockHeaderResponse, nil
 	case "getblockquick2":
-		return edge.parseBlockquickResponse, nil
+		return parseBlockquickResponse, nil
 	case "getaccount":
-		return edge.parseAccountResponse, nil
+		return parseAccountResponse, nil
 	case "getaccountroots":
-		return edge.parseAccountRootsResponse, nil
+		return parseAccountRootsResponse, nil
 	case "getaccountvalue":
-		return edge.parseAccountValueResponse, nil
+		return parseAccountValueResponse, nil
 	case "ticket":
-		return edge.parseDeviceTicketResponse, nil
+		return parseDeviceTicketResponse, nil
 	case "portopen":
-		return edge.parsePortOpenResponse, nil
+		return parsePortOpenResponse, nil
 	case "portsend":
-		return edge.parsePortSendResponse, nil
+		return parsePortSendResponse, nil
 	case "getobject":
-		return edge.parseDeviceObjectResponse, nil
+		return parseDeviceObjectResponse, nil
 	case "getnode":
-		return edge.parseServerObjResponse, nil
+		return parseServerObjResponse, nil
 	case "getstateroots":
-		return edge.parseStateRootsResponse, nil
+		return parseStateRootsResponse, nil
 	case "sendtransaction":
-		return edge.parseTransactionResponse, nil
+		return parseTransactionResponse, nil
 	default:
 		return nil, ErrRPCNotSupport
 	}
 }
 
-func (edge Protocol) NewResponseMessage(writer io.Writer, requestID uint64, responseType string, method string, args ...interface{}) (func(buffer []byte) (interface{}, error), error) {
+func NewResponseMessage(writer io.Writer, requestID uint64, responseType string, method string, args ...interface{}) (func(buffer []byte) (interface{}, error), error) {
 	request := generalRequest{}
 	request.RequestID = requestID
 	request.Payload = make([]interface{}, len(args)+1)

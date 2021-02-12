@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/diodechain/diode_go_client/blockquick"
 	"github.com/diodechain/diode_go_client/crypto"
 	"github.com/diodechain/diode_go_client/db"
 	"github.com/diodechain/diode_go_client/edge"
@@ -29,6 +30,7 @@ var (
 )
 
 type Call struct {
+	sender   *ConnectedPort
 	id       uint64
 	method   string
 	state    Signal
@@ -99,10 +101,13 @@ func WindowSize() int {
 
 // LastValid returns the last valid block number and block header
 func (rpcClient *Client) LastValid() (uint64, crypto.Sha3) {
-	if rpcClient.bq == nil {
+	var bq *blockquick.Window
+	rpcClient.call(func() { bq = rpcClient.bq })
+	if bq == nil {
 		return restoreLastValid()
 	}
-	return rpcClient.bq.Last()
+	return bq.Last()
+
 }
 
 func restoreLastValid() (uint64, crypto.Sha3) {

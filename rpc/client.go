@@ -1,12 +1,19 @@
 // Diode Network Client
 // Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
 // Licensed under the Diode License, Version 1.0
+
+// Package rpc ConnectedPort has been turned into an actor
+// https://www.gophercon.co.uk/videos/2016/an-actor-model-in-go/
+// Ensure all accesses are wrapped in port.cmdChan <- func() { ... }
+
 package rpc
 
 import (
 	"bytes"
+	"crypto/ecdsa"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"math/big"
 	"sync"
 	"sync/atomic"
@@ -17,6 +24,7 @@ import (
 	"github.com/diodechain/diode_go_client/contract"
 	"github.com/diodechain/diode_go_client/db"
 	"github.com/diodechain/diode_go_client/edge"
+	"github.com/diodechain/diode_go_client/genserver"
 	"github.com/diodechain/diode_go_client/util"
 	"github.com/diodechain/zap"
 )
@@ -29,7 +37,7 @@ const (
 )
 
 var (
-	requestID                uint64 = 0
+	globalRequestID          uint64 = 0
 	errEmptyBNSresult               = fmt.Errorf("couldn't resolve name (null)")
 	errSendTransactionFailed        = fmt.Errorf("server returned false")
 	errClientClosed                 = fmt.Errorf("rpc client was closed")
@@ -58,45 +66,42 @@ type Client struct {
 	blockTicker           *time.Ticker
 	blockTickerDuration   time.Duration
 	finishBlockTickerChan chan bool
-	closeCh               chan struct{}
 	localTimeout          time.Duration
 	wg                    sync.WaitGroup
-	cd                    sync.Once
-	rm                    sync.Mutex
 	pool                  *DataPool
-	signal                chan Signal
-	edgeProtocol          edge.Protocol
 	Config                clientConfig
 	bq                    *blockquick.Window
 	Order                 int
 	// close event
 	OnClose func()
+
+	isClosed bool
+	srv      *genserver.GenServer
 }
 
 func getRequestID() uint64 {
-	return atomic.AddUint64(&requestID, 1)
+	return atomic.AddUint64(&globalRequestID, 1)
 }
 
 // NewClient returns rpc client
-func NewClient(s *SSL, config clientConfig, pool *DataPool) Client {
-	return Client{
+func NewClient(s *SSL, config clientConfig, pool *DataPool) *Client {
+	client := &Client{
+		srv:                   genserver.New("Client"),
 		s:                     s,
 		cm:                    NewCallManager(callQueueSize),
-		closeCh:               make(chan struct{}),
 		finishBlockTickerChan: make(chan bool, 1),
 		blockTickerDuration:   15 * time.Second,
 		localTimeout:          100 * time.Millisecond,
 		pool:                  pool,
-		signal:                make(chan Signal),
 		backoff: Backoff{
 			Min:    5 * time.Second,
 			Max:    10 * time.Second,
 			Factor: 2,
 			Jitter: true,
 		},
-		edgeProtocol: edge.Protocol{},
-		Config:       config,
+		Config: config,
 	}
+	return client
 }
 
 // Info logs to logger in Info level
@@ -125,22 +130,25 @@ func (rpcClient *Client) Crit(msg string, args ...interface{}) {
 }
 
 // Host returns the non-resolved addr name of the host
-func (rpcClient *Client) Host() string {
-	return rpcClient.s.addr
+func (rpcClient *Client) Host() (host string) {
+	rpcClient.call(func() { host = rpcClient.s.addr })
+	return
 }
 
 // GetServerID returns server address
-func (rpcClient *Client) GetServerID() ([20]byte, error) {
-	serverID, err := rpcClient.s.GetServerID()
-	if err != nil {
-		return util.EmptyAddress, err
-	}
-	return serverID, nil
+func (rpcClient *Client) GetServerID() (serverID [20]byte, err error) {
+	rpcClient.call(func() {
+		serverID, err = rpcClient.s.GetServerID()
+		if err != nil {
+			serverID = util.EmptyAddress
+		}
+	})
+	return
 }
 
 // GetDeviceKey returns device key of given ref
 func (rpcClient *Client) GetDeviceKey(ref string) string {
-	prefixByt, err := rpcClient.s.GetServerID()
+	prefixByt, err := rpcClient.GetServerID()
 	if err != nil {
 		return ""
 	}
@@ -148,83 +156,81 @@ func (rpcClient *Client) GetDeviceKey(ref string) string {
 	return fmt.Sprintf("%s:%s", prefix, ref)
 }
 
-func (rpcClient *Client) waitResponse(call *Call, rpcTimeout time.Duration) (res interface{}, err error) {
-	timer := time.NewTimer(rpcTimeout)
-	defer timer.Stop()
+func (rpcClient *Client) waitResponse(call *Call) (res interface{}, err error) {
 	defer call.Clean(CLOSED)
-	select {
-	case resp, ok := <-call.response:
-		if !ok {
-			// state should always be CANCELLED
-			if call.state == CANCELLED {
-				err = CancelledError{rpcClient.Host()}
-			}
-			return
+	defer rpcClient.srv.Cast(func() { rpcClient.cm.RemoveCallByID(call.id) })
+	resp, ok := <-call.response
+	if !ok {
+		err = CancelledError{rpcClient.Host()}
+		if call.sender != nil {
+			call.sender.sendErr = io.EOF
+			call.sender.Close()
 		}
-		if rpcError, ok := resp.(edge.Error); ok {
-			err = RPCError{rpcError}
-			return
-		}
-		res = resp
-		return res, nil
-	case <-timer.C:
-		err = TimeoutError{rpcTimeout}
 		return
 	}
+	if rpcError, ok := resp.(edge.Error); ok {
+		err = RPCError{rpcError}
+		if call.sender != nil {
+			call.sender.sendErr = RPCError{rpcError}
+			call.sender.Close()
+		}
+		return
+	}
+	res = resp
+	return res, nil
 }
 
-// RespondContext sends a message without expecting a response
+// RespondContext sends a message (a response) without expecting a response
 func (rpcClient *Client) RespondContext(requestID uint64, responseType string, method string, args ...interface{}) (call *Call, err error) {
-	if rpcClient.Closed() {
-		err = errClientClosed
-		return
-	}
-	var msg []byte
-	buf := bytes.NewBuffer(msg)
-	_, err = rpcClient.edgeProtocol.NewResponseMessage(buf, requestID, responseType, method, args...)
+	buf := &bytes.Buffer{}
+	_, err = edge.NewResponseMessage(buf, requestID, responseType, method, args...)
 	if err != nil {
 		return
 	}
-	call, err = preparePayload(requestID, method, buf, nil, nil)
-	if err != nil {
-		return
+	call = &Call{
+		sender: nil,
+		id:     requestID,
+		method: method,
+		data:   buf,
 	}
-	err = rpcClient.cm.Insert(call)
-	rpcClient.cm.RemoveCallByID(call.id)
+	err = rpcClient.insertCall(call)
 	return
+}
+
+func (rpcClient *Client) call(fun func()) {
+	rpcClient.srv.Call(fun)
 }
 
 // CastContext returns a response future after calling the rpc
-func (rpcClient *Client) CastContext(requestID uint64, method string, args ...interface{}) (call *Call, err error) {
-	if rpcClient.Closed() {
-		err = errClientClosed
-		return
-	}
-	var msg []byte
+func (rpcClient *Client) CastContext(sender *ConnectedPort, method string, args ...interface{}) (call *Call, err error) {
 	var parseCallback func([]byte) (interface{}, error)
-	buf := bytes.NewBuffer(msg)
-	parseCallback, err = rpcClient.edgeProtocol.NewMessage(buf, requestID, method, args...)
+	buf := &bytes.Buffer{}
+	reqID := getRequestID()
+	parseCallback, err = edge.NewMessage(buf, reqID, method, args...)
 	if err != nil {
 		return
 	}
-	call, err = preparePayload(requestID, method, buf, parseCallback, make(chan interface{}))
-	if err != nil {
-		return
+	call = &Call{
+		sender:   sender,
+		id:       reqID,
+		method:   method,
+		data:     buf,
+		Parse:    parseCallback,
+		response: make(chan interface{}),
 	}
-	err = rpcClient.cm.Insert(call)
+	err = rpcClient.insertCall(call)
 	return
 }
 
-func preparePayload(requestID uint64, method string, buf *bytes.Buffer, parse func(buffer []byte) (interface{}, error), message chan interface{}) (*Call, error) {
-	call := &Call{
-		id:       requestID,
-		method:   method,
-		response: message,
-		data:     buf,
-		Parse:    parse,
-	}
-	// atomic.AddInt64(&rpcID, 1)
-	return call, nil
+func (rpcClient *Client) insertCall(call *Call) (err error) {
+	rpcClient.call(func() {
+		if rpcClient.isClosed {
+			err = errClientClosed
+			return
+		}
+		err = rpcClient.cm.Insert(call)
+	})
+	return
 }
 
 // CallContext returns the response after calling the rpc
@@ -232,24 +238,16 @@ func (rpcClient *Client) CallContext(method string, parse func(buffer []byte) (i
 	var resCall *Call
 	var ts time.Time
 	var tsDiff time.Duration
-	requestID := getRequestID()
-	resCall, err = rpcClient.CastContext(requestID, method, args...)
+	resCall, err = rpcClient.CastContext(nil, method, args...)
 	if err != nil {
 		return
 	}
-	rpcTimeout, _ := time.ParseDuration(fmt.Sprintf("%ds", (10 + rpcClient.cm.TotalCallLength())))
 	ts = time.Now()
-	res, err = rpcClient.waitResponse(resCall, rpcTimeout)
+	res, err = rpcClient.waitResponse(resCall)
 	if err != nil {
-		tsDiff = time.Since(ts)
 		switch err.(type) {
-		case TimeoutError:
-			rpcClient.Warn("Call %s timeout after %s, drop the call", method, tsDiff.String())
-			rpcClient.cm.RemoveCallByID(requestID)
-			return
 		case CancelledError:
 			rpcClient.Warn("Call %s has been cancelled, drop the call", method)
-			rpcClient.cm.RemoveCallByID(requestID)
 			return
 		}
 	}
@@ -262,12 +260,16 @@ func (rpcClient *Client) CallContext(method string, parse func(buffer []byte) (i
 }
 
 // CheckTicket should client send traffic ticket to server
-func (rpcClient *Client) CheckTicket() error {
-	counter := rpcClient.s.Counter()
-	if rpcClient.s.TotalBytes() > counter+ticketBound {
-		return rpcClient.SubmitNewTicket()
+func (rpcClient *Client) CheckTicket() (err error) {
+	var checked bool
+	rpcClient.call(func() {
+		counter := rpcClient.s.Counter()
+		checked = rpcClient.s.TotalBytes() > counter+ticketBound
+	})
+	if checked {
+		err = rpcClient.SubmitNewTicket()
 	}
-	return nil
+	return
 }
 
 // ValidateNetwork validate blockchain network is secure and valid
@@ -344,9 +346,7 @@ func (rpcClient *Client) ValidateNetwork() (bool, error) {
 		}
 	}
 
-	rpcClient.rm.Lock()
-	rpcClient.bq = win
-	rpcClient.rm.Unlock()
+	rpcClient.call(func() { rpcClient.bq = win })
 	rpcClient.storeLastValid()
 	return true, nil
 }
@@ -410,7 +410,7 @@ func (rpcClient *Client) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]blockq
 				return
 			}
 			mx.Lock()
-			headersCount += 1
+			headersCount++
 			responses[bn] = header
 			mx.Unlock()
 		}(i)
@@ -485,35 +485,33 @@ func (rpcClient *Client) GetNode(nodeID [20]byte) (*edge.ServerObj, error) {
 // Greet Initiates the connection
 // TODO: test compression flag
 func (rpcClient *Client) Greet() error {
-	var requestID uint64
-	var flag uint64
-	requestID = getRequestID()
-	flag = 1000
-	_, err := rpcClient.CastContext(requestID, "hello", flag)
+	_, err := rpcClient.CastContext(nil, "hello", uint64(1000))
 	if err != nil {
 		return err
 	}
 	return rpcClient.SubmitNewTicket()
 }
 
-// SubmitNewTicket creates and submits a new ticket
-func (rpcClient *Client) SubmitNewTicket() error {
-	rpcClient.rm.Lock()
+func (rpcClient *Client) SubmitNewTicket() (err error) {
 	if rpcClient.bq == nil {
-		rpcClient.rm.Unlock()
-		return nil
+		return
 	}
-	rpcClient.rm.Unlock()
-	ticket, err := rpcClient.newTicket()
+
+	var ticket *edge.DeviceTicket
+	ticket, err = rpcClient.newTicket()
 	if err != nil {
-		return err
+		return
 	}
-	return rpcClient.submitTicket(ticket)
+	err = rpcClient.submitTicket(ticket)
+	return
 }
 
 // SignTransaction return signed transaction
-func (rpcClient *Client) SignTransaction(tx *edge.Transaction) error {
-	privKey, err := rpcClient.s.GetClientPrivateKey()
+func (rpcClient *Client) SignTransaction(tx *edge.Transaction) (err error) {
+	var privKey *ecdsa.PrivateKey
+	rpcClient.call(func() {
+		privKey, err = rpcClient.s.GetClientPrivateKey()
+	})
 	if err != nil {
 		return err
 	}
@@ -578,10 +576,9 @@ func (rpcClient *Client) submitTicket(ticket *edge.DeviceTicket) error {
 				rpcClient.s.totalConnections = lastTicket.TotalConnections + 1
 				err = rpcClient.SubmitNewTicket()
 				if err != nil {
-					// rpcClient.Error(fmt.Sprintf("failed to submit ticket: %s", err.Error()))
-					return nil
+					rpcClient.Error("Failed to re-submit ticket: %v", err)
+					return err
 				}
-
 			} else {
 				rpcClient.Warn("received fake ticket.. last_ticket=%v", lastTicket)
 			}
@@ -624,7 +621,7 @@ func (rpcClient *Client) ResponsePortOpen(portOpen *edge.PortOpen, err error) er
 
 // CastPortClose cast portclose RPC
 func (rpcClient *Client) CastPortClose(ref string) (err error) {
-	_, err = rpcClient.CastContext(getRequestID(), "portclose", ref)
+	_, err = rpcClient.CastContext(nil, "portclose", ref)
 	return err
 }
 
@@ -899,28 +896,36 @@ func (rpcClient *Client) IsDeviceAllowlisted(fleetAddr Address, clientAddr Addre
 	return num.Int64() == 1
 }
 
-func (rpcClient *Client) setReconnecting(reconnecting bool) {
-	rpcClient.rm.Lock()
-	defer rpcClient.rm.Unlock()
-	rpcClient.reconnecting = reconnecting
-}
-
 // Reconnect to diode node
 func (rpcClient *Client) Reconnect() bool {
-	isOk := false
-	rpcClient.setReconnecting(true)
-	// Remove all existing calls
-	rpcClient.cm.RemoveCalls()
+	wasReconnecting := false
+	rpcClient.call(func() {
+		if rpcClient.reconnecting {
+			wasReconnecting = true
+			return
+		}
+		rpcClient.reconnecting = true
+		rpcClient.cm.RemoveCalls()
+	})
+
+	if wasReconnecting {
+		for rpcClient.Reconnecting() {
+			time.Sleep(100 * time.Millisecond)
+		}
+		return !rpcClient.Closed()
+	}
+
+	rpcClient.call(func() { rpcClient.reconnecting = false })
 	for i := 1; i <= config.AppConfig.RetryTimes; i++ {
 		if rpcClient.s.Closed() {
 			break
 		}
 		retryWait := rpcClient.backoff.Duration()
-		rpcClient.Info("Retry to connect to %s (%d/%d), wait %s", rpcClient.s.addr, i, config.AppConfig.RetryTimes, retryWait)
+		rpcClient.Info("Client reconnect to %s (%d/%d), wait %s", rpcClient.s.addr, i, config.AppConfig.RetryTimes, retryWait)
 		time.Sleep(retryWait)
 		err := rpcClient.s.reconnect()
 		if err != nil {
-			rpcClient.Error("Failed to reconnect to %s, %s", rpcClient.s.addr, err)
+			rpcClient.Error("Client reconnect failed to %s, %s", rpcClient.s.addr, err)
 			continue
 		}
 		rpcClient.backoff.Reset()
@@ -929,35 +934,38 @@ func (rpcClient *Client) Reconnect() bool {
 		go func() {
 			err := rpcClient.Greet()
 			if err != nil {
-				rpcClient.Debug("Failed to submit initial ticket: %v", err)
+				rpcClient.Debug("Client failed to submit initial ticket: %v", err)
 			}
 		}()
 		if err == nil {
-			isOk = true
-			break
+			rpcClient.Info("Client reconnected to %s!", rpcClient.s.addr)
+			return true
 		}
 	}
-	rpcClient.setReconnecting(false)
-	return isOk
+
+	return false
 }
 
 // Reconnecting returns whether client is reconnecting
-func (rpcClient *Client) Reconnecting() bool {
-	rpcClient.rm.Lock()
-	defer rpcClient.rm.Unlock()
-	return rpcClient.reconnecting
+func (rpcClient *Client) Reconnecting() (ret bool) {
+	rpcClient.call(func() { ret = rpcClient.reconnecting })
+	return ret
 }
 
 // Closed returns whether client had closed
 func (rpcClient *Client) Closed() bool {
-	return isClosed(rpcClient.closeCh) && rpcClient.s.Closed()
+	return rpcClient.isClosed
 }
 
 // Close rpc client
 func (rpcClient *Client) Close() {
-	rpcClient.cd.Do(func() {
-		rpcClient.rm.Lock()
-		close(rpcClient.closeCh)
+	keepGoing := true
+	rpcClient.call(func() {
+		if rpcClient.isClosed {
+			keepGoing = false
+			return
+		}
+		rpcClient.isClosed = true
 		// remove existing calls
 		rpcClient.cm.RemoveCalls()
 		if rpcClient.blockTicker != nil {
@@ -967,8 +975,11 @@ func (rpcClient *Client) Close() {
 		if rpcClient.OnClose != nil {
 			rpcClient.OnClose()
 		}
-		rpcClient.rm.Unlock()
-
 		rpcClient.s.Close()
 	})
+	if keepGoing {
+		// remove open ports
+		rpcClient.pool.ClosePorts(rpcClient)
+		rpcClient.srv.Shutdown(10 * time.Second)
+	}
 }

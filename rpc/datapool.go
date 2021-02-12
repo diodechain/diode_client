@@ -64,6 +64,18 @@ func (p *DataPool) Close() {
 	})
 }
 
+// ClosePorts closes all ports belonging to the given client
+func (p *DataPool) ClosePorts(client *Client) {
+	p.rm.Lock()
+	defer p.rm.Unlock()
+	for k, v := range p.devices {
+		if v.client == client {
+			v.Close()
+			delete(p.devices, k)
+		}
+	}
+}
+
 func (p *DataPool) SetCacheBNS(key string, bns []Address) {
 	p.rm.Lock()
 	defer p.rm.Unlock()
@@ -105,8 +117,9 @@ func (p *DataPool) SetCache(key string, tck *edge.DeviceTicket) {
 // GetPort locates the port by it's key
 func (p *DataPool) GetPort(key string) *ConnectedPort {
 	p.rm.RLock()
-	defer p.rm.RUnlock()
 	port := p.devices[key]
+	p.rm.RUnlock()
+
 	if port == nil || port.Closed() {
 		return nil
 	}
@@ -127,12 +140,12 @@ func (p *DataPool) FindPort(clientID string) *ConnectedPort {
 
 func (p *DataPool) SetPort(key string, dev *ConnectedPort) {
 	p.rm.Lock()
-	defer p.rm.Unlock()
 	if dev == nil {
 		delete(p.devices, key)
 	} else {
 		p.devices[key] = dev
 	}
+	p.rm.Unlock()
 }
 
 func (p *DataPool) GetPublishedPort(port int) *config.Port {

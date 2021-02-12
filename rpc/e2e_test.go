@@ -12,6 +12,7 @@ import (
 
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/db"
+	"github.com/diodechain/diode_go_client/genserver"
 	"github.com/diodechain/diode_go_client/util"
 )
 
@@ -26,6 +27,7 @@ func newTestE2EServer(remoteConn net.Conn, peer Address) (e2eServer E2EServer) {
 	e2eServer.peer = peer
 	e2eServer.port = &ConnectedPort{
 		client: &Client{
+			srv: genserver.New("Port"),
 			s: &SSL{
 				addr: "localhost:41046",
 			},

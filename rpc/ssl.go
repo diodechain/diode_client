@@ -399,7 +399,7 @@ func DoConnect(host string, config *config.Config, pool *DataPool) (*Client, err
 	}
 	rpcClient.Start()
 
-	return &rpcClient, nil
+	return rpcClient, nil
 }
 
 func initSSLCtx(config *config.Config) *openssl.Ctx {
