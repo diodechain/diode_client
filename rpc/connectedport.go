@@ -43,6 +43,9 @@ func NewConnectedPort(ref string, deviceID Address, client *Client, portNumber i
 		port.Info("Close port %p", port)
 		port.client = nil
 	}
+	if !config.AppConfig.LogDateTime {
+		port.srv.DeadlockCallback = nil
+	}
 	return port
 }
 

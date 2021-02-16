@@ -84,7 +84,7 @@ func getRequestID() uint64 {
 }
 
 // NewClient returns rpc client
-func NewClient(s *SSL, config clientConfig, pool *DataPool) *Client {
+func NewClient(s *SSL, cfg clientConfig, pool *DataPool) *Client {
 	client := &Client{
 		srv:                   genserver.New("Client"),
 		s:                     s,
@@ -99,7 +99,10 @@ func NewClient(s *SSL, config clientConfig, pool *DataPool) *Client {
 			Factor: 2,
 			Jitter: true,
 		},
-		Config: config,
+		Config: cfg,
+	}
+	if !config.AppConfig.LogDateTime {
+		client.srv.DeadlockCallback = nil
 	}
 	return client
 }

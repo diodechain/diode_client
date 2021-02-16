@@ -27,19 +27,23 @@ BINS=diode$(EXE) config_server$(EXE)
 .PHONY: default
 default: diode$(EXE)
 
+.PHONY: runtime
+runtime:
+	@./genserver/patch_runtime.sh
+
 .PHONY: all
 all: $(BINS)
 
 .PHONY: test
-test:
+test: runtime
 	go test -tags openssl_static -race $(TESTS)
 
 .PHONY: windows_test
-windows_test:
+windows_test: runtime
 	go test -tags openssl_static $(TESTS)
 
 .PHONY: lint
-lint:
+lint: runtime
 	go vet ./...
 	GO111MODULE=on go get honnef.co/go/tools/cmd/staticcheck@2020.1.3
 	$(GOPATH)/bin/staticcheck -go 1.14 ./...
@@ -53,7 +57,7 @@ lint:
 # G402 (CWE-295): TLS InsecureSkipVerify set true.
 # G404 (CWE-338): Use of weak random number generator (math/rand instead of crypto/rand).
 .PHONY: seccheck
-seccheck:
+seccheck: runtime
 	go vet ./...
 	GO111MODULE=on go get github.com/securego/gosec/v2/cmd/gosec
 	$(GOPATH)/bin/gosec -exclude=G104,G108,G110,G204,G304,G402,G404 ./...
@@ -89,28 +93,28 @@ gateway: diode
 	ssh root@diode.ws 'svc -k .'
 
 .PHONY: diode$(EXE)
-diode$(EXE):
+diode$(EXE): runtime
 	$(GOBUILD) -o diode$(EXE) cmd/diode/*.go
 
 .PHONY: diode_static
-diode_static:
+diode_static: runtime
 	go get -a -tags openssl_static github.com/diodechain/openssl
 	$(GOBUILD) -tags openssl_static -o diode$(EXE) cmd/diode/*.go
 
 .PHONY: config_server$(EXE)
-config_server$(EXE):
+config_server$(EXE): runtime
 	GODEBUG=netdns=go CGO_ENABLED=0 $(GOBUILD) -ldflags "-X main.serverAddress=localhost:1081 -X main.configPath=./.diode.yml" -o config_server$(EXE) cmd/config_server/config_server.go
 
 .PHONY: gauge$(EXE)
-gauge$(EXE):
+gauge$(EXE): runtime
 	$(GOBUILD) -o gauge$(EXE) cmd/gauge/*.go
 
 .PHONY: diode_race_test
-diode_race_test:
+diode_race_test: runtime
 	$(GOBUILD) -tags openssl_static -race -o diode_race_test cmd/diode/*.go
 
 .PHONY: ci_test
-ci_test:
+ci_test: runtime
 	$(MAKE) test
 	$(MAKE) diode_race_test
 	chmod +x ./diode_race_test
@@ -118,5 +122,5 @@ ci_test:
 
 .PHONY: debug
 debug: VARIANT=-debug
-debug:
+debug: runtime
 	$(GOBUILD) -gcflags="-N -l" -tags openssl_static -o diode_debug cmd/diode/*.go

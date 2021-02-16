@@ -13,14 +13,13 @@ import (
 	"runtime"
 	"strings"
 	"time"
-
-	"github.com/diodechain/diode_go_client/config"
-	"github.com/diodechain/diode_go_client/goid"
 )
 
 // GenServer structure
 type GenServer struct {
-	Terminate func()
+	Terminate        func()
+	DeadlockTimeout  time.Duration
+	DeadlockCallback func(*GenServer, string)
 
 	label         string
 	id            int64
@@ -33,13 +32,24 @@ type GenServer struct {
 // Assign the Terminate function to define a callback just before the worker stops
 func New(label string) *GenServer {
 	server := &GenServer{
-		label:      label,
-		cmdChan:    make(chan func(), 10),
-		isShutdown: false,
+		label:            label,
+		cmdChan:          make(chan func(), 10),
+		isShutdown:       false,
+		DeadlockTimeout:  10 * time.Second,
+		DeadlockCallback: DefaultDeadlockCallback,
 	}
 	go server.loop()
-	server.Call(func() { server.id = goid.Get() })
+	server.Call(func() { server.id = runtime.GetGoID() })
 	return server
+}
+
+func DefaultDeadlockCallback(server *GenServer, trace string) {
+	fmt.Fprintf(os.Stderr, "GenServer Warning timeout in %s\n", server.Name())
+	fmt.Fprintf(os.Stderr, "GenServer stuck in\n%s\n", trace)
+}
+
+func (server *GenServer) Name() string {
+	return fmt.Sprintf("%s:%d", server.label, server.id)
 }
 
 func (server *GenServer) loop() {
@@ -74,11 +84,11 @@ func (server *GenServer) Shutdown(lingerTimer time.Duration) {
 
 // Call executes a synchronous call operation
 func (server *GenServer) Call(fun func()) {
-	if server.id == goid.Get() {
+	if server.id == runtime.GetGoID() {
 		fun()
 		return
 	}
-	timer := time.NewTimer(5 * time.Second)
+	timer := time.NewTimer(server.DeadlockTimeout)
 	resultChan := make(chan bool)
 	server.cmdChan <- func() {
 		fun()
@@ -86,21 +96,21 @@ func (server *GenServer) Call(fun func()) {
 	}
 	select {
 	case <-timer.C:
-		if config.AppConfig.LogDateTime {
-			fmt.Printf("GenServer Warning timeout in %s:%d\n", server.label, server.id)
-			buf := make([]byte, 1000000)
-			len := runtime.Stack(buf, true)
-			traces := strings.Split(string(buf[:len]), "\n\n")
-			prefix := fmt.Sprintf("goroutine %d ", server.id)
-			for _, trace := range traces {
-				if strings.HasPrefix(trace, prefix) {
-					fmt.Fprintf(os.Stderr, "GenServer stuck in\n%s\n", trace)
-					break
-				}
+		buf := make([]byte, 1000000)
+		len := runtime.Stack(buf, true)
+		traces := strings.Split(string(buf[:len]), "\n\n")
+		prefix := fmt.Sprintf("goroutine %d ", server.id)
+		var trace string
+		for _, t := range traces {
+			if strings.HasPrefix(t, prefix) {
+				trace = t
+				break
 			}
-			// debug.PrintStack()
-			// fmt.Fprintf(os.Stderr, "trace[%d] : %s\n", len, buf[:len])
 		}
+		if cb := server.DeadlockCallback; cb != nil {
+			cb(server, trace)
+		}
+
 	case <-resultChan:
 		return
 	}
