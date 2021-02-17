@@ -144,17 +144,19 @@ func (port *ConnectedPort) closed() bool {
 
 // SendLocal sends the data south-bound to the device
 func (port *ConnectedPort) SendLocal(data []byte) (err error) {
+	var conn net.Conn
 	port.srv.Call(func() {
 		if port.sendErr != nil {
 			err = port.sendErr
 			return
 		}
-		_, err := port.Conn.Write(data)
-		if err != nil {
-			port.Debug("Write failed: %v", err)
-			port.close()
-		}
+		conn = port.Conn
 	})
+	_, err = conn.Write(data)
+	if err != nil {
+		port.Debug("Write failed: %v", err)
+		port.Close()
+	}
 	return
 }
 
