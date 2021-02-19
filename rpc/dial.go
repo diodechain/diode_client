@@ -24,54 +24,31 @@ func (socksServer *Server) DialContext(ctx context.Context, network, addr string
 		return nil, fmt.Errorf("failed to parse host %s %v", addr, err)
 	}
 	trace := ContextClientTrace(ctx)
-	if trace != nil {
-		if trace.BNSStart != nil {
-			trace.BNSStart(deviceID)
-		}
+	if isWS {
+		return nil, fmt.Errorf("ws domain was not supported")
 	}
-	// TODO: handle context and error from connectDeviceAndLoop
-	devices, err := socksServer.resolver.ResolveDevice(deviceID)
-	if len(devices) == 0 || err != nil {
-		if trace != nil {
-			if trace.BNSDone != nil {
-				trace.BNSDone(devices)
-			}
-		}
-		return nil, fmt.Errorf("failed to ResolveDevice %v", err)
-	}
-	if len(devices) > 1 {
-		return nil, fmt.Errorf("that BNS name is backed by multiple addresses. Please select only one")
-	}
-	if trace != nil {
-		if trace.BNSDone != nil {
-			trace.BNSDone(devices)
-		}
-	}
-	if !isWS {
-		// network pipe in memory
-		connHttp, connDiode := net.Pipe()
-		deviceID := devices[0].GetDeviceID()
-		// always use e2e, non-e2e mode: TCPProtocol
-		protocol := config.TLSProtocol
-		go func() {
-			err := socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, func(connPort *ConnectedPort) (net.Conn, error) {
-				if trace != nil {
-					if trace.GotConn != nil {
-						trace.GotConn(connPort)
-					}
-					connPort.SetTraceCtx(ctx)
+	// network pipe in memory
+	connHTTP, connDiode := net.Pipe()
+	protocol := config.TLSProtocol
+
+	retChan := make(chan error, 1)
+	go func() {
+		err := socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, func(connPort *ConnectedPort) (net.Conn, error) {
+			if trace != nil {
+				if trace.GotConn != nil {
+					trace.GotConn(connPort)
 				}
-				return connDiode, nil
-			})
-			if err != nil {
-				connHttp.Close()
-				connDiode.Close()
-				return
+				connPort.SetTraceCtx(ctx)
 			}
-			connHttp.Close()
-			connDiode.Close()
-		}()
-		return connHttp, nil
-	}
-	return nil, fmt.Errorf("ws domain was not supported")
+			retChan <- nil
+			return connDiode, nil
+		})
+		if err != nil {
+			retChan <- err
+		}
+		connHTTP.Close()
+		connDiode.Close()
+	}()
+	return connHTTP, <-retChan
+
 }

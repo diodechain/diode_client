@@ -5,17 +5,18 @@ package main
 
 import (
 	"fmt"
-	"io/ioutil"
+	"io"
+	"mime"
 	"net/http"
 	"net/http/httputil"
 	"os"
+	"path"
 	"regexp"
 	"strings"
 	"time"
 
 	"github.com/diodechain/diode_go_client/command"
 	"github.com/diodechain/diode_go_client/config"
-	"github.com/diodechain/diode_go_client/edge"
 	"github.com/diodechain/diode_go_client/rpc"
 	"github.com/diodechain/diode_go_client/util"
 )
@@ -52,6 +53,37 @@ type fetchConfig struct {
 	URL     string
 	Output  string
 	Verbose bool
+}
+
+type fetchProgress struct {
+	io.Reader
+	name          string
+	pointSize     int64
+	points        int64
+	read          int64
+	contentLength int64
+}
+
+func (fp *fetchProgress) Read(p []byte) (int, error) {
+	if fp.read == 0 {
+		fp.pointSize = fp.contentLength / 60
+		fmt.Printf("Downloading %d bytes into '%s'.\n", fp.contentLength, fp.name)
+		fmt.Println("[------------------------------------------------------------]")
+		fmt.Printf("[")
+	}
+	n, err := fp.Reader.Read(p)
+	fp.read += int64(n)
+
+	for fp.read/fp.pointSize > fp.points {
+		fmt.Printf("#")
+		fp.points++
+	}
+
+	if err == io.EOF && fp.read == fp.contentLength {
+		fmt.Printf("] Done!\n")
+	}
+
+	return n, err
 }
 
 func init() {
@@ -127,18 +159,6 @@ func fetchHandler() (err error) {
 		}
 	}
 	trace := &rpc.ClientTrace{
-		// BNSStart: func(name string) {
-		// 	if fetchCfg.Verbose {
-		// 		fmt.Printf("Look up %s\n", name)
-		// 	}
-		// },
-		BNSDone: func(devices []*edge.DeviceTicket) {
-			if fetchCfg.Verbose {
-				for _, device := range devices {
-					fmt.Printf("Found device %s connected to %s\n", device.GetDeviceID(), device.ServerID.HexString())
-				}
-			}
-		},
 		GotConn: func(connPort *rpc.ConnectedPort) {
 			if fetchCfg.Verbose {
 				fmt.Printf("Connected to %s %d\n", connPort.DeviceID.HexString(), connPort.PortNumber)
@@ -169,30 +189,35 @@ func fetchHandler() (err error) {
 	if err != nil {
 		return
 	}
-	defer resp.Body.Close()
-	var body []byte
-	body, err = ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return
+
+	if len(fetchCfg.Output) == 0 {
+		_, params, mimeErr := mime.ParseMediaType(resp.Header.Get("Content-Disposition"))
+		if mimeErr == nil && len(params["filename"]) > 0 {
+			fetchCfg.Output = params["filename"]
+		} else {
+			fetchCfg.Output = path.Base(req.URL.Path)
+		}
 	}
+
+	var src io.Reader
+	src = &fetchProgress{Reader: resp.Body, contentLength: resp.ContentLength, name: fetchCfg.Output}
+
+	defer resp.Body.Close()
+
+	var f *os.File
 	if len(fetchCfg.Output) > 0 {
-		var f *os.File
 		f, err = os.OpenFile(fetchCfg.Output, os.O_CREATE|os.O_WRONLY, 0600)
 		if err != nil {
 			return
 		}
-		defer func(f *os.File) {
-			f.Close()
-		}(f)
-		_, err = f.Write(body)
-		if err != nil {
-			return
-		}
-		if fetchCfg.Verbose {
-			fmt.Println(string(body))
-		}
-		return
+	} else if fetchCfg.Verbose {
+		f = os.Stdout
+		src = resp.Body
 	}
-	fmt.Println(string(body))
+
+	if f != nil {
+		io.Copy(f, src)
+		f.Close()
+	}
 	return
 }

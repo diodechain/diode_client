@@ -6,7 +6,6 @@ package rpc
 import (
 	"context"
 
-	"github.com/diodechain/diode_go_client/edge"
 	"github.com/diodechain/diode_go_client/util"
 )
 
@@ -15,8 +14,6 @@ type clientContextKey struct{}
 // ClientTrace represents callbacks that trace the connection
 // going through diode network
 type ClientTrace struct {
-	BNSStart          func(name string)
-	BNSDone           func(devices []*edge.DeviceTicket)
 	GotConn           func(connPort *ConnectedPort)
 	E2EHandshakeStart func(peer util.Address)
 	E2EHandshakeDone  func(peer util.Address, err error)
