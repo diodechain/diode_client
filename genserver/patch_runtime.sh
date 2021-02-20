@@ -21,7 +21,12 @@ index 33ecc260dd..dea79f6095 100644
 EOF
 
 CMD="-tN -r- `go env GOROOT`/src/runtime/runtime.go"
+OS=`uname -s`
 
 if ! patch --dry-run -R $CMD <<< "$PATCH" >> /dev/null; then
-	$SUDO patch  $CMD <<< "$PATCH" && echo "Runtime Patched!"
+	if [[ $OS == "Darwin" ]]; then
+		patch $CMD <<< "$PATCH" && echo "Runtime Patched!"
+	else
+		$SUDO patch $CMD <<< "$PATCH" && echo "Runtime Patched!"
+	fi
 fi
