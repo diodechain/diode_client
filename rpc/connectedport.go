@@ -162,21 +162,21 @@ func (port *ConnectedPort) SendLocal(data []byte) (err error) {
 
 // Copy copies data from the local connection to the rpc until end
 func (port *ConnectedPort) Copy() {
-	resultChan := make(chan bool)
+	done := make(chan struct{})
 	port.srv.Cast(func() {
 		if port.isCopying {
 			port.Warn("Port Copy() called twice")
-			resultChan <- true
+			done <- struct{}{}
 			return
 		}
 		port.isCopying = true
 		go func() {
 			io.Copy(&remoteWriter{port}, port.Conn)
 			port.Close()
-			resultChan <- true
+			done <- struct{}{}
 		}()
 	})
-	<-resultChan
+	<-done
 }
 
 // ClientLocalAddr returns the local address of the connected client

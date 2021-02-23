@@ -89,10 +89,10 @@ func (server *GenServer) Call(fun func()) {
 		return
 	}
 	timer := time.NewTimer(server.DeadlockTimeout)
-	resultChan := make(chan bool)
+	done := make(chan struct{})
 	server.cmdChan <- func() {
 		fun()
-		resultChan <- true
+		done <- struct{}{}
 	}
 	select {
 	case <-timer.C:
@@ -111,10 +111,10 @@ func (server *GenServer) Call(fun func()) {
 			cb(server, trace)
 		}
 
-	case <-resultChan:
+	case <-done:
 		return
 	}
-	<-resultChan
+	<-done
 }
 
 // Cast executes an asynchrounous operation
