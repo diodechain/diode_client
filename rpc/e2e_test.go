@@ -12,8 +12,8 @@ import (
 
 	"github.com/diodechain/diode_go_client/config"
 	"github.com/diodechain/diode_go_client/db"
-	"github.com/diodechain/diode_go_client/genserver"
 	"github.com/diodechain/diode_go_client/util"
+	"github.com/dominicletz/genserver"
 )
 
 var (

@@ -2,7 +2,7 @@ TESTS= $(shell go list ./... | grep -v -e gowasm_test -e cmd)
 GOPATH= $(shell go env GOPATH)
 COMMIT= $(shell git describe --tags --dirty)
 BUILDTIME= $(shell date +"%d %b %Y")
-GOBUILD=go build -ldflags '-s -r ./ -X "main.version=${COMMIT}${VARIANT}" -X "main.buildTime=${BUILDTIME}"'
+GOBUILD=go build -ldflags '-s -r ./ -X "main.version=${COMMIT}${VARIANT}" -X "main.buildTime=${BUILDTIME}"' -tags patch_runtime
 ARCHIVE= $(shell ./deployment/zipname.sh)
 
 UNAME_S := $(shell uname -s)
@@ -29,7 +29,7 @@ default: diode$(EXE)
 
 .PHONY: runtime
 runtime:
-	@./genserver/patch_runtime.sh
+	@./patch_runtime.sh
 
 .PHONY: all
 all: $(BINS)
