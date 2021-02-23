@@ -15,8 +15,8 @@ import (
 	"time"
 
 	"github.com/diodechain/diode_go_client/config"
-	"github.com/diodechain/diode_go_client/genserver"
 	"github.com/diodechain/zap"
+	"github.com/dominicletz/genserver"
 )
 
 type ConnectedPort struct {
