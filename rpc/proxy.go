@@ -8,11 +8,14 @@ import (
 	"bytes"
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/caddyserver/certmagic"
 	"github.com/diodechain/diode_go_client/config"
@@ -293,6 +296,27 @@ func (proxyServer *ProxyServer) serveListener(srv *http.Server, ln net.Listener)
 	}
 }
 
+// tlsRecordHeaderLooksLikeHTTP reports whether a TLS record header
+// looks like it might've been a misdirected plaintext HTTP request.
+func tlsRecordHeaderLooksLikeHTTP(hdr [5]byte) bool {
+	switch string(hdr[:]) {
+	case "GET /", "HEAD ", "POST ", "PUT /", "OPTIO":
+		return true
+	}
+	return false
+}
+
+// validNextProto reports whether the proto is a valid ALPN protocol name.
+// Everything is valid except the empty string and built-in protocol types,
+// so that those can't be overridden with alternate implementations.
+func validNextProto(proto string) bool {
+	switch proto {
+	case "", "http/1.1", "http/1.0":
+		return false
+	}
+	return true
+}
+
 func (proxyServer *ProxyServer) Start() error {
 	proxyServer.mx.Lock()
 	defer proxyServer.mx.Unlock()
@@ -384,22 +408,139 @@ func (proxyServer *ProxyServer) Start() error {
 		}
 		proxyServer.httpsServers[0] = httpsServer
 		proxyServer.logger.Info("Start gateway server %s", proxyServer.Config.SProxyServerAddr)
-		go proxyServer.serveListener(httpsServer, httpsLn)
+		// for test purpose
+		go func() {
+			for {
+				conn, err := httpsLn.Accept()
+				if err != nil {
+					if proxyServer.Closed() {
+						return
+					}
+					// Check whether error is temporary
+					// See: https://golang.org/src/net/net.go?h=Temporary
+					if ne, ok := err.(net.Error); ok && ne.Temporary() {
+						delayTime := 5 * time.Millisecond
+						proxyServer.logger.Warn(fmt.Sprintf("proxy: Accept error %v, retry in %v", err, delayTime))
+						time.Sleep(delayTime)
+						continue
+					} else {
+						proxyServer.logger.Error(err.Error())
+						proxyServer.Close()
+					}
+					return
+				}
+				defer func() {
+					if err := recover(); err != nil {
+						buf := make([]byte, stackBufferSize)
+						buf = buf[:runtime.Stack(buf, false)]
+						proxyServer.logger.Error("proxy: panic serving %s: %v\n%s", conn.RemoteAddr().String(), err, buf)
+					}
+					conn.Close()
+				}()
+				if tlsConn, ok := conn.(*tls.Conn); ok {
+					if err := tlsConn.Handshake(); err != nil {
+						// If the handshake failed due to the client not speaking
+						// TLS, assume they're speaking plaintext HTTP and write a
+						// 400 response on the TLS conn's underlying net.Conn.
+						if re, ok := err.(tls.RecordHeaderError); ok && re.Conn != nil && tlsRecordHeaderLooksLikeHTTP(re.RecordHeader) {
+							io.WriteString(re.Conn, "HTTP/1.0 400 Bad Request\r\n\r\nClient sent an HTTP request to an HTTPS server.\n")
+							re.Conn.Close()
+							return
+						}
+						proxyServer.logger.Info("proxy: TLS handshake error from %s: %+v", tlsConn.RemoteAddr().String(), err)
+					}
+					state := tlsConn.ConnectionState()
+					// proxyServer.logger.Info("Handshake completed: %+v", state)
+					// TODO: support http2 protocol
+					// if proto := state.NegotiatedProtocol; validNextProto(proto) {
+					// }
+					proxyServer.logger.Info("Proxy serving: %s", state.ServerName)
+					host := state.ServerName
+					if len(host) == 0 {
+						tlsConn.Close()
+						conn.Close()
+						continue
+					}
+					isWS, mode, deviceID, port, err := proxyServer.parseHost(host)
 
-		i := 1
-		for _, port := range proxyServer.Config.SProxyServerPorts {
-			httpsdAddr = config.AppConfig.SProxyServerAddrForPort(port)
-			httpsServers := &http.Server{Handler: httpsdHandler, TLSNextProto: protos}
-			httpsLns, err := tls.Listen("tcp", httpsdAddr, tlsConfig)
-			if err != nil {
-				proxyServer.logger.Error("Couldn't listen to %s, error: %s", httpsdAddr, err.Error())
-				continue
+					if err != nil {
+						// msg := fmt.Sprintf("failed to parse host: %v", err)
+						// badRequest(w, msg)
+						return
+					}
+					if port == 0 {
+						// badRequest(w, "Cannot find port from string to int")
+						return
+					}
+
+					protocol := config.TCPProtocol
+					if config.AppConfig.EnableEdgeE2E {
+						protocol = config.TLSProtocol
+					}
+
+					err = proxyServer.socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, func(*ConnectedPort) (net.Conn, error) {
+						// TODO: websocket
+						if isWS {
+							// 	upgrader := websocket.Upgrader{
+							// 		CheckOrigin:       func(_ *http.Request) bool { return true },
+							// 		EnableCompression: true,
+							// 	}
+							// 	conn, err := upgrader.Upgrade(w, r, nil)
+							// 	if err != nil {
+							// 		internalError(w, "Websocket upgrade failed")
+							// 		return nil, nil
+							// 	}
+							// 	return NewWSConn(conn), nil
+						}
+						httpConn := NewHTTPConn([]byte{}, conn)
+						return httpConn, nil
+					})
+
+					if err != nil {
+						if httpErr, ok := err.(HttpError); ok {
+							var errMsg string
+							switch httpErr.code {
+							case 400:
+								errMsg = fmt.Sprintf("Bad request: %s", httpErr.Error())
+							case 404:
+								// why not err == errEmptyBNSresult
+								if err.Error() == errEmptyBNSresult.Error() {
+									errMsg = "BNS name not found. Please check spelling."
+								} else if _, ok := httpErr.err.(DeviceError); ok {
+									errMsg = "Device is currently offline."
+								} else {
+									errMsg = "BNS entry does not exist. Please check spelling."
+								}
+							case 403:
+								errMsg = "Access device forbidden"
+							case 500:
+								errMsg = fmt.Sprintf("Internal server error: %s", httpErr.Error())
+							}
+							fmt.Println("HTTP error......", errMsg)
+							// httpError(w, httpErr.code, errMsg)
+							return
+						}
+					}
+					tlsConn.Close()
+				}
 			}
-			proxyServer.logger.Info("Start additional gateway server %s", httpsdAddr)
-			proxyServer.httpsServers[i] = httpsServers
-			i++
-			go proxyServer.serveListener(httpsServers, httpsLns)
-		}
+		}()
+		// go proxyServer.serveListener(httpsServer, httpsLn)
+
+		// i := 1
+		// for _, port := range proxyServer.Config.SProxyServerPorts {
+		// 	httpsdAddr = config.AppConfig.SProxyServerAddrForPort(port)
+		// 	httpsServers := &http.Server{Handler: httpsdHandler, TLSNextProto: protos}
+		// 	httpsLns, err := tls.Listen("tcp", httpsdAddr, tlsConfig)
+		// 	if err != nil {
+		// 		proxyServer.logger.Error("Couldn't listen to %s, error: %s", httpsdAddr, err.Error())
+		// 		continue
+		// 	}
+		// 	proxyServer.logger.Info("Start additional gateway server %s", httpsdAddr)
+		// 	proxyServer.httpsServers[i] = httpsServers
+		// 	i++
+		// 	go proxyServer.serveListener(httpsServers, httpsLns)
+		// }
 	}
 	return nil
 }
