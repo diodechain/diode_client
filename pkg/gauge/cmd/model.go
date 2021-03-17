@@ -1,10 +1,11 @@
 // Diode Network Client
-// Copyright 2019 IoT Blockchain Technology Corporation LLC (IBTC)
+// Copyright 2019-2021 IoT Blockchain Technology Corporation LLC (IBTC)
 // Licensed under the Diode License, Version 1.0
 package cmd
 
 import (
 	"fmt"
+
 	"github.com/gdamore/tcell/v2"
 )
 
