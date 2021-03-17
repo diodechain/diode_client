@@ -30,7 +30,7 @@ func timeHandler() (err error) {
 		return
 	}
 	cfg := config.AppConfig
-	client := app.datapool.GetNearestClient()
+	client := app.clientManager.GetNearestClient()
 	blocknr, _ := client.LastValid()
 	header := client.GetBlockHeaderValid(blocknr)
 	if header.Number() == 0 {

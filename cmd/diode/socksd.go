@@ -51,7 +51,7 @@ func socksdHandler() (err error) {
 		ProxyServerAddr: cfg.ProxyServerAddr(),
 		Fallback:        cfg.SocksFallback,
 	}
-	socksServer, err := rpc.NewSocksServer(socksCfg, app.datapool)
+	socksServer, err := rpc.NewSocksServer(socksCfg, app.clientManager)
 	if err != nil {
 		return err
 	}

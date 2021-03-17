@@ -14,16 +14,18 @@ import (
 
 // Resolver represents the bns name resolver of device
 type Resolver struct {
-	datapool *DataPool
-	Config   Config
-	logger   *config.Logger
+	datapool      *DataPool
+	Config        Config
+	logger        *config.Logger
+	clientManager *ClientManager
 }
 
-func NewResolver(socksCfg Config, pool *DataPool) (resolver *Resolver) {
+func NewResolver(socksCfg Config, clientManager *ClientManager) (resolver *Resolver) {
 	resolver = &Resolver{
-		datapool: pool,
-		Config:   socksCfg,
-		logger:   config.AppConfig.Logger,
+		datapool:      clientManager.GetPool(),
+		Config:        socksCfg,
+		logger:        config.AppConfig.Logger,
+		clientManager: clientManager,
 	}
 	return
 }
@@ -32,7 +34,7 @@ func NewResolver(socksCfg Config, pool *DataPool) (resolver *Resolver) {
 func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTicket, err error) {
 	// Resolving BNS if needed
 	var deviceIDs []Address
-	client := resolver.datapool.GetNearestClient()
+	client := resolver.clientManager.GetNearestClient()
 	if client == nil {
 		return nil, HttpError{404, err}
 	}

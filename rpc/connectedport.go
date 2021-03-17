@@ -33,11 +33,12 @@ type ConnectedPort struct {
 	client        *Client
 	sendErr       error
 	traceCtx      context.Context
+	host          string
 }
 
 // New returns a new connected port
 func NewConnectedPort(ref string, deviceID Address, client *Client, portNumber int) *ConnectedPort {
-	port := &ConnectedPort{Ref: ref, DeviceID: deviceID, client: client, PortNumber: portNumber, srv: genserver.New("Port")}
+	port := &ConnectedPort{Ref: ref, DeviceID: deviceID, client: client, PortNumber: portNumber, srv: genserver.New("Port"), host: client.Host()}
 	port.Info("Open port %p", port)
 	port.srv.Terminate = func() {
 		port.Info("Close port %p", port)
@@ -208,7 +209,7 @@ func (port *ConnectedPort) upgradeTLS(fn func(*E2EServer) error) error {
 	}
 	err := fn(e2eServer)
 	if err != nil {
-		port.client.Error("Failed to tunnel openssl client: %v", err.Error())
+		port.Error("Failed to tunnel openssl client: %v", err.Error())
 		return err
 	}
 	port.Conn = NewE2EConn(e2eServer)
@@ -217,25 +218,25 @@ func (port *ConnectedPort) upgradeTLS(fn func(*E2EServer) error) error {
 
 // Info logs to logger in Info level
 func (port *ConnectedPort) Info(msg string, args ...interface{}) {
-	port.client.logger.ZapLogger().Info(fmt.Sprintf(msg, args...), zap.String("server", port.client.Host()), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
+	port.client.config.Logger.ZapLogger().Info(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
 }
 
 // Debug logs to logger in Debug level
 func (port *ConnectedPort) Debug(msg string, args ...interface{}) {
-	port.client.logger.ZapLogger().Debug(fmt.Sprintf(msg, args...), zap.String("server", port.client.Host()), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
+	port.client.config.Logger.ZapLogger().Debug(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
 }
 
 // Error logs to logger in Error level
 func (port *ConnectedPort) Error(msg string, args ...interface{}) {
-	port.client.logger.ZapLogger().Error(fmt.Sprintf(msg, args...), zap.String("server", port.client.Host()), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
+	port.client.config.Logger.ZapLogger().Error(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
 }
 
 // Warn logs to logger in Warn level
 func (port *ConnectedPort) Warn(msg string, args ...interface{}) {
-	port.client.logger.ZapLogger().Warn(fmt.Sprintf(msg, args...), zap.String("server", port.client.Host()), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
+	port.client.config.Logger.ZapLogger().Warn(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
 }
 
 // Crit logs to logger in Crit level
 func (port *ConnectedPort) Crit(msg string, args ...interface{}) {
-	port.client.logger.ZapLogger().Fatal(fmt.Sprintf(msg, args...), zap.String("server", port.client.Host()), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
+	port.client.config.Logger.ZapLogger().Fatal(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
 }

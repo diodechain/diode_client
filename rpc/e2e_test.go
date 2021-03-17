@@ -31,7 +31,6 @@ func newTestE2EServer(remoteConn net.Conn, peer Address) (e2eServer E2EServer) {
 			s: &SSL{
 				addr: "localhost:41046",
 			},
-			logger: config.AppConfig.Logger,
 		},
 	}
 	e2eServer.closeCh = make(chan struct{})

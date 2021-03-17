@@ -92,7 +92,7 @@ func tokenHandler() (err error) {
 		return
 	}
 	appCfg := config.AppConfig
-	client := app.datapool.GetNearestClient()
+	client := app.clientManager.GetNearestClient()
 	oaccount, err := client.GetValidAccount(0, appCfg.ClientAddr)
 	if err != nil {
 		return
@@ -141,7 +141,7 @@ func showBalance() (err error) {
 		return
 	}
 	appCfg := config.AppConfig
-	client := app.datapool.GetNearestClient()
+	client := app.clientManager.GetNearestClient()
 	oaccount, err := client.GetValidAccount(0, appCfg.ClientAddr)
 	if err != nil {
 		return

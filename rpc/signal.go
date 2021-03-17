@@ -4,12 +4,10 @@
 package rpc
 
 var (
-	INITIALIZED  = Signal(0)
-	STARTED      = Signal(1)
-	RECONNECTED  = Signal(2)
-	RECONNECTING = Signal(3)
-	CLOSED       = Signal(4)
-	CANCELLED    = Signal(5)
+	INITIALIZED = Signal(0)
+	STARTED     = Signal(1)
+	CLOSED      = Signal(4)
+	CANCELLED   = Signal(5)
 )
 
 type Signal int

@@ -6,11 +6,12 @@ package command
 import (
 	"flag"
 	"fmt"
-	"github.com/sc0vu/didyoumean"
 	"os"
 	"reflect"
 	"sort"
 	"strings"
+
+	"github.com/sc0vu/didyoumean"
 )
 
 var (

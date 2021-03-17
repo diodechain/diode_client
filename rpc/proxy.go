@@ -124,9 +124,9 @@ func (proxyServer *ProxyServer) isAllowedDevice(deviceName string) (err error) {
 	// Resolving BNS if needed
 	var deviceIDs []Address
 	socksServer := proxyServer.socksServer
-	client := socksServer.datapool.GetNearestClient()
+	client := socksServer.clientManager.GetNearestClient()
 	if client == nil {
-		err = fmt.Errorf("serve not found")
+		err = fmt.Errorf("server not found")
 		return
 	}
 	if !util.IsHex([]byte(deviceName)) {

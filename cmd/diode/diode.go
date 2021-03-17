@@ -5,7 +5,6 @@ package main
 
 import (
 	"bytes"
-	"fmt"
 	"os"
 	"time"
 
@@ -37,19 +36,6 @@ func main() {
 		os.Exit(2)
 	}
 	os.Exit(0)
-}
-
-func connect(c chan *rpc.Client, host string, cfg *config.Config, pool *rpc.DataPool) {
-	client, err := rpc.DoConnect(host, cfg, pool)
-	if err != nil {
-		if client != nil {
-			client.Close()
-		}
-		cfg.Logger.Error(fmt.Sprintf("Connection to host: %s failed: %+v", host, err))
-		c <- nil
-	} else {
-		c <- client
-	}
 }
 
 // ensure account state has been changed

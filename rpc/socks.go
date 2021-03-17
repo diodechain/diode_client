@@ -19,7 +19,6 @@ import (
 
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/edge"
-	"github.com/diodechain/diode_client/util"
 )
 
 var (
@@ -68,17 +67,18 @@ type Bind struct {
 
 // Server is the only instances of the Socks Server
 type Server struct {
-	datapool *DataPool
-	resolver *Resolver
-	Config   Config
-	logger   *config.Logger
-	listener net.Listener
-	udpconn  net.PacketConn
-	wg       *sync.WaitGroup
-	rm       sync.Mutex
-	closeCh  chan struct{}
-	binds    []Bind
-	cd       sync.Once
+	datapool      *DataPool
+	clientManager *ClientManager
+	resolver      *Resolver
+	Config        Config
+	logger        *config.Logger
+	listener      net.Listener
+	udpconn       net.PacketConn
+	wg            *sync.WaitGroup
+	rm            sync.Mutex
+	closeCh       chan struct{}
+	binds         []Bind
+	cd            sync.Once
 }
 
 type DeviceError struct {
@@ -864,6 +864,7 @@ func (socksServer *Server) startBind(bind *Bind) error {
 	}
 	return nil
 }
+
 func (socksServer *Server) handleBind(conn net.Conn, bind config.Bind) {
 	err := socksServer.connectDeviceAndLoop(bind.To, bind.ToPort, bind.Protocol, "rw", func(*ConnectedPort) (net.Conn, error) {
 		return conn, nil
@@ -882,14 +883,15 @@ func validateSocksConfig(socksCfg Config) error {
 }
 
 // NewSocksServer generate socksserver struct
-func NewSocksServer(socksCfg Config, pool *DataPool) (*Server, error) {
+func NewSocksServer(socksCfg Config, clientManager *ClientManager) (*Server, error) {
 	socksServer := &Server{
-		logger:   config.AppConfig.Logger,
-		wg:       &sync.WaitGroup{},
-		datapool: pool,
-		resolver: NewResolver(socksCfg, pool),
-		closeCh:  make(chan struct{}),
-		binds:    make([]Bind, 0),
+		logger:        config.AppConfig.Logger,
+		wg:            &sync.WaitGroup{},
+		clientManager: clientManager,
+		datapool:      clientManager.GetPool(),
+		resolver:      NewResolver(socksCfg, clientManager),
+		closeCh:       make(chan struct{}),
+		binds:         make([]Bind, 0),
 	}
 	if err := socksServer.SetConfig(socksCfg); err != nil {
 		return nil, err
@@ -912,57 +914,7 @@ func (socksServer *Server) SetConfig(config Config) error {
 func (socksServer *Server) GetServer(nodeID Address) (client *Client, err error) {
 	socksServer.rm.Lock()
 	defer socksServer.rm.Unlock()
-	client = socksServer.datapool.GetClient(nodeID)
-	if client != nil {
-		if client.Closed() {
-			socksServer.logger.Warn("GetServer(): found closed server connection in pool %s", nodeID.HexString())
-			socksServer.datapool.SetClient(nodeID, nil)
-			client = nil
-		}
-		// should just return?
-		if client != nil {
-			return
-		}
-	}
-	fclient := socksServer.datapool.GetNearestClient()
-	if fclient == nil {
-		socksServer.logger.Warn("GetServer(): couldn't found nearest server in pool %s", nodeID.HexString())
-	}
-	serverObj, err := fclient.GetNode(nodeID)
-	if err != nil {
-		fclient.Error("GetServer(): failed to getnode %v", err)
-		return
-	}
-	if util.PubkeyToAddress(serverObj.ServerPubKey) != nodeID {
-		err = fmt.Errorf("GetServer(): wrong signature in server object %+v", serverObj)
-		return
-	}
-	// hardcode port to 41046
-	host := net.JoinHostPort(string(serverObj.Host), "41046")
-	client, err = DoConnect(host, config.AppConfig, socksServer.datapool)
-	if err != nil {
-		err = fmt.Errorf("couldn't connect to server '%+v' with error '%v'", serverObj, err)
-		return
-	}
-	isValid, err := client.ValidateNetwork()
-	if err != nil {
-		err = fmt.Errorf("couldn't validate server with error '%v'", err)
-		return
-	}
-	if !isValid {
-		err = fmt.Errorf("network is not valid")
-		return
-	}
-	err = client.Greet()
-	if err != nil {
-		err = fmt.Errorf("couldn't submitTicket to server with error '%v'", err)
-		return
-	}
-	socksServer.datapool.SetClient(nodeID, client)
-	client.OnClose = func() {
-		socksServer.datapool.SetClient(nodeID, nil)
-	}
-	return
+	return socksServer.clientManager.GetClientorConnect(nodeID)
 }
 
 // Closed returns whether socks server had closed

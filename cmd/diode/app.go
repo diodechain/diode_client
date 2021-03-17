@@ -14,7 +14,6 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/pprof"
-	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -99,8 +98,6 @@ func init() {
 
 func prepareDiode() error {
 	cfg := config.AppConfig
-	// initialize logger
-	pool = rpc.NewPool()
 
 	// load file config
 	if len(cfg.ConfigFilePath) > 0 {
@@ -164,7 +161,7 @@ func prepareDiode() error {
 	}
 
 	// initialize diode application
-	app = NewDiode(cfg, pool)
+	app = NewDiode(cfg)
 	if err := app.Init(); err != nil {
 		return err
 	}
@@ -188,7 +185,7 @@ func cleanDiode() error {
 // Diode represents diode application
 type Diode struct {
 	config          *config.Config
-	datapool        *rpc.DataPool
+	clientManager   *rpc.ClientManager
 	socksServer     *rpc.Server
 	proxyServer     *rpc.ProxyServer
 	configAPIServer *ConfigAPIServer
@@ -199,11 +196,11 @@ type Diode struct {
 }
 
 // NewDiode return diode application
-func NewDiode(cfg *config.Config, datapool *rpc.DataPool) Diode {
+func NewDiode(cfg *config.Config) Diode {
 	return Diode{
-		config:   cfg,
-		datapool: datapool,
-		closeCh:  make(chan struct{}),
+		config:        cfg,
+		clientManager: rpc.NewClientManager(cfg),
+		closeCh:       make(chan struct{}),
 	}
 }
 
@@ -365,6 +362,7 @@ func (dio *Diode) Start() error {
 	}
 	cfg.PrintLabel("Client address", cfg.ClientAddr.HexString())
 	cfg.PrintLabel("Fleet address", cfg.FleetAddr.HexString())
+	dio.clientManager.Start()
 
 	if dio.cmd.Type == command.EmptyConnectionCommand {
 		return nil
@@ -409,77 +407,7 @@ func (dio *Diode) Start() error {
 
 // WaitForFirstClient returns first client that is validated
 func (dio *Diode) WaitForFirstClient(onlyNeedOne bool) (client *rpc.Client) {
-	cfg := dio.config
-	rpcAddrLen := len(cfg.RemoteRPCAddrs)
-	c := make(chan *rpc.Client, rpcAddrLen)
-
-	wg := &sync.WaitGroup{}
-	wg.Add(1)
-	go func() {
-		i := 2
-		for range cfg.RemoteRPCAddrs {
-			rpcClient := <-c
-			if rpcClient == nil {
-				continue
-			}
-			if onlyNeedOne && client != nil {
-				rpcClient.Close()
-				continue
-			}
-			verbose := client == nil
-
-			if verbose {
-				cfg.Logger.Info(fmt.Sprintf("Connected to host: %s, validating...", rpcClient.Host()))
-			} else {
-				cfg.Logger.Info(fmt.Sprintf("Adding host: %s [%d/%d]", rpcClient.Host(), i, rpcAddrLen))
-				i = i + 1
-			}
-			isValid, err := rpcClient.ValidateNetwork()
-			if err != nil && strings.Contains(err.Error(), "sent reference block does not match") {
-				// the lvbn was removed, we can validate network again
-				isValid, _ = rpcClient.ValidateNetwork()
-			}
-			if isValid {
-				serverID, err := rpcClient.GetServerID()
-				if err != nil {
-					cfg.Logger.Warn("Failed to get server id: %v from %s", err, rpcClient.Host())
-					rpcClient.Close()
-					continue
-				}
-				err = rpcClient.Greet()
-				if err != nil {
-					cfg.Logger.Warn("Failed to submitTicket to server: %v from %s", err, rpcClient.Host())
-				}
-				dio.datapool.SetClient(serverID, rpcClient)
-				if client == nil {
-					client = rpcClient
-					wg.Done()
-				}
-				rpcClient.OnClose = func() {
-					dio.datapool.SetClient(serverID, nil)
-				}
-			} else {
-				if verbose {
-					if err != nil {
-						cfg.Logger.Error(fmt.Sprintf("Network of %s is not valid (err: %s), trying next...", rpcClient.Host(), err.Error()))
-					} else {
-						cfg.Logger.Error("Network of %s is not valid for unknown reasons", rpcClient.Host())
-					}
-				}
-				rpcClient.Close()
-			}
-		}
-		close(c)
-		// should end waiting if there is no valid client
-		if client == nil {
-			wg.Done()
-		}
-	}()
-	for _, RemoteRPCAddr := range cfg.RemoteRPCAddrs {
-		go connect(c, RemoteRPCAddr, cfg, dio.datapool)
-	}
-	wg.Wait()
-	return
+	return dio.clientManager.GetNearestClient()
 }
 
 // SetSocksServer set socks server of diode application
@@ -502,17 +430,16 @@ func (dio *Diode) SetConfigAPIServer(configAPIServer *ConfigAPIServer) {
 
 // Wait till user signal int to diode application
 func (dio *Diode) Wait() {
-	go func() {
-		// listen to signal
-		sigChan := make(chan os.Signal, 1)
-		signal.Notify(sigChan, syscall.SIGINT)
-		sig := <-sigChan
-		switch sig {
-		case syscall.SIGINT:
-			dio.Close()
-		}
-	}()
-	app.datapool.WaitClients()
+	// go func() {
+	// listen to signal
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT)
+	sig := <-sigChan
+	switch sig {
+	case syscall.SIGINT:
+		dio.Close()
+	}
+	// }()
 }
 
 // Closed returns the whether diode application has been closed
@@ -561,10 +488,10 @@ func (dio *Diode) Close() {
 			dio.configAPIServer.Close()
 		}
 		if verbose {
-			cfg.PrintInfo("4/5 Cleaning pool")
+			cfg.PrintInfo("4/5 Stopping client manager")
 		}
-		if dio.datapool != nil {
-			dio.datapool.Close()
+		if dio.clientManager != nil {
+			dio.clientManager.Stop()
 		}
 		if verbose {
 			cfg.PrintInfo("5/5 Closing logs")

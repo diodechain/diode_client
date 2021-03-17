@@ -53,7 +53,7 @@ func bnsHandler() (err error) {
 	if err != nil {
 		return
 	}
-	client := app.datapool.GetNearestClient()
+	client := app.clientManager.GetNearestClient()
 	// register bns record
 	bn, _ := client.GetBlockPeak()
 	if bn == 0 {
@@ -93,7 +93,7 @@ func handleLookup() (done bool, err error) {
 
 	var obnsAddr []util.Address
 	var ownerAddr util.Address
-	client := app.datapool.GetNearestClient()
+	client := app.clientManager.GetNearestClient()
 	obnsAddr, err = client.ResolveBNS(lookupName)
 	if err != nil {
 		cfg.PrintError("Lookup error: ", err)
@@ -121,7 +121,7 @@ func handleLookupAccount() (done bool, err error) {
 
 	var obnsAddr []util.Address
 	var ownerAddr util.Address
-	client := app.datapool.GetNearestClient()
+	client := app.clientManager.GetNearestClient()
 	obnsAddr, err = client.ResolveBNS(lookupName)
 	if err != nil {
 		cfg.PrintError("Lookup error: ", err)
@@ -157,7 +157,7 @@ func handleRegister() (done bool, err error) {
 	done = true
 	registerReverse := true
 
-	client := app.datapool.GetNearestClient()
+	client := app.clientManager.GetNearestClient()
 	var bnsContract contract.BNSContract
 	bnsContract, err = contract.NewBNSContract()
 	if err != nil {
@@ -241,7 +241,7 @@ func handleTransfer() (done bool, err error) {
 	}
 	done = true
 
-	client := app.datapool.GetNearestClient()
+	client := app.clientManager.GetNearestClient()
 	var bnsContract contract.BNSContract
 	bnsContract, err = contract.NewBNSContract()
 	if err != nil {
@@ -272,7 +272,7 @@ func handleTransfer() (done bool, err error) {
 			cfg.PrintError("BNS name already transferred", err)
 			return
 		}
-		if owner != client.Config.ClientAddr {
+		if owner != cfg.ClientAddr {
 			err = fmt.Errorf("bns domain is owned by %v", owner.HexString())
 			cfg.PrintError("BNS name can't be transfered", err)
 			return
@@ -303,7 +303,7 @@ func handleUnregister() (done bool, err error) {
 	}
 	done = true
 
-	client := app.datapool.GetNearestClient()
+	client := app.clientManager.GetNearestClient()
 	var bnsContract contract.BNSContract
 	bnsContract, err = contract.NewBNSContract()
 	if err != nil {
@@ -324,7 +324,7 @@ func handleUnregister() (done bool, err error) {
 	if owner == [20]byte{} {
 		err = fmt.Errorf("BNS name is already free")
 		return
-	} else if owner != client.Config.ClientAddr {
+	} else if owner != cfg.ClientAddr {
 		err = fmt.Errorf("BNS owned by %v", owner.HexString())
 		cfg.PrintError("BNS name can't be freed", err)
 		return

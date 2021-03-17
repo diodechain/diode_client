@@ -222,12 +222,6 @@ func LoadClientPubKey() []byte {
 	return clientPubKey
 }
 
-func (s *SSL) incrementTotalConnections(n int) {
-	s.rm.Lock()
-	defer s.rm.Unlock()
-	s.totalConnections += uint64(n)
-}
-
 func (s *SSL) incrementTotalBytes(n int) {
 	s.rm.Lock()
 	defer s.rm.Unlock()
@@ -272,48 +266,32 @@ func (s *SSL) readMessage() (msg edge.Message, err error) {
 	return msg, nil
 }
 
-func (s *SSL) sendMessage(buf []byte) (n int, err error) {
-	conn := s.getOpensslConn()
+func (s *SSL) sendMessage(buf []byte) error {
 	// write message length
-	byteLen := make([]byte, 2)
-	binary.BigEndian.PutUint16(byteLen, uint16(len(buf)))
-	n, err = conn.Write(byteLen)
+	message := make([]byte, 2)
+	binary.BigEndian.PutUint16(message, uint16(len(buf)))
+	message = append(message, buf...)
+	n, err := s.write(message)
 	if err != nil {
-		return
-	}
-	if n != len(byteLen) {
-		err = fmt.Errorf("data was truncated")
-		return
-	}
-	n, err = conn.Write(buf)
-	if err != nil {
-		return
-	}
-	if n != len(buf) {
-		err = fmt.Errorf("data was truncated")
-	}
-	s.incrementTotalBytes(n + len(byteLen))
-	return
-}
-
-func (s *SSL) reconnect() error {
-	s.rm.Lock()
-	conn, err := openssl.Dial("tcp", s.addr, s.ctx, s.mode)
-	if err != nil {
-		s.rm.Unlock()
 		return err
 	}
-	s.conn = conn
-	s.rm.Unlock()
-	if s.enableKeepAlive {
-		s.EnableKeepAlive()
-		err = s.SetKeepAliveInterval(s.keepAliveInterval)
-		if err != nil {
-			return err
+	s.incrementTotalBytes(n)
+	return err
+}
+
+func (s *SSL) write(buf []byte) (n int, err error) {
+	conn := s.getOpensslConn()
+	// Setting both deadlines will cause an intended ripple effect
+	// on reads if we timeout here
+	conn.SetDeadline(time.Now().Add(15 * time.Second))
+	n, err = conn.Write(buf)
+	if err == nil {
+		conn.SetDeadline(time.Time{})
+		if n != len(buf) {
+			err = fmt.Errorf("data was truncated")
 		}
 	}
-	s.incrementTotalConnections(1)
-	return nil
+	return
 }
 
 func EnsurePrivatePEM() []byte {
@@ -337,69 +315,6 @@ func EnsurePrivatePEM() []byte {
 		return bytes
 	}
 	return key
-}
-
-func DoConnect(host string, config *config.Config, pool *DataPool) (*Client, error) {
-	ctx := initSSLCtx(config)
-	client, err := DialContext(ctx, host, openssl.InsecureSkipHostVerification)
-	if err != nil {
-		config.Logger.Error(fmt.Sprintf("Failed to connect to: %s (%s)", host, err.Error()))
-		// Retry to connect
-		isOk := false
-		backoff := Backoff{
-			Min:    config.RetryWait,
-			Max:    10 * config.RetryWait,
-			Factor: 2,
-			Jitter: true,
-		}
-		for i := 1; i <= config.RetryTimes; i++ {
-			dur := backoff.Duration()
-			config.Logger.Info(fmt.Sprintf("Retry to connect to %s (%d/%d), waiting %s", host, i, config.RetryTimes, dur.String()))
-			time.Sleep(dur)
-			client, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification)
-			if err == nil {
-				isOk = true
-				break
-			}
-			if config.Debug {
-				config.Logger.Debug(fmt.Sprintf("Failed to connect to host: %s (%s)", host, err.Error()))
-			}
-		}
-		if !isOk {
-			return nil, fmt.Errorf("failed to connect to host: %s", host)
-		}
-	}
-	// enable keepalive
-	if config.EnableKeepAlive {
-		err = client.EnableKeepAlive()
-		if err != nil {
-			return nil, err
-		}
-		err = client.SetKeepAliveInterval(config.KeepAliveInterval)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	rpcConfig := clientConfig{
-		ClientAddr:   config.ClientAddr,
-		RegistryAddr: config.RegistryAddr,
-		FleetAddr:    config.FleetAddr,
-		Blocklists:   config.Blocklists,
-		Allowlists:   config.Allowlists,
-	}
-	rpcClient := NewClient(client, rpcConfig, pool)
-
-	rpcClient.Verbose = config.Debug
-	rpcClient.logger = config.Logger
-
-	if config.EnableMetrics {
-		rpcClient.enableMetrics = true
-		rpcClient.metrics = NewMetrics()
-	}
-	rpcClient.Start()
-
-	return rpcClient, nil
 }
 
 func initSSLCtx(config *config.Config) *openssl.Ctx {
@@ -476,8 +391,5 @@ func doInitSSLCtx(config *config.Config) (*openssl.Ctx, error) {
 	if err = ctx.SetSupportedEllipticCurves(curves); err != nil {
 		return nil, err
 	}
-
-	// sets the OpenSSL session lifetime
-	ctx.SetTimeout(config.RemoteRPCTimeout)
 	return ctx, nil
 }

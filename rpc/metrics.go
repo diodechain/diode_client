@@ -17,10 +17,9 @@ type Metrics struct {
 	// rpcMeter   gometrics.Meter
 	// socksMeter gometrics.Meter
 
-	rpcTimer       gometrics.Timer
-	readTimer      gometrics.Timer
-	writeTimer     gometrics.Timer
-	reconnectTimer gometrics.Timer
+	rpcTimer   gometrics.Timer
+	readTimer  gometrics.Timer
+	writeTimer gometrics.Timer
 
 	// bytesInCount  gometrics.Counter
 	// bytesOutCount gometrics.Counter
@@ -52,10 +51,6 @@ func (metrics *Metrics) UpdateReadTimer(d time.Duration) {
 
 func (metrics *Metrics) UpdateWriteTimer(d time.Duration) {
 	metrics.writeTimer.Update(d)
-}
-
-func (metrics *Metrics) UpdateReconnectTimer(d time.Duration) {
-	metrics.reconnectTimer.Update(d)
 }
 
 func (metrics *Metrics) Report() {
