@@ -66,6 +66,8 @@ github.com/diodechain/go-update v2.2.10+incompatible h1:1JAHxOBGwmHwzCfZkdQ+VI8E
 github.com/diodechain/go-update v2.2.10+incompatible/go.mod h1:CDLeFDVYEZiIq526c0grXHX1avgSUUp0sYIjWDeuxV0=
 github.com/diodechain/gobert v1.0.1 h1:TxCC61/W1d5K/tSqyMDj05wz7/jXwbx/l2d+jrRmcAc=
 github.com/diodechain/gobert v1.0.1/go.mod h1:X9tC96925Yf6P16ii8Uo4nGdqDH7mLfxD9FDpKxEyrU=
+github.com/diodechain/gobert v1.0.2 h1:NNNcK8Zu2zKPS3EXH15gZHi2OdF2WV0edV6TD6oFCWs=
+github.com/diodechain/gobert v1.0.2/go.mod h1:X9tC96925Yf6P16ii8Uo4nGdqDH7mLfxD9FDpKxEyrU=
 github.com/diodechain/openssl v1.0.14 h1:oIhlwRg1pCkcrBe+SkIfL8wcv4ZLM09zK8V/O7wyG9g=
 github.com/diodechain/openssl v1.0.14/go.mod h1:sPhXqtNMyelDs2gaSghHE9qFlMF0i3Osqh8wOFmzrRU=
 github.com/diodechain/zap v0.0.0-20201117101851-06f3cd5f3263 h1:IzzrLj8ehGjdejK48kf+/qgLLVdyMaCkq6mskuDXAAM=

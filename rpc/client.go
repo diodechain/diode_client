@@ -721,10 +721,8 @@ func (rpcClient *Client) GetAccountValue(blockNumber uint64, account [20]byte, r
 		bn, _ := rpcClient.LastValid()
 		blockNumber = uint64(bn)
 	}
-	// encAccount := util.EncodeToString(account[:])
 	// pad key to 32 bytes
 	key := util.PaddingBytesPrefix(rawKey, 0, 32)
-	// encKey := util.EncodeToString(key)
 	rawAccountValue, err := rpcClient.CallContext("getaccountvalue", nil, blockNumber, account[:], key)
 	if err != nil {
 		return nil, err
@@ -763,7 +761,11 @@ func (rpcClient *Client) GetAccountValueRaw(blockNumber uint64, addr [20]byte, k
 	}
 	acvTree := acv.AccountTree()
 	// Verify the calculated proof value matches the specific known root
-	if uint64(acr.Find(acv.AccountRoot())) != acvTree.Modulo {
+	if acr.Find(acv.AccountRoot()) != int(acvTree.Modulo) {
+		rpcClient.logger.Error("Received wrong merkle proof %v != %v", acr.Find(acv.AccountRoot()), int(acvTree.Modulo))
+		// fmt.Printf("key := %#v\n", key)
+		// fmt.Printf("roots := %#v\n", acr)
+		// fmt.Printf("rawTestTree := %#v\n", acvTree.RawTree)
 		return NullData, fmt.Errorf("wrong merkle proof")
 	}
 	raw, err := acvTree.Get(key)

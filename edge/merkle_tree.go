@@ -5,8 +5,8 @@ package edge
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
-	"math/big"
 	"reflect"
 
 	"github.com/diodechain/diode_go_client/util"
@@ -51,7 +51,8 @@ func (mt *MerkleTree) Get(key []byte) ([]byte, error) {
 
 func (mt *MerkleTree) parse() (rootHash []byte, modulo uint64, leaves []MerkleTreeLeave, err error) {
 	var parsed interface{}
-	parsed, modulo, leaves, err = mt.mtp.rparse(mt.RawTree, 0)
+
+	parsed, modulo, leaves, err = mt.mtp.rparse(mt.RawTree, 0, 0)
 	if err != nil {
 		return
 	}
@@ -63,10 +64,9 @@ type MerkleTreeParser struct{}
 
 // parseProof returns bert hash of [proof]
 // proof: [<prefix>, <modulo>, <values>] | {<proof>, <proof>} | <hash>
-func (mt MerkleTreeParser) parseProof(proof interface{}, depth int) (rootHash []byte, modulo uint64, leaves []MerkleTreeLeave, err error) {
+func (mt MerkleTreeParser) parseProof(proof interface{}, depth int, bits uint64) (rootHash []byte, modulo uint64, leaves []MerkleTreeLeave, err error) {
 	var prefix interface{}
-	var bytPrefix []byte
-	var bytModule []byte
+	var bytModulo []byte
 	var key []byte
 	var value []byte
 	var subVal reflect.Value
@@ -78,41 +78,31 @@ func (mt MerkleTreeParser) parseProof(proof interface{}, depth int) (rootHash []
 		return
 	}
 	proofLen := val.Len()
-	if bytPrefix, ok = val.Index(0).Interface().([]byte); !ok {
-		err = errWrongTree
-		return
+
+	b := make([]byte, 8)
+	binary.BigEndian.PutUint64(b, bits)
+	for b[0] == 0 {
+		b = b[1:]
 	}
 
-	// The bytPrefix is actually fully client calculatable based on tree depth and position
-	// The server provided prefix is encoded in base 2 encoding if the number of bits is not 8 dividable
-	mod := depth % 8
-	if mod == 0 {
-		prefix = bytPrefix
-	} else {
-		left := (8 - mod)
-		bits := make([]byte, len(bytPrefix))
-		copy(bits, bytPrefix)
-		if mod > 0 {
-			bits = append(bits, make([]byte, left)...)
-			for i := 0; i < left; i++ {
-				bits[len(bits)-i-1] = 48
-			}
-		}
-		var num big.Int
-		if _, succ := num.SetString(string(bits), 2); !succ {
-			err = errWrongTree
-			return
-		}
-		prefix = bert.Bitstring{
-			Bytes: num.Bytes(),
-			Bits:  uint8(depth),
-		}
+	for i, j := 0, len(b)-1; i < j; i, j = i+1, j-1 {
+		b[i], b[j] = b[j], b[i]
 	}
-	if bytModule, ok = val.Index(1).Interface().([]byte); !ok {
+
+	prefix = bert.Bitstring{
+		Bytes: b,
+		Bits:  uint8(depth),
+	}
+
+	// out, _ := bert.Encode(prefix)
+	// fmt.Printf("Bits: %b Depth: %d\n", bits, depth)
+	// fmt.Printf("Bert: %s\n", util.EncodeToString(out))
+
+	if bytModulo, ok = val.Index(1).Interface().([]byte); !ok {
 		err = errWrongTree
 		return
 	}
-	modulo = util.DecodeBytesToUint(bytModule)
+	modulo = util.DecodeBytesToUint(bytModulo)
 	bertProof := bert.List{
 		Items: []bert.Term{
 			prefix,
@@ -153,8 +143,16 @@ func (mt MerkleTreeParser) parseProof(proof interface{}, depth int) (rootHash []
 	return
 }
 
+func setBit(n uint64, pos int, bit uint64) uint64 {
+	// fmt.Printf("setBit(pos=%d, %d)\n", pos, bit)
+	bytepos := ((pos - 1) % 8) + 1
+	pos = pos - bytepos + (8 - bytepos)
+	n |= (bit << pos)
+	return n
+}
+
 // parse recursively
-func (mt MerkleTreeParser) rparse(proof interface{}, depth int) (interface{}, uint64, []MerkleTreeLeave, error) {
+func (mt MerkleTreeParser) rparse(proof interface{}, depth int, bits uint64) (interface{}, uint64, []MerkleTreeLeave, error) {
 	val := reflect.ValueOf(proof)
 	kind := val.Kind()
 	if kind != reflect.Slice && kind != reflect.Array {
@@ -172,19 +170,20 @@ func (mt MerkleTreeParser) rparse(proof interface{}, depth int) (interface{}, ui
 	leftRaw := val.Index(0).Interface()
 	if bytVal, ok := leftRaw.([]byte); ok {
 		if len(bytVal) < 32 {
-			return mt.parseProof(proof, depth)
+			return mt.parseProof(proof, depth, bits)
 		}
 	}
 	if proofLen != 2 {
 		return nil, 0, nil, errWrongTree
 	}
 
-	leftItem, lmodule, lleaves, err := mt.rparse(leftRaw, depth+1)
+	depth = depth + 1
+	leftItem, lmodulo, lleaves, err := mt.rparse(leftRaw, depth, setBit(bits, depth, 0))
 	if err != nil {
 		return nil, 0, nil, err
 	}
 	rightRaw := val.Index(1).Interface()
-	rightItem, rmodule, rleaves, err := mt.rparse(rightRaw, depth+1)
+	rightItem, rmodulo, rleaves, err := mt.rparse(rightRaw, depth, setBit(bits, depth, 1))
 	if err != nil {
 		return nil, 0, nil, err
 	}
@@ -192,8 +191,9 @@ func (mt MerkleTreeParser) rparse(proof interface{}, depth int) (interface{}, ui
 		leftItem,
 		rightItem,
 	}
+
 	rootHash, err := util.BertHash(tree)
-	modulo := lmodule + rmodule
+	modulo := lmodulo + rmodulo
 	leaves := append(lleaves, rleaves...)
 	return rootHash, modulo, leaves, err
 }

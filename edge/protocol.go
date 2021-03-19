@@ -570,12 +570,12 @@ func NewMerkleTree(rawTree []interface{}) (mt MerkleTree, err error) {
 		mtp:     MerkleTreeParser{},
 		RawTree: rawTree,
 	}
-	rootHash, module, leaves, err := mt.parse()
+	rootHash, modulo, leaves, err := mt.parse()
 	if err != nil {
 		return
 	}
 	mt.RootHash = rootHash
-	mt.Modulo = module
+	mt.Modulo = modulo
 	mt.Leaves = leaves
 	return
 }
