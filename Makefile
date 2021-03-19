@@ -4,6 +4,8 @@ COMMIT= $(shell git describe --tags --dirty)
 BUILDTIME= $(shell date +"%d %b %Y")
 GOBUILD=go build -ldflags '-s -r ./ -X "main.version=${COMMIT}${VARIANT}" -X "main.buildTime=${BUILDTIME}"' -tags patch_runtime
 ARCHIVE= $(shell ./deployment/zipname.sh)
+# Build and use openssl_1_0_2u if possible
+export PKG_CONFIG_PATH=/usr/local/openssl/lib/pkgconfig/
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Linux)
@@ -88,7 +90,7 @@ $(ARCHIVE): dist
 	zip -1 -j $(ARCHIVE) dist/*
 
 .PHONY: gateway
-gateway: diode
+gateway: diode_static
 	scp -C diode root@diode.ws:diode_go_client
 	ssh root@diode.ws 'svc -k .'
 
