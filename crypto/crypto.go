@@ -11,7 +11,7 @@ import (
 	"log"
 	"math/big"
 
-	"github.com/diodechain/diode_go_client/crypto/secp256k1"
+	"github.com/diodechain/diode_client/crypto/secp256k1"
 	"golang.org/x/crypto/sha3"
 )
 

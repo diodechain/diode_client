@@ -19,12 +19,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/diodechain/diode_go_client/blockquick"
-	"github.com/diodechain/diode_go_client/config"
-	"github.com/diodechain/diode_go_client/contract"
-	"github.com/diodechain/diode_go_client/db"
-	"github.com/diodechain/diode_go_client/edge"
-	"github.com/diodechain/diode_go_client/util"
+	"github.com/diodechain/diode_client/blockquick"
+	"github.com/diodechain/diode_client/config"
+	"github.com/diodechain/diode_client/contract"
+	"github.com/diodechain/diode_client/db"
+	"github.com/diodechain/diode_client/edge"
+	"github.com/diodechain/diode_client/util"
 	"github.com/diodechain/zap"
 	"github.com/dominicletz/genserver"
 )

@@ -14,7 +14,7 @@ import (
 	"net"
 	"time"
 
-	"github.com/diodechain/diode_go_client/config"
+	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/zap"
 	"github.com/dominicletz/genserver"
 )

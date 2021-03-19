@@ -1,4 +1,4 @@
-module github.com/diodechain/diode_go_client
+module github.com/diodechain/diode_client
 
 go 1.14
 

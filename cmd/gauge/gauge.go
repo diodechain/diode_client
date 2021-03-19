@@ -5,8 +5,9 @@ package main
 
 import (
 	"fmt"
-	"github.com/diodechain/diode_go_client/pkg/gauge/cmd"
 	"os"
+
+	"github.com/diodechain/diode_client/pkg/gauge/cmd"
 )
 
 func exit(err error) {

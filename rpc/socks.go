@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/diodechain/diode_go_client/config"
-	"github.com/diodechain/diode_go_client/edge"
-	"github.com/diodechain/diode_go_client/util"
+	"github.com/diodechain/diode_client/config"
+	"github.com/diodechain/diode_client/edge"
+	"github.com/diodechain/diode_client/util"
 )
 
 var (

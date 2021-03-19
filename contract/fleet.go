@@ -6,9 +6,9 @@ package contract
 import (
 	"strings"
 
-	"github.com/diodechain/diode_go_client/accounts/abi"
-	"github.com/diodechain/diode_go_client/crypto"
-	"github.com/diodechain/diode_go_client/util"
+	"github.com/diodechain/diode_client/accounts/abi"
+	"github.com/diodechain/diode_client/crypto"
+	"github.com/diodechain/diode_client/util"
 )
 
 /**

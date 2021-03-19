@@ -10,7 +10,7 @@ darwin/build
 /client_debug
 /gauge
 /config_server
-/diode_go_client
+/diode_client
 /diode_static
 /diode
 *db.tmp

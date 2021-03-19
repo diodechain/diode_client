@@ -4,8 +4,8 @@ import (
 	"encoding/hex"
 	"fmt"
 
-	"github.com/diodechain/diode_go_client/crypto"
-	"github.com/diodechain/diode_go_client/rlp"
+	"github.com/diodechain/diode_client/crypto"
+	"github.com/diodechain/diode_client/rlp"
 )
 
 var (

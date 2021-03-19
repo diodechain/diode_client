@@ -7,8 +7,8 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/diodechain/diode_go_client/crypto"
-	"github.com/diodechain/diode_go_client/util"
+	"github.com/diodechain/diode_client/crypto"
+	"github.com/diodechain/diode_client/util"
 )
 
 func TestEIP155(t *testing.T) {

@@ -23,7 +23,7 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/diodechain/diode_go_client/crypto"
+	"github.com/diodechain/diode_client/crypto"
 )
 
 // The ABI holds information about a contract's context and available

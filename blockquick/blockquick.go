@@ -7,8 +7,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/diodechain/diode_go_client/crypto"
-	"github.com/diodechain/diode_go_client/util"
+	"github.com/diodechain/diode_client/crypto"
+	"github.com/diodechain/diode_client/util"
 )
 
 // Address represents an Ethereum address of a miner

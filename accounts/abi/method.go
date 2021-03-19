@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/diodechain/diode_go_client/crypto"
+	"github.com/diodechain/diode_client/crypto"
 )
 
 // FunctionType represents different types of functions a contract might have.

@@ -9,10 +9,10 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/diodechain/diode_go_client/command"
-	"github.com/diodechain/diode_go_client/config"
-	"github.com/diodechain/diode_go_client/db"
-	"github.com/diodechain/diode_go_client/util"
+	"github.com/diodechain/diode_client/command"
+	"github.com/diodechain/diode_client/config"
+	"github.com/diodechain/diode_client/db"
+	"github.com/diodechain/diode_client/util"
 
 	"github.com/kierdavis/ansi"
 
@@ -45,7 +45,7 @@ func doUpdate() int {
 		Command: "diode",
 		Store: &github.Store{
 			Owner:   "diodechain",
-			Repo:    "diode_go_client",
+			Repo:    "diode_client",
 			Version: version,
 		},
 	}

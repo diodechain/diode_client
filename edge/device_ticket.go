@@ -8,9 +8,9 @@ import (
 	"encoding/binary"
 	"fmt"
 
-	"github.com/diodechain/diode_go_client/crypto"
-	"github.com/diodechain/diode_go_client/crypto/secp256k1"
-	"github.com/diodechain/diode_go_client/util"
+	"github.com/diodechain/diode_client/crypto"
+	"github.com/diodechain/diode_client/crypto/secp256k1"
+	"github.com/diodechain/diode_client/util"
 )
 
 var (

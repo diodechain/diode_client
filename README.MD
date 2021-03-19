@@ -1,7 +1,7 @@
 # Diode go client
-[![Build Status](https://travis-ci.com/diodechain/diode_go_client.svg?branch=master)](https://travis-ci.com/diodechain/diode_go_client)
-![CI](https://github.com/diodechain/diode_go_client/workflows/CI/badge.svg)
-[![Go Report Card](https://goreportcard.com/badge/github.com/diodechain/diode_go_client)](https://goreportcard.com/report/github.com/diodechain/diode_go_client)
+[![Build Status](https://travis-ci.com/diodechain/diode_client.svg?branch=master)](https://travis-ci.com/diodechain/diode_client)
+![CI](https://github.com/diodechain/diode_client/workflows/CI/badge.svg)
+[![Go Report Card](https://goreportcard.com/badge/github.com/diodechain/diode_client)](https://goreportcard.com/report/github.com/diodechain/diode_client)
 
 This is Go client for connecting device through the diodechain mesh network. You can bridge your local resource to the internet with diodechain mesh network. The whole data will be encrypted with ecdh (secp256k1). You can find more details about how diode and its client works in our previous presentations https://github.com/diodechain/presentations and on https://diode.io
 
@@ -82,7 +82,7 @@ $ diode socksd
 
    1. Open Preferences in menu or type `about:preferences` in search bar.
    2. Goto Network Settings and click `Settings` button.
-   3. Setup `Automatic proxy configuration URL` to the porxy.pac, eg: `file:///Users/Guest/diode_go_client/proxy.pac`
+   3. Setup `Automatic proxy configuration URL` to the porxy.pac, eg: `file:///Users/Guest/diode_client/proxy.pac`
    4. Click `reload` then you can proxy request from `*.diode` `*diode.ws` to the go client.
 
 3. Type the website URL and see. You can try `http://pi-taipei.diode` or `http://0xc206e1255cbace8ba904daa259d7a5b7f90e2d50.diode` and more general:

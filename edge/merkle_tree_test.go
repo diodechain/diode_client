@@ -8,7 +8,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/diodechain/diode_go_client/util"
+	"github.com/diodechain/diode_client/util"
 )
 
 func TestValidateMerkleTree(t *testing.T) {

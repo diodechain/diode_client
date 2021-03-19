@@ -12,11 +12,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/diodechain/diode_go_client/command"
-	"github.com/diodechain/diode_go_client/config"
-	"github.com/diodechain/diode_go_client/rpc"
-	"github.com/diodechain/diode_go_client/staticserver"
-	"github.com/diodechain/diode_go_client/util"
+	"github.com/diodechain/diode_client/command"
+	"github.com/diodechain/diode_client/config"
+	"github.com/diodechain/diode_client/rpc"
+	"github.com/diodechain/diode_client/staticserver"
+	"github.com/diodechain/diode_client/util"
 )
 
 const (

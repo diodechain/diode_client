@@ -42,7 +42,7 @@ import (
 	"fmt"
 	"hash"
 
-	ethcrypto "github.com/diodechain/diode_go_client/crypto"
+	ethcrypto "github.com/diodechain/diode_client/crypto"
 )
 
 var (

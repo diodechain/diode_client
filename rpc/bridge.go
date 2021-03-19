@@ -11,9 +11,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/diodechain/diode_go_client/blockquick"
-	"github.com/diodechain/diode_go_client/config"
-	"github.com/diodechain/diode_go_client/edge"
+	"github.com/diodechain/diode_client/blockquick"
+	"github.com/diodechain/diode_client/config"
+	"github.com/diodechain/diode_client/edge"
 )
 
 var (

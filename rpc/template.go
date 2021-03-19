@@ -12,7 +12,7 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/diodechain/diode_go_client/config"
+	"github.com/diodechain/diode_client/config"
 )
 
 func unzip(in []byte) string {
@@ -45,7 +45,7 @@ func image(code int) (string, string) {
 	case code >= 400 && code < 500:
 		return emptyPixel, "Um, looks like you don't have access to this resource, or it may be down. To learn how to create your own Web3 content visit us at <a href='https://diode.io'>DIODE</a>"
 	case code >= 500 && code < 600:
-		return unicornSad, "Uh you found a bug, please copy the url and above error message and <a href='https://github.com/diodechain/diode_go_client/issues/new'>submit them to us here</a> with a short description of what happened."
+		return unicornSad, "Uh you found a bug, please copy the url and above error message and <a href='https://github.com/diodechain/diode_client/issues/new'>submit them to us here</a> with a short description of what happened."
 	default:
 		return unicornDrinking, "We have no idea what happened here."
 	}

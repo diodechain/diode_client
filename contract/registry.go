@@ -4,8 +4,8 @@
 package contract
 
 import (
-	"github.com/diodechain/diode_go_client/crypto"
-	"github.com/diodechain/diode_go_client/util"
+	"github.com/diodechain/diode_client/crypto"
+	"github.com/diodechain/diode_client/util"
 )
 
 /**

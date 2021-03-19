@@ -10,11 +10,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/diodechain/diode_go_client/command"
-	"github.com/diodechain/diode_go_client/config"
-	"github.com/diodechain/diode_go_client/crypto"
-	"github.com/diodechain/diode_go_client/db"
-	"github.com/diodechain/diode_go_client/util"
+	"github.com/diodechain/diode_client/command"
+	"github.com/diodechain/diode_client/config"
+	"github.com/diodechain/diode_client/crypto"
+	"github.com/diodechain/diode_client/db"
+	"github.com/diodechain/diode_client/util"
 )
 
 var (

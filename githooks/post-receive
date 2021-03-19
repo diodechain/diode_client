@@ -2,5 +2,5 @@
 unset GIT_DIR
 export GOPATH=/home/pi/go
 export PATH=/usr/local/go/bin:$PATH
-cd /home/pi/diode_go_client && git checkout -f && go build
+cd /home/pi/diode_client && git checkout -f && go build
 pkill poc-client

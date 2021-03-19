@@ -11,9 +11,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/diodechain/diode_go_client/crypto"
+	"github.com/diodechain/diode_client/crypto"
 
-	"github.com/diodechain/diode_go_client/rlp"
+	"github.com/diodechain/diode_client/rlp"
 
 	bert "github.com/diodechain/gobert"
 )

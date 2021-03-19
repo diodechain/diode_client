@@ -9,11 +9,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/diodechain/diode_go_client/blockquick"
-	"github.com/diodechain/diode_go_client/crypto"
-	"github.com/diodechain/diode_go_client/db"
-	"github.com/diodechain/diode_go_client/edge"
-	"github.com/diodechain/diode_go_client/util"
+	"github.com/diodechain/diode_client/blockquick"
+	"github.com/diodechain/diode_client/crypto"
+	"github.com/diodechain/diode_client/db"
+	"github.com/diodechain/diode_client/edge"
+	"github.com/diodechain/diode_client/util"
 )
 
 const (

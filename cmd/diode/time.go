@@ -7,9 +7,9 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/diodechain/diode_go_client/command"
-	"github.com/diodechain/diode_go_client/config"
-	"github.com/diodechain/diode_go_client/rpc"
+	"github.com/diodechain/diode_client/command"
+	"github.com/diodechain/diode_client/config"
+	"github.com/diodechain/diode_client/rpc"
 )
 
 var (
