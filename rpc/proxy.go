@@ -5,7 +5,6 @@
 package rpc
 
 import (
-	"bytes"
 	"crypto/tls"
 	"fmt"
 	"net"
@@ -180,78 +179,57 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 		badRequest(w, msg)
 		return
 	}
+	if !isWS {
+		msg := fmt.Sprintf("Only wrappring ws connections: '%s'", host)
+		badRequest(w, msg)
+		return
+	}
 	if port == 0 {
 		badRequest(w, "Cannot find port from string to int")
 		return
 	}
 
-	protocol := config.TCPProtocol
-	if config.AppConfig.EnableEdgeE2E {
-		protocol = config.TLSProtocol
-	}
-
+	protocol := config.TLSProtocol
 	err = proxyServer.socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, func(*ConnectedPort) (net.Conn, error) {
-		if isWS {
-			upgrader := websocket.Upgrader{
-				CheckOrigin:       func(_ *http.Request) bool { return true },
-				EnableCompression: true,
-			}
-			conn, err := upgrader.Upgrade(w, r, nil)
-			if err != nil {
-				internalError(w, "Websocket upgrade failed")
-				return nil, nil
-			}
-			return NewWSConn(conn), nil
+		upgrader := websocket.Upgrader{
+			CheckOrigin:       func(_ *http.Request) bool { return true },
+			EnableCompression: true,
 		}
-		hj, ok := w.(http.Hijacker)
-		if !ok {
-			internalError(w, "Webserver doesn't support hijacking")
-			return nil, nil
-		}
-		conn, buf, err := hj.Hijack()
-		header := bytes.NewBuffer([]byte{})
-		r.Write(header)
-
-		if buf.Reader.Buffered() > 0 {
-			rest := make([]byte, buf.Reader.Buffered())
-			buf.Read(rest)
-			header.Write(rest)
-		}
-
+		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			internalError(w, err.Error())
-			conn.Close()
+			internalError(w, "Websocket upgrade failed")
 			return nil, nil
 		}
-		httpConn := NewHTTPConn(header.Bytes(), conn)
-		// httpConn = NewLoggingConn("http", httpConn)
-		return httpConn, nil
+		return NewWSConn(conn), nil
 	})
 
-	if err != nil {
-		if httpErr, ok := err.(HttpError); ok {
-			var errMsg string
-			switch httpErr.code {
-			case 400:
-				errMsg = fmt.Sprintf("Bad request: %s", httpErr.Error())
-			case 404:
-				// why not err == errEmptyBNSresult
-				if err.Error() == errEmptyBNSresult.Error() {
-					errMsg = "BNS name not found. Please check spelling."
-				} else if _, ok := httpErr.err.(DeviceError); ok {
-					errMsg = "Device is currently offline."
-				} else {
-					errMsg = "BNS entry does not exist. Please check spelling."
-				}
-			case 403:
-				errMsg = "Access device forbidden"
-			case 500:
-				errMsg = fmt.Sprintf("Internal server error: %s", httpErr.Error())
-			}
-			httpError(w, httpErr.code, errMsg)
-			return
-		}
+	if err == nil {
+		return
 	}
+
+	if httpErr, ok := err.(HttpError); ok {
+		var errMsg string
+		switch httpErr.code {
+		case 400:
+			errMsg = fmt.Sprintf("Bad request: %s", httpErr.Error())
+		case 404:
+			// why not err == errEmptyBNSresult
+			if err.Error() == errEmptyBNSresult.Error() {
+				errMsg = "BNS name not found. Please check spelling."
+			} else if _, ok := httpErr.err.(DeviceError); ok {
+				errMsg = "Device is currently offline."
+			} else {
+				errMsg = "BNS entry does not exist. Please check spelling."
+			}
+		case 403:
+			errMsg = "Access device forbidden"
+		case 500:
+			errMsg = fmt.Sprintf("Internal server error: %s", httpErr.Error())
+		}
+		httpError(w, httpErr.code, errMsg)
+		return
+	}
+
 }
 
 func validateProxyConfig(proxyCfg ProxyConfig) error {
@@ -288,6 +266,7 @@ func (proxyServer *ProxyServer) SetConfig(config ProxyConfig) error {
 }
 
 func (proxyServer *ProxyServer) serveListener(srv *http.Server, ln net.Listener) {
+	ln = &proxyListener{proxy: proxyServer, ls: ln}
 	if err := srv.Serve(ln); err != http.ErrServerClosed {
 		proxyServer.logger.Error("Couldn't serve gateway for listener: %v", err)
 	}
@@ -303,9 +282,15 @@ func (proxyServer *ProxyServer) Start() error {
 	if proxyServer.Closed() {
 		return nil
 	}
-	httpdHandler := http.HandlerFunc(proxyServer.pipeProxy)
-	if proxyServer.Config.AllowRedirect {
-		httpdHandler = http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+
+	if proxyServer.httpServer == nil {
+		httpdAddr := proxyServer.Config.ProxyServerAddr
+		httpLn, err := net.Listen("tcp", httpdAddr)
+		if err != nil {
+			return err
+		}
+		proxyServer.logger.Info("Start gateway server %s", proxyServer.Config.ProxyServerAddr)
+		httpdHandler := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			// if host is not valid, throw bad request
 			host := req.Host
 			if len(host) <= 0 {
@@ -314,14 +299,6 @@ func (proxyServer *ProxyServer) Start() error {
 				http.Redirect(w, req, fmt.Sprintf("https://%s%s", host, req.URL.String()), http.StatusPermanentRedirect)
 			}
 		})
-	}
-	if proxyServer.httpServer == nil {
-		httpdAddr := proxyServer.Config.ProxyServerAddr
-		httpLn, err := net.Listen("tcp", httpdAddr)
-		if err != nil {
-			return err
-		}
-		proxyServer.logger.Info("Start gateway server %s", proxyServer.Config.ProxyServerAddr)
 		proxyServer.httpServer = &http.Server{Handler: httpdHandler}
 		go proxyServer.serveListener(proxyServer.httpServer, httpLn)
 	}

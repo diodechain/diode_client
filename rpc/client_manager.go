@@ -80,6 +80,10 @@ func (cm *ClientManager) doAddClient() {
 }
 
 func (cm *ClientManager) startClient(host string) {
+	if host == "" {
+		return
+	}
+
 	client := NewClient(host, cm.Config, cm.pool)
 	client.onConnect = func(nodeID util.Address) {
 		cm.srv.Cast(func() {
