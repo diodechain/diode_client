@@ -81,12 +81,19 @@ func (mt MerkleTreeParser) parseProof(proof interface{}, depth int, bits uint64)
 
 	b := make([]byte, 8)
 	binary.BigEndian.PutUint64(b, bits)
+	// Truncating zeros
 	for b[0] == 0 {
 		b = b[1:]
 	}
 
+	// Swapping bytes for endianes
 	for i, j := 0, len(b)-1; i < j; i, j = i+1, j-1 {
 		b[i], b[j] = b[j], b[i]
+	}
+
+	// Padding
+	for len(b) < (depth+7)/8 {
+		b = append(b, 0)
 	}
 
 	prefix = bert.Bitstring{
