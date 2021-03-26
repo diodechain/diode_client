@@ -9,15 +9,12 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"strconv"
-	"strings"
 	"sync"
 
 	"github.com/caddyserver/certmagic"
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/util"
 	"github.com/gorilla/websocket"
-	"golang.org/x/net/publicsuffix"
 )
 
 // Config is Proxy Server configuration
@@ -67,54 +64,6 @@ func badRequest(w http.ResponseWriter, str string) {
 }
 func internalError(w http.ResponseWriter, str string) {
 	httpError(w, 500, str)
-}
-
-func (proxyServer *ProxyServer) parseHost(host string) (isWS bool, mode string, deviceID string, port int, err error) {
-	mode = defaultMode
-	strPort := "80"
-	sh := strings.Split(host, ":")
-	if len(sh) > 1 {
-		host = sh[0]
-		strPort = sh[1]
-	}
-
-	var domain string
-	suffix, icann := publicsuffix.PublicSuffix(host)
-	domain, err = publicsuffix.EffectiveTLDPlusOne(host)
-	// check whether domain is managed by ICANN (usually top level domain)
-	if !icann || err != nil {
-		err = fmt.Errorf("domain is not top level domain %v", host)
-		return
-	}
-
-	var sub string
-	if len(host) > len(domain) {
-		sub = host[0 : len(host)-len(domain)-1]
-	} else {
-		// apex domain
-		// TODO: support different suffix and subdomain in BNS
-		deviceID = domain[0 : len(domain)-len(suffix)-1]
-		port, err = strconv.Atoi(strPort[:])
-		return
-	}
-
-	isWS = (domain == "diode.ws")
-	modeHostPort := subdomainPattern.FindStringSubmatch(sub)
-	if len(modeHostPort) != 4 {
-		err = fmt.Errorf("subdomain pattern not supported %v", sub)
-		return
-	}
-	if len(modeHostPort[1]) > 0 {
-		mode = modeHostPort[1]
-		mode = mode[:len(mode)-1]
-	}
-	deviceID = modeHostPort[2]
-	if len(modeHostPort[3]) > 0 {
-		strPort = modeHostPort[3][1:]
-	}
-
-	port, err = strconv.Atoi(strPort[:])
-	return
 }
 
 // isAllowedDevice validate whether the device is allowed to request the certificate
@@ -172,7 +121,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	isWS, mode, deviceID, port, err := proxyServer.parseHost(host)
+	isWS, mode, deviceID, port, err := parseHost(host)
 
 	if err != nil {
 		msg := fmt.Sprintf("failed to parse host: %v", err)
@@ -326,7 +275,7 @@ func (proxyServer *ProxyServer) Start() error {
 			// certmagicCfg.Logger = config.AppConfig.Logger.ZapLogger()
 			certmagicCfg.OnDemand = &certmagic.OnDemandConfig{
 				DecisionFunc: func(name string) error {
-					_, _, deviceID, _, err := proxyServer.parseHost(name)
+					_, _, deviceID, _, err := parseHost(name)
 					if err != nil {
 						return err
 					}

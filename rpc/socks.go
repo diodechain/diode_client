@@ -19,6 +19,7 @@ import (
 
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/edge"
+	"golang.org/x/net/publicsuffix"
 )
 
 var (
@@ -504,22 +505,34 @@ func lookupFallbackHost(h string) (string, error) {
 
 func parseHost(host string) (isWS bool, mode string, deviceID string, port int, err error) {
 	mode = defaultMode
-	strPort := ":80"
+	strPort := "80"
+	sh := strings.Split(host, ":")
+	if len(sh) > 1 {
+		host = sh[0]
+		strPort = sh[1]
+	}
 
-	subdomainPort := domainPattern.FindStringSubmatch(host)
-	var sub, domain string
-	if len(subdomainPort) != 4 {
-		err = fmt.Errorf("domain pattern not supported %v", host)
+	var domain string
+	suffix, icann := publicsuffix.PublicSuffix(host)
+	domain, err = publicsuffix.EffectiveTLDPlusOne(host)
+	// check whether domain is managed by ICANN (usually top level domain)
+	if !icann || err != nil {
+		err = fmt.Errorf("domain is not top level domain %v", host)
 		return
 	}
 
-	sub = subdomainPort[1]
-	domain = subdomainPort[2]
-	if len(subdomainPort[3]) > 0 {
-		strPort = subdomainPort[3]
+	var sub string
+	if len(host) > len(domain) {
+		sub = host[0 : len(host)-len(domain)-1]
+	} else {
+		// apex domain
+		// TODO: support different suffix and subdomain in BNS
+		deviceID = domain[0 : len(domain)-len(suffix)-1]
+		port, err = strconv.Atoi(strPort[:])
+		return
 	}
 
-	isWS = domain == "diode.ws"
+	isWS = (domain == "diode.ws")
 	modeHostPort := subdomainPattern.FindStringSubmatch(sub)
 	if len(modeHostPort) != 4 {
 		err = fmt.Errorf("subdomain pattern not supported %v", sub)
@@ -531,10 +544,10 @@ func parseHost(host string) (isWS bool, mode string, deviceID string, port int, 
 	}
 	deviceID = modeHostPort[2]
 	if len(modeHostPort[3]) > 0 {
-		strPort = modeHostPort[3]
+		strPort = modeHostPort[3][1:]
 	}
 
-	port, err = strconv.Atoi(strPort[1:])
+	port, err = strconv.Atoi(strPort[:])
 	return
 }
 

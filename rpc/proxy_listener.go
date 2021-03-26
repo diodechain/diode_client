@@ -6,6 +6,7 @@ package rpc
 
 import (
 	"crypto/tls"
+	"fmt"
 	"net"
 
 	"github.com/diodechain/diode_client/config"
@@ -27,7 +28,11 @@ func (pl *proxyListener) Accept() (net.Conn, error) {
 		return conn, err
 	}
 	if err = tlsConn.Handshake(); err != nil {
-		return conn, err
+		msg := fmt.Sprintf("Handshake error: %s %v", tlsConn.ConnectionState().ServerName, err)
+		config.AppConfig.Logger.ZapLogger().Warn(msg)
+		// Testing: Comment the following two lines for local testing without certs
+		tlsConn.Close()
+		return pl.Accept()
 	}
 
 	state := tlsConn.ConnectionState()
@@ -45,7 +50,7 @@ func (pl *proxyListener) Accept() (net.Conn, error) {
 		})
 
 		if err != nil {
-			pl.proxy.logger.Error("Failed to accept(%v): %v", name, err.Error())
+			pl.proxy.logger.Error("Failed to accept(%v '%v'): %v", name, deviceID, err.Error())
 		}
 	}()
 
