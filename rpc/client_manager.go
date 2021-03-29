@@ -171,6 +171,12 @@ func (cm *ClientManager) GetClientorConnect(nodeID util.Address) (client *Client
 		err = fmt.Errorf("GetServer(): wrong signature in server object %+v", serverObj)
 		return
 	}
+
+	// TODO: Remove once server logic is fixed
+	if serverObj.EdgePort == 41045 {
+		serverObj.EdgePort = 41046
+	}
+
 	host := net.JoinHostPort(string(serverObj.Host), fmt.Sprintf("%d", serverObj.EdgePort))
 	client, err = cm.connect(nodeID, host)
 	if err != nil {
