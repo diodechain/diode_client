@@ -21,15 +21,9 @@ var (
 	buildTime string
 )
 
-// RunDiode diode command
-func RunDiode() (err error) {
-	err = diodeCmd.Execute()
-	return
-}
-
 func main() {
 	cfg := config.AppConfig
-	err := RunDiode()
+	err := diodeCmd.Execute()
 	// TODO: set status to custom error struct
 	if err != nil {
 		cfg.PrintError("Couldn't execute command", err)

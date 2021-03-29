@@ -104,60 +104,44 @@ func (cmd *Command) Execute() (err error) {
 		err = nil
 		return
 	}
-	if len(cmd.subCommands) > 0 {
-		subCmd := cmd.SubCommand()
-		if subCmd == nil {
-			// cmd.Flag.Usage()
-			return
-		}
-		subCmd.Flag.Usage = func() {
-			subCmd.printUsage()
-		}
-		args = cmd.Flag.Args()
-		if len(args) > 0 {
-			err = subCmd.Flag.Parse(args[1:])
-		} else {
-			subCmd.Flag.Parse([]string{})
-		}
-		if err != nil {
-			err = nil
-			return
-		}
-		// TODO: support recursive execute?
-		if cmd.PreRun != nil {
-			err = cmd.PreRun()
-			if err != nil {
-				return
-			}
-		}
-		if subCmd.PreRun != nil {
-			err = subCmd.PreRun()
-			if err != nil {
-				return
-			}
-		}
-		if subCmd.Run != nil {
-			err = subCmd.Run()
-			if err != nil {
-				return
-			}
-		}
-		if subCmd.PostRun != nil {
-			err = subCmd.PostRun()
-		}
-	} else if cmd.Run != nil {
-		if cmd.PreRun != nil {
-			err = cmd.PreRun()
-			if err != nil {
-				return
-			}
-		}
-		err = cmd.Run()
+	if len(cmd.subCommands) == 0 {
+		return run(cmd.PreRun, cmd.Run, cmd.PostRun)
 	}
-	if cmd.PostRun != nil {
-		err = cmd.PostRun()
+
+	subCmd := cmd.SubCommand()
+	if subCmd == nil {
+		// cmd.Flag.Usage()
+		return
 	}
-	return
+	subCmd.Flag.Usage = func() {
+		subCmd.printUsage()
+	}
+	args = cmd.Flag.Args()
+	if len(args) > 0 {
+		err = subCmd.Flag.Parse(args[1:])
+	} else {
+		subCmd.Flag.Parse([]string{})
+	}
+	if err != nil {
+		err = nil
+		return
+	}
+
+	return run(cmd.PreRun, subCmd.PreRun, subCmd.Run, subCmd.PostRun, cmd.PostRun)
+}
+
+// Executes the given functions in order until one of them
+// returns an error
+func run(funs ...func() error) error {
+	for _, fun := range funs {
+		if fun == nil {
+			continue
+		}
+		if err := fun(); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (cmd *Command) printUsage() {

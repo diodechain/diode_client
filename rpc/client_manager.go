@@ -73,6 +73,9 @@ func (cm *ClientManager) Stop() {
 		}
 		// When the last client is closed this will return
 		cm.targetClients = 0
+		if len(cm.clients) == 0 {
+			cm.srv.Shutdown(0)
+		}
 		for _, c := range cm.clients {
 			go c.Close()
 		}
