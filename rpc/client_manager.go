@@ -23,10 +23,16 @@ type ClientManager struct {
 	clientMap     map[util.Address]*Client
 
 	waitingAny  []chan *Client
-	waitingNode map[util.Address][]chan *Client
+	waitingNode map[util.Address]*nodeRequest
 
 	pool   *DataPool
 	Config *config.Config
+}
+
+type nodeRequest struct {
+	host    string
+	waiting []chan *Client
+	client  *Client
 }
 
 // NewClientManager returns a new manager rpc client
@@ -34,7 +40,7 @@ func NewClientManager(cfg *config.Config) *ClientManager {
 	cm := &ClientManager{
 		srv:           genserver.New("ClientManager"),
 		clientMap:     make(map[util.Address]*Client),
-		waitingNode:   make(map[util.Address][]chan *Client),
+		waitingNode:   make(map[util.Address]*nodeRequest),
 		pool:          NewPool(),
 		Config:        cfg,
 		targetClients: 5,
@@ -79,21 +85,25 @@ func (cm *ClientManager) doAddClient() {
 	cm.startClient(host)
 }
 
-func (cm *ClientManager) startClient(host string) {
+func (cm *ClientManager) startClient(host string) *Client {
 	if host == "" {
-		return
+		return nil
 	}
 
+	cm.Config.Logger.Info("Adding client#%d [] @ %s", len(cm.clients), host)
 	client := NewClient(host, cm.Config, cm.pool)
 	client.onConnect = func(nodeID util.Address) {
+		cm.Config.Logger.Info("Added client#%d [%s] @ %s", len(cm.clients), nodeID.HexString(), host)
 		cm.srv.Cast(func() {
 			cm.clientMap[nodeID] = client
 			for _, c := range cm.waitingAny {
 				c <- client
 			}
 			cm.waitingAny = []chan *Client{}
-			for _, c := range cm.waitingNode[nodeID] {
-				c <- client
+			if req := cm.waitingNode[nodeID]; req != nil {
+				for _, c := range req.waiting {
+					c <- client
+				}
 			}
 			delete(cm.waitingNode, nodeID)
 		})
@@ -112,6 +122,12 @@ func (cm *ClientManager) startClient(host string) {
 					break
 				}
 			}
+			for _, req := range cm.waitingNode {
+				if req.client == client {
+					req.client = cm.startClient(req.host)
+					break
+				}
+			}
 
 			for x := len(cm.clients); x < cm.targetClients; x++ {
 				cm.doAddClient()
@@ -124,6 +140,7 @@ func (cm *ClientManager) startClient(host string) {
 	}
 	client.Start()
 	cm.clients = append(cm.clients, client)
+	return client
 }
 
 func (cm *ClientManager) GetPool() (datapool *DataPool) {
@@ -163,15 +180,22 @@ func (cm *ClientManager) GetClientorConnect(nodeID util.Address) (client *Client
 }
 
 func (cm *ClientManager) connect(nodeID util.Address, host string) (client *Client, err error) {
+	if host == "" {
+		return nil, fmt.Errorf("connect() error: Host is nil")
+	}
+
 	result := make(chan *Client, 1)
 	cm.srv.Cast(func() {
 		if client, ok := cm.clientMap[nodeID]; ok {
 			result <- client
 		} else {
-			cm.waitingNode[nodeID] = append(cm.waitingNode[nodeID], result)
-			// We're trying to connect only on the very first try
-			if len(cm.waitingNode[nodeID]) == 1 {
-				cm.startClient(host)
+			if cm.waitingNode[nodeID] == nil {
+				cm.waitingNode[nodeID] = &nodeRequest{host: host}
+			}
+			req := cm.waitingNode[nodeID]
+			req.waiting = append(req.waiting, result)
+			if req.client == nil {
+				req.client = cm.startClient(req.host)
 			}
 		}
 	})
@@ -182,10 +206,13 @@ func (cm *ClientManager) connect(nodeID util.Address, host string) (client *Clie
 	select {
 	case <-timer.C:
 		cm.srv.Cast(func() {
-			for idx, r := range cm.waitingNode[nodeID] {
-				if r == result {
-					cm.waitingNode[nodeID] = append(cm.waitingNode[nodeID][:idx], cm.waitingNode[nodeID][idx+1:]...)
-					break
+			// Removing wait from the list
+			if req := cm.waitingNode[nodeID]; req != nil {
+				for idx, r := range req.waiting {
+					if r == result {
+						req.waiting = append(req.waiting[:idx], req.waiting[idx+1:]...)
+						break
+					}
 				}
 			}
 		})

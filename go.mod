@@ -13,7 +13,7 @@ require (
 	github.com/diodechain/gobert v1.0.3
 	github.com/diodechain/openssl v1.0.14
 	github.com/diodechain/zap v0.0.0-20201117101851-06f3cd5f3263
-	github.com/dominicletz/genserver v1.0.2
+	github.com/dominicletz/genserver v1.1.0
 	github.com/dsnet/compress v0.0.1 // indirect
 	github.com/ethereum/go-ethereum v1.9.11
 	github.com/gdamore/tcell/v2 v2.1.0

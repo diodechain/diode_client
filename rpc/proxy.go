@@ -78,15 +78,9 @@ func (proxyServer *ProxyServer) isAllowedDevice(deviceName string) (err error) {
 		return
 	}
 	if !util.IsHex([]byte(deviceName)) {
-		bnsKey := fmt.Sprintf("bns:%s", deviceName)
-		var ok bool
-		deviceIDs, ok = socksServer.datapool.GetCacheBNS(bnsKey)
-		if !ok {
-			deviceIDs, err = client.ResolveBNS(deviceName)
-			if err != nil {
-				return
-			}
-			socksServer.datapool.SetCacheBNS(bnsKey, deviceIDs)
+		deviceIDs, err = client.GetCacheOrResolveBNS(deviceName)
+		if err != nil {
+			return
 		}
 	} else {
 		// reject hex encoding device name

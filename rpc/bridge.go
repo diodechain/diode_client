@@ -278,7 +278,7 @@ func (client *Client) recvMessage() {
 // make sure the network is safe
 func (client *Client) watchLatestBlock() {
 	var lastblock uint64
-	client.call(func() { client.blockTicker = time.NewTicker(client.blockTickerDuration) })
+	client.callTimeout(func() { client.blockTicker = time.NewTicker(client.blockTickerDuration) })
 	for {
 		select {
 		case <-client.finishBlockTickerChan:
@@ -287,7 +287,7 @@ func (client *Client) watchLatestBlock() {
 			// use go routine might cause data race issue
 			// go func() {
 			var bq *blockquick.Window
-			client.call(func() { bq = client.bq })
+			client.callTimeout(func() { bq = client.bq })
 			if bq == nil {
 				continue
 			}

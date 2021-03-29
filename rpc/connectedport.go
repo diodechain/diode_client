@@ -38,7 +38,8 @@ type ConnectedPort struct {
 
 // New returns a new connected port
 func NewConnectedPort(ref string, deviceID Address, client *Client, portNumber int) *ConnectedPort {
-	port := &ConnectedPort{Ref: ref, DeviceID: deviceID, client: client, PortNumber: portNumber, srv: genserver.New("Port"), host: client.Host()}
+	host, _ := client.Host()
+	port := &ConnectedPort{Ref: ref, DeviceID: deviceID, client: client, PortNumber: portNumber, srv: genserver.New("Port"), host: host}
 	port.Info("Open port %p", port)
 	port.srv.Terminate = func() {
 		port.Info("Close port %p", port)

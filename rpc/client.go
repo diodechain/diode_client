@@ -177,19 +177,22 @@ func (client *Client) Crit(msg string, args ...interface{}) {
 }
 
 // Host returns the non-resolved addr name of the host
-func (client *Client) Host() (host string) {
-	client.call(func() { host = client.s.addr })
+func (client *Client) Host() (host string, err error) {
+	err = client.callTimeout(func() { host = client.s.addr })
 	return
 }
 
 // GetServerID returns server address
 func (client *Client) GetServerID() (serverID [20]byte, err error) {
-	client.call(func() {
+	timeout := client.callTimeout(func() {
 		serverID, err = client.s.GetServerID()
 		if err != nil {
 			serverID = util.EmptyAddress
 		}
 	})
+	if err == nil {
+		err = timeout
+	}
 	return
 }
 
@@ -208,7 +211,8 @@ func (client *Client) waitResponse(call *Call) (res interface{}, err error) {
 	defer client.srv.Cast(func() { client.cm.RemoveCallByID(call.id) })
 	resp, ok := <-call.response
 	if !ok {
-		err = CancelledError{client.Host()}
+		host, _ := client.Host()
+		err = CancelledError{host}
 		if call.sender != nil {
 			call.sender.sendErr = io.EOF
 			call.sender.Close()
@@ -244,8 +248,9 @@ func (client *Client) RespondContext(requestID uint64, responseType string, meth
 	return
 }
 
-func (client *Client) call(fun func()) {
-	client.srv.Call(fun)
+func (client *Client) callTimeout(fun func()) error {
+	// Long enough timeout to at least survive initial reconnect attempts
+	return client.srv.CallTimeout(fun, 30*time.Second)
 }
 
 // CastContext returns a response future after calling the rpc
@@ -270,13 +275,16 @@ func (client *Client) CastContext(sender *ConnectedPort, method string, args ...
 }
 
 func (client *Client) insertCall(call *Call) (err error) {
-	client.call(func() {
+	timeout := client.callTimeout(func() {
 		if client.isClosed {
 			err = errClientClosed
 			return
 		}
 		err = client.cm.Insert(call)
 	})
+	if err == nil {
+		err = timeout
+	}
 	return
 }
 
@@ -308,13 +316,16 @@ func (client *Client) CallContext(method string, parse func(buffer []byte) (inte
 
 // CheckTicket should client send traffic ticket to server
 func (client *Client) CheckTicket() (err error) {
-	var checked bool
-	client.call(func() {
+	checked := false
+	timeout := client.callTimeout(func() {
 		counter := client.s.Counter()
 		checked = client.s.TotalBytes() > counter+ticketBound
 	})
 	if checked {
 		err = client.SubmitNewTicket()
+	}
+	if err == nil {
+		err = timeout
 	}
 	return
 }
@@ -380,8 +391,7 @@ func (client *Client) validateNetwork() error {
 		if block.Number() > blockNumMax {
 			break
 		}
-		err := win.AddBlock(block, true)
-		if err != nil {
+		if err := win.AddBlock(block, true); err != nil {
 			return err
 		}
 	}
@@ -393,7 +403,9 @@ func (client *Client) validateNetwork() error {
 		}
 	}
 
-	client.call(func() { client.bq = win })
+	if err = client.callTimeout(func() { client.bq = win }); err != nil {
+		return err
+	}
 	client.storeLastValid()
 	return nil
 }
@@ -561,11 +573,14 @@ func (client *Client) SubmitNewTicket() (err error) {
 // SignTransaction return signed transaction
 func (client *Client) SignTransaction(tx *edge.Transaction) (err error) {
 	var privKey *ecdsa.PrivateKey
-	client.call(func() {
+	timeout := client.callTimeout(func() {
 		privKey, err = client.s.GetClientPrivateKey()
 	})
 	if err != nil {
 		return err
+	}
+	if timeout != nil {
+		return timeout
 	}
 	return tx.Sign(privKey)
 }
@@ -855,6 +870,10 @@ func (client *Client) ResolveReverseBNS(addr Address) (name string, err error) {
 	return string(raw[:30]), nil
 }
 
+func (client *Client) GetCacheOrResolveBNS(deviceName string) ([]Address, error) {
+	return client.pool.GetCacheOrResolveBNS(deviceName, client)
+}
+
 // ResolveBNS resolves the (primary) destination of the BNS entry
 func (client *Client) ResolveBNS(name string) (addr []Address, err error) {
 	client.Info("Resolving BNS: %s", name)
@@ -956,7 +975,7 @@ func (client *Client) Closed() bool {
 // Close rpc client
 func (client *Client) Close() {
 	doCleanup := true
-	client.call(func() {
+	timeout := client.callTimeout(func() {
 		if client.isClosed {
 			doCleanup = false
 			return
@@ -973,7 +992,7 @@ func (client *Client) Close() {
 		}
 		client.s.Close()
 	})
-	if doCleanup {
+	if timeout == nil && doCleanup {
 		// remove open ports
 		client.pool.ClosePorts(client)
 		client.srv.Shutdown(0)

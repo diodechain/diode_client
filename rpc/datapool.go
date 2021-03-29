@@ -4,6 +4,7 @@
 package rpc
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/diodechain/diode_client/config"
@@ -13,6 +14,7 @@ import (
 )
 
 type DataPool struct {
+	locks          map[string]bool
 	devices        map[string]*ConnectedPort
 	publishedPorts map[int]*config.Port
 	memoryCache    *cache.Cache
@@ -23,6 +25,7 @@ type DataPool struct {
 func NewPool() *DataPool {
 	pool := &DataPool{
 		srv:            genserver.New("DataPool"),
+		locks:          make(map[string]bool),
 		memoryCache:    cache.New(5*time.Minute, 10*time.Minute),
 		devices:        make(map[string]*ConnectedPort),
 		publishedPorts: make(map[int]*config.Port),
@@ -34,7 +37,7 @@ func NewPool() *DataPool {
 	return pool
 }
 
-func (p *DataPool) GetCacheBNS(key string) (bns []Address, ok bool) {
+func (p *DataPool) getCacheBNS(key string) (bns []Address, ok bool) {
 	p.srv.Call(func() {
 		cachedBNS, hit := p.memoryCache.Get(key)
 		if !hit {
@@ -48,6 +51,44 @@ func (p *DataPool) GetCacheBNS(key string) (bns []Address, ok bool) {
 		p.DeleteCacheBNS(key)
 	}
 	return
+}
+
+func (p *DataPool) GetCacheOrResolveBNS(deviceName string, client *Client) ([]Address, error) {
+	p.Lock(deviceName)
+	defer p.Unlock(deviceName)
+
+	bnsKey := fmt.Sprintf("bns:%s", deviceName)
+	bns, cached := p.getCacheBNS(bnsKey)
+	if cached {
+		return bns, nil
+	}
+	var err error
+	bns, err = client.ResolveBNS(deviceName)
+	if err == nil {
+		p.SetCacheBNS(bnsKey, bns)
+	}
+	return bns, err
+}
+
+func (p *DataPool) Lock(name string) {
+	locked := false
+	for !locked {
+		p.srv.Call(func() {
+			if !p.locks[name] {
+				p.locks[name] = true
+				locked = true
+			}
+		})
+		if !locked {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
+}
+
+func (p *DataPool) Unlock(name string) {
+	p.srv.Call(func() {
+		delete(p.locks, name)
+	})
 }
 
 // ClosePorts closes all ports belonging to the given client
@@ -90,9 +131,7 @@ func (p *DataPool) GetCache(key string) (ticket *edge.DeviceTicket) {
 }
 
 func (p *DataPool) SetCacheDevice(key Address, tck *edge.DeviceTicket) {
-	p.srv.Cast(func() {
-		p.SetCache(string(key[:]), tck)
-	})
+	p.SetCache(string(key[:]), tck)
 }
 
 func (p *DataPool) SetCache(key string, tck *edge.DeviceTicket) {

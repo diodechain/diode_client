@@ -512,12 +512,16 @@ func parseHost(host string) (isWS bool, mode string, deviceID string, port int, 
 		strPort = sh[1]
 	}
 
-	var domain string
 	suffix, icann := publicsuffix.PublicSuffix(host)
-	domain, err = publicsuffix.EffectiveTLDPlusOne(host)
 	// check whether domain is managed by ICANN (usually top level domain)
-	if !icann || err != nil {
-		err = fmt.Errorf("domain is not top level domain %v", host)
+	if !icann && suffix != "diode" {
+		err = fmt.Errorf("domain is not top a level domain %s (%s)", host, suffix)
+		return
+	}
+
+	var domain string
+	domain, err = publicsuffix.EffectiveTLDPlusOne(host)
+	if err != nil {
 		return
 	}
 
@@ -925,8 +929,6 @@ func (socksServer *Server) SetConfig(config Config) error {
 
 // GetServer gets or creates a new SSL connection to the given server
 func (socksServer *Server) GetServer(nodeID Address) (client *Client, err error) {
-	socksServer.rm.Lock()
-	defer socksServer.rm.Unlock()
 	return socksServer.clientManager.GetClientorConnect(nodeID)
 }
 

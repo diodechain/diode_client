@@ -73,6 +73,8 @@ github.com/dlclark/regexp2 v1.2.0/go.mod h1:2pZnwuY/m+8K6iRw6wQdMtk+rH5tNGR1i55k
 github.com/docker/docker v1.4.2-0.20180625184442-8e610b2b55bf/go.mod h1:eEKB0N0r5NX/I1kEveEz05bcu8tLC/8azJZsviup8Sk=
 github.com/dominicletz/genserver v1.0.2 h1:WusgL479QDqEXbRibGoY5zvIoFeKd/kuUWWnhd0vf/g=
 github.com/dominicletz/genserver v1.0.2/go.mod h1:wiq8ISya4SWZvrBugCyNEEE4QtN1doEzpmhcSNJcoa0=
+github.com/dominicletz/genserver v1.1.0 h1:WP+QO3heDwm6IIhNggszm5P6diRI+ZGsd1M3o2Lj8zE=
+github.com/dominicletz/genserver v1.1.0/go.mod h1:wiq8ISya4SWZvrBugCyNEEE4QtN1doEzpmhcSNJcoa0=
 github.com/dop251/goja v0.0.0-20200106141417-aaec0e7bde29/go.mod h1:Mw6PkjjMXWbTj+nnj4s3QPXq1jaT0s5pC0iFD4+BOAA=
 github.com/dsnet/compress v0.0.1 h1:PlZu0n3Tuv04TzpfPbrnI0HW/YwodEXDS+oPKahKF0Q=
 github.com/dsnet/compress v0.0.1/go.mod h1:Aw8dCMJ7RioblQeTqt88akK31OvO8Dhf5JflhBbQEHo=

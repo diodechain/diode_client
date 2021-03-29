@@ -39,15 +39,9 @@ func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTi
 		return nil, HttpError{404, err}
 	}
 	if !util.IsHex([]byte(deviceName)) {
-		bnsKey := fmt.Sprintf("bns:%s", deviceName)
-		var ok bool
-		deviceIDs, ok = resolver.datapool.GetCacheBNS(bnsKey)
-		if !ok {
-			deviceIDs, err = client.ResolveBNS(deviceName)
-			if err != nil {
-				return nil, HttpError{404, err}
-			}
-			resolver.datapool.SetCacheBNS(bnsKey, deviceIDs)
+		deviceIDs, err = client.GetCacheOrResolveBNS(deviceName)
+		if err != nil {
+			return
 		}
 	} else {
 		id, err := util.DecodeAddress(deviceName)

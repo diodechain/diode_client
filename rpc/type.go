@@ -102,7 +102,7 @@ func WindowSize() int {
 // LastValid returns the last valid block number and block header
 func (client *Client) LastValid() (uint64, crypto.Sha3) {
 	var bq *blockquick.Window
-	client.call(func() { bq = client.bq })
+	client.callTimeout(func() { bq = client.bq })
 	if bq == nil {
 		return restoreLastValid()
 	}
