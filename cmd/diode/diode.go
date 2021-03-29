@@ -16,7 +16,6 @@ import (
 
 var (
 	version   string = "development"
-	pool      *rpc.DataPool
 	app       Diode
 	buildTime string
 )

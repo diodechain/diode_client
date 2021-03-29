@@ -290,7 +290,7 @@ func publishHandler() (err error) {
 		if cfg.ClientName != "" {
 			name = cfg.ClientName
 		}
-		pool.SetPublishedPorts(cfg.PublishedPorts)
+		app.clientManager.GetPool().SetPublishedPorts(cfg.PublishedPorts)
 		for _, port := range cfg.PublishedPorts {
 			if port.To == httpPort {
 				if port.Mode == config.PublicPublishedMode {
