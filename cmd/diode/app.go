@@ -49,7 +49,7 @@ func init() {
 	diodeCmd.Flag.StringVar(&cfg.DBPath, "dbpath", util.DefaultDBPath(), "file path to db file")
 	diodeCmd.Flag.IntVar(&cfg.RetryTimes, "retrytimes", 3, "retry times to connect the remote rpc server")
 	diodeCmd.Flag.BoolVar(&cfg.EnableEdgeE2E, "e2e", true, "enable edge e2e when start diode")
-	diodeCmd.Flag.DurationVar(&cfg.EdgeE2ETimeout, "e2etimeout", 5*time.Second, "timeout seconds for edge e2e handshake")
+	diodeCmd.Flag.DurationVar(&cfg.EdgeE2ETimeout, "e2etimeout", 15*time.Second, "timeout seconds for edge e2e handshake")
 	// should put to httpd or other command
 	diodeCmd.Flag.BoolVar(&cfg.EnableUpdate, "update", true, "enable update when start diode")
 	diodeCmd.Flag.BoolVar(&cfg.EnableMetrics, "metrics", false, "enable metrics stats")
