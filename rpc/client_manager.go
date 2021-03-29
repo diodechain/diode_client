@@ -90,10 +90,10 @@ func (cm *ClientManager) startClient(host string) *Client {
 		return nil
 	}
 
-	cm.Config.Logger.Info("Adding client#%d [] @ %s", len(cm.clients), host)
+	cm.Config.Logger.Info("Adding relay#%d [] @ %s", len(cm.clients), host)
 	client := NewClient(host, cm.Config, cm.pool)
 	client.onConnect = func(nodeID util.Address) {
-		cm.Config.Logger.Info("Added client#%d [%s] @ %s", len(cm.clients), nodeID.HexString(), host)
+		cm.Config.Logger.Info("Added relay#%d [%s] @ %s", len(cm.clients)-1, nodeID.HexString(), host)
 		cm.srv.Cast(func() {
 			cm.clientMap[nodeID] = client
 			for _, c := range cm.waitingAny {
