@@ -209,8 +209,9 @@ func (proxyServer *ProxyServer) SetConfig(config ProxyConfig) error {
 }
 
 func (proxyServer *ProxyServer) serveListener(srv *http.Server, ln net.Listener) {
-	ln = &proxyListener{proxy: proxyServer, ls: ln}
-	if err := srv.Serve(ln); err != http.ErrServerClosed {
+	pl := &proxyListener{proxy: proxyServer, ls: ln}
+	pl.Run()
+	if err := srv.Serve(pl); err != http.ErrServerClosed {
 		proxyServer.logger.Error("Couldn't serve gateway for listener: %v", err)
 	}
 }
