@@ -219,25 +219,25 @@ func (port *ConnectedPort) upgradeTLS(fn func(*E2EServer) error) error {
 
 // Info logs to logger in Info level
 func (port *ConnectedPort) Info(msg string, args ...interface{}) {
-	config.AppConfig.Logger.ZapLogger().Info(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
+	config.AppConfig.Logger.ZapLogger().Info(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
 }
 
 // Debug logs to logger in Debug level
 func (port *ConnectedPort) Debug(msg string, args ...interface{}) {
-	config.AppConfig.Logger.ZapLogger().Debug(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
+	config.AppConfig.Logger.ZapLogger().Debug(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
 }
 
 // Error logs to logger in Error level
 func (port *ConnectedPort) Error(msg string, args ...interface{}) {
-	config.AppConfig.Logger.ZapLogger().Error(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
+	config.AppConfig.Logger.ZapLogger().Error(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
 }
 
 // Warn logs to logger in Warn level
 func (port *ConnectedPort) Warn(msg string, args ...interface{}) {
-	config.AppConfig.Logger.ZapLogger().Warn(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
+	config.AppConfig.Logger.ZapLogger().Warn(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
 }
 
 // Crit logs to logger in Crit level
 func (port *ConnectedPort) Crit(msg string, args ...interface{}) {
-	config.AppConfig.Logger.ZapLogger().Fatal(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("ref", port.Ref), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
+	config.AppConfig.Logger.ZapLogger().Fatal(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
 }
