@@ -82,7 +82,7 @@ func (mt MerkleTreeParser) parseProof(proof interface{}, depth int, bits uint64)
 	b := make([]byte, 8)
 	binary.BigEndian.PutUint64(b, bits)
 	// Truncating zeros
-	for b[0] == 0 {
+	for len(b) > 0 && b[0] == 0 {
 		b = b[1:]
 	}
 
