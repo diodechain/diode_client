@@ -207,6 +207,7 @@ func (cfg *Config) SProxyAdditionalPorts() []int {
 
 func (cfg *Config) PrintLabel(label string, value string) {
 	msg := fmt.Sprintf("%-20s : %-42s", label, value)
+	msg = strings.Replace(msg, "%", "%%", -1)
 	cfg.Logger.Info(msg)
 }
 
