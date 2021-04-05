@@ -101,7 +101,7 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 			remoteConn, err := net.DialTimeout(network, host, client.localTimeout)
 			if err != nil {
 				_ = client.ResponsePortOpen(portOpen, err)
-				client.Error("Failed to connect local: %v", err)
+				client.Error("Failed to connect local '%v': %v", host, err)
 				return
 			}
 			if tcpConn, ok := remoteConn.(*net.TCPConn); ok {

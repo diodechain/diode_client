@@ -53,7 +53,10 @@ func init() {
 	publishCmd.Flag.BoolVar(&scfg.Indexed, "indexed", false, "enable directory indexing in http static file server")
 }
 
-var portPattern = regexp.MustCompile(`^((\d+\.\d+\.\d+\.\d+):)?(\d+)(:(\d*)(:(tcp|tls|udp))?)?$`)
+// Supporting ipv6 if sorrounded by [] otherwise assuming domain or ip4
+const ip = `(\[?[0-9A-Fa-f:]+:[0-9A-Fa-f:]+\]?|[0-9A-Za-z-]+\.[0-9A-Za-z\.-]+[0-9A-Za-z])`
+
+var portPattern = regexp.MustCompile(`^(` + ip + `:)?(\d+)(:(\d*)(:(tcp|tls|udp))?)?$`)
 var accessPattern = regexp.MustCompile(`^0x[a-fA-F0-9]{40}$`)
 
 func parsePorts(portStrings []string, mode int, enableEdgeE2E bool) ([]*config.Port, error) {
@@ -69,6 +72,7 @@ func parsePorts(portStrings []string, mode int, enableEdgeE2E bool) ([]*config.P
 				if srcHostStr == "" {
 					srcHostStr = "localhost"
 				}
+				srcHostStr = strings.Trim(srcHostStr, "[]")
 
 				srcPort, err := strconv.Atoi(srcPortStr)
 				if err != nil {
@@ -305,8 +309,8 @@ func publishHandler() (err error) {
 			for addr := range port.Allowlist {
 				addrs = append(addrs, addr.HexString())
 			}
-
-			cfg.PrintLabel(fmt.Sprintf("Port %10s:%d", port.SrcHost, port.Src), fmt.Sprintf("%8d  %10s       %s        %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol), strings.Join(addrs, ",")))
+			host := net.JoinHostPort(port.SrcHost, strconv.Itoa(port.Src))
+			cfg.PrintLabel(fmt.Sprintf("Port %12s", host), fmt.Sprintf("%8d  %10s       %s        %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol), strings.Join(addrs, ",")))
 		}
 	}
 

@@ -5,6 +5,8 @@ package main
 
 import (
 	"fmt"
+	"net"
+	"strconv"
 
 	"github.com/diodechain/diode_client/command"
 	"github.com/diodechain/diode_client/config"
@@ -60,7 +62,8 @@ func socksdHandler() (err error) {
 		cfg.PrintInfo("")
 		cfg.PrintLabel("Bind      <name>", "<mode>     <remote>")
 		for _, bind := range cfg.Binds {
-			cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
+			bindHost := net.JoinHostPort(bind.To, strconv.Itoa(bind.ToPort))
+			cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %s13", config.ProtocolName(bind.Protocol), bindHost))
 		}
 	}
 	app.SetSocksServer(socksServer)
