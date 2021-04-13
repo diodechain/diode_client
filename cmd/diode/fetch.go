@@ -58,7 +58,7 @@ type fetchConfig struct {
 type fetchProgress struct {
 	io.Reader
 	name          string
-	pointSize     int64
+	pointSize     float64
 	points        int64
 	read          int64
 	contentLength int64
@@ -66,20 +66,27 @@ type fetchProgress struct {
 
 func (fp *fetchProgress) Read(p []byte) (int, error) {
 	if fp.read == 0 {
-		fp.pointSize = fp.contentLength / 60
-		fmt.Printf("Downloading %d bytes into '%s'.\n", fp.contentLength, fp.name)
-		fmt.Println("[------------------------------------------------------------]")
-		fmt.Printf("[")
+		if fp.contentLength > 0 {
+			fp.pointSize = float64(fp.contentLength) / 60
+			fmt.Printf("Downloading %d bytes into '%s'.\n", fp.contentLength, fp.name)
+			fmt.Println("[------------------------------------------------------------]")
+			fmt.Printf("[")
+		} else {
+			fp.pointSize = 0
+			fmt.Printf("Downloading into '%s'.\n", fp.name)
+		}
 	}
 	n, err := fp.Reader.Read(p)
 	fp.read += int64(n)
 
-	for fp.read/fp.pointSize > fp.points {
-		fmt.Printf("#")
-		fp.points++
+	if fp.pointSize > 0 {
+		for int64(float64(fp.read)/fp.pointSize) > fp.points {
+			fmt.Printf("#")
+			fp.points++
+		}
 	}
 
-	if err == io.EOF && fp.read == fp.contentLength {
+	if err == io.EOF && fp.contentLength > 0 && fp.read == fp.contentLength {
 		fmt.Printf("] Done!\n")
 	}
 
