@@ -90,8 +90,8 @@ $(ARCHIVE): dist
 	zip -1 -j $(ARCHIVE) dist/*
 
 .PHONY: gateway
-gateway: diode_static
-	scp -C diode root@diode.ws:diode_go_client
+gateway: diode_debug
+	scp -C diode_debug root@diode.ws:diode_go_client
 	ssh root@diode.ws 'svc -k .'
 
 .PHONY: diode$(EXE)
@@ -123,6 +123,7 @@ ci_test: runtime
 	./ci_test.sh
 
 .PHONY: debug
-debug: VARIANT=-debug
-debug: runtime
+diode_debug: VARIANT=-debug
+diode_debug: runtime
+	go get -a -tags openssl_static github.com/diodechain/openssl
 	$(GOBUILD) -gcflags="-N -l" -tags openssl_static -o diode_debug cmd/diode/*.go
