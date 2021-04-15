@@ -8,7 +8,6 @@ import (
 	"io"
 	"mime"
 	"net/http"
-	"net/http/httputil"
 	"os"
 	"path"
 	"regexp"
@@ -18,7 +17,6 @@ import (
 	"github.com/diodechain/diode_client/command"
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/rpc"
-	"github.com/diodechain/diode_client/util"
 )
 
 // TODO: Currently, fetch command only support http protocol, will support more protocol in the future.
@@ -165,32 +163,7 @@ func fetchHandler() (err error) {
 			req.Header.Add(name, value)
 		}
 	}
-	trace := &rpc.ClientTrace{
-		GotConn: func(connPort *rpc.ConnectedPort) {
-			if fetchCfg.Verbose {
-				fmt.Printf("Connected to %s %d\n", connPort.DeviceID.HexString(), connPort.PortNumber)
-			}
-		},
-		E2EHandshakeStart: func(peer util.Address) {
-			if fetchCfg.Verbose {
-				fmt.Printf("Start E2E handshake to %s\n", peer.HexString())
-			}
-		},
-		E2EHandshakeDone: func(peer util.Address, err error) {
-			if fetchCfg.Verbose {
-				if err != nil {
-					fmt.Printf("Failed E2E handshake to %s %+v\n", peer.HexString(), err)
-				} else {
-					fmt.Printf("Finish E2E handshake to %s\n", peer.HexString())
-				}
-				rawRequest, err := httputil.DumpRequestOut(req, true)
-				if err == nil {
-					fmt.Println(string(rawRequest))
-				}
-			}
-		},
-	}
-	req = req.WithContext(rpc.WithClientTrace(req.Context(), trace))
+
 	var resp *http.Response
 	resp, err = transport.RoundTrip(req)
 	if err != nil {

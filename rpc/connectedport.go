@@ -8,7 +8,6 @@
 package rpc
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"net"
@@ -32,7 +31,6 @@ type ConnectedPort struct {
 	Conn          net.Conn
 	client        *Client
 	sendErr       error
-	traceCtx      context.Context
 	host          string
 }
 
@@ -85,15 +83,6 @@ func (port *ConnectedPort) SendRemote(data []byte) (err error) {
 		}
 	})
 	return
-}
-
-// SetTraceCtx set trace context of the connection
-func (port *ConnectedPort) SetTraceCtx(traceCtx context.Context) {
-	port.srv.Cast(func() {
-		if port.traceCtx == nil && ContextClientTrace(traceCtx) != nil {
-			port.traceCtx = traceCtx
-		}
-	})
 }
 
 // Shutdown the connection of port
@@ -205,9 +194,6 @@ func (port *ConnectedPort) UpgradeTLSServer() (err error) {
 
 func (port *ConnectedPort) upgradeTLS(fn func(*E2EServer) error) error {
 	e2eServer := port.NewE2EServer(port.Conn, port.DeviceID)
-	if port.traceCtx != nil {
-		e2eServer.traceCtx = port.traceCtx
-	}
 	err := fn(e2eServer)
 	if err != nil {
 		port.Error("Failed to tunnel openssl client: %v", err.Error())

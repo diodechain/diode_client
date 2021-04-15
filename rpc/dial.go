@@ -23,7 +23,6 @@ func (socksServer *Server) DialContext(ctx context.Context, network, addr string
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse host %s %v", addr, err)
 	}
-	trace := ContextClientTrace(ctx)
 	if isWS {
 		return nil, fmt.Errorf("ws domain was not supported")
 	}
@@ -34,12 +33,6 @@ func (socksServer *Server) DialContext(ctx context.Context, network, addr string
 	retChan := make(chan error, 1)
 	go func() {
 		err := socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, func(connPort *ConnectedPort) (net.Conn, error) {
-			if trace != nil {
-				if trace.GotConn != nil {
-					trace.GotConn(connPort)
-				}
-				connPort.SetTraceCtx(ctx)
-			}
 			retChan <- nil
 			return connDiode, nil
 		})
