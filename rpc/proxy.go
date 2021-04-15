@@ -296,6 +296,18 @@ func (proxyServer *ProxyServer) Start() error {
 				},
 			}
 		}
+		tlsConfig.GetConfigForClient = func(clientHello *tls.ClientHelloInfo) (*tls.Config, error) {
+			// Check that the underlying connection really is TCP.
+			if tcpConn, ok := clientHello.Conn.(*net.TCPConn); ok {
+				tcpConn.SetReadBuffer(1000000)
+				tcpConn.SetWriteBuffer(1000000)
+			} else {
+				proxyServer.logger.Error("TLS over non-TCP connection")
+			}
+
+			// Make sure to return nil, nil to let the caller fall back on the default behavior.
+			return nil, nil
+		}
 
 		httpsLn, err := tls.Listen("tcp", httpsdAddr, tlsConfig)
 		if err != nil {

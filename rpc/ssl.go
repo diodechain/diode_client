@@ -51,6 +51,13 @@ func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags) (*SSL, e
 	if err != nil {
 		return nil, err
 	}
+	tcp := conn.UnderlyingConn().(*net.TCPConn)
+	if tcp == nil {
+		return nil, fmt.Errorf("could not get connection handle")
+	}
+	// tcp.SetNoDelay(false)
+	tcp.SetReadBuffer(1000000)
+	tcp.SetWriteBuffer(1000000)
 	s := &SSL{
 		conn:    conn,
 		ctx:     ctx,
