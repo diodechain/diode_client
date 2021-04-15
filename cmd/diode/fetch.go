@@ -203,6 +203,9 @@ func fetchHandler() (err error) {
 			fetchCfg.Output = params["filename"]
 		} else {
 			fetchCfg.Output = path.Base(req.URL.Path)
+			if fetchCfg.Output == "." || fetchCfg.Output == "/" {
+				fetchCfg.Output = "index.html"
+			}
 		}
 	}
 
