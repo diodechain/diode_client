@@ -45,7 +45,6 @@ func testConfig() (cfg *config.Config) {
 		EdgeE2ETimeout:  6 * time.Second,
 		EnableUpdate:    true,
 		EnableMetrics:   false,
-		Debug:           false,
 		EnableAPIServer: false,
 		APIServerAddr:   "localhost:1081",
 		LogFilePath:     "",

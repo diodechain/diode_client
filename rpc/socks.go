@@ -323,12 +323,10 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 		portOpen, err = client.PortOpen(deviceID, portName, mode)
 		if err != nil {
 			// This might fail when a device has reconnected. Clearing the cache and trying once more
-			socksServer.logger.Debug("PortOpen() failed: %v", err)
 			socksServer.datapool.SetCacheDevice(deviceID, nil)
 			continue
 		}
 		if portOpen != nil && portOpen.Err != nil {
-			socksServer.logger.Debug("PortOpen() failed(2): %v", portOpen.Err)
 			continue
 		}
 		portOpen.PortNumber = port
@@ -348,7 +346,6 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 
 func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, protocol int, mode string, fn func(*ConnectedPort) (net.Conn, error)) error {
 	if protocol == config.TLSProtocol && strings.Contains(mode, "s") {
-		socksServer.logger.Debug("Using no encryption for shared connection %v", mode)
 		protocol = config.TCPProtocol
 	}
 
@@ -435,10 +432,7 @@ func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
 	defer remoteConn.Close()
 
 	port := remoteConn.RemoteAddr().(*net.TCPAddr).Port
-
-	socksServer.logger.Debug("host connect success @ %s", host)
 	writeSocksReturn(conn, ver, remoteConn.LocalAddr(), port)
-
 	tunnel := NewTunnel(conn, remoteConn)
 	tunnel.Copy()
 }
@@ -457,16 +451,11 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, devices []
 
 	for _, device := range devices {
 		deviceID = device.GetDeviceID()
-		socksServer.logger.Debug("Connect remote %s mode %s e2e...", deviceID, mode)
-
-		clientIP := conn.RemoteAddr().String()
 		protocol := config.TCPProtocol
 		if config.AppConfig.EnableEdgeE2E {
 			protocol = config.TLSProtocol
 		}
 		err = socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, func(connPort *ConnectedPort) (net.Conn, error) {
-			// send data or receive data from ref
-			socksServer.logger.Debug("Connect remote success @ %s %s %v", clientIP, deviceID, port)
 			writeSocksReturn(conn, ver, connPort.ClientLocalAddr(), port)
 			return conn, nil
 		})
@@ -642,7 +631,6 @@ func (socksServer *Server) Start() error {
 				}
 				break
 			}
-			socksServer.logger.Debug("New socks client: %s", conn.RemoteAddr().String())
 			socksServer.wg.Add(1)
 			go socksServer.handleSocksConnection(conn)
 		}
@@ -819,7 +807,6 @@ func (socksServer *Server) stopBind(bind Bind) {
 func (socksServer *Server) startBind(bind *Bind) error {
 	var err error
 	address := net.JoinHostPort(localhost, strconv.Itoa(bind.def.LocalPort))
-	socksServer.logger.Debug("Starting port bind %s", address)
 	switch bind.def.Protocol {
 	case config.UDPProtocol:
 		if bind.udp != nil {

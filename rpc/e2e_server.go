@@ -29,7 +29,6 @@ type E2EServer struct {
 
 // NewE2EServer returns e2e server
 func (port *ConnectedPort) NewE2EServer(remoteConn net.Conn, peer Address) *E2EServer {
-	port.Debug("Enable e2e Tunnel")
 	return &E2EServer{
 		remoteConn: remoteConn,
 		peer:       peer,
@@ -78,27 +77,15 @@ func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*op
 	}
 	e2eServer.opensslConn = conn
 	go func() {
-		ts := time.Now()
 		if err = e2eServer.handshake(conn); err != nil {
 			if err != io.EOF ||
 				!strings.Contains(err.Error(), "unexpected EOF") {
 				// might be ssl closed while init
-				e2eServer.port.Error("Failed to e2e handshake: %v", err)
+				e2eServer.port.Log().Error("Failed to e2e handshake: %v", err)
 			}
 			e2eServer.Close()
 			return
 		}
-		te := time.Since(ts)
-		e2eServer.port.Debug(fmt.Sprintf("E2E handshake time: %s", te))
-		// Since we use in memory network, and there is no fd in the connection.
-		// The keepalive won't work.
-		// netConn := conn.UnderlyingConn()
-		// if tcpConn, ok := netConn.(*net.TCPConn); ok {
-		// 	err = tcpConn.SetKeepAlive(true)
-		// 	if err == nil {
-		// 		tcpConn.SetKeepAlivePeriod(10*time.Second)
-		// 	}
-		// }
 		tunnel := NewTunnel(conn, e2eServer.remoteConn)
 		tunnel.Copy()
 		e2eServer.Close()
@@ -140,7 +127,6 @@ func (e2eServer *E2EServer) Closed() bool {
 // Close e2e server
 func (e2eServer *E2EServer) Close() {
 	e2eServer.cd.Do(func() {
-		e2eServer.port.Debug("Close e2e connections")
 		e2eServer.remoteConn.Close()
 		e2eServer.opensslConn.Close()
 		close(e2eServer.closeCh)

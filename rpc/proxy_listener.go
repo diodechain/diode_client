@@ -6,7 +6,6 @@ package rpc
 
 import (
 	"crypto/tls"
-	"fmt"
 	"net"
 
 	"github.com/diodechain/diode_client/config"
@@ -50,8 +49,7 @@ func (pl *proxyListener) run() {
 
 		go func() {
 			if err = tlsConn.Handshake(); err != nil {
-				msg := fmt.Sprintf("Handshake error: %s %v", tlsConn.ConnectionState().ServerName, err)
-				config.AppConfig.Logger.ZapLogger().Warn(msg)
+				config.AppConfig.Logger.Warn("Handshake error: %s %v", tlsConn.ConnectionState().ServerName, err)
 				// Testing: Comment the following two lines for local testing without certs
 				tlsConn.Close()
 				return

@@ -39,7 +39,7 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 		go func() {
 			if portOpen.Err != nil {
 				client.ResponsePortOpen(portOpen, portOpen.Err)
-				client.Error("Failed to decode portopen request: %v", portOpen.Err.Error())
+				client.Log().Error("Failed to decode portopen request: %v", portOpen.Err.Error())
 				return
 			}
 			// Checking blocklist and allowlist
@@ -69,12 +69,12 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 			publishedPort := client.pool.GetPublishedPort(portOpen.PortNumber)
 			if publishedPort == nil {
 				client.ResponsePortOpen(portOpen, errPortNotPublished)
-				client.Info("Port was not published port = %v", portOpen.PortNumber)
+				client.Log().Info("Port was not published port = %v", portOpen.PortNumber)
 				return
 			}
 			if publishedPort.Protocol != config.AnyProtocol && publishedPort.Protocol != portOpen.Protocol {
 				client.ResponsePortOpen(portOpen, errPortNotPublished)
-				client.Info("Port was not published as this type (%v != %v) port = %v", publishedPort.Protocol, portOpen.Protocol, portOpen.PortNumber)
+				client.Log().Info("Port was not published as this type (%v != %v) port = %v", publishedPort.Protocol, portOpen.Protocol, portOpen.PortNumber)
 				return
 			}
 
@@ -101,7 +101,7 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 			remoteConn, err := net.DialTimeout(network, host, client.localTimeout)
 			if err != nil {
 				_ = client.ResponsePortOpen(portOpen, err)
-				client.Error("Failed to connect local '%v': %v", host, err)
+				client.Log().Error("Failed to connect local '%v': %v", host, err)
 				return
 			}
 			if tcpConn, ok := remoteConn.(*net.TCPConn); ok {
@@ -129,19 +129,17 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 				err := port.UpgradeTLSServer()
 				if err != nil {
 					_ = client.ResponsePortOpen(portOpen, err)
-					client.Error("Failed to tunnel openssl server: %v", err)
+					client.Log().Error("Failed to tunnel openssl server: %v", err)
 					return
 				}
 			}
-			client.Debug("Bridge local resource :%d external :%d protocol :%s", portOpen.SrcPortNumber, portOpen.PortNumber, config.ProtocolName(portOpen.Protocol))
-
 			client.pool.SetPort(deviceKey, port)
 			_ = client.ResponsePortOpen(portOpen, nil)
 			port.Copy()
 		}()
 	} else if portSend, ok := inboundRequest.(*edge.PortSend); ok {
 		if portSend.Err != nil {
-			client.Error("Failed to decode portsend request: %v", portSend.Err.Error())
+			client.Log().Error("Failed to decode portsend request: %v", portSend.Err.Error())
 			return
 		}
 		decData := portSend.Data
@@ -151,7 +149,7 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 		if cachedConnDevice != nil {
 			cachedConnDevice.SendLocal(decData)
 		} else {
-			client.Debug("Couldn't find the portsend connected device %x", portSend.Ref)
+			// client.Log().Error("Couldn't find the portsend connected device %x", portSend.Ref)
 			client.CastPortClose(portSend.Ref)
 		}
 	} else if portClose, ok := inboundRequest.(*edge.PortClose); ok {
@@ -160,16 +158,17 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 		if cachedConnDevice != nil {
 			cachedConnDevice.Close()
 			client.pool.SetPort(deviceKey, nil)
-		} else {
-			client.Debug("Couldn't find the portclose connected device %x", portClose.Ref)
 		}
+		//  else {
+		// client.Log().Error("Couldn't find the portclose connected device %x", portClose.Ref)
+		// }
 	} else if goodbye, ok := inboundRequest.(edge.Goodbye); ok {
-		client.Warn("server disconnected, reason: %v", goodbye.Reason)
+		client.Log().Warn("server disconnected, reason: %v", goodbye.Reason)
 		if !client.Closed() {
 			client.Close()
 		}
 	} else {
-		client.Warn("doesn't support rpc request: %+v ", inboundRequest)
+		client.Log().Warn("doesn't support rpc request: %+v ", inboundRequest)
 	}
 }
 
@@ -217,12 +216,12 @@ func (client *Client) handleInboundMessage(msg edge.Message) {
 		// enqueueResponse will call call.Clean(CLOSED) in success cases
 		defer call.Clean(CANCELLED)
 		if call.id == 0 {
-			client.Warn("Call.id is 0 ")
+			client.Log().Warn("Call.id is 0 ")
 			return
 		}
 		if call.response == nil {
 			// should not wait response for the call
-			client.Warn("Call.response is nil id: %d, method: %s, this might lead to rpc timeout error if you wait rpc response", call.id, call.method)
+			client.Log().Warn("Call.response is nil id: %d, method: %s, this might lead to rpc timeout error if you wait rpc response", call.id, call.method)
 			return
 		}
 		if msg.IsError() {
@@ -232,12 +231,10 @@ func (client *Client) handleInboundMessage(msg edge.Message) {
 		}
 		if call.Parse == nil {
 			// no Parse callback for hello and portclose
-			client.Debug("No parse callback for rpc call id: %d, method: %s", call.id, call.method)
 			return
 		}
 		res, err := call.Parse(msg.Buffer)
 		if err != nil {
-			client.Debug("Couldn't decode response: %s", err.Error())
 			rpcError := edge.Error{
 				Message: err.Error(),
 			}
@@ -249,10 +246,9 @@ func (client *Client) handleInboundMessage(msg edge.Message) {
 	}
 	inboundRequest, err := msg.ReadAsInboundRequest()
 	if err != nil {
-		client.Error("Not rpc request: %v", err)
+		client.Log().Error("Not rpc request: %v", err)
 		return
 	}
-	client.Debug("Got inbound request")
 	client.handleInboundRequest(inboundRequest)
 }
 
@@ -263,7 +259,7 @@ func (client *Client) recvMessage() {
 		if err != nil {
 			if !client.isClosed {
 				// This was unexpected...
-				client.Info("Client connection closed: %v", err)
+				client.Log().Info("Client connection closed: %v", err)
 				client.Close()
 			}
 			return
@@ -296,7 +292,7 @@ func (client *Client) watchLatestBlock() {
 			}
 			blockPeak, err := client.GetBlockPeak()
 			if err != nil {
-				client.Error("Couldn't getblockpeak: %v", err)
+				client.Log().Error("Couldn't getblockpeak: %v", err)
 				continue
 			}
 			blockNumMax := blockPeak - confirmationSize
@@ -309,13 +305,13 @@ func (client *Client) watchLatestBlock() {
 			for num := lastblock + 1; num <= blockNumMax; num++ {
 				blockHeader, err := client.GetBlockHeaderUnsafe(uint64(num))
 				if err != nil {
-					client.Error("Couldn't download block header %v", err)
+					client.Log().Error("Couldn't download block header %v", err)
 					isErr = true
 					break
 				}
 				err = bq.AddBlock(blockHeader, false)
 				if err != nil {
-					client.Error("Couldn't add block %v %v: %v", num, blockHeader.Hash(), err)
+					client.Log().Error("Couldn't add block %v %v: %v", num, blockHeader.Hash(), err)
 					// This could happen on an uncle block, in that case we reset
 					// the counter the last finalized block
 					bq.Last()
@@ -327,8 +323,6 @@ func (client *Client) watchLatestBlock() {
 				continue
 			}
 
-			lastn, _ := bq.Last()
-			client.Debug("Added block(s) %v-%v, last valid %v", lastblock, blockNumMax, lastn)
 			lastblock = blockNumMax
 			client.storeLastValid()
 		}
@@ -337,11 +331,10 @@ func (client *Client) watchLatestBlock() {
 
 // sendCall send the rpc call
 func (client *Client) sendCall(c *Call) (err error) {
-	client.Debug("Send new rpc: %s id: %d", c.method, c.id)
 	ts := time.Now()
 	err = client.s.sendMessage(c.data.Bytes())
 	if err != nil {
-		client.Error("Failed to write to node: %v", err)
+		client.Log().Error("Failed to write to node: %v", err)
 		return
 	}
 	tsDiff := time.Since(ts)

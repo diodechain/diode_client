@@ -110,21 +110,19 @@ func NewClient(host string, cfg *config.Config, pool *DataPool) *Client {
 func (client *Client) doConnect() (err error) {
 	err = client.doDial()
 	if err != nil {
-		client.Error("Failed to connect: (%v)", err)
+		client.Log().Error("Failed to connect: (%v)", err)
 		// Retry to connect
 		isOk := false
 		for i := 1; i <= client.config.RetryTimes; i++ {
 			dur := client.backoff.Duration()
-			client.Info("Retry to connect (%d/%d), waiting %s", i, client.config.RetryTimes, dur.String())
+			client.Log().Info("Retry to connect (%d/%d), waiting %s", i, client.config.RetryTimes, dur.String())
 			time.Sleep(dur)
 			err = client.doDial()
 			if err == nil {
 				isOk = true
 				break
 			}
-			if client.config.Debug {
-				client.Debug("Failed to connect: (%v)", err)
-			}
+			client.Log().Warn("Failed to connect: (%v)", err)
 		}
 		if !isOk {
 			return fmt.Errorf("failed to connect to host: %s", client.host)
@@ -152,28 +150,8 @@ func (client *Client) doDial() (err error) {
 }
 
 // Info logs to logger in Info level
-func (client *Client) Info(msg string, args ...interface{}) {
-	client.config.Logger.ZapLogger().Info(fmt.Sprintf(msg, args...), zap.String("server", client.host))
-}
-
-// Debug logs to logger in Debug level
-func (client *Client) Debug(msg string, args ...interface{}) {
-	client.config.Logger.ZapLogger().Debug(fmt.Sprintf(msg, args...), zap.String("server", client.host))
-}
-
-// Error logs to logger in Error level
-func (client *Client) Error(msg string, args ...interface{}) {
-	client.config.Logger.ZapLogger().Error(fmt.Sprintf(msg, args...), zap.String("server", client.host))
-}
-
-// Warn logs to logger in Warn level
-func (client *Client) Warn(msg string, args ...interface{}) {
-	client.config.Logger.ZapLogger().Warn(fmt.Sprintf(msg, args...), zap.String("server", client.host))
-}
-
-// Crit logs to logger in Crit level
-func (client *Client) Crit(msg string, args ...interface{}) {
-	client.config.Logger.ZapLogger().Fatal(fmt.Sprintf(msg, args...), zap.String("server", client.host))
+func (client *Client) Log() *config.Logger {
+	return client.config.Logger.With(zap.String("server", client.host))
 }
 
 // Host returns the non-resolved addr name of the host
@@ -302,7 +280,7 @@ func (client *Client) CallContext(method string, parse func(buffer []byte) (inte
 	if err != nil {
 		switch err.(type) {
 		case CancelledError:
-			// client.Warn("Call %s has been cancelled, drop the call", method)
+			// client.Log().Warn("Call %s has been cancelled, drop the call", method)
 			return
 		}
 	}
@@ -310,7 +288,6 @@ func (client *Client) CallContext(method string, parse func(buffer []byte) (inte
 	if client.enableMetrics {
 		client.metrics.UpdateRPCTimer(tsDiff)
 	}
-	client.Debug("Got response: %s [%v]", method, tsDiff)
 	return
 }
 
@@ -340,11 +317,11 @@ func (client *Client) validateNetwork() error {
 	// Fetching at least window size blocks -- this should be cached on disk instead.
 	blockHeaders, err := client.GetBlockHeadersUnsafe(blockNumMin, lvbn)
 	if err != nil {
-		client.Error("Cannot fetch blocks %v-%v error: %v", blockNumMin, lvbn, err)
+		client.Log().Error("Cannot fetch blocks %v-%v error: %v", blockNumMin, lvbn, err)
 		return err
 	}
 	if len(blockHeaders) != windowSize {
-		client.Error("ValidateNetwork(): len(blockHeaders) != windowSize (%v, %v)", len(blockHeaders), windowSize)
+		client.Log().Error("ValidateNetwork(): len(blockHeaders) != windowSize (%v, %v)", len(blockHeaders), windowSize)
 		return fmt.Errorf("validateNetwork(): len(blockHeaders) != windowSize (%v, %v)", len(blockHeaders), windowSize)
 	}
 
@@ -352,9 +329,7 @@ func (client *Client) validateNetwork() error {
 	hash := blockHeaders[windowSize-1].Hash()
 	if hash != lvbh {
 		// the lvbh was different, remove the lvbn
-		if client.Verbose {
-			client.Error("DEBUG: Reference block does not match -- resetting lvbn.")
-		}
+		client.Log().Debug("Reference block does not match -- resetting lvbn.")
 		db.DB.Del(lvbnKey)
 		return fmt.Errorf("sent reference block does not match %v: %v != %v", lvbn, lvbh, hash)
 	}
@@ -593,7 +568,6 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 	}
 	client.s.UpdateCounter(client.s.TotalBytes())
 	lvbn, lvbh := client.LastValid()
-	client.Debug("New ticket: %d", lvbn)
 	ticket := &edge.DeviceTicket{
 		ServerID:         serverID,
 		BlockNumber:      lvbn,
@@ -645,10 +619,10 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 					return fmt.Errorf("failed to re-submit ticket: %v", err)
 				}
 			} else {
-				client.Warn("received fake ticket.. last_ticket=%v", lastTicket)
+				client.Log().Warn("received fake ticket.. last_ticket=%v", lastTicket)
 			}
 		} else if lastTicket.Err == edge.ErrTicketTooOld {
-			client.Info("received too old ticket")
+			client.Log().Info("received too old ticket")
 		}
 		return nil
 	}
@@ -876,7 +850,7 @@ func (client *Client) GetCacheOrResolveBNS(deviceName string) ([]Address, error)
 
 // ResolveBNS resolves the (primary) destination of the BNS entry
 func (client *Client) ResolveBNS(name string) (addr []Address, err error) {
-	client.Info("Resolving BNS: %s", name)
+	client.Log().Info("Resolving BNS: %s", name)
 	arrayKey := contract.BNSDestinationArrayLocation(name)
 	size := client.GetAccountValueInt(0, contract.BNSAddr, arrayKey)
 
@@ -885,7 +859,7 @@ func (client *Client) ResolveBNS(name string) (addr []Address, err error) {
 
 	// Todo remove once memory issue is found
 	if intSize > 128 {
-		client.Error("Read invalid BNS entry count: %d", intSize)
+		client.Log().Error("Read invalid BNS entry count: %d", intSize)
 		intSize = 0
 	}
 
@@ -908,7 +882,7 @@ func (client *Client) ResolveBNS(name string) (addr []Address, err error) {
 		key := contract.BNSDestinationArrayElementLocation(name, int(i))
 		raw, err := client.GetAccountValueRaw(0, contract.BNSAddr, key)
 		if err != nil {
-			client.Error("Read invalid BNS record offset: %d %v (%v)", i, err, string(raw))
+			client.Log().Error("Read invalid BNS record offset: %d %v (%v)", i, err, string(raw))
 			continue
 		}
 
@@ -945,7 +919,7 @@ func (client *Client) ResolveBlockHash(blockNumber uint64) (blockHash []byte, er
 	blockHeader := client.bq.GetBlockHeader(blockNumber)
 	if blockHeader.Number() == 0 {
 		lvbn, _ := client.bq.Last()
-		client.Info("Validating ticket based on non-checked block %v %v", blockNumber, lvbn)
+		client.Log().Info("Validating ticket based on non-checked block %v %v", blockNumber, lvbn)
 		blockHeader, err = client.GetBlockHeaderUnsafe(blockNumber)
 		if err != nil {
 			return
@@ -1004,7 +978,7 @@ func (client *Client) Start() {
 	client.srv.Cast(func() {
 		if err := client.doStart(); err != nil {
 			if !client.isClosed {
-				client.Warn("Client connect failed: %v", err)
+				client.Log().Warn("Client connect failed: %v", err)
 			}
 			client.srv.Shutdown(0)
 		}
@@ -1013,7 +987,7 @@ func (client *Client) Start() {
 	go func() {
 		if err := client.initialize(); err != nil {
 			if !client.isClosed {
-				client.Warn("Client start failed: %v", err)
+				client.Log().Warn("Client start failed: %v", err)
 				client.Close()
 			}
 		}

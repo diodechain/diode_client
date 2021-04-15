@@ -6,7 +6,6 @@ package config
 import (
 	"fmt"
 	"os"
-	"sync"
 
 	"github.com/diodechain/zap"
 	"github.com/diodechain/zap/zapcore"
@@ -18,23 +17,18 @@ const (
 
 // Logger represent log service for client
 type Logger struct {
-	mode    int
-	verbose bool
-	logger  *zap.Logger
-	closeCh chan struct{}
-	cd      sync.Once
+	logger *zap.Logger
 }
 
 func newZapLogger(cfg *Config) (logger *zap.Logger, err error) {
-	var zapCfg zap.Config
-	if cfg.Debug {
-		zapCfg = zap.NewDevelopmentConfig()
-		zapCfg.EncoderConfig.EncodeCaller = zapcore.ShortCallerEncoder
+	zapCfg := zap.NewProductionConfig()
+	if cfg.LogDateTime || cfg.Debug {
+		zapCfg.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
 	} else {
-		zapCfg = zap.NewProductionConfig()
-		zapCfg.EncoderConfig.CallerKey = ""
-		zapCfg.DisableStacktrace = true
+		zapCfg.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
 	}
+	zapCfg.EncoderConfig.CallerKey = ""
+	zapCfg.DisableStacktrace = true
 	if (cfg.LogMode & LogToFile) > 0 {
 		_, err = os.Stat(cfg.LogFilePath)
 		if err == nil || (err != nil && os.IsExist(err)) {
@@ -64,15 +58,14 @@ func newZapLogger(cfg *Config) (logger *zap.Logger, err error) {
 // NewLogger initialize logger with given config
 func NewLogger(cfg *Config) (l Logger, err error) {
 	l.logger, err = newZapLogger(cfg)
-	l.verbose = cfg.Debug
-	l.closeCh = make(chan struct{})
-	l.mode = cfg.LogMode
 	return
 }
 
-// ZapLogger returns *zap.Logger
-func (l *Logger) ZapLogger() *zap.Logger {
-	return l.logger
+// Info logs to logger in Info level
+func (l *Logger) With(fields ...zap.Field) *Logger {
+	return &Logger{
+		logger: l.logger.With(fields...),
+	}
 }
 
 // Info logs to logger in Info level
@@ -82,9 +75,7 @@ func (l *Logger) Info(msg string, args ...interface{}) {
 
 // Debug logs to logger in Debug level
 func (l *Logger) Debug(msg string, args ...interface{}) {
-	if l.verbose {
-		l.logger.Debug(fmt.Sprintf(msg, args...))
-	}
+	l.logger.Debug(fmt.Sprintf(msg, args...))
 }
 
 // Error logs to logger in Error level
@@ -101,11 +92,4 @@ func (l *Logger) Warn(msg string, args ...interface{}) {
 // Note: this will exit the program after flush the log
 func (l *Logger) Fatal(msg string, args ...interface{}) {
 	l.logger.Fatal(fmt.Sprintf(msg, args...))
-}
-
-// Close logger handler
-func (l *Logger) Close() {
-	l.cd.Do(func() {
-		close(l.closeCh)
-	})
 }

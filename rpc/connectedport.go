@@ -8,7 +8,6 @@
 package rpc
 
 import (
-	"fmt"
 	"io"
 	"net"
 	"time"
@@ -38,9 +37,9 @@ type ConnectedPort struct {
 func NewConnectedPort(ref string, deviceID Address, client *Client, portNumber int) *ConnectedPort {
 	host, _ := client.Host()
 	port := &ConnectedPort{Ref: ref, DeviceID: deviceID, client: client, PortNumber: portNumber, srv: genserver.New("Port"), host: host}
-	port.Info("Open port %p", port)
+	port.Log().Debug("Open port %p", port)
 	port.srv.Terminate = func() {
-		port.Info("Close port %p", port)
+		port.Log().Debug("Close port %p", port)
 		port.client = nil
 	}
 	if !config.AppConfig.LogDateTime {
@@ -106,17 +105,11 @@ func (port *ConnectedPort) close() {
 	if port.closed() {
 		return
 	}
-	port.Debug("Close connected port")
 	if port.sendErr == nil {
 		port.sendErr = io.EOF
 	}
 	deviceKey := port.client.GetDeviceKey(port.Ref)
 	port.client.pool.SetPort(deviceKey, nil)
-
-	if port.Protocol > 0 {
-		port.Debug("Close local resource :%d external :%d protocol :%s", port.SrcPortNumber, port.PortNumber, config.ProtocolName(port.Protocol))
-	}
-
 	// send portclose request and channel
 	port.client.CastPortClose(port.Ref)
 	port.Conn.Close()
@@ -145,7 +138,6 @@ func (port *ConnectedPort) SendLocal(data []byte) (err error) {
 	})
 	_, err = conn.Write(data)
 	if err != nil {
-		port.Debug("Write failed: %v", err)
 		port.Close()
 	}
 	return
@@ -156,7 +148,7 @@ func (port *ConnectedPort) Copy() {
 	done := make(chan struct{})
 	port.srv.Cast(func() {
 		if port.isCopying {
-			port.Warn("Port Copy() called twice")
+			port.Log().Warn("Port Copy() called twice")
 			done <- struct{}{}
 			return
 		}
@@ -196,34 +188,13 @@ func (port *ConnectedPort) upgradeTLS(fn func(*E2EServer) error) error {
 	e2eServer := port.NewE2EServer(port.Conn, port.DeviceID)
 	err := fn(e2eServer)
 	if err != nil {
-		port.Error("Failed to tunnel openssl client: %v", err.Error())
+		port.Log().Error("Failed to tunnel openssl client: %v", err.Error())
 		return err
 	}
 	port.Conn = NewE2EConn(e2eServer)
 	return nil
 }
 
-// Info logs to logger in Info level
-func (port *ConnectedPort) Info(msg string, args ...interface{}) {
-	config.AppConfig.Logger.ZapLogger().Info(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
-}
-
-// Debug logs to logger in Debug level
-func (port *ConnectedPort) Debug(msg string, args ...interface{}) {
-	config.AppConfig.Logger.ZapLogger().Debug(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
-}
-
-// Error logs to logger in Error level
-func (port *ConnectedPort) Error(msg string, args ...interface{}) {
-	config.AppConfig.Logger.ZapLogger().Error(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
-}
-
-// Warn logs to logger in Warn level
-func (port *ConnectedPort) Warn(msg string, args ...interface{}) {
-	config.AppConfig.Logger.ZapLogger().Warn(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
-}
-
-// Crit logs to logger in Crit level
-func (port *ConnectedPort) Crit(msg string, args ...interface{}) {
-	config.AppConfig.Logger.ZapLogger().Fatal(fmt.Sprintf(msg, args...), zap.String("server", port.host), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
+func (port *ConnectedPort) Log() *config.Logger {
+	return config.AppConfig.Logger.With(zap.String("server", port.host), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
 }

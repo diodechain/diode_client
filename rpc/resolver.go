@@ -90,18 +90,18 @@ func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTi
 			// return nil, HttpError{404, err}
 		}
 		if device.BlockHash, err = client.ResolveBlockHash(device.BlockNumber); err != nil {
-			client.Error("failed to resolve() %v", err)
+			client.Log().Error("failed to resolve() %v", err)
 			continue
 		}
 		if device.Err != nil {
 			continue
 		}
 		if !device.ValidateDeviceSig(deviceID) {
-			client.Error("wrong device signature in device object")
+			client.Log().Error("wrong device signature in device object")
 			continue
 		}
 		if !device.ValidateServerSig() {
-			client.Error("wrong server signature in device object")
+			client.Log().Error("wrong server signature in device object")
 			continue
 		}
 		resolver.datapool.SetCacheDevice(deviceID, device)

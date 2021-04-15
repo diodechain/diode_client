@@ -94,10 +94,10 @@ func (cm *ClientManager) startClient(host string) *Client {
 	}
 
 	n := len(cm.clients)
-	cm.Config.Logger.Info("Adding relay#%d [] @ %s", n, host)
+	cm.Config.Logger.Debug("Adding relay#%d [] @ %s", n, host)
 	client := NewClient(host, cm.Config, cm.pool)
 	client.onConnect = func(nodeID util.Address) {
-		cm.Config.Logger.Info("Added relay#%d [%s] @ %s", n, nodeID.HexString(), host)
+		cm.Config.Logger.Debug("Added relay#%d [%s] @ %s", n, nodeID.HexString(), host)
 		cm.srv.Cast(func() {
 			cm.clientMap[nodeID] = client
 			for _, c := range cm.waitingAny {
@@ -168,7 +168,7 @@ func (cm *ClientManager) GetClientorConnect(nodeID util.Address) (client *Client
 	}
 	serverObj, err := fclient.GetNode(nodeID)
 	if err != nil {
-		fclient.Error("GetServer(): failed to getnode %v", err)
+		fclient.Log().Error("GetServer(): failed to getnode %v", err)
 		return
 	}
 	if util.PubkeyToAddress(serverObj.ServerPubKey) != nodeID {

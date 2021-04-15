@@ -120,11 +120,7 @@ func prepareDiode() error {
 	// should not copy lock
 	cfg.Logger = &logger
 	if err != nil {
-		if cfg.Debug {
-			cfg.PrintError("Couldn't initialize the logger", err)
-		} else {
-			cfg.PrintInfo("Please specify the absolute path to the log file - example: /usr/myuser/diode.log")
-		}
+		cfg.PrintInfo("Please specify the absolute path to the log file - example: /usr/myuser/diode.log")
 		return err
 	}
 
@@ -470,32 +466,28 @@ func (dio *Diode) Close() {
 		verbose := cmd != nil && cmd.Type == command.DaemonCommand
 
 		if verbose {
-			cfg.PrintInfo("1/5 Stopping socksserver")
+			cfg.PrintInfo("1/4 Stopping socksserver")
 		}
 		if dio.socksServer != nil {
 			dio.socksServer.Close()
 		}
 		if verbose {
-			cfg.PrintInfo("2/5 Stopping proxyserver")
+			cfg.PrintInfo("2/4 Stopping proxyserver")
 		}
 		if dio.proxyServer != nil {
 			dio.proxyServer.Close()
 		}
 		if verbose {
-			cfg.PrintInfo("3/5 Stopping configserver")
+			cfg.PrintInfo("3/4 Stopping configserver")
 		}
 		if dio.configAPIServer != nil {
 			dio.configAPIServer.Close()
 		}
 		if verbose {
-			cfg.PrintInfo("4/5 Stopping client manager")
+			cfg.PrintInfo("4/4 Stopping client manager")
 		}
 		if dio.clientManager != nil {
 			dio.clientManager.Stop()
 		}
-		if verbose {
-			cfg.PrintInfo("5/5 Closing logs")
-		}
-		dio.config.Logger.Close()
 	})
 }
