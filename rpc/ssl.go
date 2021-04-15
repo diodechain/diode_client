@@ -23,21 +23,18 @@ import (
 )
 
 type SSL struct {
-	conn              *openssl.Conn
-	ctx               *openssl.Ctx
-	tcpConn           *net.TCPConn
-	addr              string
-	mode              openssl.DialFlags
-	enableKeepAlive   bool
-	keepAliveInterval time.Duration
-	totalConnections  uint64
-	totalBytes        uint64
-	counter           uint64
-	clientPrivKey     *ecdsa.PrivateKey
-	rm                sync.RWMutex
-	cd                sync.Once
-	closeCh           chan struct{}
-	serverID          util.Address
+	conn             *openssl.Conn
+	ctx              *openssl.Ctx
+	addr             string
+	mode             openssl.DialFlags
+	totalConnections uint64
+	totalBytes       uint64
+	counter          uint64
+	clientPrivKey    *ecdsa.PrivateKey
+	rm               sync.RWMutex
+	cd               sync.Once
+	closeCh          chan struct{}
+	serverID         util.Address
 }
 
 // Host returns the non-resolved addr name of the host
@@ -55,9 +52,7 @@ func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags) (*SSL, e
 	if tcp == nil {
 		return nil, fmt.Errorf("could not get connection handle")
 	}
-	// tcp.SetNoDelay(false)
-	tcp.SetReadBuffer(1000000)
-	tcp.SetWriteBuffer(1000000)
+	configureTcpConn(tcp)
 	s := &SSL{
 		conn:    conn,
 		ctx:     ctx,
@@ -126,32 +121,6 @@ func (s *SSL) Close() {
 		close(s.closeCh)
 		s.conn.Close()
 	})
-}
-
-// EnableKeepAlive enable the tcp keepalive package in os level, could use ping instead
-func (s *SSL) EnableKeepAlive() error {
-	netConn := s.conn.UnderlyingConn()
-	tcpConn, ok := netConn.(*net.TCPConn)
-	if !ok {
-		return fmt.Errorf("wrong conn type for keepalive")
-	}
-	err := tcpConn.SetKeepAlive(true)
-	if err != nil {
-		return err
-	}
-	s.tcpConn = tcpConn
-	s.enableKeepAlive = true
-	return nil
-}
-
-// SetKeepAliveInterval sets the time (in seconds) between individual keepalive
-// probes.
-func (s *SSL) SetKeepAliveInterval(d time.Duration) error {
-	if !s.enableKeepAlive {
-		return fmt.Errorf("should enable keepalive first")
-	}
-	s.keepAliveInterval = d
-	return s.tcpConn.SetKeepAlivePeriod(d)
 }
 
 // GetServerID returns server address

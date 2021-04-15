@@ -128,17 +128,6 @@ func (client *Client) doConnect() (err error) {
 			return fmt.Errorf("failed to connect to host: %s", client.host)
 		}
 	}
-	// enable keepalive
-	if client.config.EnableKeepAlive {
-		err = client.s.EnableKeepAlive()
-		if err != nil {
-			return err
-		}
-		err = client.s.SetKeepAliveInterval(client.config.KeepAliveInterval)
-		if err != nil {
-			return err
-		}
-	}
 	return err
 }
 

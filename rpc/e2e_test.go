@@ -6,7 +6,6 @@ package rpc
 import (
 	"math/rand"
 	"net"
-	"runtime"
 	"testing"
 	"time"
 
@@ -50,10 +49,7 @@ func testConfig() (cfg *config.Config) {
 		LogFilePath:     "",
 		LogDateTime:     false,
 		LogMode:         config.LogToConsole,
-		EnableKeepAlive: runtime.GOOS != "windows",
 	}
-	keepaliveIntervalTime, _ := time.ParseDuration("5s")
-	cfg.KeepAliveInterval = keepaliveIntervalTime
 	remoteRPCTimeoutTime, _ := time.ParseDuration("5s")
 	cfg.RemoteRPCTimeout = remoteRPCTimeoutTime
 	retryWaitTime, _ := time.ParseDuration("1s")

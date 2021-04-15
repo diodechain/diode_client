@@ -105,10 +105,7 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 				return
 			}
 			if tcpConn, ok := remoteConn.(*net.TCPConn); ok {
-				err := tcpConn.SetKeepAlive(true)
-				if err == nil {
-					tcpConn.SetKeepAlivePeriod(10 * time.Second)
-				}
+				configureTcpConn(tcpConn)
 			}
 
 			deviceKey := client.GetDeviceKey(portOpen.Ref)
