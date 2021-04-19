@@ -116,11 +116,9 @@ func (p *DataPool) DeleteCacheBNS(key string) {
 }
 
 func (p *DataPool) GetCacheDevice(key Address) (ticket *edge.DeviceTicket) {
-	p.srv.Cast(func() {
-		ticket = p.GetCache(string(key[:]))
-	})
-	return ticket
+	return p.GetCache(string(key[:]))
 }
+
 func (p *DataPool) GetCache(key string) (ticket *edge.DeviceTicket) {
 	p.srv.Call(func() {
 		cacheObj, hit := p.memoryCache.Get(key)

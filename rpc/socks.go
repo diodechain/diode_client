@@ -618,11 +618,11 @@ func (socksServer *Server) Start() error {
 					socksServer.logger.Warn(fmt.Sprintf("socks: Accept error %v, retry in %v", err, delayTime))
 					time.Sleep(delayTime)
 					continue
-				} else {
-					socksServer.logger.Error(err.Error())
-					socksServer.Close()
 				}
-				break
+
+				socksServer.logger.Error(err.Error())
+				socksServer.Close()
+				return
 			}
 			socksServer.wg.Add(1)
 			go socksServer.handleSocksConnection(conn)
