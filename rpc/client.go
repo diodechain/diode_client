@@ -924,7 +924,7 @@ func (client *Client) ResolveBlockHash(blockNumber uint64) (blockHash []byte, er
 	blockHeader := client.bq.GetBlockHeader(blockNumber)
 	if blockHeader.Number() == 0 {
 		lvbn, _ := client.bq.Last()
-		client.Log().Info("Validating ticket based on non-checked block %v %v", blockNumber, lvbn)
+		client.Log().Debug("Validating ticket based on unchecked block %v %v", blockNumber, lvbn)
 		blockHeader, err = client.GetBlockHeaderUnsafe(blockNumber)
 		if err != nil {
 			return
