@@ -6,6 +6,7 @@ package rpc
 
 import (
 	"fmt"
+	"math/rand"
 	"net"
 	"time"
 
@@ -37,6 +38,7 @@ type nodeRequest struct {
 
 // NewClientManager returns a new manager rpc client
 func NewClientManager(cfg *config.Config) *ClientManager {
+	rand.Seed(time.Now().Unix())
 	cm := &ClientManager{
 		srv:           genserver.New("ClientManager"),
 		clientMap:     make(map[util.Address]*Client),
@@ -298,7 +300,7 @@ func (cm *ClientManager) doSelectNextHost() string {
 	}
 
 	if len(candidates) > 0 {
-		return candidates[0]
+		return candidates[rand.Intn(len(candidates))]
 	}
 	return ""
 }
