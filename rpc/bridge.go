@@ -84,9 +84,7 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 				return
 			}
 
-			// TODO check that this format %x%x conforms with the read side
 			portOpen.SrcPortNumber = int(publishedPort.Src)
-			clientID := fmt.Sprintf("%x%x", portOpen.DeviceID, portOpen.Ref)
 			port := NewConnectedPort(portOpen.Ref, portOpen.DeviceID, client, portOpen.PortNumber)
 			defer port.Shutdown()
 
@@ -112,7 +110,6 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 			port.Protocol = portOpen.Protocol
 			port.PortNumber = portOpen.PortNumber
 			port.SrcPortNumber = portOpen.SrcPortNumber
-			port.ClientID = clientID
 			port.Conn = remoteConn
 			// port.Conn = NewLoggingConn("local", remoteConn)
 

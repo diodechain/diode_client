@@ -362,7 +362,6 @@ func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, pro
 	}
 
 	connPort.Conn = conn
-	connPort.ClientID = conn.RemoteAddr().String()
 
 	if protocol == config.TLSProtocol {
 		err := connPort.UpgradeTLSClient()
@@ -727,7 +726,7 @@ func (socksServer *Server) handleUDP(packet []byte) {
 }
 
 func (socksServer *Server) forwardUDP(addr net.Addr, deviceName string, port int, mode string, data []byte) {
-	connPort := socksServer.datapool.FindPort(addr.String())
+	connPort := socksServer.datapool.FindUDPPort(addr)
 	if connPort != nil {
 		err := connPort.SendRemote(data)
 		if err != nil {
@@ -748,6 +747,8 @@ func (socksServer *Server) forwardUDP(addr net.Addr, deviceName string, port int
 		if err != nil {
 			socksServer.logger.Error("forwardUDP error: PortSend(): %v", err)
 		}
+		connPort2.UDPAddr = addr
+
 		return conn, err
 	})
 

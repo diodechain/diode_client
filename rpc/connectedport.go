@@ -22,11 +22,11 @@ type ConnectedPort struct {
 
 	isCopying     bool
 	Ref           string
-	ClientID      string
 	Protocol      int
 	PortNumber    int
 	SrcPortNumber int
 	DeviceID      Address
+	UDPAddr       net.Addr
 	Conn          net.Conn
 	client        *Client
 	sendErr       error
@@ -196,5 +196,8 @@ func (port *ConnectedPort) upgradeTLS(fn func(*E2EServer) error) error {
 }
 
 func (port *ConnectedPort) Log() *config.Logger {
-	return config.AppConfig.Logger.With(zap.String("server", port.host), zap.String("client", port.ClientID), zap.String("device", port.DeviceID.HexString()))
+	return config.AppConfig.Logger.With(
+		zap.String("server", port.host),
+		zap.String("device", port.DeviceID.HexString()),
+	)
 }

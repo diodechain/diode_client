@@ -5,6 +5,7 @@ package rpc
 
 import (
 	"fmt"
+	"net"
 	"time"
 
 	"github.com/diodechain/diode_client/config"
@@ -154,11 +155,11 @@ func (p *DataPool) GetPort(key string) (port *ConnectedPort) {
 	return port
 }
 
-// FindPort tries to locate a connection based on local conn
-func (p *DataPool) FindPort(clientID string) (port *ConnectedPort) {
+// FindPort tries to locate a udp connection based on local conn
+func (p *DataPool) FindUDPPort(addr net.Addr) (port *ConnectedPort) {
 	p.srv.Call(func() {
 		for _, v := range p.devices {
-			if v.ClientID == clientID {
+			if v.UDPAddr == addr {
 				port = v
 				return
 			}
