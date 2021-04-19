@@ -95,7 +95,7 @@ func (cm *ClientManager) startClient(host string) *Client {
 
 	n := len(cm.clients)
 	cm.Config.Logger.Debug("Adding relay#%d [] @ %s", n, host)
-	client := NewClient(host, cm.Config, cm.pool)
+	client := NewClient(host, cm, cm.Config, cm.pool)
 	client.onConnect = func(nodeID util.Address) {
 		cm.Config.Logger.Debug("Added relay#%d [%s] @ %s", n, nodeID.HexString(), host)
 		cm.srv.Cast(func() {
@@ -139,6 +139,15 @@ func (cm *ClientManager) startClient(host string) *Client {
 
 			if cm.targetClients == 0 {
 				cm.srv.Shutdown(0)
+			} else if len(cm.clientMap) > 0 {
+				// Inform another connection that we're still here
+				var client *Client
+				for _, c := range cm.clientMap {
+					if client == nil || c.Latency <= client.Latency {
+						client = c
+					}
+				}
+				client.SubmitNewTicket()
 			}
 		})
 	}
@@ -252,6 +261,27 @@ func (cm *ClientManager) GetNearestClient() *Client {
 	})
 	ret := <-result
 	return ret
+}
+
+// PeekNearestClients is a non-blocking version of GetNearestClient but can return nil
+func (cm *ClientManager) PeekNearestClients() (prim *util.Address, secd *util.Address) {
+	var primary, secondary *Client
+	cm.srv.Call(func() {
+		if len(cm.clientMap) > 0 {
+			for addr, c := range cm.clientMap {
+				if primary == nil || c.Latency < primary.Latency {
+					secondary = primary
+					secd = prim
+					primary = c
+					prim = &addr
+				} else if secondary == nil || c.Latency < secondary.Latency {
+					secondary = c
+					secd = &addr
+				}
+			}
+		}
+	})
+	return
 }
 
 func (cm *ClientManager) doSelectNextHost() string {

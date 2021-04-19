@@ -54,6 +54,7 @@ type Client struct {
 	enableMetrics         bool
 	metrics               *Metrics
 	Verbose               bool
+	clientMan             *ClientManager
 	cm                    *callManager
 	blockTicker           *time.Ticker
 	blockTickerDuration   time.Duration
@@ -77,10 +78,11 @@ func getRequestID() uint64 {
 }
 
 // NewClient returns rpc client
-func NewClient(host string, cfg *config.Config, pool *DataPool) *Client {
+func NewClient(host string, clientMan *ClientManager, cfg *config.Config, pool *DataPool) *Client {
 	client := &Client{
 		host:                  host,
 		srv:                   genserver.New("Client"),
+		clientMan:             clientMan,
 		cm:                    NewCallManager(callQueueSize),
 		finishBlockTickerChan: make(chan bool, 1),
 		blockTickerDuration:   15 * time.Second,
@@ -557,6 +559,7 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 	}
 	client.s.UpdateCounter(client.s.TotalBytes())
 	lvbn, lvbh := client.LastValid()
+
 	ticket := &edge.DeviceTicket{
 		ServerID:         serverID,
 		BlockNumber:      lvbn,
@@ -566,6 +569,19 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 		TotalBytes:       client.s.TotalBytes(),
 		LocalAddr:        []byte(client.s.LocalAddr().String()),
 	}
+
+	prim, secd := client.clientMan.PeekNearestClients()
+
+	if prim != nil {
+		if *prim == serverID {
+			if secd != nil {
+				ticket.LocalAddr = append([]byte{1}, secd[:]...)
+			}
+		} else {
+			ticket.LocalAddr = append([]byte{0}, prim[:]...)
+		}
+	}
+
 	if err := ticket.ValidateValues(); err != nil {
 		return nil, err
 	}

@@ -287,6 +287,16 @@ func isDiodeHost(host string) bool {
 }
 
 func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol int, mode string, retry int) (*ConnectedPort, error) {
+	// Define portname
+	var portName string
+	if protocol == config.UDPProtocol {
+		portName = fmt.Sprintf("udp:%d", port)
+	} else if protocol == config.TLSProtocol {
+		portName = fmt.Sprintf("tls:%d", port)
+	} else {
+		portName = fmt.Sprintf("tcp:%d", port)
+	}
+
 	// This is double checked in some cases, but it does not hurt since
 	// ResolveDevice internally caches
 	devices, err := socksServer.resolver.ResolveDevice(deviceName)
@@ -302,35 +312,28 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 			continue
 		}
 
-		var client *Client
-		client, err = socksServer.GetServer(device.ServerID)
-		if err != nil {
-			socksServer.logger.Error("GetServer() failed: %v", err)
-			continue
+		for _, serverID := range device.GetServerIDs() {
+			var client *Client
+			client, err = socksServer.GetServer(serverID)
+			if err != nil {
+				socksServer.logger.Error("GetServer() failed: %v", err)
+				continue
+			}
 
+			var portOpen *edge.PortOpen
+			portOpen, err = client.PortOpen(deviceID, portName, mode)
+			if err != nil {
+				continue
+			}
+			if portOpen != nil && portOpen.Err != nil {
+				continue
+			}
+			portOpen.PortNumber = port
+			return NewConnectedPort(portOpen.Ref, deviceID, client, port), nil
 		}
-
-		var portName string
-		if protocol == config.UDPProtocol {
-			portName = fmt.Sprintf("udp:%d", port)
-		} else if protocol == config.TLSProtocol {
-			portName = fmt.Sprintf("tls:%d", port)
-		} else {
-			portName = fmt.Sprintf("tcp:%d", port)
-		}
-
-		var portOpen *edge.PortOpen
-		portOpen, err = client.PortOpen(deviceID, portName, mode)
-		if err != nil {
-			// This might fail when a device has reconnected. Clearing the cache and trying once more
-			socksServer.datapool.SetCacheDevice(deviceID, nil)
-			continue
-		}
-		if portOpen != nil && portOpen.Err != nil {
-			continue
-		}
-		portOpen.PortNumber = port
-		return NewConnectedPort(portOpen.Ref, deviceID, client, port), nil
+		// If connecting to this device has failed clear the cached
+		// device ticket before trying again
+		socksServer.datapool.SetCacheDevice(deviceID, nil)
 	}
 
 	if retry > 0 {

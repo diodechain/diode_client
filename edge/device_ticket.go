@@ -104,6 +104,25 @@ func (ct *DeviceTicket) RecoverDevicePubKey() ([]byte, error) {
 	return pubKey, nil
 }
 
+// GetServerIDs returns at least one server ID but max 2 as alternatives to try
+func (ct *DeviceTicket) GetServerIDs() (ret []Address) {
+	var addr Address
+	// Is there are preferred node encoded in the LocalAddr field?
+	// Preference is encoded with a 0
+	if len(ct.LocalAddr) == len(addr)+1 && ct.LocalAddr[0] == 0 {
+		copy(addr[:], ct.LocalAddr[1:21])
+		ret = append(ret, addr)
+	}
+	ret = append(ret, ct.ServerID)
+	// Is there are secondary node encoded in the LocalAddr field?
+	// Secondary is encoded with a 1
+	if len(ct.LocalAddr) == len(addr)+1 && ct.LocalAddr[0] == 1 {
+		copy(addr[:], ct.LocalAddr[1:21])
+		ret = append(ret, addr)
+	}
+	return
+}
+
 // DeviceAddress returns device address
 func (ct *DeviceTicket) DeviceAddress() (Address, error) {
 	devicePubkey, err := ct.RecoverDevicePubKey()

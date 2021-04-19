@@ -210,8 +210,6 @@ func (configAPIServer *ConfigAPIServer) successResponse(w http.ResponseWriter, m
 
 func (configAPIServer *ConfigAPIServer) configResponse(w http.ResponseWriter, message string) {
 	cfg := configAPIServer.appConfig
-	// lvbn, lvbh will change depends on network
-	// lvbn, lvbh := rpc.LastValid()
 	res, _ := json.Marshal(&apiResponse{
 		Success: true,
 		Message: message,
@@ -219,8 +217,6 @@ func (configAPIServer *ConfigAPIServer) configResponse(w http.ResponseWriter, me
 			Address: cfg.ClientAddr.HexString(),
 			Fleet:   cfg.FleetAddr.HexString(),
 			Version: version,
-			// LastValidBlockNumber: lvbn,
-			// LastValidBlockHash:   util.EncodeToString(lvbh[:]),
 			Binds: func(binds []config.Bind) []bind {
 				ret := make([]bind, len(binds))
 				for i, v := range binds {
