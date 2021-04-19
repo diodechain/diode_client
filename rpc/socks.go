@@ -90,7 +90,7 @@ func (deviceError DeviceError) Error() string {
 	return fmt.Sprintf("This device is offline - %v", deviceError.err)
 }
 
-func handShake(conn net.Conn) (version int, url string, err error) {
+func handshake(conn net.Conn) (version int, url string, err error) {
 	const (
 		idVer = 0
 	)
@@ -547,16 +547,7 @@ func parseHost(host string) (isWS bool, mode string, deviceID string, port int, 
 }
 
 func (socksServer *Server) handleSocksConnection(conn net.Conn) {
-	defer func() {
-		if err := recover(); err != nil {
-			buf := make([]byte, stackBufferSize)
-			buf = buf[:runtime.Stack(buf, false)]
-			socksServer.logger.Error("panic handleSocksConnection %s: %v\n%s", conn.RemoteAddr().String(), err, buf)
-		}
-		conn.Close()
-		socksServer.wg.Done()
-	}()
-	ver, host, err := handShake(conn)
+	ver, host, err := handshake(conn)
 	if err != nil {
 		socksServer.logger.Error("Dialed to handshake %v", err)
 		return

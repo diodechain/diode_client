@@ -59,7 +59,6 @@ func (c *Call) Clean(state Signal) {
 		c.state = state
 		if c.response != nil {
 			close(c.response)
-			c.response = nil
 		}
 	})
 }
