@@ -579,7 +579,11 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 	}
 	devices, httpErr := socksServer.resolver.ResolveDevice(deviceID)
 	if len(devices) == 0 {
-		socksServer.logger.Error("Failed to ResolveDevice %v", httpErr.Error())
+		if httpErr == nil {
+			socksServer.logger.Error("Failed to ResolveDevice - Device offline")
+		} else {
+			socksServer.logger.Error("Failed to ResolveDevice %v", httpErr.Error())
+		}
 		writeSocksError(conn, ver, socksRepNotAllowed)
 		return
 	}
