@@ -48,7 +48,7 @@ Flags:
   -k, --sproxy               enable secure proxy transport
   -l, --sproxy_host string   host of secure proxy server (default "127.0.0.1")
   -m, --sproxy_port int      port of secure proxy server (default 443)
-  -a, --target string        test target (default "http://pi-taipei.diode")
+  -a, --target string        test target (default "http://betahaus-berlin.diode")
   -b, --transport            enable http transport (default true)
   -v, --verbose              enable verbose to show the response body
 ```

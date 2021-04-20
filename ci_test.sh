@@ -32,7 +32,7 @@ done
 
 echo "done"
 
-curl -v --socks5-hostname localhost:1080 pi-taipei.diode.link
+curl -v --socks5-hostname localhost:1080 betahaus-berlin.diode.link
 ret=$?
 
 kill -9 $diode_pid

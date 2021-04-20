@@ -253,7 +253,7 @@ func gaugeHandler(cmd *cobra.Command, args []string) (err error) {
 }
 
 func init() {
-	gaugeCmd.PersistentFlags().StringVarP(&cfg.Target, "target", "a", "http://pi-taipei.diode", "test target")
+	gaugeCmd.PersistentFlags().StringVarP(&cfg.Target, "target", "a", "http://betahaus-berlin.diode", "test target")
 	gaugeCmd.PersistentFlags().BoolVarP(&cfg.EnableTransport, "transport", "b", true, "enable http transport")
 	gaugeCmd.PersistentFlags().IntVarP(&cfg.Conn, "conn", "c", 100, "total connection concurrently")
 	gaugeCmd.PersistentFlags().BoolVarP(&cfg.EnableSocks5Transport, "socks5", "d", true, "enable socks5 transport")

@@ -85,7 +85,7 @@ $ diode socksd
    3. Setup `Automatic proxy configuration URL` to the porxy.pac, eg: `file:///Users/Guest/diode_client/proxy.pac`
    4. Click `reload` then you can proxy request from `*.diode` `*diode.ws` to the go client.
 
-3. Type the website URL and see. You can try `http://pi-taipei.diode` or `http://0xc206e1255cbace8ba904daa259d7a5b7f90e2d50.diode` and more general:
+3. Type the website URL and see. You can try `http://betahaus-berlin.diode` or `http://0xc206e1255cbace8ba904daa259d7a5b7f90e2d50.diode` and more general:
 
 ```http://(<MODE>-)<DIODE ADDRESS>.diode<:PORT>```
 
