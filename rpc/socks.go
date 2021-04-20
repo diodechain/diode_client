@@ -547,9 +547,11 @@ func parseHost(host string) (isWS bool, mode string, deviceID string, port int, 
 }
 
 func (socksServer *Server) handleSocksConnection(conn net.Conn) {
+	defer conn.Close()
+
 	ver, host, err := handshake(conn)
 	if err != nil {
-		socksServer.logger.Error("Dialed to handshake %v", err)
+		socksServer.logger.Error("Handshake failed %v", err)
 		return
 	}
 	if host == "" {
