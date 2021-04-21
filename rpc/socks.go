@@ -340,11 +340,11 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 		return socksServer.doConnectDevice(deviceName, port, protocol, mode, retry-1)
 	}
 
-	socksServer.logger.Error("doConnectDevice() failed: %v", err)
+	socksServer.logger.Error("doConnectDevice() for '%v' failed: %v", deviceName, err)
 	if _, ok := err.(RPCError); ok {
 		return nil, HttpError{404, DeviceError{err}}
 	}
-	return nil, HttpError{500, fmt.Errorf("doConnectDevice() failed: %v", err)}
+	return nil, HttpError{500, fmt.Errorf("doConnectDevice() for '%v' failed: %v", deviceName, err)}
 }
 
 func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, protocol int, mode string, fn func(*ConnectedPort) (net.Conn, error)) error {
