@@ -23,7 +23,7 @@ type ClientManager struct {
 	clients       []*Client
 	clientMap     map[util.Address]*Client
 
-	waitingAny  []chan *Client
+	waitingAny  []*genserver.Reply
 	waitingNode map[util.Address]*nodeRequest
 
 	pool   *DataPool
@@ -32,7 +32,7 @@ type ClientManager struct {
 
 type nodeRequest struct {
 	host    string
-	waiting []chan *Client
+	waiting []*genserver.Reply
 	client  *Client
 }
 
@@ -62,17 +62,25 @@ func (cm *ClientManager) Start() {
 }
 
 func (cm *ClientManager) Stop() {
-	done := make(chan bool, 1)
-	cm.srv.Call(func() {
+	done := false
+	cm.srv.Call2(func(r *genserver.Reply) bool {
+		// When the Terminate function calls
+		// this returns
+		if done {
+			return done
+		}
+		done = true
+
 		if cm.srv.Terminate == nil {
-			cm.srv.Terminate = func() { done <- true }
+			cm.srv.Terminate = func() { r.ReRun() }
 		} else {
 			old := cm.srv.Terminate
 			cm.srv.Terminate = func() {
-				done <- true
+				r.ReRun()
 				old()
 			}
 		}
+
 		// When the last client is closed this will return
 		cm.targetClients = 0
 		if len(cm.clients) == 0 {
@@ -81,8 +89,8 @@ func (cm *ClientManager) Stop() {
 		for _, c := range cm.clients {
 			go c.Close()
 		}
+		return false
 	})
-	<-done
 }
 
 func (cm *ClientManager) doAddClient() {
@@ -95,7 +103,7 @@ func (cm *ClientManager) startClient(host string) *Client {
 		return nil
 	}
 
-	n := len(cm.clients)
+	n := len(cm.clientMap)
 	cm.Config.Logger.Debug("Adding relay#%d [] @ %s", n, host)
 	client := NewClient(host, cm, cm.Config, cm.pool)
 	client.onConnect = func(nodeID util.Address) {
@@ -103,12 +111,12 @@ func (cm *ClientManager) startClient(host string) *Client {
 		cm.srv.Cast(func() {
 			cm.clientMap[nodeID] = client
 			for _, c := range cm.waitingAny {
-				c <- client
+				c.ReRun()
 			}
-			cm.waitingAny = []chan *Client{}
+			cm.waitingAny = []*genserver.Reply{}
 			if req := cm.waitingNode[nodeID]; req != nil {
 				for _, c := range req.waiting {
-					c <- client
+					c.ReRun()
 				}
 			}
 			delete(cm.waitingNode, nodeID)
@@ -200,69 +208,45 @@ func (cm *ClientManager) GetClientorConnect(nodeID util.Address) (client *Client
 	return
 }
 
-func (cm *ClientManager) connect(nodeID util.Address, host string) (client *Client, err error) {
+func (cm *ClientManager) connect(nodeID util.Address, host string) (ret *Client, err error) {
 	if host == "" {
 		return nil, fmt.Errorf("connect() error: Host is nil")
 	}
 
-	result := make(chan *Client, 1)
-	cm.srv.Cast(func() {
+	err = cm.srv.Call2Timeout(func(r *genserver.Reply) bool {
 		if client, ok := cm.clientMap[nodeID]; ok {
-			result <- client
-		} else {
-			if cm.waitingNode[nodeID] == nil {
-				cm.waitingNode[nodeID] = &nodeRequest{host: host}
-			}
-			req := cm.waitingNode[nodeID]
-			req.waiting = append(req.waiting, result)
-			if req.client == nil {
-				req.client = cm.startClient(req.host)
-			}
+			ret = client
+			return true
 		}
-	})
-	timer := time.NewTimer(15 * time.Second)
-	// timer.Stop() see here for details on why
-	// https://medium.com/@oboturov/golang-time-after-is-not-garbage-collected-4cbc94740082
-	defer timer.Stop()
-	select {
-	case <-timer.C:
-		cm.srv.Cast(func() {
-			// Removing wait from the list
-			if req := cm.waitingNode[nodeID]; req != nil {
-				for idx, r := range req.waiting {
-					if r == result {
-						req.waiting = append(req.waiting[:idx], req.waiting[idx+1:]...)
-						break
-					}
-				}
-			}
-		})
 
-		return nil, fmt.Errorf("timeout connecting to %s", host)
-	case client = <-result:
-		return client, err
-	}
+		if cm.waitingNode[nodeID] == nil {
+			cm.waitingNode[nodeID] = &nodeRequest{host: host}
+		}
+		req := cm.waitingNode[nodeID]
+		req.waiting = append(req.waiting, r)
+		if req.client == nil {
+			req.client = cm.startClient(req.host)
+		}
+		return false
+	}, 15*time.Second)
+	return
 }
 
-func (cm *ClientManager) GetNearestClient() *Client {
-	result := make(chan *Client, 1)
-	cm.srv.Call(func() {
-		if len(cm.clientMap) > 0 {
-			var client *Client
-			min := int64(0)
-			for _, c := range cm.clientMap {
-				if min == 0 || c.Latency <= min {
-					client = c
-					min = c.Latency
-				}
-			}
-			result <- client
-		} else {
-			cm.waitingAny = append(cm.waitingAny, result)
+func (cm *ClientManager) GetNearestClient() (client *Client) {
+	cm.srv.Call2(func(r *genserver.Reply) bool {
+		if len(cm.clientMap) == 0 {
+			cm.waitingAny = append(cm.waitingAny, r)
+			return false
 		}
+
+		for _, c := range cm.clientMap {
+			if client == nil || c.Latency <= client.Latency {
+				client = c
+			}
+		}
+		return true
 	})
-	ret := <-result
-	return ret
+	return
 }
 
 // PeekNearestClients is a non-blocking version of GetNearestClient but can return nil
