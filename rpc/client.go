@@ -86,7 +86,7 @@ func NewClient(host string, clientMan *ClientManager, cfg *config.Config, pool *
 		cm:                    NewCallManager(callQueueSize),
 		finishBlockTickerChan: make(chan bool, 1),
 		blockTickerDuration:   15 * time.Second,
-		localTimeout:          100 * time.Millisecond,
+		localTimeout:          15 * time.Second,
 		pool:                  pool,
 		backoff: Backoff{
 			Min:    5 * time.Second,
