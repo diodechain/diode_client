@@ -40,7 +40,6 @@ func testConfig() (cfg *config.Config) {
 	cfg = &config.Config{
 		DBPath:          util.DefaultDBPath(),
 		RetryTimes:      3,
-		EnableEdgeE2E:   false,
 		EdgeE2ETimeout:  6 * time.Second,
 		EnableUpdate:    true,
 		EnableMetrics:   false,

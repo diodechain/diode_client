@@ -462,11 +462,7 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, devices []
 
 	for _, device := range devices {
 		deviceID = device.GetDeviceID()
-		protocol := config.TCPProtocol
-		if config.AppConfig.EnableEdgeE2E {
-			protocol = config.TLSProtocol
-		}
-		err = socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, func(connPort *ConnectedPort) (net.Conn, error) {
+		err = socksServer.connectDeviceAndLoop(deviceID, port, config.TLSProtocol, mode, func(connPort *ConnectedPort) (net.Conn, error) {
 			writeSocksReturn(conn, ver, connPort.ClientLocalAddr(), port)
 			return conn, nil
 		})

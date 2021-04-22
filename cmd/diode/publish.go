@@ -59,7 +59,7 @@ const ip = `(\[?[0-9A-Fa-f:]*:[0-9A-Fa-f:]+(?:%[a-zA-Z0-9]+)?\]?|[0-9A-Za-z-]+\.
 var portPattern = regexp.MustCompile(`^(` + ip + `:)?(\d+)(:(\d*)(:(tcp|tls|udp))?)?$`)
 var accessPattern = regexp.MustCompile(`^0x[a-fA-F0-9]{40}$`)
 
-func parsePorts(portStrings []string, mode int, enableEdgeE2E bool) ([]*config.Port, error) {
+func parsePorts(portStrings []string, mode int) ([]*config.Port, error) {
 	ports := []*config.Port{}
 	for _, portString := range portStrings {
 		segments := strings.Split(portString, ",")
@@ -108,10 +108,6 @@ func parsePorts(portStrings []string, mode int, enableEdgeE2E bool) ([]*config.P
 
 				switch protocol {
 				case "tls":
-					if !enableEdgeE2E {
-						err = fmt.Errorf("should enable e2e to use tle protocol")
-						return nil, err
-					}
 					port.Protocol = config.TLSProtocol
 				case "tcp":
 					port.Protocol = config.TCPProtocol
@@ -208,7 +204,7 @@ func publishHandler() (err error) {
 	portString := make(map[int]*config.Port)
 
 	// copy to config
-	ports, err := parsePorts(cfg.PublicPublishedPorts, config.PublicPublishedMode, cfg.EnableEdgeE2E)
+	ports, err := parsePorts(cfg.PublicPublishedPorts, config.PublicPublishedMode)
 	if err != nil {
 		return
 	}
@@ -219,7 +215,7 @@ func publishHandler() (err error) {
 		}
 		portString[port.To] = port
 	}
-	ports, err = parsePorts(cfg.ProtectedPublishedPorts, config.ProtectedPublishedMode, cfg.EnableEdgeE2E)
+	ports, err = parsePorts(cfg.ProtectedPublishedPorts, config.ProtectedPublishedMode)
 	if err != nil {
 		return
 	}
@@ -230,7 +226,7 @@ func publishHandler() (err error) {
 		}
 		portString[port.To] = port
 	}
-	ports, err = parsePorts(cfg.PrivatePublishedPorts, config.PrivatePublishedMode, cfg.EnableEdgeE2E)
+	ports, err = parsePorts(cfg.PrivatePublishedPorts, config.PrivatePublishedMode)
 	if err != nil {
 		return
 	}

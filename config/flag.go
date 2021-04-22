@@ -40,7 +40,6 @@ type Address = util.Address
 type Config struct {
 	DBPath           string        `yaml:"dbpath,omitempty" json:"dbpath,omitempty"`
 	Debug            bool          `yaml:"debug,omitempty" json:"debug,omitempty"`
-	EnableEdgeE2E    bool          `yaml:"e2e,omitempty" json:"e2e,omitempty"`
 	EdgeE2ETimeout   time.Duration `yaml:"e2etimeout,omitempty" json:"e2etimeout,omitempty"`
 	EnableUpdate     bool          `yaml:"update,omitempty" json:"update,omitempty"`
 	EnableMetrics    bool          `yaml:"metrics,omitempty" json:"metrics,omitempty"`

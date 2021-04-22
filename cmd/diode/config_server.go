@@ -359,10 +359,10 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 			}
 			if len(c.Binds) >= 0 {
 				binds := []string{}
-				binded := make(map[int]map[int]config.Bind)
+				bound := make(map[int]map[int]config.Bind)
 				for _, b := range configAPIServer.appConfig.Binds {
-					binded[b.LocalPort] = make(map[int]config.Bind)
-					binded[b.LocalPort][b.Protocol] = b
+					bound[b.LocalPort] = make(map[int]config.Bind)
+					bound[b.LocalPort][b.Protocol] = b
 				}
 				for _, b := range c.Binds {
 					var bindIden string
@@ -371,7 +371,7 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 						if protocolIden == config.AnyProtocol {
 							continue
 						}
-						if bb, ok := binded[b.LocalPort][protocolIden]; ok {
+						if bb, ok := bound[b.LocalPort][protocolIden]; ok {
 							if bb.To == b.Remote && bb.ToPort == b.RemotePort {
 								continue
 							}
@@ -383,21 +383,16 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 						bindIden = fmt.Sprintf("%d:%s:%d", b.LocalPort, b.Remote, b.RemotePort)
 					}
 					if protocolIden == config.TCPProtocol {
-						if !configAPIServer.appConfig.EnableEdgeE2E {
-							validationError["binds"] = "server didn't enable e2e"
-							configAPIServer.clientError(w, validationError)
-							return
-						}
-						if _, ok := binded[b.LocalPort][config.TLSProtocol]; ok {
+						if _, ok := bound[b.LocalPort][config.TLSProtocol]; ok {
 							continue
 						}
 					}
 					if protocolIden == config.TLSProtocol {
-						if _, ok := binded[b.LocalPort][config.TCPProtocol]; ok {
+						if _, ok := bound[b.LocalPort][config.TCPProtocol]; ok {
 							continue
 						}
 					}
-					binded[b.LocalPort][protocolIden] = config.Bind{
+					bound[b.LocalPort][protocolIden] = config.Bind{
 						To:        b.Remote,
 						ToPort:    b.RemotePort,
 						LocalPort: b.LocalPort,

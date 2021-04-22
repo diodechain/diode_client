@@ -115,11 +115,6 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 
 			// For the E2E encryption we're wrapping remoteConn in TLS
 			if portOpen.Protocol == config.TLSProtocol {
-				if !config.AppConfig.EnableEdgeE2E {
-					err = fmt.Errorf("server didn't enable e2e")
-					_ = client.ResponsePortOpen(portOpen, err)
-					return
-				}
 				err := port.UpgradeTLSServer()
 				if err != nil {
 					_ = client.ResponsePortOpen(portOpen, err)
