@@ -1009,6 +1009,16 @@ func (client *Client) doStart() (err error) {
 	return
 }
 
+func (client *Client) executePing() {
+	start := time.Now()
+	client.Ping()
+	elapsed := time.Since(start).Milliseconds()
+	client.srv.Cast(func() {
+		client.Latency = elapsed
+		time.AfterFunc(time.Minute, func() { client.executePing() })
+	})
+}
+
 func (client *Client) initialize() (err error) {
 	err = client.validateNetwork()
 	if err != nil && strings.Contains(err.Error(), "sent reference block does not match") {
@@ -1031,6 +1041,7 @@ func (client *Client) initialize() (err error) {
 	}
 	if client.onConnect != nil {
 		client.onConnect(serverID)
+		go client.executePing()
 	}
 	return
 }
