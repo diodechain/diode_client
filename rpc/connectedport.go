@@ -1,6 +1,6 @@
 // Diode Network client
-// Copyright 2019-2021 IoT Blockchain Technology Corporation LLC (IBTC)
-// Licensed under the Diode License, Version 1.0
+// Copyright 2021 Diode
+// Licensed under the Diode License, Version 1.1
 
 // Package rpc ConnectedPort has been turned into an actor
 // https://www.gophercon.co.uk/videos/2016/an-actor-model-in-go/
