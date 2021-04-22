@@ -197,7 +197,7 @@ func (port *ConnectedPort) upgradeTLS(fn func(*E2EServer) error) error {
 
 func (port *ConnectedPort) Log() *config.Logger {
 	return config.AppConfig.Logger.With(
-		zap.String("server", port.host),
-		zap.String("device", port.DeviceID.HexString()),
+		zap.String("via", port.host),
+		zap.String("dst", port.DeviceID.HexString()),
 	)
 }

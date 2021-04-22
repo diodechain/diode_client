@@ -301,8 +301,16 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 	// ResolveDevice internally caches
 	devices, err := socksServer.resolver.ResolveDevice(deviceName)
 	if err != nil {
+		// Errors are fatal such as 'deviceName' is not an address
+		// or 'deviceName' is not on the allow list. In latter case caching
+		// might delay the time until an allowance reckognized
 		return nil, err
 	}
+
+	if len(devices) == 0 {
+		err = fmt.Errorf("empty device list")
+	}
+
 	for _, device := range devices {
 		// decode device id
 		var deviceID Address
@@ -340,11 +348,12 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 		return socksServer.doConnectDevice(deviceName, port, protocol, mode, retry-1)
 	}
 
-	socksServer.logger.Error("doConnectDevice() for '%v' failed: %v", deviceName, err)
+	msg := fmt.Sprintf("doConnectDevice() for '%v' failed: %v", deviceName, err)
+	socksServer.logger.Error(msg)
 	if _, ok := err.(RPCError); ok {
 		return nil, HttpError{404, DeviceError{err}}
 	}
-	return nil, HttpError{500, fmt.Errorf("doConnectDevice() for '%v' failed: %v", deviceName, err)}
+	return nil, HttpError{500, fmt.Errorf(msg)}
 }
 
 func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, protocol int, mode string, fn func(*ConnectedPort) (net.Conn, error)) error {
