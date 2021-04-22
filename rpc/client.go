@@ -48,24 +48,22 @@ var (
 
 // Client struct for rpc client
 type Client struct {
-	host                  string
-	backoff               Backoff
-	s                     *SSL
-	enableMetrics         bool
-	metrics               *Metrics
-	Verbose               bool
-	clientMan             *ClientManager
-	cm                    *callManager
-	blockTicker           *time.Ticker
-	blockTickerDuration   time.Duration
-	finishBlockTickerChan chan bool
-	localTimeout          time.Duration
-	wg                    sync.WaitGroup
-	pool                  *DataPool
-	config                *config.Config
-	bq                    *blockquick.Window
-	Latency               int64
-	onConnect             func(util.Address)
+	host          string
+	backoff       Backoff
+	s             *SSL
+	enableMetrics bool
+	metrics       *Metrics
+	Verbose       bool
+	clientMan     *ClientManager
+	cm            *callManager
+	localTimeout  time.Duration
+	pool          *DataPool
+	config        *config.Config
+	bq            *blockquick.Window
+	latencySum    int64
+	latencyCount  int64
+	serverID      util.Address
+	onConnect     func(util.Address)
 	// close event
 	OnClose func()
 
@@ -80,14 +78,14 @@ func getRequestID() uint64 {
 // NewClient returns rpc client
 func NewClient(host string, clientMan *ClientManager, cfg *config.Config, pool *DataPool) *Client {
 	client := &Client{
-		host:                  host,
-		srv:                   genserver.New("Client"),
-		clientMan:             clientMan,
-		cm:                    NewCallManager(callQueueSize),
-		finishBlockTickerChan: make(chan bool, 1),
-		blockTickerDuration:   15 * time.Second,
-		localTimeout:          15 * time.Second,
-		pool:                  pool,
+		latencySum:   100_000,
+		latencyCount: 1,
+		host:         host,
+		srv:          genserver.New("Client"),
+		clientMan:    clientMan,
+		cm:           NewCallManager(callQueueSize),
+		localTimeout: 15 * time.Second,
+		pool:         pool,
 		backoff: Backoff{
 			Min:    5 * time.Second,
 			Max:    10 * time.Second,
@@ -107,6 +105,15 @@ func NewClient(host string, clientMan *ClientManager, cfg *config.Config, pool *
 	}
 
 	return client
+}
+
+func (client *Client) averageLatency() int64 {
+	return client.latencySum / client.latencyCount
+}
+
+func (client *Client) addLatencyMeasurement(latency time.Duration) {
+	client.latencySum += latency.Milliseconds()
+	client.latencyCount++
 }
 
 func (client *Client) doConnect() (err error) {
@@ -136,7 +143,7 @@ func (client *Client) doConnect() (err error) {
 func (client *Client) doDial() (err error) {
 	start := time.Now()
 	client.s, err = DialContext(initSSLCtx(client.config), client.host, openssl.InsecureSkipHostVerification)
-	client.Latency = time.Since(start).Milliseconds()
+	client.addLatencyMeasurement(time.Since(start))
 	return
 }
 
@@ -151,27 +158,9 @@ func (client *Client) Host() (host string, err error) {
 	return
 }
 
-// GetServerID returns server address
-func (client *Client) GetServerID() (serverID [20]byte, err error) {
-	timeout := client.callTimeout(func() {
-		serverID, err = client.s.GetServerID()
-		if err != nil {
-			serverID = util.EmptyAddress
-		}
-	})
-	if err == nil {
-		err = timeout
-	}
-	return
-}
-
 // GetDeviceKey returns device key of given ref
 func (client *Client) GetDeviceKey(ref string) string {
-	prefixByt, err := client.GetServerID()
-	if err != nil {
-		return ""
-	}
-	prefix := util.EncodeToString(prefixByt[:])
+	prefix := util.EncodeToString(client.serverID[:])
 	return fmt.Sprintf("%s:%s", prefix, ref)
 }
 
@@ -962,10 +951,6 @@ func (client *Client) Close() {
 		client.isClosed = true
 		// remove existing calls
 		client.cm.RemoveCalls()
-		if client.blockTicker != nil {
-			client.blockTicker.Stop()
-		}
-		client.finishBlockTickerChan <- true
 		if client.OnClose != nil {
 			client.OnClose()
 		}
@@ -1003,20 +988,59 @@ func (client *Client) doStart() (err error) {
 	if err = client.doConnect(); err != nil {
 		return
 	}
-	client.addWorker(client.recvMessage)
-	client.addWorker(client.watchLatestBlock)
+	go client.recvMessageLoop()
 	client.cm.SendCallPtr = client.sendCall
 	return
 }
 
-func (client *Client) executePing() {
-	start := time.Now()
-	client.Ping()
-	elapsed := time.Since(start).Milliseconds()
+// watchLatestBlock keep downloading the latest blockheaders and
+// make sure the network is safe
+func (client *Client) watchLatestBlock() {
+	client.doWatchLatestBlock()
 	client.srv.Cast(func() {
-		client.Latency = elapsed
-		time.AfterFunc(time.Minute, func() { client.executePing() })
+		time.AfterFunc(15*time.Second, func() { client.watchLatestBlock() })
 	})
+}
+
+func (client *Client) doWatchLatestBlock() {
+	var bq *blockquick.Window
+	client.callTimeout(func() { bq = client.bq })
+	if bq == nil {
+		return
+	}
+	lastblock, _ := bq.Last()
+
+	start := time.Now()
+	blockPeak, err := client.GetBlockPeak()
+	elapsed := time.Since(start)
+	client.srv.Cast(func() { client.addLatencyMeasurement(elapsed) })
+
+	if err != nil {
+		client.Log().Error("Couldn't getblockpeak: %v", err)
+		return
+	}
+
+	blockPeak -= confirmationSize
+	if lastblock >= blockPeak {
+		// Nothing to do
+		return
+	}
+
+	for num := lastblock + 1; num <= blockPeak; num++ {
+		blockHeader, err := client.GetBlockHeaderUnsafe(uint64(num))
+		if err != nil {
+			client.Log().Error("Couldn't download block header %v", err)
+			return
+		}
+		err = bq.AddBlock(blockHeader, false)
+		if err != nil {
+			client.Log().Error("Couldn't add block %v %v: %v", num, blockHeader.Hash(), err)
+			return
+		}
+	}
+
+	client.storeLastValid()
+
 }
 
 func (client *Client) initialize() (err error) {
@@ -1029,8 +1053,7 @@ func (client *Client) initialize() (err error) {
 		return
 	}
 
-	var serverID [20]byte
-	serverID, err = client.s.GetServerID()
+	client.serverID, err = client.s.GetServerID()
 	if err != nil {
 		err = fmt.Errorf("failed to get server id: %v", err)
 		return
@@ -1040,8 +1063,8 @@ func (client *Client) initialize() (err error) {
 		return fmt.Errorf("failed to submitTicket to server: %v", err)
 	}
 	if client.onConnect != nil {
-		client.onConnect(serverID)
-		go client.executePing()
+		client.onConnect(client.serverID)
+		go client.watchLatestBlock()
 	}
 	return
 }

@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/diodechain/diode_client/blockquick"
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/edge"
 )
@@ -17,21 +16,6 @@ import (
 var (
 	errPortNotPublished = fmt.Errorf("port was not published")
 )
-
-// addWorker add another worker
-func (client *Client) addWorker(worker func()) {
-	client.wg.Add(1)
-	go func() {
-		defer client.wg.Done()
-		worker()
-	}()
-}
-
-// Wait until goroutines finish which means
-// all workers return
-func (client *Client) Wait() {
-	client.wg.Wait()
-}
 
 // handleInboundRequest handle inbound request
 func (client *Client) handleInboundRequest(inboundRequest interface{}) {
@@ -241,8 +225,8 @@ func (client *Client) handleInboundMessage(msg edge.Message) {
 	client.handleInboundRequest(inboundRequest)
 }
 
-// recvMessage infinite loop to read message from server
-func (client *Client) recvMessage() {
+// recvMessageLoop infinite loop to read message from server
+func (client *Client) recvMessageLoop() {
 	for {
 		msg, err := client.s.readMessage()
 		if err != nil {
@@ -255,65 +239,6 @@ func (client *Client) recvMessage() {
 		}
 		if msg.Len > 0 {
 			client.handleInboundMessage(msg)
-		}
-	}
-}
-
-// watchLatestBlock keep downloading the latest blockheaders and
-// make sure the network is safe
-func (client *Client) watchLatestBlock() {
-	var lastblock uint64
-	client.callTimeout(func() { client.blockTicker = time.NewTicker(client.blockTickerDuration) })
-	for {
-		select {
-		case <-client.finishBlockTickerChan:
-			return
-		case <-client.blockTicker.C:
-			// use go routine might cause data race issue
-			// go func() {
-			var bq *blockquick.Window
-			client.callTimeout(func() { bq = client.bq })
-			if bq == nil {
-				continue
-			}
-			if lastblock == 0 {
-				lastblock, _ = bq.Last()
-			}
-			blockPeak, err := client.GetBlockPeak()
-			if err != nil {
-				client.Log().Error("Couldn't getblockpeak: %v", err)
-				continue
-			}
-			blockNumMax := blockPeak - confirmationSize
-			if lastblock >= blockNumMax {
-				// Nothing to do
-				continue
-			}
-
-			isErr := false
-			for num := lastblock + 1; num <= blockNumMax; num++ {
-				blockHeader, err := client.GetBlockHeaderUnsafe(uint64(num))
-				if err != nil {
-					client.Log().Error("Couldn't download block header %v", err)
-					isErr = true
-					break
-				}
-				err = bq.AddBlock(blockHeader, false)
-				if err != nil {
-					client.Log().Error("Couldn't add block %v %v: %v", num, blockHeader.Hash(), err)
-					// This could happen on an uncle block, in that case we reset
-					// the counter the last finalized block
-					bq.Last()
-					isErr = true
-					break
-				}
-			}
-			if isErr {
-				continue
-			}
-
-			lastblock = blockNumMax
-			client.storeLastValid()
 		}
 	}
 }

@@ -26,7 +26,9 @@ func newTestE2EServer(remoteConn net.Conn, peer Address) (e2eServer E2EServer) {
 	e2eServer.peer = peer
 	e2eServer.port = &ConnectedPort{
 		client: &Client{
-			srv: genserver.New("Port"),
+			latencySum:   100_000,
+			latencyCount: 1,
+			srv:          genserver.New("Port"),
 			s: &SSL{
 				addr: "localhost:41046",
 			},

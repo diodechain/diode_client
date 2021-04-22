@@ -75,8 +75,6 @@ type Server struct {
 	logger        *config.Logger
 	listener      net.Listener
 	udpconn       net.PacketConn
-	wg            *sync.WaitGroup
-	rm            sync.Mutex
 	closeCh       chan struct{}
 	binds         []Bind
 	cd            sync.Once
@@ -635,7 +633,6 @@ func (socksServer *Server) Start() error {
 				socksServer.Close()
 				return
 			}
-			socksServer.wg.Add(1)
 			go socksServer.handleSocksConnection(conn)
 		}
 	}()
@@ -885,18 +882,10 @@ func (socksServer *Server) handleBind(conn net.Conn, bind config.Bind) {
 	}
 }
 
-func validateSocksConfig(socksCfg Config) error {
-	if len(socksCfg.Fallback) > 0 && socksCfg.Fallback != "localhost" && socksCfg.Fallback != "false" {
-		return fmt.Errorf("wrong parameters for socks fallback")
-	}
-	return nil
-}
-
 // NewSocksServer generate socksserver struct
 func NewSocksServer(socksCfg Config, clientManager *ClientManager) (*Server, error) {
 	socksServer := &Server{
 		logger:        config.AppConfig.Logger,
-		wg:            &sync.WaitGroup{},
 		clientManager: clientManager,
 		datapool:      clientManager.GetPool(),
 		resolver:      NewResolver(socksCfg, clientManager),
@@ -911,11 +900,10 @@ func NewSocksServer(socksCfg Config, clientManager *ClientManager) (*Server, err
 
 // SetConfig update the config of socks server
 func (socksServer *Server) SetConfig(config Config) error {
-	socksServer.rm.Lock()
-	defer socksServer.rm.Unlock()
-	if err := validateSocksConfig(config); err != nil {
-		return err
+	if len(config.Fallback) > 0 && config.Fallback != "localhost" && config.Fallback != "false" {
+		return fmt.Errorf("wrong parameters for socks fallback")
 	}
+
 	socksServer.Config = config
 	return nil
 }

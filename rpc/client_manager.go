@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"sort"
 	"time"
 
 	"github.com/diodechain/diode_client/config"
@@ -22,6 +23,7 @@ type ClientManager struct {
 	targetClients int
 	clients       []*Client
 	clientMap     map[util.Address]*Client
+	topClients    [2]*Client
 
 	waitingAny  []*genserver.Reply
 	waitingNode map[util.Address]*nodeRequest
@@ -59,6 +61,7 @@ func (cm *ClientManager) Start() {
 			cm.doAddClient()
 		}
 	})
+	go cm.sortTopClients()
 }
 
 func (cm *ClientManager) Stop() {
@@ -149,15 +152,8 @@ func (cm *ClientManager) startClient(host string) *Client {
 
 			if cm.targetClients == 0 {
 				cm.srv.Shutdown(0)
-			} else if len(cm.clientMap) > 0 {
-				// Inform another connection that we're still here
-				var client *Client
-				for _, c := range cm.clientMap {
-					if client == nil || c.Latency <= client.Latency {
-						client = c
-					}
-				}
-				client.SubmitNewTicket()
+			} else {
+				cm.doSortTopClients()
 			}
 		})
 	}
@@ -239,11 +235,7 @@ func (cm *ClientManager) GetNearestClient() (client *Client) {
 			return false
 		}
 
-		for _, c := range cm.clientMap {
-			if client == nil || c.Latency <= client.Latency {
-				client = c
-			}
-		}
+		client = cm.topClient(0)
 		return true
 	})
 	return
@@ -251,23 +243,62 @@ func (cm *ClientManager) GetNearestClient() (client *Client) {
 
 // PeekNearestClients is a non-blocking version of GetNearestClient but can return nil
 func (cm *ClientManager) PeekNearestClients() (prim *util.Address, secd *util.Address) {
-	var primary, secondary *Client
 	cm.srv.Call(func() {
-		if len(cm.clientMap) > 0 {
-			for addr, c := range cm.clientMap {
-				if primary == nil || c.Latency < primary.Latency {
-					secondary = primary
-					secd = prim
-					primary = c
-					prim = &addr
-				} else if secondary == nil || c.Latency < secondary.Latency {
-					secondary = c
-					secd = &addr
-				}
-			}
+		if primary := cm.topClient(0); primary != nil {
+			prim = &primary.serverID
+		}
+		if secondary := cm.topClient(1); secondary != nil {
+			secd = &secondary.serverID
 		}
 	})
 	return
+}
+
+type ByLatency []*Client
+
+func (a ByLatency) Len() int           { return len(a) }
+func (a ByLatency) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
+func (a ByLatency) Less(i, j int) bool { return a[i].averageLatency() < a[j].averageLatency() }
+
+func (cm *ClientManager) topClient(n int) *Client {
+	if n >= len(cm.topClients) {
+		return nil
+	}
+	if cm.topClients[n] == nil && len(cm.clientMap) >= n {
+		cm.doSortTopClients()
+	}
+	return cm.topClients[n]
+}
+
+func (cm *ClientManager) sortTopClients() {
+	cm.srv.Cast(func() {
+		cm.doSortTopClients()
+		time.AfterFunc(time.Minute, func() { cm.sortTopClients() })
+	})
+}
+
+func (cm *ClientManager) doSortTopClients() {
+	onlineClients := make(ByLatency, 0, len(cm.clientMap))
+	for _, client := range cm.clientMap {
+		onlineClients = append(onlineClients, client)
+	}
+
+	before := cm.topClients[0]
+	sort.Sort(onlineClients)
+	if len(onlineClients) > 0 {
+		cm.topClients[0] = onlineClients[0]
+		if len(onlineClients) > 1 {
+			cm.topClients[1] = onlineClients[1]
+		} else {
+			cm.topClients[1] = nil
+		}
+	} else {
+		cm.topClients[0] = nil
+	}
+
+	if before != nil && cm.topClients[0] != nil && cm.topClients[0] != before {
+		go cm.topClients[0].SubmitNewTicket()
+	}
 }
 
 func (cm *ClientManager) doSelectNextHost() string {
