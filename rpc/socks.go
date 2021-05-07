@@ -624,7 +624,7 @@ func (socksServer *Server) Start() error {
 				// See: https://golang.org/src/net/net.go?h=Temporary
 				if ne, ok := err.(net.Error); ok && ne.Temporary() {
 					delayTime := 5 * time.Millisecond
-					socksServer.logger.Warn(fmt.Sprintf("socks: Accept error %v, retry in %v", err, delayTime))
+					socksServer.logger.Warn("socks: Accept error %v, retry in %v", err, delayTime)
 					time.Sleep(delayTime)
 					continue
 				}
@@ -854,7 +854,7 @@ func (socksServer *Server) startBind(bind *Bind) error {
 					// See: https://golang.org/src/net/net.go?h=Temporary
 					if ne, ok := err.(net.Error); ok && ne.Temporary() {
 						delayTime := 5 * time.Millisecond
-						socksServer.logger.Warn(fmt.Sprintf("StartBind(): Accept error %v, retry in %v", err, delayTime))
+						socksServer.logger.Warn("StartBind(): Accept error %v, retry in %v", err, delayTime)
 						time.Sleep(delayTime)
 						continue
 					} else {

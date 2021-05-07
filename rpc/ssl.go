@@ -275,17 +275,17 @@ func EnsurePrivatePEM() []byte {
 	if key == nil {
 		privKey, err := openssl.GenerateECKey(openssl.Secp256k1)
 		if err != nil {
-			config.AppConfig.Logger.Error(fmt.Sprintf("Failed to generate ec key: %s", err.Error()))
+			config.AppConfig.Logger.Error("Failed to generate ec key: %v", err)
 			os.Exit(129)
 		}
 		bytes, err := privKey.MarshalPKCS1PrivateKeyPEM()
 		if err != nil {
-			config.AppConfig.Logger.Error(fmt.Sprintf("Failed to marshal ec key: %s", err.Error()))
+			config.AppConfig.Logger.Error("Failed to marshal ec key: %v", err)
 			os.Exit(129)
 		}
 		err = db.DB.Put("private", bytes)
 		if err != nil {
-			config.AppConfig.Logger.Error(fmt.Sprintf("Failed to save ec key to file: %s", err.Error()))
+			config.AppConfig.Logger.Error("Failed to save ec key to file: %v", err)
 			os.Exit(129)
 		}
 		return bytes
@@ -296,7 +296,7 @@ func EnsurePrivatePEM() []byte {
 func initSSLCtx(config *config.Config) *openssl.Ctx {
 	ctx, err := doInitSSLCtx(config)
 	if err != nil {
-		config.Logger.Error(fmt.Sprintf("failed to initSSL: %s", err.Error()))
+		config.Logger.Error("failed to initSSL: %v", err)
 		os.Exit(129)
 	}
 	return ctx

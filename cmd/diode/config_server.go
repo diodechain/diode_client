@@ -276,7 +276,7 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 			var err error
 			err = dec.Decode(&c)
 			if err != nil {
-				configAPIServer.appConfig.Logger.Error(fmt.Sprintf("Couldn't decode request: %s", err.Error()))
+				configAPIServer.appConfig.Logger.Error("Couldn't decode request: %v", err)
 				configAPIServer.serverError(w)
 				return
 			}
@@ -286,7 +286,7 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 			err = validate.Struct(c)
 			if err != nil {
 				if _, ok := err.(*validator.InvalidValidationError); ok {
-					configAPIServer.appConfig.Logger.Info(fmt.Sprintf("Couldn't validate the config struct: %s", err.Error()))
+					configAPIServer.appConfig.Logger.Info("Couldn't validate the config struct: %v", err)
 					return
 				}
 				for _, err := range err.(validator.ValidationErrors) {
@@ -470,7 +470,7 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 			// write to yaml config
 			err = configAPIServer.appConfig.SaveToFile()
 			if err != nil {
-				configAPIServer.appConfig.Logger.Error(fmt.Sprintf("Couldn't save config: %s", err.Error()))
+				configAPIServer.appConfig.Logger.Error("Couldn't save config: %v", err)
 				configAPIServer.serverError(w)
 				return
 			}
@@ -482,12 +482,12 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 				if runtime.GOOS != "windows" {
 					exeFile, err := os.Executable()
 					if err != nil {
-						configAPIServer.appConfig.Logger.Error(fmt.Sprintf("Couldn't restart diode: %s", err.Error()))
+						configAPIServer.appConfig.Logger.Error("Couldn't restart diode: %v", err)
 						os.Exit(1)
 					}
 					err = syscall.Exec(exeFile, os.Args, os.Environ())
 					if err != nil {
-						configAPIServer.appConfig.Logger.Error(fmt.Sprintf("Couldn't restart diode: %s", err.Error()))
+						configAPIServer.appConfig.Logger.Error("Couldn't restart diode: %v", err)
 					} else {
 						configAPIServer.appConfig.Logger.Error("Should restart diode manually on Windows")
 					}
@@ -551,12 +551,12 @@ func (configAPIServer *ConfigAPIServer) ListenAndServe() {
 	handler := cors.New(configAPIServer.corsOptions).Handler(mux)
 	handler = configAPIServer.requireJSON(handler)
 	configAPIServer.httpServer = &http.Server{Addr: configAPIServer.addr, Handler: handler}
-	configAPIServer.appConfig.Logger.Info(fmt.Sprintf("Start config api server %s", configAPIServer.addr))
+	configAPIServer.appConfig.Logger.Info("Start config api server %s", configAPIServer.addr)
 	go func() {
 		if err := configAPIServer.httpServer.ListenAndServe(); err != nil {
 			configAPIServer.httpServer = nil
 			if err != http.ErrServerClosed {
-				configAPIServer.appConfig.Logger.Info(fmt.Sprintf("Couldn't start config api: %s", err.Error()))
+				configAPIServer.appConfig.Logger.Info("Couldn't start config api: %v", err)
 			}
 		}
 	}()
