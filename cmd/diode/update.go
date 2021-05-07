@@ -56,6 +56,11 @@ func doUpdate() int {
 
 	tarball, ok := download(m)
 	if !ok {
+		// Will recheck for an update in 24 hours
+		go func() {
+			time.Sleep(time.Hour * 24)
+			doUpdate()
+		}()
 		return 0
 	}
 
