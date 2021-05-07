@@ -30,16 +30,6 @@ func NewResolver(socksCfg Config, clientManager *ClientManager) (resolver *Resol
 	return
 }
 
-func isRecentTicket(lvbn uint64, tck *edge.DeviceTicket) bool {
-	if tck == nil {
-		return false
-	}
-	if lvbn < tck.BlockNumber {
-		return true
-	}
-	return (lvbn - tck.BlockNumber) < 1000
-}
-
 // ResolveDevice
 func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTicket, err error) {
 	// Resolving BNS if needed
@@ -84,14 +74,12 @@ func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTi
 		return nil, HttpError{403, err}
 	}
 
-	lvbn, _ := client.LastValid()
-
 	// Finding accessible deviceIDs
 	for _, deviceID := range deviceIDs {
 
 		// Calling GetObject to locate the device
 		cachedDevice := resolver.datapool.GetCacheDevice(deviceID)
-		if isRecentTicket(lvbn, cachedDevice) {
+		if client.isRecentTicket(cachedDevice) {
 			ret = append(ret, cachedDevice)
 			continue
 		}
@@ -100,7 +88,7 @@ func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTi
 		if err != nil {
 			continue
 		}
-		if !isRecentTicket(lvbn, device) {
+		if !client.isRecentTicket(device) {
 			continue
 		}
 

@@ -60,6 +60,7 @@ type Client struct {
 	pool          *DataPool
 	config        *config.Config
 	bq            *blockquick.Window
+	lastTicket    *edge.DeviceTicket
 	latencySum    int64
 	latencyCount  int64
 	serverID      util.Address
@@ -272,19 +273,40 @@ func (client *Client) CallContext(method string, parse func(buffer []byte) (inte
 }
 
 // CheckTicket should client send traffic ticket to server
-func (client *Client) CheckTicket() (err error) {
-	checked := false
+func (client *Client) CheckTicket() error {
+	needTicket := false
 	timeout := client.callTimeout(func() {
-		counter := client.s.Counter()
-		checked = client.s.TotalBytes() > counter+ticketBound
+		if client.lastTicket != nil && !client.isRecentTicket(client.lastTicket) {
+			needTicket = true
+			return
+		}
+
+		if client.s.TotalBytes() > client.s.Counter()+ticketBound {
+			needTicket = true
+		}
 	})
-	if checked {
-		err = client.SubmitNewTicket()
+
+	if timeout != nil {
+		return timeout
 	}
-	if err == nil {
-		err = timeout
+
+	if needTicket {
+		return client.SubmitNewTicket()
 	}
-	return
+	return nil
+}
+
+func (client *Client) isRecentTicket(tck *edge.DeviceTicket) bool {
+	lvbn, _ := client.LastValid()
+
+	if tck == nil {
+		return false
+	}
+	if lvbn < tck.BlockNumber {
+		return true
+	}
+	// Ignoring tickets older than 16 hours
+	return (lvbn - tck.BlockNumber) < (16 * 3600 / 15)
 }
 
 // ValidateNetwork validate blockchain network is secure and valid
@@ -521,7 +543,11 @@ func (client *Client) SubmitNewTicket() (err error) {
 	if err != nil {
 		return
 	}
+
 	err = client.submitTicket(ticket)
+	if err == nil {
+		client.lastTicket = ticket
+	}
 	return
 }
 
@@ -556,7 +582,7 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 		FleetAddr:        client.config.FleetAddr,
 		TotalConnections: client.s.TotalConnections(),
 		TotalBytes:       client.s.TotalBytes(),
-		LocalAddr:        []byte(client.s.LocalAddr().String()),
+		LocalAddr:        []byte{},
 	}
 
 	prim, secd := client.clientMan.PeekNearestClients()

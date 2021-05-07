@@ -21,6 +21,9 @@ type Address [20]byte
 
 // HexString returns hex encode string of address
 func (addr *Address) HexString() string {
+	if addr == nil {
+		return "nil"
+	}
 	binAddr := make([]byte, 20)
 	copy(binAddr, addr[:])
 	return fmt.Sprintf("0x%s", hex.EncodeToString(binAddr))

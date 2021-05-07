@@ -283,7 +283,9 @@ func (cm *ClientManager) doSortTopClients() {
 		onlineClients = append(onlineClients, client)
 	}
 
-	before := cm.topClients[0]
+	var before [2]*Client
+	copy(before[:], cm.topClients[:])
+
 	sort.Sort(onlineClients)
 	if len(onlineClients) > 0 {
 		cm.topClients[0] = onlineClients[0]
@@ -296,7 +298,7 @@ func (cm *ClientManager) doSortTopClients() {
 		cm.topClients[0] = nil
 	}
 
-	if before != nil && cm.topClients[0] != nil && cm.topClients[0] != before {
+	if cm.topClients != before && cm.topClients[0] != nil {
 		go cm.topClients[0].SubmitNewTicket()
 	}
 }
