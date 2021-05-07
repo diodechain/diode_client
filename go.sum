@@ -65,8 +65,8 @@ github.com/diodechain/go-update v2.2.11+incompatible h1:SfDtOnbB6POqHHQkiUT6DA2U
 github.com/diodechain/go-update v2.2.11+incompatible/go.mod h1:CDLeFDVYEZiIq526c0grXHX1avgSUUp0sYIjWDeuxV0=
 github.com/diodechain/gobert v1.0.3 h1:LEWqL6WuPUMaNGvY7jkscAeQEHkTf2XihRi/S4KDI+4=
 github.com/diodechain/gobert v1.0.3/go.mod h1:X9tC96925Yf6P16ii8Uo4nGdqDH7mLfxD9FDpKxEyrU=
-github.com/diodechain/openssl v1.0.16 h1:xf8P3lnKy2uKvDS03BFDPlI4niN1Q3jV/q5cXvSGLVc=
-github.com/diodechain/openssl v1.0.16/go.mod h1:RrVKJrcc+P20VRAqiacO3lErcV4nJNcniUi/0yaO8f4=
+github.com/diodechain/openssl v1.0.18-0.20210505212804-e4840ee689d0 h1:jRqMI4RG5Jmrd8GnlR78Jc+xUn4bboqoVvJkS7gnpKM=
+github.com/diodechain/openssl v1.0.18-0.20210505212804-e4840ee689d0/go.mod h1:kfVLFzTNC5K1KAszv8nPfqjxDMyONyYzuYYT+OaBtpM=
 github.com/diodechain/zap v0.0.0-20201117101851-06f3cd5f3263 h1:IzzrLj8ehGjdejK48kf+/qgLLVdyMaCkq6mskuDXAAM=
 github.com/diodechain/zap v0.0.0-20201117101851-06f3cd5f3263/go.mod h1:lOf21r6wUM2B9rkJhTIeMwU56gvI956/ESIC0jCi/yM=
 github.com/dlclark/regexp2 v1.2.0/go.mod h1:2pZnwuY/m+8K6iRw6wQdMtk+rH5tNGR1i55kozfMjCc=
@@ -272,8 +272,6 @@ github.com/smartystreets/assertions v1.0.0/go.mod h1:kHHU4qYBaI3q23Pp3VPrmWhuIUr
 github.com/smartystreets/go-aws-auth v0.0.0-20180515143844-0c1422d1fdb9/go.mod h1:SnhjPscd9TpLiy1LpzGSKh3bXCfxxXuqd9xmQJy3slM=
 github.com/smartystreets/gunit v1.0.0/go.mod h1:qwPWnhz6pn0NnRBP++URONOVyNkPyr4SauJk4cUOwJs=
 github.com/soheilhy/cmux v0.1.4/go.mod h1:IM3LyeVVIOuxMH7sFAkER9+bJ4dT7Ms6E4xg4kGIyLM=
-github.com/spacemonkeygo/spacelog v0.0.0-20180420211403-2296661a0572 h1:RC6RW7j+1+HkWaX/Yh71Ee5ZHaHYt7ZP4sQgUrm6cDU=
-github.com/spacemonkeygo/spacelog v0.0.0-20180420211403-2296661a0572/go.mod h1:w0SWMsp6j9O/dk4/ZpIhL+3CkG8ofA2vuv7k+ltqUMc=
 github.com/spaolacci/murmur3 v0.0.0-20180118202830-f09979ecbc72/go.mod h1:JwIasOWyU6f++ZhiEuf87xNszmSA2myDM2Kzu9HwQUA=
 github.com/spaolacci/murmur3 v1.0.1-0.20190317074736-539464a789e9/go.mod h1:JwIasOWyU6f++ZhiEuf87xNszmSA2myDM2Kzu9HwQUA=
 github.com/spf13/afero v1.1.2/go.mod h1:j4pytiNVoe2o6bmDsKpLACNPDBIoEAkihy7loJ1B0CQ=
