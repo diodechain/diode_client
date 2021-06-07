@@ -10,43 +10,31 @@ jobs:
         go: ["1.15.x"]
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: msys2/setup-msys2@v2
-      if: runner.os == 'Windows'
+    # Installing GO
+    - if: runner.os == 'Windows'
+      name: "Install Golang on Windows"
+      uses: msys2/setup-msys2@v2
       with:
           install: pacman-mirrors pkg-config base-devel mingw-w64-x86_64-toolchain mingw-w64-x86_64-go upx
           update: false
-    - if: runner.os == 'Windows'
-      shell: msys2 {0}  
-      run: |
-        echo "Build and install openssl......"
-        wget -O openssl.tar.gz https://github.com/openssl/openssl/archive/OpenSSL_1_0_2u.tar.gz
-        [ "82fa58e3f273c53128c6fe7e3635ec8cda1319a10ce1ad50a987c3df0deeef05" = "$(sha256sum openssl.tar.gz | cut -d ' ' -f1)" ]
-        tar -xzf openssl.tar.gz
-        cd ./openssl-OpenSSL_1_0_2u
-        ./Configure no-ssl2 no-ssl3 no-dtls no-dtls1 no-idea no-mdc2 no-rc5 no-zlib shared mingw64 --prefix=/mingw64
-        make depend && make && make install
-        echo "PKG_CONFIG_PATH=/mingw64/lib/pkgconfig" >> $GITHUB_ENV
-    - if: runner.os == 'macOS'
-      run: |
-        brew install binutils diodechain/openssl/openssl
-        rm /usr/local/opt/openssl/lib/*.dylib
-        echo "/usr/local/opt/binutils/bin" >> $GITHUB_PATH
-    - if: runner.os == 'Linux'
-      run: |
-        echo "Build and install openssl......"
-        sudo mkdir /usr/local/openssl
-        wget -O openssl.tar.gz https://github.com/openssl/openssl/archive/OpenSSL_1_0_2u.tar.gz && \
-            [ "82fa58e3f273c53128c6fe7e3635ec8cda1319a10ce1ad50a987c3df0deeef05" = "$(sha256sum openssl.tar.gz | cut -d ' ' -f1)" ] && \
-            tar -xzf openssl.tar.gz
-        cd ./openssl-OpenSSL_1_0_2u
-        ./config no-ssl2 no-ssl3 no-dtls no-dtls1 no-idea no-mdc2 no-rc5 no-zlib --prefix=/usr/local/openssl
-        sudo make depend && sudo make && sudo make install
-        echo "PKG_CONFIG_PATH=/usr/local/openssl/lib/pkgconfig" >> $GITHUB_ENV
-    - uses: actions/checkout@v1
     - uses: actions/setup-go@v1
+      name: "Install Golang on Linux/macOS"
       if: runner.os != 'Windows'
       with:
         go-version: ${{ matrix.go }}
+
+    # Installing OpenSSL
+    - if: runner.os == 'Windows'
+      shell: msys2 {0}
+      name: "Install OpenSSL on Windows"
+      run: |
+        bash "`go env GOMODCACHE`/github.com/diodechain/openssl@v1.0.18/install_openssl.sh"
+    - if: runner.os != 'Windows'
+      name: "Install OpenSSL on Linux/macOS"
+      run: |
+        SUDO=sudo bash "`go env GOMODCACHE`/github.com/diodechain/openssl@v1.0.18/install_openssl.sh"
+
+    # Building the app
     - if: runner.os == 'Windows'
       shell: msys2 {0}
       run: |

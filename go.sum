@@ -67,6 +67,8 @@ github.com/diodechain/gobert v1.0.5 h1:8wDdUgNsABXirxV1INoRzRvr8UWrImrdnfrfy7DHn
 github.com/diodechain/gobert v1.0.5/go.mod h1:X9tC96925Yf6P16ii8Uo4nGdqDH7mLfxD9FDpKxEyrU=
 github.com/diodechain/openssl v1.0.18-0.20210505212804-e4840ee689d0 h1:jRqMI4RG5Jmrd8GnlR78Jc+xUn4bboqoVvJkS7gnpKM=
 github.com/diodechain/openssl v1.0.18-0.20210505212804-e4840ee689d0/go.mod h1:kfVLFzTNC5K1KAszv8nPfqjxDMyONyYzuYYT+OaBtpM=
+github.com/diodechain/openssl v1.0.18 h1:nLkHAFcj3telQoq3q77oE09IIwC/Q3cyDN0G5bqpKBQ=
+github.com/diodechain/openssl v1.0.18/go.mod h1:kfVLFzTNC5K1KAszv8nPfqjxDMyONyYzuYYT+OaBtpM=
 github.com/diodechain/zap v0.0.0-20201117101851-06f3cd5f3263 h1:IzzrLj8ehGjdejK48kf+/qgLLVdyMaCkq6mskuDXAAM=
 github.com/diodechain/zap v0.0.0-20201117101851-06f3cd5f3263/go.mod h1:lOf21r6wUM2B9rkJhTIeMwU56gvI956/ESIC0jCi/yM=
 github.com/dlclark/regexp2 v1.2.0/go.mod h1:2pZnwuY/m+8K6iRw6wQdMtk+rH5tNGR1i55kozfMjCc=
