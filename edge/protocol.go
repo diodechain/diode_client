@@ -366,6 +366,7 @@ func doParseServerObjResponse(buffer []byte) (obj *ServerObj, err error) {
 		EdgePort:   parseUint(data[2].([]byte)),
 		ServerPort: parseUint(data[3].([]byte)),
 		Sig:        data[len(data)-1].([]byte),
+		Extra:      map[string]uint64{},
 	}
 
 	var bertdata []byte
@@ -381,6 +382,7 @@ func doParseServerObjResponse(buffer []byte) (obj *ServerObj, err error) {
 		tuples := make([]bert.Term, len(extra))
 		for i, elem := range extra {
 			slice := elem.([]interface{})
+			obj.Extra[string(slice[0].([]byte))] = parseUint(slice[1].([]byte))
 			tuples[i] = [2]bert.Term{slice[0].([]byte), parseUint(slice[1].([]byte))}
 		}
 
