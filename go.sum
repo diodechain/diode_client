@@ -63,8 +63,8 @@ github.com/diodechain/go-cache v2.1.0+incompatible h1:hwwJSO9NA0iG40CxCWYF80lJOE
 github.com/diodechain/go-cache v2.1.0+incompatible/go.mod h1:yG22NI4DfcPMlZ6vtzCCdx9PRBULGG8YKN/yeBn9UUQ=
 github.com/diodechain/go-update v2.2.11+incompatible h1:SfDtOnbB6POqHHQkiUT6DA2UuodKwL2Qdn9jnzEn37k=
 github.com/diodechain/go-update v2.2.11+incompatible/go.mod h1:CDLeFDVYEZiIq526c0grXHX1avgSUUp0sYIjWDeuxV0=
-github.com/diodechain/gobert v1.0.3 h1:LEWqL6WuPUMaNGvY7jkscAeQEHkTf2XihRi/S4KDI+4=
-github.com/diodechain/gobert v1.0.3/go.mod h1:X9tC96925Yf6P16ii8Uo4nGdqDH7mLfxD9FDpKxEyrU=
+github.com/diodechain/gobert v1.0.5 h1:8wDdUgNsABXirxV1INoRzRvr8UWrImrdnfrfy7DHn98=
+github.com/diodechain/gobert v1.0.5/go.mod h1:X9tC96925Yf6P16ii8Uo4nGdqDH7mLfxD9FDpKxEyrU=
 github.com/diodechain/openssl v1.0.18-0.20210505212804-e4840ee689d0 h1:jRqMI4RG5Jmrd8GnlR78Jc+xUn4bboqoVvJkS7gnpKM=
 github.com/diodechain/openssl v1.0.18-0.20210505212804-e4840ee689d0/go.mod h1:kfVLFzTNC5K1KAszv8nPfqjxDMyONyYzuYYT+OaBtpM=
 github.com/diodechain/zap v0.0.0-20201117101851-06f3cd5f3263 h1:IzzrLj8ehGjdejK48kf+/qgLLVdyMaCkq6mskuDXAAM=

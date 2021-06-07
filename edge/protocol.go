@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"math/big"
 
 	"github.com/diodechain/diode_client/blockquick"
 	"github.com/diodechain/diode_client/config"
@@ -366,7 +367,7 @@ func doParseServerObjResponse(buffer []byte) (obj *ServerObj, err error) {
 		EdgePort:   parseUint(data[2].([]byte)),
 		ServerPort: parseUint(data[3].([]byte)),
 		Sig:        data[len(data)-1].([]byte),
-		Extra:      map[string]uint64{},
+		Extra:      map[string]big.Int{},
 	}
 
 	var bertdata []byte
@@ -382,8 +383,9 @@ func doParseServerObjResponse(buffer []byte) (obj *ServerObj, err error) {
 		tuples := make([]bert.Term, len(extra))
 		for i, elem := range extra {
 			slice := elem.([]interface{})
-			obj.Extra[string(slice[0].([]byte))] = parseUint(slice[1].([]byte))
-			tuples[i] = [2]bert.Term{slice[0].([]byte), parseUint(slice[1].([]byte))}
+			value := parseBigUint(slice[1].([]byte))
+			obj.Extra[string(slice[0].([]byte))] = value
+			tuples[i] = [2]bert.Term{slice[0].([]byte), value}
 		}
 
 		bertdata, err = bert.Encode([5]bert.Term{
@@ -411,6 +413,13 @@ func doParseServerObjResponse(buffer []byte) (obj *ServerObj, err error) {
 func parseUint(data []byte) (num uint64) {
 	for _, b := range data {
 		num = num*256 + uint64(b)
+	}
+	return
+}
+
+func parseBigUint(data []byte) (num big.Int) {
+	for _, b := range data {
+		num = *num.Add(num.Mul(&num, big.NewInt(256)), big.NewInt(int64(b)))
 	}
 	return
 }

@@ -67,7 +67,7 @@ type ServerObj struct {
 	ServerPort   uint64
 	Sig          []byte
 	ServerPubKey []byte
-	Extra        map[string]uint64
+	Extra        map[string]big.Int
 }
 
 type StateRoots struct {
