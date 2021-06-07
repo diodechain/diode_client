@@ -10,6 +10,12 @@ jobs:
         go: ["1.15.x"]
     runs-on: ${{ matrix.os }}
     steps:
+    # Install general deps
+    - if: runner.os == 'macOS'
+      name: "Install deps on macOS"
+      run: |
+          brew install binutils coreutils wget
+
     # Installing GO
     - if: runner.os == 'Windows'
       name: "Install Golang on Windows"
