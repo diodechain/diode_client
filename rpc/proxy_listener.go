@@ -7,6 +7,7 @@ package rpc
 import (
 	"crypto/tls"
 	"net"
+	"strconv"
 
 	"github.com/diodechain/diode_client/config"
 )
@@ -15,6 +16,7 @@ type proxyListener struct {
 	proxy *ProxyServer
 	ls    net.Listener
 	ret   chan proxyListenerRet
+	port  int
 }
 
 type proxyListenerRet struct {
@@ -27,8 +29,9 @@ func (pl *proxyListener) Accept() (net.Conn, error) {
 	return ret.conn, ret.err
 }
 
-func (pl *proxyListener) Run() {
+func (pl *proxyListener) RunPort(port int) {
 	pl.ret = make(chan proxyListenerRet, 10)
+	pl.port = port
 	go pl.run()
 }
 
@@ -56,7 +59,7 @@ func (pl *proxyListener) run() {
 			}
 
 			state := tlsConn.ConnectionState()
-			name := state.ServerName
+			name := net.JoinHostPort(state.ServerName, strconv.Itoa(pl.port))
 			isWS, mode, deviceID, port, err := parseHost(name)
 
 			if err != nil {

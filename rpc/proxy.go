@@ -208,11 +208,17 @@ func (proxyServer *ProxyServer) SetConfig(config ProxyConfig) error {
 	return nil
 }
 
-func (proxyServer *ProxyServer) serveListener(srv *http.Server, ln net.Listener) {
+func (proxyServer *ProxyServer) serveHttpListener(srv *http.Server, ln net.Listener) {
+	if err := srv.Serve(ln); err != http.ErrServerClosed {
+		proxyServer.logger.Error("Couldn't serve gateway for http listener: %v", err)
+	}
+}
+
+func (proxyServer *ProxyServer) serveHttpsListener(srv *http.Server, ln net.Listener, port int) {
 	pl := &proxyListener{proxy: proxyServer, ls: ln}
-	pl.Run()
+	pl.RunPort(port)
 	if err := srv.Serve(pl); err != http.ErrServerClosed {
-		proxyServer.logger.Error("Couldn't serve gateway for listener: %v", err)
+		proxyServer.logger.Error("Couldn't serve gateway for proxy listener: %v", err)
 	}
 }
 
@@ -244,7 +250,7 @@ func (proxyServer *ProxyServer) Start() error {
 			}
 		})
 		proxyServer.httpServer = &http.Server{Handler: httpdHandler}
-		go proxyServer.serveListener(proxyServer.httpServer, httpLn)
+		go proxyServer.serveHttpListener(proxyServer.httpServer, httpLn)
 	}
 
 	// start httpsd proxy server
@@ -315,7 +321,7 @@ func (proxyServer *ProxyServer) Start() error {
 		}
 		proxyServer.httpsServers[0] = httpsServer
 		proxyServer.logger.Info("Start gateway server %s", proxyServer.Config.SProxyServerAddr)
-		go proxyServer.serveListener(httpsServer, httpsLn)
+		go proxyServer.serveHttpsListener(httpsServer, httpsLn, 80)
 
 		i := 1
 		for _, port := range proxyServer.Config.SProxyServerPorts {
@@ -329,7 +335,7 @@ func (proxyServer *ProxyServer) Start() error {
 			proxyServer.logger.Info("Start additional gateway server %s", httpsdAddr)
 			proxyServer.httpsServers[i] = httpsServers
 			i++
-			go proxyServer.serveListener(httpsServers, httpsLns)
+			go proxyServer.serveHttpsListener(httpsServers, httpsLns, port)
 		}
 	}
 	return nil
