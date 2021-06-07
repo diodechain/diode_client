@@ -24,6 +24,7 @@ jobs:
         go-version: ${{ matrix.go }}
 
     # Building the app
+    - uses: actions/checkout@v1
     - if: runner.os == 'Windows'
       shell: msys2 {0}
       run: |
