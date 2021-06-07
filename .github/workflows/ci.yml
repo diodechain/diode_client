@@ -23,27 +23,20 @@ jobs:
       with:
         go-version: ${{ matrix.go }}
 
-    # Installing OpenSSL
-    - if: runner.os == 'Windows'
-      shell: msys2 {0}
-      name: "Install OpenSSL on Windows"
-      run: |
-        bash "`go env GOMODCACHE`/github.com/diodechain/openssl@v1.0.18/install_openssl.sh"
-    - if: runner.os != 'Windows'
-      name: "Install OpenSSL on Linux/macOS"
-      run: |
-        SUDO=sudo bash "`go env GOMODCACHE`/github.com/diodechain/openssl@v1.0.18/install_openssl.sh"
-
     # Building the app
     - if: runner.os == 'Windows'
       shell: msys2 {0}
       run: |
+        make openssl
         make windows_test
         make dist
     - if: runner.os != 'Windows'
       run: |
+        SUDO=sudo make openssl
         make ci_test
         make dist
+
+    # Ziipping the build
     - run: echo "ZIPNAME=`./deployment/zipname.sh`" >> $GITHUB_ENV
       shell: bash
     - if: runner.os == 'macOS'
