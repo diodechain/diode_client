@@ -43,6 +43,13 @@ jobs:
         make ci_test
         make dist
 
+    # Add tests on linux
+    - if: runner.os == 'Linux'
+      name: "Lint & Secchcek"
+      run: |
+        make lint
+        make seccheck
+
     # Ziipping the build
     - run: echo "ZIPNAME=`./deployment/zipname.sh`" >> $GITHUB_ENV
       shell: bash
@@ -90,50 +97,17 @@ jobs:
     runs-on: "ubuntu-latest"
     steps:
     - uses: actions/checkout@v1
-    - run: |
-        echo "Clone diodechain/cross-compile"
-        git clone https://github.com/diodechain/cross-compile.git
-    - run: |
-        echo "Build docker image for arm32......"
-        docker build --build-arg branch=$GITHUB_SHA -t pi-zero cross-compile/pi-zero
-    - run: |
-        echo "Build diode linux arm32......"
-        docker run -v ${{ github.workspace }}:/build/diode_client pi-zero make archive
-        mv diode_linux_amd64.zip diode_linux_arm.zip
-    - name: Archive production artifacts
+    - name: "Compile pi-arm32 & pi-arm64"
+      run: |
+        cd .github
+        bash ./build.sh
+    - name: "Archive pi-arm32 artifacts"
       uses: actions/upload-artifact@v2
       with:
         name: "diode_linux_arm.zip"
-        path: ${{ github.workspace }}/diode_linux_arm.zip
-    - run: |
-        echo "Build docker image for arm64......"
-        docker build --build-arg branch=$GITHUB_SHA -t pi-arm64 cross-compile/pi-arm64
-    - run: |
-        echo "Build diode linux arm64......"
-        docker run -v ${{ github.workspace }}:/build/diode_client pi-arm64 make archive
-        mv diode_linux_amd64.zip diode_linux_arm64.zip
-    - name: Archive production artifacts
+        path: ${{ github.workspace }}/.github/diode_linux_arm.zip
+    - name: "Archive pi-arm64 artifacts"
       uses: actions/upload-artifact@v2
       with:
         name: "diode_linux_arm64.zip"
-        path: ${{ github.workspace }}/diode_linux_arm64.zip
-
-  lint:
-    name: "Run static analysis"
-    runs-on: "ubuntu-latest"
-    steps:
-    - uses: actions/setup-go@v1
-      with:
-        go-version: "1.14.x"
-    - uses: actions/checkout@v2
-    - run: make 
-
-  seccheck:
-    name: "Run security analysis"
-    runs-on: "ubuntu-latest"
-    steps:
-    - uses: actions/setup-go@v1
-      with:
-        go-version: "1.14.x"
-    - uses: actions/checkout@v2
-    - run: make seccheck
+        path: ${{ github.workspace }}/.github/diode_linux_arm64.zip
