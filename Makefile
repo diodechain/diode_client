@@ -1,11 +1,10 @@
 TESTS= $(shell go list ./... | grep -v -e gowasm_test -e cmd)
 GOPATH= $(shell go env GOPATH)
+GOMODCACHE= $(shell go env GOMODCACHE)
 COMMIT= $(shell git describe --tags --dirty)
 BUILDTIME= $(shell date +"%d %b %Y")
 GOBUILD=go build -ldflags '-s -r ./ -X "main.version=${COMMIT}${VARIANT}" -X "main.buildTime=${BUILDTIME}"' -tags patch_runtime
 ARCHIVE= $(shell ./deployment/zipname.sh)
-# Build and use openssl_1_0_2u if possible
-export PKG_CONFIG_PATH=/usr/local/openssl/lib/pkgconfig/
 
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Linux)
@@ -36,6 +35,11 @@ runtime:
 .PHONY: all
 all: $(BINS)
 
+.PHONY: openssl
+openssl:
+	go mod download
+	bash "$(GOMODCACHE)/github.com/diodechain/openssl@v1.0.18/install_openssl.sh"
+
 .PHONY: test
 test: runtime
 	go test -race $(TESTS)
@@ -43,6 +47,13 @@ test: runtime
 .PHONY: windows_test
 windows_test: runtime
 	go test $(TESTS)
+
+.PHONY: ci_test
+ci_test: runtime
+	$(MAKE) test
+	$(MAKE) diode_race_test
+	chmod +x ./diode_race_test
+	./ci_test.sh
 
 .PHONY: lint
 lint: runtime
@@ -91,8 +102,8 @@ $(ARCHIVE): dist
 
 .PHONY: gateway
 gateway: diode_debug
-	scp -C diode_debug root@diode.ws:diode_go_client
-	ssh root@diode.ws 'svc -k .'
+	scp -C diode_debug root@diode.link:diode_go_client
+	ssh root@diode.link 'svc -k .'
 
 .PHONY: diode$(EXE)
 diode$(EXE): runtime
@@ -110,15 +121,7 @@ gauge$(EXE): runtime
 diode_race_test: runtime
 	$(GOBUILD) -race -o diode_race_test cmd/diode/*.go
 
-.PHONY: ci_test
-ci_test: runtime
-	$(MAKE) test
-	$(MAKE) diode_race_test
-	chmod +x ./diode_race_test
-	./ci_test.sh
-
 .PHONY: debug
 diode_debug: VARIANT=-debug
 diode_debug: runtime
-	go get -a github.com/diodechain/openssl
 	$(GOBUILD) -gcflags="-N -l" -o diode_debug cmd/diode/*.go

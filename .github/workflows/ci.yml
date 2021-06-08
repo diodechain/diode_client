@@ -10,52 +10,47 @@ jobs:
         go: ["1.15.x"]
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: msys2/setup-msys2@v2
-      if: runner.os == 'Windows'
-      with:
-          install: pacman-mirrors pkg-config base-devel mingw-w64-x86_64-toolchain mingw-w64-x86_64-go upx
-          update: false
-    - if: runner.os == 'Windows'
-      shell: msys2 {0}  
-      run: |
-        echo "Build and install openssl......"
-        wget -O openssl.tar.gz https://github.com/openssl/openssl/archive/OpenSSL_1_0_2u.tar.gz
-        [ "82fa58e3f273c53128c6fe7e3635ec8cda1319a10ce1ad50a987c3df0deeef05" = "$(sha256sum openssl.tar.gz | cut -d ' ' -f1)" ]
-        tar -xzf openssl.tar.gz
-        cd ./openssl-OpenSSL_1_0_2u
-        ./Configure no-ssl2 no-ssl3 no-dtls no-dtls1 no-idea no-mdc2 no-rc5 no-zlib shared mingw64 --prefix=/mingw64
-        make depend && make && make install
-        echo "PKG_CONFIG_PATH=/mingw64/lib/pkgconfig" >> $GITHUB_ENV
+    # Install general deps
     - if: runner.os == 'macOS'
+      name: "Install deps on macOS"
       run: |
-        brew install binutils diodechain/openssl/openssl
-        rm /usr/local/opt/openssl/lib/*.dylib
-        echo "/usr/local/opt/binutils/bin" >> $GITHUB_PATH
-    - if: runner.os == 'Linux'
-      run: |
-        echo "Build and install openssl......"
-        sudo mkdir /usr/local/openssl
-        wget -O openssl.tar.gz https://github.com/openssl/openssl/archive/OpenSSL_1_0_2u.tar.gz && \
-            [ "82fa58e3f273c53128c6fe7e3635ec8cda1319a10ce1ad50a987c3df0deeef05" = "$(sha256sum openssl.tar.gz | cut -d ' ' -f1)" ] && \
-            tar -xzf openssl.tar.gz
-        cd ./openssl-OpenSSL_1_0_2u
-        ./config no-ssl2 no-ssl3 no-dtls no-dtls1 no-idea no-mdc2 no-rc5 no-zlib --prefix=/usr/local/openssl
-        sudo make depend && sudo make && sudo make install
-        echo "PKG_CONFIG_PATH=/usr/local/openssl/lib/pkgconfig" >> $GITHUB_ENV
-    - uses: actions/checkout@v1
+          brew install binutils coreutils wget
+
+    # Installing GO
+    - if: runner.os == 'Windows'
+      name: "Install Golang on Windows"
+      uses: msys2/setup-msys2@v2
+      with:
+          install: pacman-mirrors pkg-config base-devel mingw-w64-x86_64-toolchain mingw-w64-x86_64-go upx mingw-w64-x86_64-dlfcn
+          update: false
     - uses: actions/setup-go@v1
+      name: "Install Golang on Linux/macOS"
       if: runner.os != 'Windows'
       with:
         go-version: ${{ matrix.go }}
+
+    # Building the app
+    - uses: actions/checkout@v1
     - if: runner.os == 'Windows'
       shell: msys2 {0}
       run: |
+        make openssl
         make windows_test
         make dist
     - if: runner.os != 'Windows'
       run: |
+        SUDO=sudo make openssl
         make ci_test
         make dist
+
+    # Add tests on linux
+    - if: runner.os == 'Linux'
+      name: "Lint & Secchcek"
+      run: |
+        make lint
+        make seccheck
+
+    # Ziipping the build
     - run: echo "ZIPNAME=`./deployment/zipname.sh`" >> $GITHUB_ENV
       shell: bash
     - if: runner.os == 'macOS'
@@ -102,50 +97,17 @@ jobs:
     runs-on: "ubuntu-latest"
     steps:
     - uses: actions/checkout@v1
-    - run: |
-        echo "Clone diodechain/cross-compile"
-        git clone https://github.com/diodechain/cross-compile.git
-    - run: |
-        echo "Build docker image for arm32......"
-        docker build --build-arg branch=$GITHUB_SHA -t pi-zero cross-compile/pi-zero
-    - run: |
-        echo "Build diode linux arm32......"
-        docker run -v ${{ github.workspace }}:/build/diode_client pi-zero make archive
-        mv diode_linux_amd64.zip diode_linux_arm.zip
-    - name: Archive production artifacts
+    - name: "Compile pi-arm32 & pi-arm64"
+      run: |
+        cd .github
+        bash ./build.sh
+    - name: "Archive pi-arm32 artifacts"
       uses: actions/upload-artifact@v2
       with:
         name: "diode_linux_arm.zip"
-        path: ${{ github.workspace }}/diode_linux_arm.zip
-    - run: |
-        echo "Build docker image for arm64......"
-        docker build --build-arg branch=$GITHUB_SHA -t pi-arm64 cross-compile/pi-arm64
-    - run: |
-        echo "Build diode linux arm64......"
-        docker run -v ${{ github.workspace }}:/build/diode_client pi-arm64 make archive
-        mv diode_linux_amd64.zip diode_linux_arm64.zip
-    - name: Archive production artifacts
+        path: ${{ github.workspace }}/.github/diode_linux_arm.zip
+    - name: "Archive pi-arm64 artifacts"
       uses: actions/upload-artifact@v2
       with:
         name: "diode_linux_arm64.zip"
-        path: ${{ github.workspace }}/diode_linux_arm64.zip
-
-  lint:
-    name: "Run static analysis"
-    runs-on: "ubuntu-latest"
-    steps:
-    - uses: actions/setup-go@v1
-      with:
-        go-version: "1.14.x"
-    - uses: actions/checkout@v2
-    - run: make 
-
-  seccheck:
-    name: "Run security analysis"
-    runs-on: "ubuntu-latest"
-    steps:
-    - uses: actions/setup-go@v1
-      with:
-        go-version: "1.14.x"
-    - uses: actions/checkout@v2
-    - run: make seccheck
+        path: ${{ github.workspace }}/.github/diode_linux_arm64.zip
