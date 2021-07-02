@@ -40,7 +40,7 @@ RUN mkdir build
 WORKDIR /build
 
 # OpenSSL Settings
-ENV MACHINE armv7l
+ENV MACHINE armv6l
 ENV AR "arm-linux-gnueabihf-ar"
 ENV RANLIB "arm-linux-gnueabihf-ranlib"
 ENV CROSS_COMPILE "/pitools/arm-bcm2708/gcc-linaro-arm-linux-gnueabihf-raspbian-x64/bin/"
