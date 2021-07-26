@@ -152,6 +152,11 @@ func (port *ConnectedPort) Copy() {
 			done <- struct{}{}
 			return
 		}
+		if port.Conn == nil {
+			port.Log().Warn("Port Copy(): port not open")
+			done <- struct{}{}
+			return
+		}
 		port.isCopying = true
 		go func() {
 			io.Copy(&remoteWriter{port}, port.Conn)
