@@ -980,7 +980,9 @@ func (client *Client) Close() {
 		if client.OnClose != nil {
 			client.OnClose()
 		}
-		client.s.Close()
+		if client.s != nil {
+			client.s.Close()
+		}
 	})
 	if timeout == nil && doCleanup {
 		// remove open ports
