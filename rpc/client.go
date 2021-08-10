@@ -534,20 +534,22 @@ func (client *Client) greet() error {
 }
 
 func (client *Client) SubmitNewTicket() (err error) {
-	if client.bq == nil {
-		return
-	}
+	client.srv.Call(func() {
+		if client.bq == nil {
+			return
+		}
 
-	var ticket *edge.DeviceTicket
-	ticket, err = client.newTicket()
-	if err != nil {
-		return
-	}
+		var ticket *edge.DeviceTicket
+		ticket, err = client.newTicket()
+		if err != nil {
+			return
+		}
 
-	err = client.submitTicket(ticket)
-	if err == nil {
-		client.lastTicket = ticket
-	}
+		err = client.submitTicket(ticket)
+		if err == nil {
+			client.lastTicket = ticket
+		}
+	})
 	return
 }
 
@@ -572,7 +574,8 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 	if err != nil {
 		return nil, err
 	}
-	client.s.UpdateCounter(client.s.TotalBytes())
+	total := client.s.TotalBytes()
+	client.s.UpdateCounter(total)
 	lvbn, lvbh := client.LastValid()
 
 	ticket := &edge.DeviceTicket{
@@ -581,7 +584,7 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 		BlockHash:        lvbh[:],
 		FleetAddr:        client.config.FleetAddr,
 		TotalConnections: client.s.TotalConnections(),
-		TotalBytes:       client.s.TotalBytes(),
+		TotalBytes:       total,
 		LocalAddr:        []byte{},
 	}
 
@@ -632,7 +635,7 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 				lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)
 			}
 			if lastTicket.ValidateDeviceSig(client.config.ClientAddr) {
-				client.s.totalBytes = lastTicket.TotalBytes + 1024
+				client.s.setTotalBytes(lastTicket.TotalBytes + 1024)
 				client.s.totalConnections = lastTicket.TotalConnections + 1
 				err = client.SubmitNewTicket()
 				if err != nil {

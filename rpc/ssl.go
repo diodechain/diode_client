@@ -198,6 +198,12 @@ func LoadClientPubKey() []byte {
 	return clientPubKey
 }
 
+func (s *SSL) setTotalBytes(n uint64) {
+	s.rm.Lock()
+	defer s.rm.Unlock()
+	s.totalBytes = n
+}
+
 func (s *SSL) incrementTotalBytes(n int) {
 	s.rm.Lock()
 	defer s.rm.Unlock()
