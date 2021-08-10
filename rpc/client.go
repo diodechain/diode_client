@@ -155,7 +155,11 @@ func (client *Client) Log() *config.Logger {
 
 // Host returns the non-resolved addr name of the host
 func (client *Client) Host() (host string, err error) {
-	err = client.callTimeout(func() { host = client.s.addr })
+	err = client.callTimeout(func() {
+		if client.s != nil {
+			host = client.s.addr
+		}
+	})
 	return
 }
 
