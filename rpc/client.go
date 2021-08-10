@@ -248,7 +248,7 @@ func (client *Client) insertCall(call *Call) (err error) {
 }
 
 // CallContext returns the response after calling the rpc
-func (client *Client) CallContext(method string, parse func(buffer []byte) (interface{}, error), args ...interface{}) (res interface{}, err error) {
+func (client *Client) CallContext(method string, args ...interface{}) (res interface{}, err error) {
 	var resCall *Call
 	var ts time.Time
 	var tsDiff time.Duration
@@ -393,7 +393,7 @@ func (client *Client) validateNetwork() error {
 
 // GetBlockPeak returns block peak
 func (client *Client) GetBlockPeak() (uint64, error) {
-	rawBlockPeak, err := client.CallContext("getblockpeak", nil)
+	rawBlockPeak, err := client.CallContext("getblockpeak")
 	if err != nil {
 		return 0, err
 	}
@@ -405,7 +405,7 @@ func (client *Client) GetBlockPeak() (uint64, error) {
 
 // GetBlockquick returns block headers used for blockquick algorithm
 func (client *Client) GetBlockquick(lastValid uint64, windowSize uint64) ([]blockquick.BlockHeader, error) {
-	rawSequence, err := client.CallContext("getblockquick2", nil, lastValid, windowSize)
+	rawSequence, err := client.CallContext("getblockquick2", lastValid, windowSize)
 	if err != nil {
 		return nil, err
 	}
@@ -418,7 +418,7 @@ func (client *Client) GetBlockquick(lastValid uint64, windowSize uint64) ([]bloc
 // GetBlockHeaderUnsafe returns an unchecked block header from the server
 func (client *Client) GetBlockHeaderUnsafe(blockNum uint64) (bh blockquick.BlockHeader, err error) {
 	var rawHeader interface{}
-	rawHeader, err = client.CallContext("getblockheader2", nil, blockNum)
+	rawHeader, err = client.CallContext("getblockheader2", blockNum)
 	if err != nil {
 		return
 	}
@@ -491,7 +491,7 @@ func (client *Client) GetBlockHeadersUnsafe(blockNumMin uint64, blockNumMax uint
 // GetBlock returns block
 // TODO: make sure this rpc works (disconnect from server)
 func (client *Client) GetBlock(blockNum uint64) (interface{}, error) {
-	return client.CallContext("getblock", nil, blockNum)
+	return client.CallContext("getblock", blockNum)
 }
 
 // GetObject returns network object for device
@@ -500,7 +500,7 @@ func (client *Client) GetObject(deviceID [20]byte) (*edge.DeviceTicket, error) {
 		return nil, fmt.Errorf("device ID must be 20 bytes")
 	}
 	// encDeviceID := util.EncodeToString(deviceID[:])
-	rawObject, err := client.CallContext("getobject", nil, deviceID[:])
+	rawObject, err := client.CallContext("getobject", deviceID[:])
 	if err != nil {
 		return nil, err
 	}
@@ -513,7 +513,7 @@ func (client *Client) GetObject(deviceID [20]byte) (*edge.DeviceTicket, error) {
 
 // GetNode returns network address for node
 func (client *Client) GetNode(nodeID [20]byte) (*edge.ServerObj, error) {
-	rawNode, err := client.CallContext("getnode", nil, nodeID[:])
+	rawNode, err := client.CallContext("getnode", nodeID[:])
 	if err != nil {
 		return nil, err
 	}
@@ -661,7 +661,7 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 
 // PortOpen call portopen RPC
 func (client *Client) PortOpen(deviceID [20]byte, port string, mode string) (*edge.PortOpen, error) {
-	rawPortOpen, err := client.CallContext("portopen", nil, deviceID[:], port, mode)
+	rawPortOpen, err := client.CallContext("portopen", deviceID[:], port, mode)
 	if err != nil {
 		// if error string is 4 bytes string, it's the timeout error from server
 		if len(err.Error()) == 4 {
@@ -696,12 +696,12 @@ func (client *Client) CastPortClose(ref string) (err error) {
 
 // PortClose portclose RPC
 func (client *Client) PortClose(ref string) (interface{}, error) {
-	return client.CallContext("portclose", nil, ref)
+	return client.CallContext("portclose", ref)
 }
 
 // Ping call ping RPC
 func (client *Client) Ping() (interface{}, error) {
-	return client.CallContext("ping", nil)
+	return client.CallContext("ping")
 }
 
 // SendTransaction send signed transaction to server
@@ -717,7 +717,7 @@ func (client *Client) SendTransaction(tx *edge.Transaction) (result bool, err er
 	if err != nil {
 		return
 	}
-	res, err = client.CallContext("sendtransaction", nil, encodedRLPTx)
+	res, err = client.CallContext("sendtransaction", encodedRLPTx)
 	if res, ok = res.(string); ok {
 		result = res == "ok"
 		if !result {
@@ -730,7 +730,7 @@ func (client *Client) SendTransaction(tx *edge.Transaction) (result bool, err er
 
 // GetAccount returns account information: nonce, balance, storage root, code
 func (client *Client) GetAccount(blockNumber uint64, account [20]byte) (*edge.Account, error) {
-	rawAccount, err := client.CallContext("getaccount", nil, blockNumber, account[:])
+	rawAccount, err := client.CallContext("getaccount", blockNumber, account[:])
 	if err != nil {
 		return nil, err
 	}
@@ -742,7 +742,7 @@ func (client *Client) GetAccount(blockNumber uint64, account [20]byte) (*edge.Ac
 
 // GetStateRoots returns state roots
 func (client *Client) GetStateRoots(blockNumber uint64) (*edge.StateRoots, error) {
-	rawStateRoots, err := client.CallContext("getstateroots", nil, blockNumber)
+	rawStateRoots, err := client.CallContext("getstateroots", blockNumber)
 	if err != nil {
 		return nil, err
 	}
@@ -789,7 +789,7 @@ func (client *Client) GetAccountValue(blockNumber uint64, account [20]byte, rawK
 	}
 	// pad key to 32 bytes
 	key := util.PaddingBytesPrefix(rawKey, 0, 32)
-	rawAccountValue, err := client.CallContext("getaccountvalue", nil, blockNumber, account[:], key)
+	rawAccountValue, err := client.CallContext("getaccountvalue", blockNumber, account[:], key)
 	if err != nil {
 		return nil, err
 	}
@@ -847,7 +847,7 @@ func (client *Client) GetAccountRoots(blockNumber uint64, account [20]byte) (*ed
 		bn, _ := client.LastValid()
 		blockNumber = uint64(bn)
 	}
-	rawAccountRoots, err := client.CallContext("getaccountroots", nil, blockNumber, account[:])
+	rawAccountRoots, err := client.CallContext("getaccountroots", blockNumber, account[:])
 	if err != nil {
 		return nil, err
 	}
