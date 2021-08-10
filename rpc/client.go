@@ -621,34 +621,41 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 // SubmitTicket submit ticket to server
 // TODO: resend when got too old error
 func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
-	resp, err := client.CallContext("ticket", nil, uint64(ticket.BlockNumber), ticket.FleetAddr[:], uint64(ticket.TotalConnections), uint64(ticket.TotalBytes), ticket.LocalAddr, ticket.DeviceSig)
+	call, err := client.CastContext(nil, "ticket", uint64(ticket.BlockNumber), ticket.FleetAddr[:], uint64(ticket.TotalConnections), uint64(ticket.TotalBytes), ticket.LocalAddr, ticket.DeviceSig)
 	if err != nil {
 		return fmt.Errorf("failed to submit ticket: %v", err)
 	}
-	if lastTicket, ok := resp.(edge.DeviceTicket); ok {
-		if lastTicket.Err == edge.ErrTicketTooLow {
-			sid, _ := client.s.GetServerID()
-			lastTicket.ServerID = sid
-			lastTicket.FleetAddr = client.config.FleetAddr
-
-			if !lastTicket.ValidateDeviceSig(client.config.ClientAddr) {
-				lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)
-			}
-			if lastTicket.ValidateDeviceSig(client.config.ClientAddr) {
-				client.s.setTotalBytes(lastTicket.TotalBytes + 1024)
-				client.s.totalConnections = lastTicket.TotalConnections + 1
-				err = client.SubmitNewTicket()
-				if err != nil {
-					return fmt.Errorf("failed to re-submit ticket: %v", err)
-				}
-			} else {
-				client.Log().Warn("received fake ticket.. last_ticket=%v", lastTicket)
-			}
-		} else if lastTicket.Err == edge.ErrTicketTooOld {
-			client.Log().Info("received too old ticket")
+	go func() {
+		resp, err := client.waitResponse(call)
+		if err != nil {
+			client.Log().Error("failed to submit ticket: %v", err)
+			return
 		}
-		return nil
-	}
+
+		if lastTicket, ok := resp.(edge.DeviceTicket); ok {
+			if lastTicket.Err == edge.ErrTicketTooLow {
+				sid, _ := client.s.GetServerID()
+				lastTicket.ServerID = sid
+				lastTicket.FleetAddr = client.config.FleetAddr
+
+				if !lastTicket.ValidateDeviceSig(client.config.ClientAddr) {
+					lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)
+				}
+				if lastTicket.ValidateDeviceSig(client.config.ClientAddr) {
+					client.s.setTotalBytes(lastTicket.TotalBytes + 1024)
+					client.s.totalConnections = lastTicket.TotalConnections + 1
+					err = client.SubmitNewTicket()
+					if err != nil {
+						client.Log().Error("failed to re-submit ticket: %v", err)
+					}
+				} else {
+					client.Log().Warn("received fake ticket.. last_ticket=%v", lastTicket)
+				}
+			} else if lastTicket.Err == edge.ErrTicketTooOld {
+				client.Log().Info("received too old ticket")
+			}
+		}
+	}()
 	return err
 }
 
