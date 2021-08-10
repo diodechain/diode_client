@@ -178,7 +178,7 @@ func (client *Client) isAllowlisted(port *config.Port, addr Address) bool {
 
 // handleInboundMessage handle inbound message
 func (client *Client) handleInboundMessage(msg edge.Message) {
-	go client.CheckTicket()
+	client.CheckTicket()
 	if msg.IsResponse() {
 		client.backoff.StepBack()
 		call := client.cm.CallByID(msg.ResponseID())

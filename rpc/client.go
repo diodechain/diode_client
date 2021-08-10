@@ -277,27 +277,27 @@ func (client *Client) CallContext(method string, args ...interface{}) (res inter
 }
 
 // CheckTicket should client send traffic ticket to server
-func (client *Client) CheckTicket() error {
-	needTicket := false
-	timeout := client.callTimeout(func() {
-		if client.lastTicket != nil && !client.isRecentTicket(client.lastTicket) {
-			needTicket = true
+func (client *Client) CheckTicket() {
+	client.srv.Cast(func() {
+		if client.s.TotalBytes() < client.s.Counter()+ticketBound &&
+			client.lastTicket != nil && client.isRecentTicket(client.lastTicket) {
 			return
 		}
 
-		if client.s.TotalBytes() > client.s.Counter()+ticketBound {
-			needTicket = true
+		if client.bq == nil {
+			return
+		}
+
+		ticket, err := client.newTicket()
+		if err != nil {
+			return
+		}
+
+		err = client.submitTicket(ticket)
+		if err == nil {
+			client.lastTicket = ticket
 		}
 	})
-
-	if timeout != nil {
-		return timeout
-	}
-
-	if needTicket {
-		return client.SubmitNewTicket()
-	}
-	return nil
 }
 
 func (client *Client) isRecentTicket(tck *edge.DeviceTicket) bool {
@@ -538,7 +538,7 @@ func (client *Client) greet() error {
 }
 
 func (client *Client) SubmitNewTicket() (err error) {
-	client.srv.Call(func() {
+	client.srv.Cast(func() {
 		if client.bq == nil {
 			return
 		}
