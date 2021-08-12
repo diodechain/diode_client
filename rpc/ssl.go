@@ -4,10 +4,12 @@
 package rpc
 
 import (
+	"bufio"
 	"crypto/ecdsa"
 	"encoding/binary"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"math/big"
 	"net"
 	"os"
@@ -35,6 +37,7 @@ type SSL struct {
 	cd               sync.Once
 	closeCh          chan struct{}
 	serverID         util.Address
+	reader           *bufio.Reader
 }
 
 // Host returns the non-resolved addr name of the host
@@ -55,6 +58,7 @@ func DialContext(ctx *openssl.Ctx, addr string, mode openssl.DialFlags) (*SSL, e
 	configureTcpConn(tcp)
 	s := &SSL{
 		conn:    conn,
+		reader:  bufio.NewReaderSize(conn, 64*1024),
 		ctx:     ctx,
 		addr:    addr,
 		mode:    mode,
@@ -220,8 +224,7 @@ func (s *SSL) readMessage() (msg edge.Message, err error) {
 	// read length of response
 	var n int
 	lenByt := make([]byte, 2)
-	conn := s.getOpensslConn()
-	_, err = conn.Read(lenByt)
+	_, err = s.reader.Read(lenByt)
 	if err != nil {
 		return
 	}
@@ -231,18 +234,13 @@ func (s *SSL) readMessage() (msg edge.Message, err error) {
 	}
 	// read response
 	res := make([]byte, lenr)
-	read := 0
-	for read < int(lenr) && err == nil {
-		n, err = conn.Read(res[read:])
-		read += n
-	}
+	n, err = io.ReadFull(s.reader, res)
 	if err != nil {
 		return
 	}
-	read += 2
-	s.incrementTotalBytes(read)
+	s.incrementTotalBytes(n + 2)
 	msg = edge.Message{
-		Len:    read,
+		Len:    n + 2,
 		Buffer: res,
 	}
 	return msg, nil

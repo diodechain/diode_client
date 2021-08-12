@@ -20,6 +20,8 @@ var (
 // handleInboundRequest handle inbound request
 func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 	if portOpen, ok := inboundRequest.(*edge.PortOpen); ok {
+		defer client.timer.profile(time.Now(), "handlePortOpen")
+
 		go func() {
 			if portOpen.Err != nil {
 				client.ResponsePortOpen(portOpen, portOpen.Err)
@@ -111,6 +113,8 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 			port.Copy()
 		}()
 	} else if portSend, ok := inboundRequest.(*edge.PortSend); ok {
+		defer client.timer.profile(time.Now(), "handlePortSend")
+
 		if portSend.Err != nil {
 			client.Log().Error("Failed to decode portsend request: %v", portSend.Err.Error())
 			return
@@ -126,6 +130,8 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 			client.CastPortClose(portSend.Ref)
 		}
 	} else if portClose, ok := inboundRequest.(*edge.PortClose); ok {
+		defer client.timer.profile(time.Now(), "handlePortClose")
+
 		deviceKey := client.GetDeviceKey(portClose.Ref)
 		cachedConnDevice := client.pool.GetPort(deviceKey)
 		if cachedConnDevice != nil {
@@ -136,6 +142,8 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 		// client.Log().Error("Couldn't find the portclose connected device %x", portClose.Ref)
 		// }
 	} else if goodbye, ok := inboundRequest.(edge.Goodbye); ok {
+		defer client.timer.profile(time.Now(), "handleGoodbye")
+
 		client.Log().Warn("server disconnected, reason: %v", goodbye.Reason)
 		if !client.Closed() {
 			client.Close()
@@ -178,8 +186,9 @@ func (client *Client) isAllowlisted(port *config.Port, addr Address) bool {
 
 // handleInboundMessage handle inbound message
 func (client *Client) handleInboundMessage(msg edge.Message) {
-	client.CheckTicket()
 	if msg.IsResponse() {
+		defer client.timer.profile(time.Now(), "handleResponse")
+
 		client.backoff.StepBack()
 		call := client.cm.CallByID(msg.ResponseID())
 		if call == nil {
@@ -206,6 +215,9 @@ func (client *Client) handleInboundMessage(msg edge.Message) {
 			// no Parse callback for hello and portclose
 			return
 		}
+
+		defer client.timer.profile(time.Now(), fmt.Sprintf("handle:%s", call.method))
+
 		res, err := call.Parse(msg.Buffer)
 		if err != nil {
 			rpcError := edge.Error{
@@ -227,6 +239,15 @@ func (client *Client) handleInboundMessage(msg edge.Message) {
 
 // recvMessageLoop infinite loop to read message from server
 func (client *Client) recvMessageLoop() {
+	msgBuffer := make(chan edge.Message, 20)
+	defer close(msgBuffer)
+
+	go func() {
+		for msg := range msgBuffer {
+			client.handleInboundMessage(msg)
+		}
+	}()
+
 	for {
 		msg, err := client.s.readMessage()
 		if err != nil {
@@ -238,7 +259,13 @@ func (client *Client) recvMessageLoop() {
 			return
 		}
 		if msg.Len > 0 {
-			client.handleInboundMessage(msg)
+			client.CheckTicket()
+			select {
+			case msgBuffer <- msg:
+			default:
+				// client.Log().Debug("Read queue full\n" + client.timer.dump())
+				msgBuffer <- msg
+			}
 		}
 	}
 }

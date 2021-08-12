@@ -70,6 +70,7 @@ type Client struct {
 
 	isClosed bool
 	srv      *genserver.GenServer
+	timer    *Timer
 }
 
 func getRequestID() uint64 {
@@ -95,6 +96,7 @@ func NewClient(host string, clientMan *ClientManager, cfg *config.Config, pool *
 		},
 		config:        cfg,
 		enableMetrics: cfg.EnableMetrics,
+		timer:         NewTimer(),
 	}
 
 	if client.enableMetrics {
@@ -231,7 +233,7 @@ func (client *Client) CastContext(sender *ConnectedPort, method string, args ...
 		method:   method,
 		data:     buf,
 		Parse:    parseCallback,
-		response: make(chan interface{}),
+		response: make(chan interface{}, 1),
 	}
 	err = client.insertCall(call)
 	return
@@ -278,6 +280,8 @@ func (client *Client) CallContext(method string, args ...interface{}) (res inter
 
 // CheckTicket should client send traffic ticket to server
 func (client *Client) CheckTicket() {
+	defer client.timer.profile(time.Now(), "CheckTicket")
+
 	client.srv.Cast(func() {
 		if client.s.TotalBytes() < client.s.Counter()+ticketBound &&
 			client.lastTicket != nil && client.isRecentTicket(client.lastTicket) {
