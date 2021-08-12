@@ -263,7 +263,7 @@ func (client *Client) recvMessageLoop() {
 			select {
 			case msgBuffer <- msg:
 			default:
-				// client.Log().Debug("Read queue full\n" + client.timer.dump())
+				// client.Log().Debug("Read queue full\n" + client.timer.Dump())
 				msgBuffer <- msg
 			}
 		}

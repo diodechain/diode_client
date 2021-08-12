@@ -55,7 +55,7 @@ func (timer *Timer) profile(start time.Time, name string) {
 // 	})
 // }
 
-func (timer *Timer) dump() (ret string) {
+func (timer *Timer) Dump() (ret string) {
 	timer.srv.Cast(func() {
 		for key, value := range timer.timings {
 			// printing microseconds
