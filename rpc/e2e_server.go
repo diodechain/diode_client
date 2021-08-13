@@ -19,20 +19,23 @@ import (
 type E2EServer struct {
 	port    *ConnectedPort
 	peer    Address
+	pool    *DataPool
 	closeCh chan struct{}
 	cd      sync.Once
 
-	remoteConn  net.Conn
-	localConn   net.Conn
-	opensslConn *openssl.Conn
+	storeSession bool
+	remoteConn   net.Conn
+	localConn    net.Conn
+	opensslConn  *openssl.Conn
 }
 
 // NewE2EServer returns e2e server
-func (port *ConnectedPort) NewE2EServer(remoteConn net.Conn, peer Address) *E2EServer {
+func (port *ConnectedPort) NewE2EServer(remoteConn net.Conn, peer Address, pool *DataPool) *E2EServer {
 	return &E2EServer{
 		remoteConn: remoteConn,
 		peer:       peer,
 		port:       port,
+		pool:       pool,
 		closeCh:    make(chan struct{}),
 	}
 }
@@ -64,7 +67,7 @@ func (e2eServer *E2EServer) handshake(conn *openssl.Conn) (err error) {
 }
 
 func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*openssl.Conn, error)) error {
-	ctx := e2eServer.ctx()
+	ctx := e2eServer.pool.GetContext()
 	ctx.SetOptions(openssl.NoSSLv2 | openssl.NoSSLv3)
 	ctx.SetMode(openssl.ReleaseBuffers)
 	tunnelOpenssl, tunnelDiode := net.Pipe()
@@ -88,6 +91,13 @@ func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*op
 		}
 		tunnel := NewTunnel(conn, e2eServer.remoteConn)
 		tunnel.Copy()
+		if e2eServer.storeSession && e2eServer.opensslConn != nil {
+			session, err := e2eServer.opensslConn.GetSession()
+			if err == nil && session != nil {
+				// e2eServer.port.Log().Info("Pushing Session! " + util.EncodeToString(crypto.Sha3Hash(session)))
+				e2eServer.pool.pushClientSession(e2eServer.peer, session)
+			}
+		}
 		e2eServer.Close()
 	}()
 	return nil
@@ -95,17 +105,28 @@ func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*op
 
 // InternalServerConnect create tunnels to bridge openssl server connection to diode network
 func (e2eServer *E2EServer) InternalServerConnect() error {
+	e2eServer.storeSession = false
 	return e2eServer.internalConnect(openssl.Server)
 }
 
 // InternalClientConnect create tunnels to bridge openssl client connection to diode network
 func (e2eServer *E2EServer) InternalClientConnect() error {
-	return e2eServer.internalConnect(openssl.Client)
-}
-
-func (e2eServer *E2EServer) ctx() *openssl.Ctx {
-	// This creates a new certificate each time of 48 hour validity.
-	return initSSLCtx(config.AppConfig)
+	// For client connections we want to store the session after completion
+	e2eServer.storeSession = true
+	return e2eServer.internalConnect(func(conn net.Conn, ctx *openssl.Ctx) (*openssl.Conn, error) {
+		sslConn, err := openssl.Client(conn, ctx)
+		if err == nil {
+			session, ok := e2eServer.pool.popClientSession(e2eServer.peer)
+			if ok && session != nil {
+				// e2eServer.port.Log().Info("Re-Using session! " + util.EncodeToString(crypto.Sha3Hash(session)))
+				newErr := sslConn.SetSession(session)
+				if newErr != nil {
+					e2eServer.port.Log().Error("Failed Re-Using session! %v", newErr)
+				}
+			}
+		}
+		return sslConn, err
+	})
 }
 
 func (e2eServer *E2EServer) checkPeer(ssl *openssl.Conn) error {

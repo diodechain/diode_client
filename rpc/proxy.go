@@ -352,7 +352,9 @@ func (proxyServer *ProxyServer) Close() {
 			proxyServer.httpServer.Close()
 		}
 		for _, srv := range proxyServer.httpsServers {
-			srv.Close()
+			if srv != nil {
+				srv.Close()
+			}
 		}
 	})
 }

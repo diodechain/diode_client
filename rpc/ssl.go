@@ -319,7 +319,7 @@ func doInitSSLCtx(config *config.Config) (*openssl.Ctx, error) {
 		Serial: serial,
 		// The go-openssl library converts these Issued and Expires relative to 'now'
 		Issued:       -24 * time.Hour,
-		Expires:      24 * time.Hour,
+		Expires:      24 * 365 * 5 * time.Hour,
 		Country:      "US",
 		Organization: "Private",
 		CommonName:   name,
@@ -371,5 +371,7 @@ func doInitSSLCtx(config *config.Config) (*openssl.Ctx, error) {
 	if err = ctx.SetSupportedEllipticCurves(curves); err != nil {
 		return nil, err
 	}
+	ctx.SetSessionCacheMode(openssl.SessionCacheBoth)
+	ctx.SetSessionId([]byte("diode_e2e"))
 	return ctx, nil
 }
