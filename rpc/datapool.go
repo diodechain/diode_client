@@ -11,6 +11,7 @@ import (
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/edge"
 	"github.com/diodechain/go-cache"
+	"github.com/diodechain/openssl"
 	"github.com/dominicletz/genserver"
 )
 
@@ -18,9 +19,15 @@ type DataPool struct {
 	locks          map[string]bool
 	devices        map[string]*ConnectedPort
 	publishedPorts map[int]*config.Port
-	memoryCache    *cache.Cache
+
+	memoryCache *cache.Cache
+	ctx         *openssl.Ctx
 
 	srv *genserver.GenServer
+}
+
+type SessionCache struct {
+	sessions [][]byte
 }
 
 func NewPool() *DataPool {
@@ -36,6 +43,48 @@ func NewPool() *DataPool {
 	}
 
 	return pool
+}
+
+func (p *DataPool) popClientSession(client Address) (session []byte, ok bool) {
+	ok = false
+	key := "session:" + string(client[:])
+
+	p.srv.Call(func() {
+		cachedSession, hit := p.memoryCache.Get(key)
+		if !hit {
+			return
+		}
+		var cache *SessionCache
+		cache, ok = cachedSession.(*SessionCache)
+		if cache == nil || len(cache.sessions) == 0 {
+			return
+		}
+		session = cache.sessions[0]
+		cache.sessions = cache.sessions[1:]
+		ok = true
+	})
+	return
+}
+
+func (p *DataPool) pushClientSession(client Address, session []byte) {
+	key := "session:" + string(client[:])
+
+	p.srv.Call(func() {
+		cachedSession, hit := p.memoryCache.Get(key)
+
+		var item *SessionCache
+		if hit {
+			item = cachedSession.(*SessionCache)
+		}
+		// If the above cast fails this will also trigger, so don't
+		// put an else here
+		if item == nil {
+			item = &SessionCache{sessions: ([][]byte{session})}
+			p.memoryCache.Set(key, item, cache.DefaultExpiration)
+		} else {
+			item.sessions = append(item.sessions, session)
+		}
+	})
 }
 
 func (p *DataPool) getCacheBNS(key string) (bns []Address, ok bool) {
@@ -178,6 +227,16 @@ func (p *DataPool) SetPort(key string, dev *ConnectedPort) {
 
 func (p *DataPool) GetPublishedPort(portnum int) (port *config.Port) {
 	p.srv.Call(func() { port = p.publishedPorts[portnum] })
+	return
+}
+
+func (p *DataPool) GetContext() (ctx *openssl.Ctx) {
+	p.srv.Call(func() {
+		if p.ctx == nil {
+			p.ctx = initSSLCtx(config.AppConfig)
+		}
+		ctx = p.ctx
+	})
 	return
 }
 

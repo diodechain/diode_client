@@ -145,7 +145,7 @@ func (client *Client) doConnect() (err error) {
 
 func (client *Client) doDial() (err error) {
 	start := time.Now()
-	client.s, err = DialContext(initSSLCtx(client.config), client.host, openssl.InsecureSkipHostVerification)
+	client.s, err = DialContext(client.pool.GetContext(), client.host, openssl.InsecureSkipHostVerification)
 	client.addLatencyMeasurement(time.Since(start))
 	return
 }
