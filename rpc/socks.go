@@ -19,6 +19,7 @@ import (
 
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/edge"
+	"github.com/diodechain/diode_client/util"
 	"golang.org/x/net/publicsuffix"
 )
 
@@ -309,8 +310,13 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 		err = fmt.Errorf("empty device list")
 	}
 
+	type candidate struct {
+		deviceID util.Address
+		serverID util.Address
+	}
+
+	candidates := make([]candidate, 0)
 	for _, device := range devices {
-		// decode device id
 		var deviceID Address
 		deviceID, err = device.DeviceAddress()
 		if err != nil {
@@ -319,24 +325,59 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 		}
 
 		for _, serverID := range device.GetServerIDs() {
-			var client *Client
-			client, err = socksServer.GetServer(serverID)
+			candidates = append(candidates, candidate{deviceID, serverID})
+		}
+	}
+
+	ports := make(chan *ConnectedPort, 1)
+	var wg sync.WaitGroup
+	maxConcurrency := make(chan struct{}, 4)
+
+	for _, candidate := range candidates {
+		wg.Add(1)
+		go func(deviceID Address, serverID Address) {
+			defer func() {
+				wg.Done()
+				<-maxConcurrency
+			}()
+			maxConcurrency <- struct{}{}
+
+			client, err := socksServer.GetServer(serverID)
 			if err != nil {
 				socksServer.logger.Error("GetServer() failed: %v", err)
-				continue
+				return
 			}
 
 			var portOpen *edge.PortOpen
 			portOpen, err = client.PortOpen(deviceID, portName, mode)
 			if err != nil {
-				continue
+				return
 			}
 			if portOpen != nil && portOpen.Err != nil {
-				continue
+				return
 			}
 			portOpen.PortNumber = port
-			return NewConnectedPort(portOpen.Ref, deviceID, client, port), nil
-		}
+			connPort := NewConnectedPort(portOpen.Ref, deviceID, client, port)
+			select {
+			case ports <- connPort:
+			default:
+				connPort.Close()
+			}
+		}(candidate.deviceID, candidate.serverID)
+	}
+
+	go func() {
+		wg.Wait()
+		close(ports)
+	}()
+
+	connPort, ok := <-ports
+	if ok && connPort != nil {
+		return connPort, nil
+	}
+
+	for _, device := range devices {
+		deviceID, _ := device.DeviceAddress()
 		// If connecting to this device has failed clear the cached
 		// device ticket before trying again
 		socksServer.datapool.SetCacheDevice(deviceID, nil)

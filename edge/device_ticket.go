@@ -31,7 +31,9 @@ type DeviceTicket struct {
 	DeviceSig        []byte
 	ServerSig        []byte
 	Err              error
-	CacheTime        time.Time
+
+	CacheTime     time.Time
+	deviceAddress *util.Address
 }
 
 // ValidateValues checks length of byte[] arrays and returns an error message
@@ -127,11 +129,16 @@ func (ct *DeviceTicket) GetServerIDs() (ret []Address) {
 
 // DeviceAddress returns device address
 func (ct *DeviceTicket) DeviceAddress() (Address, error) {
-	devicePubkey, err := ct.RecoverDevicePubKey()
-	if err != nil {
-		return [20]byte{}, err
+	if ct.deviceAddress == nil {
+		devicePubkey, err := ct.RecoverDevicePubKey()
+		if err != nil {
+			return [20]byte{}, err
+		}
+		addr := util.PubkeyToAddress(devicePubkey)
+		ct.deviceAddress = &addr
 	}
-	return util.PubkeyToAddress(devicePubkey), nil
+
+	return *ct.deviceAddress, nil
 }
 
 // GetDeviceID returns the hex formatted address
