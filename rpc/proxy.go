@@ -7,9 +7,11 @@ package rpc
 import (
 	"crypto/tls"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/caddyserver/certmagic"
 	"github.com/diodechain/diode_client/config"
@@ -48,6 +50,23 @@ type ProxyServer struct {
 	closeCh      chan struct{}
 	mx           sync.Mutex
 	cd           sync.Once
+}
+
+func rawHttpError(w io.Writer, code int, str string) {
+	if str == "" {
+		str = http.StatusText(code)
+	}
+	date := time.Now().Format(time.RFC1123)
+	str = Page(http.StatusText(code), code, http.StatusText(code), str)
+	fmt.Fprintf(w, `HTTP/1.0 %d OK
+Date: %s
+Server: diode
+MIME-version: 1.0
+Last-Modified: %s
+Content-Type: text/html; charset=utf-8
+Content-Length: %d
+
+%s`, code, date, date, len(str), str)
 }
 
 func httpError(w http.ResponseWriter, code int, str string) {

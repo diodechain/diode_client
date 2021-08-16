@@ -79,6 +79,10 @@ func (pl *proxyListener) run() {
 
 			if err != nil {
 				pl.proxy.logger.Error("Failed to accept(%v '%v'): %v", name, deviceID, err.Error())
+				if conn != nil {
+					rawHttpError(conn, 404, err.Error())
+					conn.Close()
+				}
 			}
 		}()
 	}
