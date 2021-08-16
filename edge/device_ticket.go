@@ -7,6 +7,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/diodechain/diode_client/crypto"
 	"github.com/diodechain/diode_client/crypto/secp256k1"
@@ -30,6 +31,7 @@ type DeviceTicket struct {
 	DeviceSig        []byte
 	ServerSig        []byte
 	Err              error
+	CacheTime        time.Time
 }
 
 // ValidateValues checks length of byte[] arrays and returns an error message

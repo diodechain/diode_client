@@ -179,6 +179,9 @@ func (p *DataPool) GetCache(key string) (ticket *edge.DeviceTicket) {
 }
 
 func (p *DataPool) SetCacheDevice(key Address, tck *edge.DeviceTicket) {
+	if tck != nil {
+		tck.CacheTime = time.Now()
+	}
 	p.SetCache(string(key[:]), tck)
 }
 

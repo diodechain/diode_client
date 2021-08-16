@@ -6,6 +6,7 @@ package rpc
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/edge"
@@ -79,16 +80,28 @@ func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTi
 
 		// Calling GetObject to locate the device
 		cachedDevice := resolver.datapool.GetCacheDevice(deviceID)
-		if client.isRecentTicket(cachedDevice) {
-			ret = append(ret, cachedDevice)
-			continue
+		if cachedDevice != nil {
+			if cachedDevice != nil && cachedDevice.BlockNumber == 0 && time.Since(cachedDevice.CacheTime) < 8*time.Hour {
+				// The last time we checked there was no object (device was offline)
+				continue
+			} else if client.isRecentTicket(cachedDevice) {
+				ret = append(ret, cachedDevice)
+				continue
+			} else if time.Since(cachedDevice.CacheTime) < 8*time.Hour {
+				// The ticket is not recent but the entry had been fetched recently
+				// So we skip re-fetching it, assuming there is no newer atm
+				continue
+			}
 		}
 
 		device, err := client.GetObject(deviceID)
 		if err != nil {
 			continue
 		}
+
 		if !client.isRecentTicket(device) {
+			// Setting a nil to cache, to mark the current time of the last check
+			resolver.datapool.SetCacheDevice(deviceID, &edge.DeviceTicket{})
 			continue
 		}
 
