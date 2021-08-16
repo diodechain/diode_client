@@ -17,11 +17,11 @@ import (
 
 // E2EServer represents a proxy server that port ssl connection to local resource connection
 type E2EServer struct {
-	port    *ConnectedPort
-	peer    Address
-	pool    *DataPool
-	closeCh chan struct{}
-	cd      sync.Once
+	port     *ConnectedPort
+	peer     Address
+	pool     *DataPool
+	isClosed bool
+	cd       sync.Once
 
 	storeSession bool
 	remoteConn   net.Conn
@@ -36,7 +36,6 @@ func (port *ConnectedPort) NewE2EServer(remoteConn net.Conn, peer Address, pool 
 		peer:       peer,
 		port:       port,
 		pool:       pool,
-		closeCh:    make(chan struct{}),
 	}
 }
 
@@ -142,14 +141,18 @@ func (e2eServer *E2EServer) checkPeer(ssl *openssl.Conn) error {
 
 // Closed returns whether e2e server is closed
 func (e2eServer *E2EServer) Closed() bool {
-	return isClosed(e2eServer.closeCh)
+	return e2eServer.isClosed
 }
 
 // Close e2e server
 func (e2eServer *E2EServer) Close() {
 	e2eServer.cd.Do(func() {
-		e2eServer.remoteConn.Close()
-		e2eServer.opensslConn.Close()
-		close(e2eServer.closeCh)
+		if e2eServer.remoteConn != nil {
+			e2eServer.remoteConn.Close()
+		}
+		if e2eServer.opensslConn != nil {
+			e2eServer.opensslConn.Close()
+		}
+		e2eServer.isClosed = true
 	})
 }

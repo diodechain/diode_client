@@ -34,7 +34,7 @@ func newTestE2EServer(remoteConn net.Conn, peer Address) (e2eServer E2EServer) {
 			},
 		},
 	}
-	e2eServer.closeCh = make(chan struct{})
+	e2eServer.pool = NewPool()
 	return
 }
 
