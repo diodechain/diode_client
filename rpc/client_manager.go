@@ -179,7 +179,7 @@ func (cm *ClientManager) GetClientorConnect(nodeID util.Address) (client *Client
 	// Need to find the destination host, so ask another node for it
 	fclient := cm.GetNearestClient()
 	if fclient == nil {
-		return nil, fmt.Errorf("couldn't found nearest server in pool %s", nodeID.HexString())
+		return nil, fmt.Errorf("couldn't find nearest server in pool %s", nodeID.HexString())
 	}
 	serverObj, err := fclient.GetNode(nodeID)
 	if err != nil {
