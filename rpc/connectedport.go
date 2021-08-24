@@ -136,6 +136,10 @@ func (port *ConnectedPort) SendLocal(data []byte) (err error) {
 		}
 		conn = port.Conn
 	})
+	if err != nil {
+		port.Close()
+		return
+	}
 	_, err = conn.Write(data)
 	if err != nil {
 		port.Close()
