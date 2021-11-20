@@ -12,6 +12,13 @@ darwin/build
 /config_server
 /diode_client
 /diode_static
+/diode_debug
+/diode_race_test
 /diode
 *db.tmp
-
+*.db
+*.zip
+*.tar.gz
+/bug_wallet
+/new_wallet*
+/gateway

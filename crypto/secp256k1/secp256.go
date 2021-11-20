@@ -6,6 +6,7 @@
 package secp256k1
 
 /*
+#cgo CFLAGS: -O3
 #cgo CFLAGS: -I./libsecp256k1
 #cgo CFLAGS: -I./libsecp256k1/src/
 #define USE_NUM_NONE
