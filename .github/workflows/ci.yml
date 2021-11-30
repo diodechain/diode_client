@@ -7,7 +7,7 @@ jobs:
     strategy:
       matrix:
         os: ["windows-latest", "ubuntu-latest", "macOS-latest"]
-        go: ["1.15.x"]
+        go: ["1.17.x"]
     runs-on: ${{ matrix.os }}
     steps:
     # Install general deps
@@ -84,8 +84,6 @@ jobs:
     - uses: actions/download-artifact@v2
       with:
         name: ${{ env.ZIPNAME }}
-    - if: runner.os == 'macOS'
-      run: brew uninstall --ignore-dependencies openssl
     - run: |
         chmod +x ./diode 
         ./diode config -list

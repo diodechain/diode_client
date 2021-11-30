@@ -72,8 +72,8 @@ lint: runtime
 .PHONY: seccheck
 seccheck: runtime
 	go vet ./...
-	GO111MODULE=on go get github.com/securego/gosec/v2/cmd/gosec
-	$(GOPATH)/bin/gosec -exclude=G104,G108,G110,G204,G304,G402,G404 ./...
+	GO111MODULE=on go get github.com/securego/gosec/v2/cmd/gosec@v2.9.3
+	$(GOPATH)/bin/gosec -exclude=G104,G108,G110,G204,G304,G402,G404 -exclude-dir .history ./...
 
 .PHONY: clean
 clean:
