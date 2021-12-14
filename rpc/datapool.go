@@ -218,6 +218,23 @@ func (p *DataPool) FindUDPPort(addr net.Addr) (port *ConnectedPort) {
 	return port
 }
 
+// FindOpenPort tries to find an open port with the given target device
+// name. This is to allow to implement stickyness for multiple connections
+// to the same BNS name
+func (p *DataPool) FindOpenPort(targetDevice string) (port *ConnectedPort) {
+	p.srv.Call(func() {
+		for _, v := range p.devices {
+			// instead of checking port.Closed() we're raw checking port.Conn
+			// because we can't risk a deadlock in this function
+			if v.TargetDeviceName == targetDevice && v.Conn != nil {
+				port = v
+				return
+			}
+		}
+	})
+	return port
+}
+
 func (p *DataPool) SetPort(key string, dev *ConnectedPort) {
 	p.srv.Call(func() {
 		if dev == nil {

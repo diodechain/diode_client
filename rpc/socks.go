@@ -296,6 +296,19 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 		portName = fmt.Sprintf("tcp:%d", port)
 	}
 
+	// TODO: This works when connections are already open, but fails
+	// when another connection got "just" closed (e.g. within a second)
+	// we might need to add some kind of memory here
+	stickyPort := socksServer.datapool.FindOpenPort(deviceName)
+	if stickyPort != nil {
+		portOpen, err := stickyPort.client.PortOpen(stickyPort.DeviceID, portName, mode)
+		if err == nil && portOpen != nil && portOpen.Err == nil {
+			socksServer.logger.Debug("Using stickyPort %v for %v", string(stickyPort.DeviceID.Hex()), deviceName)
+			portOpen.PortNumber = port
+			return NewConnectedPort(portOpen.Ref, stickyPort.DeviceID, stickyPort.client, port), nil
+		}
+	}
+
 	// This is double checked in some cases, but it does not hurt since
 	// ResolveDevice internally caches
 	devices, err := socksServer.resolver.ResolveDevice(deviceName)
@@ -405,6 +418,7 @@ func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, pro
 	if err != nil {
 		return err
 	}
+	connPort.TargetDeviceName = deviceName
 	deviceKey := connPort.GetDeviceKey()
 
 	conn, err := fn(connPort)

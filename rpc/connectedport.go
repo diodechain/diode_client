@@ -20,17 +20,18 @@ import (
 type ConnectedPort struct {
 	srv *genserver.GenServer
 
-	isCopying     bool
-	Ref           string
-	Protocol      int
-	PortNumber    int
-	SrcPortNumber int
-	DeviceID      Address
-	UDPAddr       net.Addr
-	Conn          net.Conn
-	client        *Client
-	sendErr       error
-	host          string
+	isCopying        bool
+	Ref              string
+	TargetDeviceName string
+	Protocol         int
+	PortNumber       int
+	SrcPortNumber    int
+	DeviceID         Address
+	UDPAddr          net.Addr
+	Conn             net.Conn
+	client           *Client
+	sendErr          error
+	host             string
 }
 
 // New returns a new connected port
