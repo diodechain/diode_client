@@ -89,15 +89,17 @@ func (port *ConnectedPort) Shutdown() {
 	if port == nil {
 		return
 	}
-	port.srv.Call(func() {
-		port.close()
-	})
+	port.srv.Call(func() { port.close() })
 	port.srv.Shutdown(10 * time.Second)
 }
 
-// Close the connection of port
+// Same as Shutdown() but issues the close async
 func (port *ConnectedPort) Close() error {
+	if port == nil {
+		return nil
+	}
 	port.srv.Cast(func() { port.close() })
+	port.srv.Shutdown(10 * time.Second)
 	return nil
 }
 

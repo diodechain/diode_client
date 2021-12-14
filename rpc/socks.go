@@ -361,7 +361,7 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 			select {
 			case ports <- connPort:
 			default:
-				connPort.Close()
+				connPort.Shutdown()
 			}
 		}(candidate.deviceID, candidate.serverID)
 	}
