@@ -308,6 +308,7 @@ func (proxyServer *ProxyServer) Start() error {
 			// cache the certificate
 			certmagicCfg.CacheUnmanagedTLSCertificate(cert, nil)
 			tlsConfig = certmagicCfg.TLSConfig()
+			tlsConfig.NextProtos = append([]string{"http/1.1"}, tlsConfig.NextProtos...)
 			// don't have to sync certificates
 			// err := certmagicCfg.ManageSync([]string{})
 			// if err != nil {
