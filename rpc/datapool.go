@@ -120,6 +120,31 @@ func (p *DataPool) GetCacheOrResolveBNS(deviceName string, client *Client) ([]Ad
 	return bns, err
 }
 
+func (p *DataPool) GetCacheOrResolvePeers(deviceName string, client *Client) ([]Address, error) {
+	peerKey := fmt.Sprintf("peers:%s", deviceName)
+	peers, cached := p.getCacheBNS(peerKey)
+	if cached {
+		return peers, nil
+	}
+
+	var addr []Address
+	bnsResult, err := p.GetCacheOrResolveBNS(deviceName, client)
+	if err != nil {
+		return addr, err
+	}
+
+	for _, address := range bnsResult {
+		members, new_err := client.ResolveMembers(address)
+		if new_err == nil {
+			addr = append(addr, members...)
+		}
+	}
+
+	p.SetCacheBNS(peerKey, addr)
+	return addr, err
+
+}
+
 func (p *DataPool) Lock(name string) {
 	locked := false
 	for !locked {

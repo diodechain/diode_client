@@ -886,13 +886,16 @@ func (client *Client) GetCacheOrResolveBNS(deviceName string) ([]Address, error)
 	return client.pool.GetCacheOrResolveBNS(deviceName, client)
 }
 
+func (client *Client) GetCacheOrResolvePeers(deviceName string) ([]Address, error) {
+	return client.pool.GetCacheOrResolvePeers(deviceName, client)
+}
+
 // ResolveBNS resolves the (primary) destination of the BNS entry
 func (client *Client) ResolveBNS(name string) (addr []Address, err error) {
 	client.Log().Info("Resolving BNS: %s", name)
 	arrayKey := contract.BNSDestinationArrayLocation(name)
 	size := client.GetAccountValueInt(0, contract.BNSAddr, arrayKey)
 
-	// Fallback for old style DNS entries
 	intSize := size.Int64()
 
 	// Todo remove once memory issue is found
@@ -901,6 +904,7 @@ func (client *Client) ResolveBNS(name string) (addr []Address, err error) {
 		intSize = 0
 	}
 
+	// Fallback for old style DNS entries
 	if intSize == 0 {
 		key := contract.BNSEntryLocation(name)
 		raw, err := client.GetAccountValueRaw(0, contract.BNSAddr, key)
@@ -966,6 +970,46 @@ func (client *Client) ResolveBlockHash(blockNumber uint64) (blockHash []byte, er
 	hash := blockHeader.Hash()
 	blockHash = hash[:]
 	return
+}
+
+// ResolveMembers a multisig
+func (client *Client) ResolveMembers(members Address) (addr []Address, err error) {
+	client.Log().Info("Resolving Members: %s", members.HexString())
+
+	blockNumber, _ := client.LastValid()
+	raw, err := client.GetAccountValueRaw(blockNumber, members, contract.MemberIndex())
+
+	// If this there is no such contract we assume
+	// this is a normal address
+	if err != nil {
+		addr = append(addr, members)
+		err = nil
+		return
+	}
+
+	var size big.Int
+	size.SetBytes(raw)
+	intSize := size.Int64()
+
+	// Safety belt, to protect against unreasonable allocation. TODO remove
+	if intSize > 128 {
+		client.Log().Error("Read invalid member entry count: %d", intSize)
+		intSize = 0
+	}
+
+	key := contract.MemberLocation(0)
+	for i := int64(0); i < intSize; i++ {
+		raw, err := client.GetAccountValueRaw(blockNumber, members, key)
+		if err != nil {
+			client.Log().Error("Read invalid Member record offset: %d %v (%v)", i, err, string(raw))
+			continue
+		}
+
+		var address util.Address
+		copy(address[:], raw[12:])
+		addr = append(addr, address)
+	}
+	return addr, nil
 }
 
 // IsDeviceAllowlisted returns is given address allowlisted

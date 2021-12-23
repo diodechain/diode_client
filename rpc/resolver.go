@@ -40,7 +40,7 @@ func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTi
 		return nil, HttpError{404, err}
 	}
 	if !util.IsHex([]byte(deviceName)) {
-		deviceIDs, err = client.GetCacheOrResolveBNS(deviceName)
+		deviceIDs, err = client.GetCacheOrResolvePeers(deviceName)
 		if err != nil {
 			return
 		}
