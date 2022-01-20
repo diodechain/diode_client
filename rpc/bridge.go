@@ -234,6 +234,10 @@ func (client *Client) handleInboundMessage(msg edge.Message) {
 		client.Log().Error("Not rpc request: %v", err)
 		return
 	}
+	if inboundRequest == nil {
+		client.Log().Debug("Unsupported rpc request: %v", msg)
+		return
+	}
 	client.handleInboundRequest(inboundRequest)
 }
 
