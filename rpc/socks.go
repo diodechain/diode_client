@@ -355,7 +355,8 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 			}()
 			maxConcurrency <- struct{}{}
 
-			client, err := socksServer.GetServer(serverID)
+			var client *Client
+			client, err = socksServer.GetServer(serverID)
 			if err != nil {
 				socksServer.logger.Error("GetServer() failed: %v", err)
 				return
@@ -367,6 +368,7 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 				return
 			}
 			if portOpen != nil && portOpen.Err != nil {
+				err = portOpen.Err
 				return
 			}
 			portOpen.PortNumber = port
@@ -400,7 +402,7 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 		return socksServer.doConnectDevice(deviceName, port, protocol, mode, retry-1)
 	}
 
-	msg := fmt.Sprintf("doConnectDevice() for '%v' failed: %v", deviceName, err)
+	msg := fmt.Sprintf("doConnectDevice() for '%v' failed: %v with %v candidates", deviceName, err, len(candidates))
 	socksServer.logger.Error(msg)
 	if _, ok := err.(RPCError); ok {
 		return nil, HttpError{404, DeviceError{err}}

@@ -233,7 +233,9 @@ func parseDeviceObjectResponse(buffer []byte) (interface{}, error) {
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&response)
 	if err != nil {
-		return nil, err
+		// TODO: Fix this to return proper nil/not found result when the response object is just ""
+		// Currently it just crashes in that case with "rlp: expected input list for struct { Location string; ServerID []uint8; PeakBlock uint64; FleetAddr []uint8; TotalConnections uint64; TotalBytes uint64; LocalAddr []uint8; DeviceSig []uint8; ServerSig []uint8 }, decoding into (edge.objectResponse).Payload.Ticket"
+		return nil, fmt.Errorf("failed decoding or empty device response")
 	}
 	serverID := [20]byte{}
 	copy(serverID[:], response.Payload.Ticket.ServerID)

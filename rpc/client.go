@@ -997,9 +997,8 @@ func (client *Client) ResolveMembers(members Address) (addr []Address, err error
 		intSize = 0
 	}
 
-	key := contract.MemberLocation(0)
-	for i := int64(0); i < intSize; i++ {
-		raw, err := client.GetAccountValueRaw(blockNumber, members, key)
+	for i := int(0); i < int(intSize); i++ {
+		raw, err := client.GetAccountValueRaw(blockNumber, members, contract.MemberLocation(i))
 		if err != nil {
 			client.Log().Error("Read invalid Member record offset: %d %v (%v)", i, err, string(raw))
 			continue

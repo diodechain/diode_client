@@ -71,7 +71,7 @@ func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTi
 	})
 
 	if len(deviceIDs) == 0 {
-		err := fmt.Errorf("device %x is not allowed", deviceName)
+		err = fmt.Errorf("device %x is not allowed", deviceName)
 		return nil, HttpError{403, err}
 	}
 
@@ -94,7 +94,8 @@ func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTi
 			}
 		}
 
-		device, err := client.GetObject(deviceID)
+		var device *edge.DeviceTicket
+		device, err = client.GetObject(deviceID)
 		if err != nil {
 			continue
 		}
@@ -122,6 +123,9 @@ func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTi
 		}
 		resolver.datapool.SetCacheDevice(deviceID, device)
 		ret = append(ret, device)
+	}
+	if len(ret) == 0 {
+		return ret, err
 	}
 	return ret, nil
 }
