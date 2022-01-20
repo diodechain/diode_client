@@ -503,7 +503,7 @@ func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
 	tunnel.Copy()
 }
 
-func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, devices []*edge.DeviceTicket, port int, mode string) {
+func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, deviceID string, port int, mode string) {
 	defer func() {
 		if err := recover(); err != nil {
 			buf := make([]byte, stackBufferSize)
@@ -511,21 +511,15 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, devices []
 			socksServer.logger.Error("panic pipeSocksThenClose %s: %v\n%s", conn.RemoteAddr().String(), err, buf)
 		}
 	}()
-	// bind request to remote tls server
-	var deviceID string
-	var err error
+	err := socksServer.connectDeviceAndLoop(deviceID, port, config.TLSProtocol, mode, func(connPort *ConnectedPort) (net.Conn, error) {
+		writeSocksReturn(conn, ver, connPort.ClientLocalAddr(), port)
+		return conn, nil
+	})
 
-	for _, device := range devices {
-		deviceID = device.GetDeviceID()
-		err = socksServer.connectDeviceAndLoop(deviceID, port, config.TLSProtocol, mode, func(connPort *ConnectedPort) (net.Conn, error) {
-			writeSocksReturn(conn, ver, connPort.ClientLocalAddr(), port)
-			return conn, nil
-		})
-
-		if err == nil {
-			return
-		}
+	if err == nil {
+		return
 	}
+
 	socksServer.logger.Error("Failed to connectDevice(%v): %v", deviceID, err.Error())
 	writeSocksError(conn, ver, socksRepNetworkUnreachable)
 }
@@ -639,18 +633,8 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 		socksServer.logger.Error("Failed to parse host %v", err)
 		return
 	}
-	devices, httpErr := socksServer.resolver.ResolveDevice(deviceID)
-	if len(devices) == 0 {
-		if httpErr == nil {
-			socksServer.logger.Error("Failed to ResolveDevice - Device offline")
-		} else {
-			socksServer.logger.Error("Failed to ResolveDevice %v", httpErr.Error())
-		}
-		writeSocksError(conn, ver, socksRepNotAllowed)
-		return
-	}
 	if !isWS {
-		socksServer.pipeSocksThenClose(conn, ver, devices, port, mode)
+		socksServer.pipeSocksThenClose(conn, ver, deviceID, port, mode)
 	} else {
 		socksServer.logger.Error("Couldn't forward socks connection")
 		writeSocksError(conn, ver, socksRepNotAllowed)

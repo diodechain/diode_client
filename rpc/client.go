@@ -818,6 +818,15 @@ func (client *Client) GetAccountValueInt(blockNumber uint64, addr [20]byte, key 
 	return ret
 }
 
+func (client *Client) GetAccountValueAddress(blockNumber uint64, addr [20]byte, key []byte) Address {
+	raw, err := client.GetAccountValueRaw(blockNumber, addr, key)
+	var address util.Address
+	if err == nil {
+		copy(address[:], raw[12:])
+	}
+	return address
+}
+
 // GetAccountValueRaw returns account value
 func (client *Client) GetAccountValueRaw(blockNumber uint64, addr [20]byte, key []byte) ([]byte, error) {
 	if blockNumber <= 0 {
@@ -977,8 +986,9 @@ func (client *Client) ResolveMembers(members Address) (addr []Address, err error
 	client.Log().Info("Resolving Members: %s", members.HexString())
 
 	blockNumber, _ := client.LastValid()
-	raw, err := client.GetAccountValueRaw(blockNumber, members, contract.MemberIndex())
 
+	var raw []byte
+	raw, err = client.GetAccountValueRaw(blockNumber, members, contract.MemberIndex())
 	// If this there is no such contract we assume
 	// this is a normal address
 	if err != nil {
@@ -986,6 +996,9 @@ func (client *Client) ResolveMembers(members Address) (addr []Address, err error
 		err = nil
 		return
 	}
+
+	owner := client.GetAccountValueAddress(blockNumber, members, contract.OwnerLocation())
+	addr = append(addr, owner)
 
 	var size big.Int
 	size.SetBytes(raw)
@@ -1006,7 +1019,9 @@ func (client *Client) ResolveMembers(members Address) (addr []Address, err error
 
 		var address util.Address
 		copy(address[:], raw[12:])
-		addr = append(addr, address)
+		if address != owner {
+			addr = append(addr, address)
+		}
 	}
 	return addr, nil
 }

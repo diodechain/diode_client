@@ -8,6 +8,11 @@ import (
 	"github.com/diodechain/diode_client/util"
 )
 
+func OwnerLocation() []byte {
+	index := util.IntToBytes(51)
+	return util.PaddingBytesPrefix(index, 0, 32)
+}
+
 func MemberIndex() []byte {
 	index := util.IntToBytes(53)
 	return util.PaddingBytesPrefix(index, 0, 32)
