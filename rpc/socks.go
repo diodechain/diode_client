@@ -300,7 +300,7 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 	// when another connection got "just" closed (e.g. within a second)
 	// we might need to add some kind of memory here
 	stickyPort := socksServer.datapool.FindOpenPort(deviceName)
-	if stickyPort != nil {
+	if stickyPort != nil && !stickyPort.client.Closed() {
 		portOpen, err := stickyPort.client.PortOpen(stickyPort.DeviceID, portName, mode)
 		if err == nil && portOpen != nil && portOpen.Err == nil {
 			socksServer.logger.Debug("Using stickyPort %v for %v", string(stickyPort.DeviceID.Hex()), deviceName)
