@@ -139,9 +139,12 @@ func (cm *ClientManager) startClient(host string) *Client {
 					break
 				}
 			}
-			for _, req := range cm.waitingNode {
+			for key, req := range cm.waitingNode {
 				if req.client == client {
-					req.client = cm.startClient(req.host)
+					for _, w := range req.waiting {
+						w.ReRun()
+					}
+					delete(cm.waitingNode, key)
 					break
 				}
 			}
@@ -219,6 +222,13 @@ func (cm *ClientManager) connect(nodeID util.Address, host string) (ret *Client,
 			cm.waitingNode[nodeID] = &nodeRequest{host: host}
 		}
 		req := cm.waitingNode[nodeID]
+		for _, w := range req.waiting {
+			if w == r {
+				ret = nil
+				err = fmt.Errorf("connection failed")
+				return true
+			}
+		}
 		req.waiting = append(req.waiting, r)
 		if req.client == nil {
 			req.client = cm.startClient(req.host)
