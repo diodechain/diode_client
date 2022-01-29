@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"net"
 	"regexp"
 	"runtime"
@@ -285,7 +286,7 @@ func isDiodeHost(host string) bool {
 	return len(subdomainPort) == 4
 }
 
-func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol int, mode string, retry int) (*ConnectedPort, error) {
+func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, port int, protocol int, mode string, retry int) (*ConnectedPort, error) {
 	// Define portname
 	var portName string
 	if protocol == config.UDPProtocol {
@@ -301,11 +302,13 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 	// we might need to add some kind of memory here
 	stickyPort := socksServer.datapool.FindOpenPort(deviceName)
 	if stickyPort != nil && !stickyPort.client.Closed() {
+		socksServer.logger.Debug("%d: Opening stickyPort %v for %v", requestId, string(stickyPort.DeviceID.Hex()), deviceName)
 		portOpen, err := stickyPort.client.PortOpen(stickyPort.DeviceID, portName, mode)
 		if err == nil && portOpen != nil && portOpen.Err == nil {
-			socksServer.logger.Debug("Using stickyPort %v for %v", string(stickyPort.DeviceID.Hex()), deviceName)
 			portOpen.PortNumber = port
-			return NewConnectedPort(portOpen.Ref, stickyPort.DeviceID, stickyPort.client, port), nil
+			return NewConnectedPort(requestId, portOpen.Ref, stickyPort.DeviceID, stickyPort.client, port), nil
+		} else {
+			socksServer.logger.Debug("%d: stickyPort %v for %v failed!", requestId, string(stickyPort.DeviceID.Hex()), deviceName)
 		}
 	}
 
@@ -320,7 +323,7 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 	}
 
 	if len(devices) == 0 {
-		err = fmt.Errorf("empty device list")
+		err = fmt.Errorf("%d: empty device list", requestId)
 	}
 
 	type candidate struct {
@@ -333,7 +336,7 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 		var deviceID Address
 		deviceID, err = device.DeviceAddress()
 		if err != nil {
-			socksServer.logger.Error("DeviceAddress() failed: %v", err)
+			socksServer.logger.Error("%d: DeviceAddress() failed: %v", requestId, err)
 			continue
 		}
 
@@ -358,7 +361,7 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 			var client *Client
 			client, err = socksServer.GetServer(serverID)
 			if err != nil {
-				socksServer.logger.Error("GetServer() failed: %v", err)
+				socksServer.logger.Error("%d: GetServer() failed: %v", requestId, err)
 				return
 			}
 
@@ -372,7 +375,7 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 				return
 			}
 			portOpen.PortNumber = port
-			connPort := NewConnectedPort(portOpen.Ref, deviceID, client, port)
+			connPort := NewConnectedPort(requestId, portOpen.Ref, deviceID, client, port)
 			select {
 			case ports <- connPort:
 			default:
@@ -399,7 +402,7 @@ func (socksServer *Server) doConnectDevice(deviceName string, port int, protocol
 	}
 
 	if retry > 0 {
-		return socksServer.doConnectDevice(deviceName, port, protocol, mode, retry-1)
+		return socksServer.doConnectDevice(requestId, deviceName, port, protocol, mode, retry-1)
 	}
 
 	msg := fmt.Sprintf("doConnectDevice() for '%v' failed: %v with %v candidates", deviceName, err, len(candidates))
@@ -415,7 +418,9 @@ func (socksServer *Server) connectDeviceAndLoop(deviceName string, port int, pro
 		protocol = config.TCPProtocol
 	}
 
-	connPort, err := socksServer.doConnectDevice(deviceName, port, protocol, mode, 1)
+	requestID := rand.Int63()
+	socksServer.logger.Debug("%d: New request for %v", requestID, deviceName)
+	connPort, err := socksServer.doConnectDevice(requestID, deviceName, port, protocol, mode, 1)
 	defer connPort.Shutdown()
 	if err != nil {
 		return err

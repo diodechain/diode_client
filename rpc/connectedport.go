@@ -8,8 +8,11 @@
 package rpc
 
 import (
+	"bytes"
+	"fmt"
 	"io"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/diodechain/diode_client/config"
@@ -30,23 +33,84 @@ type ConnectedPort struct {
 	UDPAddr          net.Addr
 	Conn             net.Conn
 	client           *Client
-	sendErr          error
+	remoteErr        error
+	localErr         error
 	host             string
+
+	bufferRunning  bool
+	closeWhenEmpty bool
+	localBuffer    bytes.Buffer
+	bufferLock     sync.Mutex
 }
 
 // New returns a new connected port
-func NewConnectedPort(ref string, deviceID Address, client *Client, portNumber int) *ConnectedPort {
+func NewConnectedPort(requestId int64, ref string, deviceID Address, client *Client, portNumber int) *ConnectedPort {
 	host, _ := client.Host()
 	port := &ConnectedPort{Ref: ref, DeviceID: deviceID, client: client, PortNumber: portNumber, srv: genserver.New("Port"), host: host}
-	port.Log().Debug("Open port %p", port)
+	port.Log().Debug("%d: Open port %p", requestId, port)
 	port.srv.Terminate = func() {
-		port.Log().Debug("Close port %p", port)
+		port.Log().Debug("%d: Close port %p", requestId, port)
+		port.remoteErr = io.EOF
 		port.client = nil
 	}
 	if !config.AppConfig.LogDateTime {
 		port.srv.DeadlockCallback = nil
 	}
 	return port
+}
+
+func (port *ConnectedPort) bufferRunner() {
+	readBuffer := make([]byte, 1024)
+	conn := port.Conn
+	closeWhenEmpty := 0
+
+	for port.localErr == nil {
+		port.bufferLock.Lock()
+		r, err := port.localBuffer.Read(readBuffer)
+		// fmt.Printf("port.localBuffer.Read(readBuffer) = %v\n", r)
+		if port.closeWhenEmpty && r == 0 {
+			closeWhenEmpty = closeWhenEmpty + 1
+		}
+		port.bufferLock.Unlock()
+		if r == 0 {
+			// This double wait is an issue but we need it atm --
+			// it means we have some port.SendLocal() in the codebase that is triggered
+			// after a port.Close() call... -- so we just wait 100ms for the last write to come in.
+			if closeWhenEmpty == 1 {
+				// fmt.Printf("stopping with closeWhenEmpty (1)\n")
+				time.Sleep(100 * time.Millisecond)
+			}
+			if closeWhenEmpty == 2 {
+				// fmt.Printf("stopping with closeWhenEmpty (2)\n")
+				conn.Close()
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+			continue
+		}
+		if err != nil {
+			fmt.Printf("wait what?\n")
+			port.localErr = err
+			break
+		}
+		// for port.Conn == nil {
+		// 	fmt.Printf("port.Conn == nil but got %v bytes to write\n", r)
+		// 	time.Sleep(10 * time.Millisecond)
+		// }
+		if port.client == nil {
+			break
+		}
+		n, err := conn.Write(readBuffer[:r])
+		if err != nil {
+			port.localErr = err
+			break
+		}
+		if n != r {
+			port.localErr = fmt.Errorf("write was only partial (%v/%v)", n, r)
+			break
+		}
+	}
+	fmt.Printf("Stopped writer buffer with: %v\n", port.localErr)
 }
 
 // GetDeviceKey returns this ports key
@@ -69,8 +133,8 @@ func (port *ConnectedPort) SendRemote(data []byte) (err error) {
 	}
 
 	port.srv.Call(func() {
-		if port.sendErr != nil {
-			err = port.sendErr
+		if port.remoteErr != nil {
+			err = port.remoteErr
 			return
 		}
 
@@ -108,14 +172,16 @@ func (port *ConnectedPort) close() {
 	if port.closed() {
 		return
 	}
-	if port.sendErr == nil {
-		port.sendErr = io.EOF
+	if port.remoteErr == nil {
+		port.remoteErr = io.EOF
 	}
 	deviceKey := port.client.GetDeviceKey(port.Ref)
 	port.client.pool.SetPort(deviceKey, nil)
 	// send portclose request and channel
 	port.client.CastPortClose(port.Ref)
-	port.Conn.Close()
+	port.bufferLock.Lock()
+	port.closeWhenEmpty = true
+	port.bufferLock.Unlock()
 	port.Conn = nil
 }
 
@@ -131,22 +197,29 @@ func (port *ConnectedPort) closed() bool {
 
 // SendLocal sends the data south-bound to the device
 func (port *ConnectedPort) SendLocal(data []byte) (err error) {
-	var conn net.Conn
 	port.srv.Call(func() {
-		if port.sendErr != nil {
-			err = port.sendErr
+		if port.remoteErr != nil {
+			err = port.remoteErr
 			return
 		}
-		conn = port.Conn
+		if port.Conn == nil {
+			err = fmt.Errorf("connection not yet open")
+			return
+		}
+		if port.bufferRunning == false {
+			go port.bufferRunner()
+			port.bufferRunning = true
+		}
+		return
 	})
 	if err != nil {
 		port.Close()
 		return
 	}
-	_, err = conn.Write(data)
-	if err != nil {
-		port.Close()
-	}
+
+	port.bufferLock.Lock()
+	port.localBuffer.Write(data)
+	port.bufferLock.Unlock()
 	return
 }
 

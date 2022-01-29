@@ -179,7 +179,7 @@ func (client *Client) waitResponse(call *Call) (res interface{}, err error) {
 		host, _ := client.Host()
 		err = CancelledError{host}
 		if call.sender != nil {
-			call.sender.sendErr = io.EOF
+			call.sender.remoteErr = io.EOF
 			call.sender.Close()
 		}
 		return
@@ -187,7 +187,7 @@ func (client *Client) waitResponse(call *Call) (res interface{}, err error) {
 	if rpcError, ok := resp.(edge.Error); ok {
 		err = RPCError{rpcError}
 		if call.sender != nil {
-			call.sender.sendErr = RPCError{rpcError}
+			call.sender.remoteErr = RPCError{rpcError}
 			call.sender.Close()
 		}
 		return

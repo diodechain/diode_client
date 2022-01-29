@@ -71,7 +71,7 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 			}
 
 			portOpen.SrcPortNumber = int(publishedPort.Src)
-			port := NewConnectedPort(portOpen.Ref, portOpen.DeviceID, client, portOpen.PortNumber)
+			port := NewConnectedPort(0, portOpen.Ref, portOpen.DeviceID, client, portOpen.PortNumber)
 			defer port.Shutdown()
 
 			// connect to stream service
