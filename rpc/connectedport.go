@@ -206,11 +206,10 @@ func (port *ConnectedPort) SendLocal(data []byte) (err error) {
 			err = fmt.Errorf("connection not yet open")
 			return
 		}
-		if port.bufferRunning == false {
+		if !port.bufferRunning {
 			go port.bufferRunner()
 			port.bufferRunning = true
 		}
-		return
 	})
 	if err != nil {
 		port.Close()
