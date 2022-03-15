@@ -73,7 +73,8 @@ func (pl *proxyListener) run() {
 			}
 
 			protocol := config.TLSProtocol
-			err = pl.proxy.socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, func(*ConnectedPort) (net.Conn, error) {
+			var connPort *ConnectedPort
+			connPort, err = pl.proxy.socksServer.connectDevice(deviceID, port, protocol, mode, func(*ConnectedPort) (net.Conn, error) {
 				return conn, nil
 			})
 
@@ -83,6 +84,8 @@ func (pl *proxyListener) run() {
 					rawHttpError(conn, 404, err.Error())
 					conn.Close()
 				}
+			} else {
+				connPort.Copy()
 			}
 		}()
 	}

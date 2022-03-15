@@ -32,12 +32,14 @@ func (socksServer *Server) DialContext(ctx context.Context, network, addr string
 
 	retChan := make(chan error, 1)
 	go func() {
-		err := socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, func(connPort *ConnectedPort) (net.Conn, error) {
+		connPort, err := socksServer.connectDevice(deviceID, port, protocol, mode, func(connPort *ConnectedPort) (net.Conn, error) {
 			retChan <- nil
 			return connDiode, nil
 		})
 		if err != nil {
 			retChan <- err
+		} else {
+			connPort.Copy()
 		}
 		connHTTP.Close()
 		connDiode.Close()

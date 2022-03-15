@@ -152,7 +152,8 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 	}
 
 	protocol := config.TLSProtocol
-	err = proxyServer.socksServer.connectDeviceAndLoop(deviceID, port, protocol, mode, func(*ConnectedPort) (net.Conn, error) {
+	var connPort *ConnectedPort
+	connPort, err = proxyServer.socksServer.connectDevice(deviceID, port, protocol, mode, func(*ConnectedPort) (net.Conn, error) {
 		upgrader := websocket.Upgrader{
 			CheckOrigin:       func(_ *http.Request) bool { return true },
 			EnableCompression: true,
@@ -166,6 +167,7 @@ func (proxyServer *ProxyServer) pipeProxy(w http.ResponseWriter, r *http.Request
 	})
 
 	if err == nil {
+		connPort.Copy()
 		return
 	}
 

@@ -90,16 +90,21 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 			}
 			if tcpConn, ok := remoteConn.(*net.TCPConn); ok {
 				configureTcpConn(tcpConn)
+				port.Conn = remoteConn
+			} else {
+				// udp
+				port.UDPAddr = remoteConn.RemoteAddr()
+				port.Conn = NewPacketConn(remoteConn)
 			}
 
 			deviceKey := client.GetDeviceKey(portOpen.Ref)
 			port.Protocol = portOpen.Protocol
 			port.PortNumber = portOpen.PortNumber
 			port.SrcPortNumber = portOpen.SrcPortNumber
-			port.Conn = remoteConn
 			// port.Conn = NewLoggingConn("local", remoteConn)
 
 			// For the E2E encryption we're wrapping remoteConn in TLS
+			// if portOpen.Protocol == config.TLSProtocol || portOpen.Protocol == config.UDPProtocol {
 			if portOpen.Protocol == config.TLSProtocol {
 				err := port.UpgradeTLSServer()
 				if err != nil {

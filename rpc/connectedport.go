@@ -101,6 +101,7 @@ func (port *ConnectedPort) bufferRunner() {
 			break
 		}
 		n, err := conn.Write(readBuffer[:r])
+
 		if err != nil {
 			port.localErr = err
 			break
@@ -244,6 +245,7 @@ func (port *ConnectedPort) Copy() {
 		}()
 	})
 	<-done
+	port.Shutdown()
 }
 
 // ClientLocalAddr returns the local address of the connected client
@@ -277,6 +279,12 @@ func (port *ConnectedPort) upgradeTLS(fn func(*E2EServer) error) error {
 	}
 	port.Conn = NewE2EConn(e2eServer)
 	return nil
+}
+
+func (port *ConnectedPort) AwaitTLS() {
+	if e2eConn, ok := port.Conn.(*E2EConn); ok {
+		e2eConn.AwaitHandshake()
+	}
 }
 
 func (port *ConnectedPort) Log() *config.Logger {

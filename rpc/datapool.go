@@ -232,9 +232,10 @@ func (p *DataPool) GetPort(key string) (port *ConnectedPort) {
 
 // FindPort tries to locate a udp connection based on local conn
 func (p *DataPool) FindUDPPort(addr net.Addr) (port *ConnectedPort) {
+	searchTerm := addr.String()
 	p.srv.Call(func() {
 		for _, v := range p.devices {
-			if v.UDPAddr == addr {
+			if v.UDPAddr != nil && v.UDPAddr.String() == searchTerm {
 				port = v
 				return
 			}

@@ -21,10 +21,8 @@ var (
 	letterBytes = []byte("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 )
 
-func newTestE2EServer(remoteConn net.Conn, peer Address) (e2eServer E2EServer) {
-	e2eServer.remoteConn = remoteConn
-	e2eServer.peer = peer
-	e2eServer.port = &ConnectedPort{
+func newTestE2EServer(remoteConn net.Conn, peer Address) *E2EServer {
+	port := &ConnectedPort{
 		client: &Client{
 			latencySum:   100_000,
 			latencyCount: 1,
@@ -34,8 +32,7 @@ func newTestE2EServer(remoteConn net.Conn, peer Address) (e2eServer E2EServer) {
 			},
 		},
 	}
-	e2eServer.pool = NewPool()
-	return
+	return port.NewE2EServer(remoteConn, peer, NewPool())
 }
 
 func testConfig() (cfg *config.Config) {

@@ -85,3 +85,7 @@ func (conn *E2EConn) SetReadDeadline(ti time.Time) error {
 func (conn *E2EConn) SetWriteDeadline(ti time.Time) error {
 	return conn.Conn.SetWriteDeadline(ti)
 }
+
+func (conn *E2EConn) AwaitHandshake() {
+	conn.e2eServer.AwaitOpen()
+}

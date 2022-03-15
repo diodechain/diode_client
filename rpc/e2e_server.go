@@ -22,6 +22,8 @@ type E2EServer struct {
 	pool     *DataPool
 	isClosed bool
 	cd       sync.Once
+	isOpen   bool
+	openCond *sync.Cond
 
 	storeSession bool
 	remoteConn   net.Conn
@@ -36,6 +38,7 @@ func (port *ConnectedPort) NewE2EServer(remoteConn net.Conn, peer Address, pool 
 		peer:       peer,
 		port:       port,
 		pool:       pool,
+		openCond:   sync.NewCond(&sync.Mutex{}),
 	}
 }
 
@@ -89,6 +92,8 @@ func (e2eServer *E2EServer) internalConnect(fn func(net.Conn, *openssl.Ctx) (*op
 			return
 		}
 		tunnel := NewTunnel(conn, e2eServer.remoteConn)
+		e2eServer.isOpen = true
+		e2eServer.openCond.Broadcast()
 		tunnel.Copy()
 		if e2eServer.storeSession && e2eServer.opensslConn != nil {
 			session, err := e2eServer.opensslConn.GetSession()
@@ -154,5 +159,15 @@ func (e2eServer *E2EServer) Close() {
 			e2eServer.opensslConn.Close()
 		}
 		e2eServer.isClosed = true
+		e2eServer.openCond.Broadcast()
 	})
+}
+
+func (e2eServer *E2EServer) AwaitOpen() bool {
+	e2eServer.openCond.L.Lock()
+	for !e2eServer.isOpen && !e2eServer.isClosed {
+		e2eServer.openCond.Wait()
+	}
+	e2eServer.openCond.L.Unlock()
+	return e2eServer.isOpen
 }
