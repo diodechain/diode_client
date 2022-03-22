@@ -294,7 +294,7 @@ func publishHandler() (err error) {
 		for _, port := range cfg.PublishedPorts {
 			if port.To == httpPort {
 				if port.Mode == config.PublicPublishedMode {
-					cfg.PrintLabel("HTTP Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", name))
+					cfg.PrintLabel("HTTP Gateway Enabled", fmt.Sprintf("http://%s.derateknoloji.com/", name))
 				}
 				break
 			}
