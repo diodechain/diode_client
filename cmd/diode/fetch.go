@@ -40,7 +40,7 @@ var (
 	errUrlRequired      = fmt.Errorf("request URL is required")
 	errMethodNotAllowed = fmt.Errorf("http method was not allowed")
 	errWeb2URL          = fmt.Errorf("please use curl for good old web2 sites")
-	domainPattern       = regexp.MustCompile(`^(http|https|diode):\/\/(.+)\.(derateknoloji|derateknoloji\.com|diode|diode\.link|diode\.ws)(:[\d]+)?`)
+	domainPattern       = regexp.MustCompile(`^(http|https|diode):\/\/(.+)\.(greenappleasb\.com|greenappleasb|marcacatering\.com\.tr|marcacatering|derateknoloji|derateknoloji\.com|diode|diode\.link|diode\.ws)(:[\d]+)?`)
 )
 
 // TODO: http cookies
