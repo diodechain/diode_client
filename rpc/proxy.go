@@ -281,7 +281,7 @@ func (proxyServer *ProxyServer) Start() error {
 		protos := make(map[string]func(*http.Server, *tls.Conn, http.Handler))
 		httpsServer := &http.Server{Handler: httpsdHandler, TLSNextProto: protos}
 		// load pem format certificate key pair
-		// cert, err := tls.LoadX509KeyPair(proxyServer.Config.CertPath, proxyServer.Config.PrivPath)
+		cert, err := tls.LoadX509KeyPair(proxyServer.Config.CertPath, proxyServer.Config.PrivPath)
 		// if err != nil {
 		// 	return err
 		// }
