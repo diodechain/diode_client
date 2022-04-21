@@ -605,11 +605,12 @@ func parseHost(host string) (isWS bool, mode string, deviceID string, port int, 
 		mode = modeHostPort[1]
 		mode = mode[:len(mode)-1]
 	}
-	if domain == "derateknoloji.com" || domain == "marcacatering.com.tr" || domain == "greenappleasb.com" ||  domain == "diode.link" || domain == "diode" || domain == "diode.ws" {
-		deviceID = modeHostPort[2]
-	} else {
-		deviceID = domain[0 : len(domain)-len(suffix)-1]
-	}
+	deviceID = modeHostPort[2]+domain[0 : len(domain)-len(suffix)-1]
+	// if domain == "derateknoloji.com" || domain == "marcacatering.com.tr" || domain == "greenappleasb.com" ||  domain == "diode.link" || domain == "diode" || domain == "diode.ws" {
+	// 	deviceID = modeHostPort[2]
+	// } else {
+	// 	deviceID = domain[0 : len(domain)-len(suffix)-1]
+	// }
 	if len(modeHostPort[3]) > 0 {
 		strPort = modeHostPort[3][1:]
 	}
