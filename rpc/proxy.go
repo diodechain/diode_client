@@ -281,10 +281,12 @@ func (proxyServer *ProxyServer) Start() error {
 		protos := make(map[string]func(*http.Server, *tls.Conn, http.Handler))
 		httpsServer := &http.Server{Handler: httpsdHandler, TLSNextProto: protos}
 		// load pem format certificate key pair
-		cert, err := tls.LoadX509KeyPair(proxyServer.Config.CertPath, proxyServer.Config.PrivPath)
-		if err != nil {
-			return err
-		}
+		// cert, err := tls.LoadX509KeyPair(proxyServer.Config.CertPath, proxyServer.Config.PrivPath)
+		// if err != nil {
+		// 	return err
+		// }
+		proxyServer.logger.Error("Main Cert Not Loaded")
+
 		var tlsConfig *tls.Config
 		if proxyServer.Config.EdgeACME {
 			// must listen to 443 for ACME
