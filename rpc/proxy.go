@@ -282,10 +282,10 @@ func (proxyServer *ProxyServer) Start() error {
 		httpsServer := &http.Server{Handler: httpsdHandler, TLSNextProto: protos}
 		// load pem format certificate key pair
 		cert, err := tls.LoadX509KeyPair(proxyServer.Config.CertPath, proxyServer.Config.PrivPath)
-		// if err != nil {
-		// 	return err
-		// }
-		proxyServer.logger.Error("Main Cert Not Loaded")
+		if err != nil {
+			proxyServer.logger.Error("Main Cert Not Loaded")
+		}
+
 
 		var tlsConfig *tls.Config
 		if proxyServer.Config.EdgeACME {
