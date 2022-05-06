@@ -283,10 +283,8 @@ func (proxyServer *ProxyServer) Start() error {
 		// load pem format certificate key pair
 		cert, err := tls.LoadX509KeyPair(proxyServer.Config.CertPath, proxyServer.Config.PrivPath)
 		if err != nil {
-			proxyServer.logger.Error("Main Cert Not Loaded")
+			return err
 		}
-
-
 		var tlsConfig *tls.Config
 		if proxyServer.Config.EdgeACME {
 			// must listen to 443 for ACME
