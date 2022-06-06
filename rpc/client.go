@@ -215,6 +215,9 @@ func (client *Client) RespondContext(requestID uint64, responseType string, meth
 
 func (client *Client) callTimeout(fun func()) error {
 	// Long enough timeout to at least survive initial reconnect attempts
+	if client == nil {
+		return fmt.Errorf("Client disconnected")
+	}
 	return client.srv.CallTimeout(fun, 30*time.Second)
 }
 
