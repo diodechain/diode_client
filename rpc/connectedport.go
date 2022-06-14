@@ -64,6 +64,11 @@ func (port *ConnectedPort) bufferRunner() {
 	conn := port.Conn
 	closeWhenEmpty := 0
 
+	if conn == nil {
+		// conn was closed before started
+		return
+	}
+
 	for port.localErr == nil {
 		port.bufferLock.Lock()
 		r, err := port.localBuffer.Read(readBuffer)
