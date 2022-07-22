@@ -6,6 +6,7 @@ package rpc
 import (
 	"bufio"
 	"crypto/ecdsa"
+	"crypto/x509"
 	"encoding/binary"
 	"encoding/pem"
 	"fmt"
@@ -194,12 +195,31 @@ func (s *SSL) GetClientPrivateKey() (*ecdsa.PrivateKey, error) {
 func LoadClientPubKey() []byte {
 	kd := EnsurePrivatePEM()
 	block, _ := pem.Decode(kd)
+	if block == nil || block.Bytes == nil {
+		return []byte{}
+	}
 	privKey, err := crypto.DerToECDSA(block.Bytes)
 	if err != nil {
 		return []byte{}
 	}
 	clientPubKey := crypto.MarshalPubkey(&privKey.PublicKey)
 	return clientPubKey
+}
+
+func ValidatePrivatePEM(kd []byte) bool {
+	if kd == nil {
+		return false
+	}
+	block, _ := pem.Decode(kd)
+	if block == nil || block.Bytes == nil {
+		return false
+	}
+	privKey, err := crypto.DerToECDSA(block.Bytes)
+	if err != nil {
+		return false
+	}
+	clientPubKey := crypto.MarshalPubkey(&privKey.PublicKey)
+	return clientPubKey != nil
 }
 
 func (s *SSL) setTotalBytes(n uint64) {
@@ -274,9 +294,22 @@ func (s *SSL) write(buf []byte) (n int, err error) {
 	return
 }
 
+func LoadPrivateKey(bytes []byte) ([]byte, error) {
+	// Not sure why this is not working
+	// privKey, err := openssl.LoadECPrivateKeyFromBytes(openssl.Secp256k1, bytes)
+	privKey, err := crypto.ToECDSA(bytes)
+	if err != nil {
+		return nil, err
+	}
+	// And this doesn't work because go doesn't recognize secp256k1
+	return x509.MarshalECPrivateKey(privKey)
+	// return privKey.MarshalPKCS1PrivateKeyPEM()
+}
+
 func EnsurePrivatePEM() []byte {
 	key, _ := db.DB.Get("private")
-	if key == nil {
+
+	if ValidatePrivatePEM(key) == false {
 		privKey, err := openssl.GenerateECKey(openssl.Secp256k1)
 		if err != nil {
 			config.AppConfig.Logger.Error("Failed to generate ec key: %v", err)

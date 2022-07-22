@@ -202,11 +202,16 @@ func (dio *Diode) Init() error {
 	cfg := dio.config
 
 	// Initialize db
-	clidb, err := db.OpenFile(cfg.DBPath)
+	clidb, err := db.OpenFile(cfg.DBPath, true)
 	if err != nil {
 		cfg.PrintError("Couldn't open database", err)
 		return err
 	}
+	// Include only these two seldomly chaning keys in the backup file
+	clidb.EnableBackup("private")
+	clidb.EnableBackup("fleet")
+
+	// Make this instance available as the global pref store
 	db.DB = clidb
 
 	if version != "development" && cfg.EnableUpdate {

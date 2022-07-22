@@ -74,7 +74,7 @@ func randomData(total, count int) (transportData [][]byte) {
 func TestE2ETunnels(t *testing.T) {
 	cfg := testConfig()
 	config.AppConfig = cfg
-	clidb, err := db.OpenFile(cfg.DBPath)
+	clidb, err := db.OpenFile(cfg.DBPath, false)
 	if err != nil {
 		t.Fatal(err)
 	}

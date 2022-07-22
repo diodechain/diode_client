@@ -5,6 +5,7 @@ package db
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"log"
@@ -31,11 +32,13 @@ type Database struct {
 	values map[string][]byte
 	// maybe write data async in the future
 	// dirty bool
-	rm     sync.Mutex
-	buffer []byte
+	rm          sync.Mutex
+	buffer      []byte
+	backup      *Database
+	backup_keys map[string]bool
 }
 
-func OpenFile(filepath string) (*Database, error) {
+func OpenFile(filepath string, withbackup bool) (*Database, error) {
 	os.MkdirAll(path.Dir(filepath), 0700)
 
 	// Migration code from version 0.3.1
@@ -84,10 +87,20 @@ func OpenFile(filepath string) (*Database, error) {
 		}
 	}
 	db := &Database{
-		path:   filepath,
-		values: values,
-		buffer: make([]byte, 1024),
+		path:        filepath,
+		values:      values,
+		buffer:      make([]byte, 1024),
+		backup:      nil,
+		backup_keys: make(map[string]bool),
 	}
+
+	if withbackup {
+		backup, err := OpenFile(filepath+".bck", false)
+		if err == nil {
+			db.backup = backup
+		}
+	}
+
 	return db, nil
 }
 
@@ -105,9 +118,14 @@ func (db *Database) Get(key string) ([]byte, error) {
 // Put data to file database
 func (db *Database) Put(key string, value []byte) (err error) {
 	db.rm.Lock()
-	defer db.rm.Unlock()
 	db.values[key] = value
-	return db.store()
+	err = db.store()
+	db.rm.Unlock()
+
+	if err == nil && db.backup_keys[key] == true {
+		db.doBackup(key)
+	}
+	return err
 }
 
 // Del deletes data from the file database
@@ -183,4 +201,30 @@ func (db *Database) put(w *bufio.Writer, num uint64) error {
 
 func (db *Database) Close() error {
 	return nil
+}
+
+func (db *Database) EnableBackup(key string) {
+	if db.backup == nil {
+		return
+	}
+	db.backup_keys[key] = true
+	db.doBackup(key)
+}
+
+func (origin *Database) doBackup(key string) {
+	if origin.backup == nil {
+		return
+	}
+	backup := origin.backup
+	originValue, _ := origin.Get(key)
+	backupValue, _ := backup.Get(key)
+	if originValue != nil {
+		// Creating backup store if not existing or different from original value
+		if backupValue == nil || bytes.Compare(originValue, backupValue) != 0 {
+			backup.Put(key, originValue)
+		}
+	} else if backupValue != nil {
+		// Restoring from backup store
+		origin.Put(key, backupValue)
+	}
 }

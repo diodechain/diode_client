@@ -14,6 +14,7 @@ import (
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/crypto"
 	"github.com/diodechain/diode_client/db"
+	"github.com/diodechain/diode_client/rpc"
 	"github.com/diodechain/diode_client/util"
 )
 
@@ -60,6 +61,17 @@ func configHandler() (err error) {
 					if err != nil {
 						cfg.PrintError("Couldn't decode hex string", err)
 						return
+					}
+					if list[0] == "private" {
+						value, err = rpc.LoadPrivateKey(value)
+						if err != nil {
+							cfg.PrintError("Failed setting key", err)
+							return
+						}
+						if rpc.ValidatePrivatePEM(value) == false {
+							cfg.PrintError("Failed setting key", fmt.Errorf("Invalid private key value %v", value))
+							return
+						}
 					}
 				}
 				db.DB.Put(list[0], value)
