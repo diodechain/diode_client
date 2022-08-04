@@ -15,6 +15,7 @@ darwin/build
 /diode_debug
 /diode_race_test
 /diode
+/test
 *db.tmp
 *.db
 *.zip
@@ -22,3 +23,9 @@ darwin/build
 /bug_wallet
 /new_wallet*
 /gateway
+prof
+*.svg
+client.sh
+server.sh
+wpad.dat
+rpc/testdata/
