@@ -122,7 +122,7 @@ func (db *Database) Put(key string, value []byte) (err error) {
 	err = db.store()
 	db.rm.Unlock()
 
-	if err == nil && db.backup_keys[key] == true {
+	if err == nil && db.backup_keys[key] {
 		db.doBackup(key)
 	}
 	return err
@@ -220,7 +220,7 @@ func (origin *Database) doBackup(key string) {
 	backupValue, _ := backup.Get(key)
 	if originValue != nil {
 		// Creating backup store if not existing or different from original value
-		if backupValue == nil || bytes.Compare(originValue, backupValue) != 0 {
+		if backupValue == nil || !bytes.Equal(originValue, backupValue) {
 			backup.Put(key, originValue)
 		}
 	} else if backupValue != nil {

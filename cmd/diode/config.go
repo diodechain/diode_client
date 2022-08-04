@@ -68,8 +68,8 @@ func configHandler() (err error) {
 							cfg.PrintError("Failed setting key", err)
 							return
 						}
-						if rpc.ValidatePrivatePEM(value) == false {
-							cfg.PrintError("Failed setting key", fmt.Errorf("Invalid private key value %v", value))
+						if rpc.ValidatePrivatePEM(value) {
+							cfg.PrintError("Failed setting key", fmt.Errorf("invalid private key value %v", value))
 							return
 						}
 					}

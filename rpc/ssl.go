@@ -309,7 +309,7 @@ func LoadPrivateKey(bytes []byte) ([]byte, error) {
 func EnsurePrivatePEM() []byte {
 	key, _ := db.DB.Get("private")
 
-	if ValidatePrivatePEM(key) == false {
+	if !ValidatePrivatePEM(key) {
 		privKey, err := openssl.GenerateECKey(openssl.Secp256k1)
 		if err != nil {
 			config.AppConfig.Logger.Error("Failed to generate ec key: %v", err)
