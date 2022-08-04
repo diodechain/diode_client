@@ -671,8 +671,23 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 }
 
 // PortOpen call portopen RPC
-func (client *Client) PortOpen(deviceID [20]byte, port string, mode string) (*edge.PortOpen, error) {
-	rawPortOpen, err := client.CallContext("portopen", deviceID[:], port, mode)
+func (client *Client) PortOpen(deviceID [20]byte, port int, portName string, mode string) (*edge.PortOpen, error) {
+	portOpen, err := client.doPortOpen(deviceID, portName, mode)
+	if portOpen != nil {
+		return portOpen, nil
+	}
+	if port < 65536 {
+		var b [2]byte
+		b[0] = byte(port / 256)
+		b[1] = byte(port % 256)
+		portName = string(b[:])
+		return client.doPortOpen(deviceID, portName, mode)
+	}
+	return portOpen, err
+}
+
+func (client *Client) doPortOpen(deviceID [20]byte, portName string, mode string) (*edge.PortOpen, error) {
+	rawPortOpen, err := client.CallContext("portopen", deviceID[:], portName, mode)
 	if err != nil {
 		// if error string is 4 bytes string, it's the timeout error from server
 		if len(err.Error()) == 4 {
