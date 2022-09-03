@@ -31,7 +31,7 @@ done
 
 echo "done"
 
-curl -v --socks5-hostname localhost:1080 betahaus-berlin.diode.link
+curl -v --socks5-hostname localhost:1080 ddriveupdate.diode.link
 ret=$?
 
 kill -9 $diode_pid

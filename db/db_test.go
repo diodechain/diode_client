@@ -39,7 +39,7 @@ var (
 )
 
 func TestPutAndGetInDB(t *testing.T) {
-	db, err := OpenFile(dbFilePath)
+	db, err := OpenFile(dbFilePath, false)
 	if err != nil {
 		panic(err)
 	}

@@ -154,3 +154,7 @@ $ make test
 ```BASH
 $ make
 ```
+
+## Notes on debugging with pprof
+
+To enable pprof on port 6060 run with `diode -pprofport 6060`

@@ -303,7 +303,7 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 	stickyPort := socksServer.datapool.FindOpenPort(deviceName)
 	if stickyPort != nil && !stickyPort.client.Closed() {
 		socksServer.logger.Debug("%d: Opening stickyPort %v for %v", requestId, string(stickyPort.DeviceID.Hex()), deviceName)
-		portOpen, err := stickyPort.client.PortOpen(stickyPort.DeviceID, portName, mode)
+		portOpen, err := stickyPort.client.PortOpen(stickyPort.DeviceID, port, portName, mode)
 		if err == nil && portOpen != nil && portOpen.Err == nil {
 			portOpen.PortNumber = port
 			return NewConnectedPort(requestId, portOpen.Ref, stickyPort.DeviceID, stickyPort.client, port), nil
@@ -366,7 +366,7 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 			}
 
 			var portOpen *edge.PortOpen
-			portOpen, err = client.PortOpen(deviceID, portName, mode)
+			portOpen, err = client.PortOpen(deviceID, port, portName, mode)
 			if err != nil {
 				return
 			}
