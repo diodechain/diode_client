@@ -54,8 +54,8 @@ func (pl *proxyListener) run() {
 			if err = tlsConn.Handshake(); err != nil {
 				config.AppConfig.Logger.Warn("Handshake error: %s %v", tlsConn.ConnectionState().ServerName, err)
 				// Testing: Comment the following two lines for local testing without certs
-				tlsConn.Close()
-				return
+				//tlsConn.Close()
+				//return
 			}
 
 			state := tlsConn.ConnectionState()
