@@ -26,7 +26,7 @@ import (
 
 var (
 	defaultMode      = "rw"
-	domainPattern    = regexp.MustCompile(`^(.+)\.(diode|diode\.link|diode\.ws)(:[\d]+)?$`)
+	domainPattern    = regexp.MustCompile(`^(.+)\.(diode|peerxc\.link|diode\.link|diode\.ws)(:[\d]+)?$`)
 	subdomainPattern = regexp.MustCompile(`^([rws]{1,3}-)?(0x[A-Fa-f0-9]{40}|[A-Za-z0-9][A-Za-z0-9-]{5,30}?)(-[^0][\d]+)?$`)
 
 	errAddrType = errors.New("socks addr type not supported")
@@ -605,7 +605,7 @@ func parseHost(host string) (isWS bool, mode string, deviceID string, port int, 
 		mode = modeHostPort[1]
 		mode = mode[:len(mode)-1]
 	}
-	if domain == "diode.link" || domain == "diode" || domain == "diode.ws" {
+	if domain == "peerxc.link" || domain == "diode.link" || domain == "diode" || domain == "diode.ws" {
 		deviceID = modeHostPort[2]
 	} else {
 		deviceID = domain[0 : len(domain)-len(suffix)-1]
