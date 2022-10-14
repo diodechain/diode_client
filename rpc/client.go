@@ -903,6 +903,9 @@ func (client *Client) ResolveReverseBNS(addr Address) (name string, err error) {
 	size := binary.BigEndian.Uint16(raw[len(raw)-2:])
 	if size%2 == 0 {
 		size = size / 2
+		if size > 30 {
+			return name, fmt.Errorf("Found invalid string")
+		}
 		return string(raw[:size]), nil
 	}
 	// Todo fetch additional string parts
