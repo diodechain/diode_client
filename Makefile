@@ -1,6 +1,10 @@
 TESTS= $(shell go list ./... | grep -v -e gowasm_test -e cmd)
 GOPATH= $(shell go env GOPATH)
 GOMODCACHE= $(shell go env GOMODCACHE)
+# go 1.14 patch
+ifeq ($(GOMODCACHE),)
+GOMODCACHE := $(shell go env GOPATH)/pkg/mod
+endif
 COMMIT= $(shell git describe --tags --dirty)
 BUILDTIME= $(shell date +"%d %b %Y")
 GOBUILD=go build -ldflags '-s -r ./ -X "main.version=${COMMIT}${VARIANT}" -X "main.buildTime=${BUILDTIME}"' -tags patch_runtime
