@@ -42,5 +42,4 @@ require (
 	golang.org/x/tools v0.1.7 // indirect
 	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0
-	honnef.co/go/tools v0.0.1-2020.1.4 // indirect
 )

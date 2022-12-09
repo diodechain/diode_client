@@ -904,7 +904,7 @@ func (client *Client) ResolveReverseBNS(addr Address) (name string, err error) {
 	if size%2 == 0 {
 		size = size / 2
 		if size > 30 {
-			return name, fmt.Errorf("Found invalid string")
+			return name, fmt.Errorf("found invalid string")
 		}
 		return string(raw[:size]), nil
 	}
