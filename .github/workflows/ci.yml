@@ -34,7 +34,7 @@ jobs:
     - if: runner.os == 'Windows'
       shell: msys2 {0}
       run: |
-        ln -s /c/hostedtoolcache/windows/go/1.17.13/x64 /usr/bin/go
+        ln -s /c/hostedtoolcache/windows/go/1.17.13/x64/go.exe /usr/bin/go.exe
         make openssl
         make windows_test
         make dist
