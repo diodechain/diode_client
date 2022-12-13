@@ -32,8 +32,9 @@ jobs:
     # Building the app
     - uses: actions/checkout@v1
     - if: runner.os == 'Windows'
-      shell: msys2 -use-full-path {0}
+      shell: msys2 {0}
       run: |
+        cp /c/hostedtoolcache/windows/go/1.17.13/x64/* /usr/bin/
         make openssl
         make windows_test
         make dist
