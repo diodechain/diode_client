@@ -18,14 +18,14 @@ jobs:
 
     # Installing GO
     - if: runner.os == 'Windows'
-      name: "Install Golang on Windows"
+      name: "Install mingw deps"
       uses: msys2/setup-msys2@v2
       with:
-          install: pacman-mirrors pkg-config base-devel mingw-w64-x86_64-toolchain mingw-w64-x86_64-go upx mingw-w64-x86_64-dlfcn git
+          install: pacman-mirrors pkg-config base-devel mingw-w64-x86_64-toolchain upx mingw-w64-x86_64-dlfcn git
           update: false
-    - uses: actions/setup-go@v1
-      name: "Install Golang on Linux/macOS"
-      if: runner.os != 'Windows'
+
+    - uses: actions/setup-go@v3
+      name: "Install Golang on Linux/macOS/Windows"
       with:
         go-version: ${{ matrix.go }}
 
@@ -34,6 +34,7 @@ jobs:
     - if: runner.os == 'Windows'
       shell: msys2 {0}
       run: |
+        cp -r /c/hostedtoolcache/windows/go/1.17.13/x64/* /usr/
         make openssl
         make windows_test
         make dist
