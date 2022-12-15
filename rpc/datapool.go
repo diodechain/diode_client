@@ -222,6 +222,10 @@ func (p *DataPool) SetCache(key string, tck *edge.DeviceTicket) {
 
 // GetPort locates the port by it's key
 func (p *DataPool) GetPort(key string) (port *ConnectedPort) {
+	if key == "" {
+		return nil
+	}
+
 	p.srv.Call(func() { port = p.devices[key] })
 
 	if port == nil || port.Closed() {
@@ -262,6 +266,10 @@ func (p *DataPool) FindOpenPort(targetDevice string) (port *ConnectedPort) {
 }
 
 func (p *DataPool) SetPort(key string, dev *ConnectedPort) {
+	if key == "" {
+		return
+	}
+
 	p.srv.Call(func() {
 		if dev == nil {
 			delete(p.devices, key)
