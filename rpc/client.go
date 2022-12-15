@@ -167,6 +167,10 @@ func (client *Client) Host() (host string, err error) {
 
 // GetDeviceKey returns device key of given ref
 func (client *Client) GetDeviceKey(ref string) string {
+	if client == nil {
+		return ""
+	}
+
 	prefix := util.EncodeToString(client.serverID[:])
 	return fmt.Sprintf("%s:%s", prefix, ref)
 }

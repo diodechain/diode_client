@@ -181,8 +181,10 @@ func (port *ConnectedPort) close() {
 	if port.remoteErr == nil {
 		port.remoteErr = io.EOF
 	}
-	deviceKey := port.client.GetDeviceKey(port.Ref)
-	port.client.pool.SetPort(deviceKey, nil)
+	if port.client != nil {
+		deviceKey := port.client.GetDeviceKey(port.Ref)
+		port.client.pool.SetPort(deviceKey, nil)
+	}
 	// send portclose request and channel
 	port.client.CastPortClose(port.Ref)
 	port.bufferLock.Lock()
