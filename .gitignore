@@ -23,6 +23,7 @@ darwin/build
 /bug_wallet
 /new_wallet*
 /gateway
+/openssl-*
 prof
 *.svg
 client.sh
