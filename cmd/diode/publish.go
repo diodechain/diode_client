@@ -292,11 +292,13 @@ func publishHandler() (err error) {
 		}
 		app.clientManager.GetPool().SetPublishedPorts(cfg.PublishedPorts)
 		for _, port := range cfg.PublishedPorts {
-			if port.To == httpPort {
-				if port.Mode == config.PublicPublishedMode {
+			if port.Mode == config.PublicPublishedMode {
+				if port.To == httpPort {
 					cfg.PrintLabel("HTTP Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", name))
 				}
-				break
+				if (8000 <= port.To && port.To <= 8100) || (8400 <= port.To && port.To <= 8500) {
+					cfg.PrintLabel("HTTP Gateway Enabled", fmt.Sprintf("https://%s.diode.link:%d/", name, port.To))
+				}
 			}
 		}
 		cfg.PrintLabel("Port      <name>", "<extern>     <mode>    <protocol>     <allowlist>")
