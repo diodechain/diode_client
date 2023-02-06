@@ -30,7 +30,7 @@ jobs:
         go-version: ${{ matrix.go }}
 
     # Building the app
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - if: runner.os == 'Windows'
       shell: msys2 {0}
       run: |
@@ -59,12 +59,12 @@ jobs:
         mkdir darwin_package_build
         DIODE_BUILD_DST=darwin_package_build DIODE_BINARY_DIRECTORY=dist sh darwin_package.sh
     - name: Archive production artifacts
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: ${{ env.ZIPNAME }}
         path: dist
     - name: Archive macos package production artifacts
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v3
       if: runner.os == 'macOS'
       with:
         name: ${{ runner.os }}
@@ -79,7 +79,7 @@ jobs:
         go: ["1.14.x"]
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - run: echo "ZIPNAME=`./deployment/zipname.sh`" >> $GITHUB_ENV
       shell: bash
     - uses: actions/download-artifact@v2
@@ -95,18 +95,18 @@ jobs:
     name: "Run build linux arm artifact"
     runs-on: "ubuntu-latest"
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: "Compile pi-arm32 & pi-arm64"
       run: |
         cd .github
         bash ./build.sh
     - name: "Archive pi-arm32 artifacts"
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: "diode_linux_arm.zip"
         path: ${{ github.workspace }}/.github/diode_linux_arm.zip
     - name: "Archive pi-arm64 artifacts"
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: "diode_linux_arm64.zip"
         path: ${{ github.workspace }}/.github/diode_linux_arm64.zip
