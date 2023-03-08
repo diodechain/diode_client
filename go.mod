@@ -13,7 +13,7 @@ require (
 	github.com/diodechain/openssl v1.0.20
 	github.com/diodechain/zap v0.0.0-20201117101851-06f3cd5f3263
 	github.com/dominicletz/genserver v1.3.1
-	github.com/ethereum/go-ethereum v1.9.11
+	github.com/ethereum/go-ethereum v1.10.22
 	github.com/gdamore/tcell/v2 v2.1.0
 	github.com/go-playground/universal-translator v0.17.0 // indirect
 	github.com/go-playground/validator v9.31.0+incompatible
@@ -26,14 +26,13 @@ require (
 	github.com/klauspost/compress v1.12.1 // indirect
 	github.com/klauspost/cpuid v1.3.1 // indirect
 	github.com/leodido/go-urn v1.2.0 // indirect
-	github.com/mattn/go-isatty v0.0.12 // indirect
 	github.com/miekg/dns v1.1.35 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20190826022208-cac0b30c2563
 	github.com/rs/cors v1.7.0
 	github.com/sc0vu/didyoumean v0.0.0-20201016060748-8033fa1fcd65
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/stretchr/testify v1.7.0
+	github.com/stretchr/testify v1.7.2
 	golang.org/x/crypto v0.0.0-20211117183948-ae814b36b871
 	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616 // indirect
 	golang.org/x/net v0.0.0-20220722155237-a158d28d115b
