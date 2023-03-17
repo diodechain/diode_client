@@ -611,7 +611,7 @@ func parseHost(host string) (isWS bool, mode string, deviceID string, port int, 
 		if domain == "derateknoloji" || domain == "derateknoloji.com" {
 			deviceID = modeHostPort[2]+domain[0 : len(domain)-len(suffix)-1]
 		}else if domain == "marcacatering" {
-			err = fmt.Errorf("domain expired", sub)
+			err = fmt.Errorf("domain expired")
 			return
 		} else {
 			deviceID = modeHostPort[2]+domain[0 : len(domain)-len(suffix)-1]+"2"
