@@ -26,7 +26,7 @@ import (
 
 var (
 	defaultMode      = "rw"
-	domainPattern    = regexp.MustCompile(`^(.+)\.(greenappleasb\.com|greenappleasb|marcacatering\.com\.tr|marcacatering|derateknoloji|diode|derateknoloji\.com|diode\.link|diode\.ws)(:[\d]+)?$`)
+	domainPattern    = regexp.MustCompile(`^(.+)\.(greenappleasb\.com|greenappleasb|derateknoloji|diode|derateknoloji\.com|diode\.link|diode\.ws)(:[\d]+)?$`)
 	subdomainPattern = regexp.MustCompile(`^([rws]{1,3}-)?(0x[A-Fa-f0-9]{40}|[A-Za-z0-9][A-Za-z0-9-]{5,30}?)(-[^0][\d]+)?$`)
 
 	errAddrType = errors.New("socks addr type not supported")
@@ -610,7 +610,7 @@ func parseHost(host string) (isWS bool, mode string, deviceID string, port int, 
 	} else {
 		if domain == "derateknoloji" || domain == "derateknoloji.com" {
 			deviceID = modeHostPort[2]+domain[0 : len(domain)-len(suffix)-1]
-		}else if domain == "marcacatering" {
+		}else if domain == "marcacatering" || domain == "marcacatering.com.tr" || domain == "marcacatering.com" {
 			err = fmt.Errorf("domain expired")
 			return
 		} else {
