@@ -7,7 +7,7 @@ jobs:
     strategy:
       matrix:
         os: ["windows-latest", "ubuntu-latest", "macOS-latest"]
-        go: ["1.17.x"]
+        go: ["1.20.6"]
     runs-on: ${{ matrix.os }}
     steps:
     # Install general deps
@@ -34,7 +34,7 @@ jobs:
     - if: runner.os == 'Windows'
       shell: msys2 {0}
       run: |
-        cp -r /c/hostedtoolcache/windows/go/1.17.13/x64/* /usr/
+        cp -r /c/hostedtoolcache/windows/go/1.20.6/x64/* /usr/
         make openssl
         make windows_test
         make dist
@@ -76,7 +76,7 @@ jobs:
     strategy:
       matrix:
         os: ["windows-latest", "ubuntu-latest", "macOS-latest"]
-        go: ["1.14.x"]
+        go: ["1.20.6"]
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3
