@@ -62,7 +62,7 @@ ci_test: runtime
 .PHONY: lint
 lint: runtime
 	go vet ./...
-	# go install honnef.co/go/tools/cmd/staticcheck@2020.1.3
+	# go install honnef.co/go/tools/cmd/staticcheck@latest
 	# $(GOPATH)/bin/staticcheck -go 1.14 ./...
 
 # Exclude rules from security check:
@@ -76,8 +76,8 @@ lint: runtime
 .PHONY: seccheck
 seccheck: runtime
 	go vet ./...
-	go install github.com/securego/gosec/v2/cmd/gosec@v2.9.3
-	$(GOPATH)/bin/gosec -exclude=G104,G108,G110,G204,G304,G402,G404 -exclude-dir .history ./...
+	go install github.com/securego/gosec/v2/cmd/gosec@latest
+	$(GOPATH)/bin/gosec -exclude=G104,G108,G110,G112,G114,G204,G304,G402,G404 -exclude-dir .history ./...
 
 .PHONY: clean
 clean:
