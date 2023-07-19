@@ -82,7 +82,7 @@ seccheck: runtime
 .PHONY: clean
 clean:
 	-rm $(BINS)
-	go clean -cache ./...
+	go clean -cache
 
 .PHONY: install
 install:

@@ -5,19 +5,21 @@ diff --git src/runtime/runtime.go src/runtime/runtime.go
 index 33ecc260dd..dea79f6095 100644
 --- src/runtime/runtime.go
 +++ src/runtime/runtime.go
-@@ -13,6 +13,12 @@ import (
- //go:generate go run mkduff.go
- //go:generate go run mkfastlog2table.go
- 
-+// GetGoID returns the goid
-+func GetGoID() int64 {
-+	_g_ := getg()
-+	return _g_.goid
-+}
-+
- var ticks struct {
- 	lock mutex
- 	pad  uint32 // ensure 8-byte alignment of val on 386
+***************
+*** 14,19 ****
+--- 14,25 ----
+  //go:generate go run mkfastlog2table.go
+  //go:generate go run mklockrank.go -o lockrank.go
+  
++ // GetGoID returns the goid
++ func GetGoID() uint64 {
++ 	_g_ := getg()
++ 	return _g_.goid
++ }
++ 
+  var ticks ticksType
+  
+  type ticksType struct {
 EOF
 
 CMD="-tN -r- `go env GOROOT`/src/runtime/runtime.go"
