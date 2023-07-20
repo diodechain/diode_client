@@ -5,6 +5,7 @@
 package rpc
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -308,7 +309,7 @@ func (proxyServer *ProxyServer) Start() error {
 				},
 			}
 			// cache the certificate
-			certmagicCfg.CacheUnmanagedTLSCertificate(cert, nil)
+			certmagicCfg.CacheUnmanagedTLSCertificate(context.Background(), cert, nil)
 			tlsConfig = certmagicCfg.TLSConfig()
 			tlsConfig.NextProtos = append([]string{"http/1.1"}, tlsConfig.NextProtos...)
 			// don't have to sync certificates
