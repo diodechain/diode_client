@@ -1,4 +1,4 @@
-FROM debian:stretch
+FROM debian:buster
 LABEL crosscompie={pi-arm64}
 
 ENV GOOS=linux
@@ -25,9 +25,10 @@ RUN ln -s `which arm-linux-gnueabihf-strip` /pitools/arm-bcm2708/gcc-linaro-arm-
 
 # install golang
 RUN echo "Build and install golang......"
-RUN wget https://dl.google.com/go/go1.15.5.linux-amd64.tar.gz && \
-    [ "9a58494e8da722c3aef248c9227b0e9c528c7318309827780f16220998180a0d" = "$(sha256sum go1.15.5.linux-amd64.tar.gz | cut -d ' ' -f1)" ] && \
-    tar -xvf go1.15.5.linux-amd64.tar.gz
+ENV GOFILE=go1.20.6.linux-amd64.tar.gz
+RUN wget https://dl.google.com/go/$GOFILE && \
+    [ "b945ae2bb5db01a0fb4786afde64e6fbab50b67f6fa0eb6cfa4924f16a7ff1eb" = "$(sha256sum $GOFILE | cut -d ' ' -f1)" ] && \
+    tar -xvf $GOFILE
 RUN mv go /usr/local
 ENV GOROOT "/usr/local/go"
 RUN mkdir /go
