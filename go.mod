@@ -5,7 +5,7 @@ go 1.14
 require (
 	github.com/apex/log v1.9.0 // indirect
 	github.com/c4milo/unpackit v0.1.0 // indirect
-	github.com/caddyserver/certmagic v0.12.0
+	github.com/caddyserver/certmagic v0.19.0
 	github.com/davecgh/go-spew v1.1.1
 	github.com/diodechain/go-cache v2.1.0+incompatible
 	github.com/diodechain/go-update v2.2.11+incompatible
@@ -27,17 +27,17 @@ require (
 	github.com/klauspost/cpuid v1.3.1 // indirect
 	github.com/leodido/go-urn v1.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.12 // indirect
-	github.com/miekg/dns v1.1.35 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20190826022208-cac0b30c2563
 	github.com/rs/cors v1.7.0
 	github.com/sc0vu/didyoumean v0.0.0-20201016060748-8033fa1fcd65
 	github.com/spf13/cobra v1.0.0
 	github.com/spf13/pflag v1.0.5 // indirect
-	github.com/stretchr/testify v1.7.0
-	golang.org/x/crypto v0.0.0-20211117183948-ae814b36b871
+	github.com/stretchr/testify v1.8.0
+	go.uber.org/tools v0.0.0-20190618225709-2cfd321de3ee // indirect
+	golang.org/x/crypto v0.11.0
 	golang.org/x/lint v0.0.0-20210508222113-6edffad5e616 // indirect
-	golang.org/x/net v0.0.0-20220722155237-a158d28d115b
-	golang.org/x/text v0.3.8 // indirect
+	golang.org/x/net v0.12.0
+	golang.org/x/tools v0.11.0 // indirect
 	gopkg.in/go-playground/assert.v1 v1.2.1 // indirect
 	gopkg.in/yaml.v2 v2.4.0
 )
