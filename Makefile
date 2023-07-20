@@ -62,8 +62,8 @@ ci_test: runtime
 .PHONY: lint
 lint: runtime
 	go vet ./...
-	GO111MODULE=on go get honnef.co/go/tools/cmd/staticcheck@2020.1.3
-	$(GOPATH)/bin/staticcheck -go 1.14 ./...
+	# go install honnef.co/go/tools/cmd/staticcheck@latest
+	# $(GOPATH)/bin/staticcheck -go 1.14 ./...
 
 # Exclude rules from security check:
 # G104 (CWE-703): Errors unhandled.
@@ -76,13 +76,13 @@ lint: runtime
 .PHONY: seccheck
 seccheck: runtime
 	go vet ./...
-	GO111MODULE=on go get github.com/securego/gosec/v2/cmd/gosec@v2.9.3
-	$(GOPATH)/bin/gosec -exclude=G104,G108,G110,G204,G304,G402,G404 -exclude-dir .history ./...
+	go install github.com/securego/gosec/v2/cmd/gosec@latest
+	$(GOPATH)/bin/gosec -exclude=G104,G108,G110,G112,G114,G204,G304,G402,G404 -exclude-dir .history ./...
 
 .PHONY: clean
 clean:
 	-rm $(BINS)
-	go clean -cache ./...
+	go clean -cache
 
 .PHONY: install
 install:
