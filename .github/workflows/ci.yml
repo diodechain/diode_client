@@ -87,8 +87,8 @@ jobs:
         name: ${{ env.ZIPNAME }}
     - run: |
         chmod +x ./diode 
-        ./diode config -list
-        ./diode time
+        ./diode -update=false config -list
+        ./diode -update=false time
       shell: bash
 
   build_linux_arm:
