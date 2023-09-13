@@ -209,7 +209,7 @@ func (cfg *Config) PrintLabel(label string, value string) {
 }
 
 func (cfg *Config) PrintError(msg string, err error) {
-	cfg.Logger.Error(msg, "error", err.Error())
+	cfg.Logger.Error(fmt.Sprintf("%s: %s", msg, err.Error()))
 }
 
 func (cfg *Config) PrintInfo(msg string) {
