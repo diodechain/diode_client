@@ -58,6 +58,7 @@ type Config struct {
 	EnableProxy     bool
 	FleetAddr       Address
 	Blocklists      map[Address]bool
+	Blockdomains    map[string]bool
 	Allowlists      map[Address]bool
 }
 

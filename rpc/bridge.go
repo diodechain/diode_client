@@ -29,8 +29,8 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 				return
 			}
 			// Checking blocklist and allowlist
-			if len(client.config.Blocklists) > 0 {
-				if client.config.Blocklists[portOpen.DeviceID] {
+			if len(client.config.Blocklists()) > 0 {
+				if client.config.Blocklists()[portOpen.DeviceID] {
 					err := fmt.Errorf(
 						"device %x is on the block list",
 						portOpen.DeviceID,

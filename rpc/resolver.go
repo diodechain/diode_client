@@ -54,6 +54,11 @@ func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTi
 		deviceIDs[0] = id
 	}
 
+	if len(deviceIDs) == 0 {
+		err = fmt.Errorf("device did not resolve: %s", deviceName)
+		return nil, HttpError{404, err}
+	}
+
 	deviceIDs = util.Filter(deviceIDs, func(addr Address) bool {
 		// Checking blocklist and allowlist
 		if len(resolver.Config.Blocklists) > 0 {
@@ -71,7 +76,7 @@ func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTi
 	})
 
 	if len(deviceIDs) == 0 {
-		err = fmt.Errorf("device %x is not allowed", deviceName)
+		err = fmt.Errorf("device %s is not allowed", deviceName)
 		return nil, HttpError{403, err}
 	}
 

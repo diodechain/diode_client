@@ -42,6 +42,8 @@ func image(code int) (string, string) {
 	switch {
 	case code >= 200 && code < 300:
 		return unicornHappy, "Welcome to the your Web3 proxy. To learn how to create your own Web3 content visit us at <a href='https://diode.io'>DIODE</a>"
+	case code == 403:
+		return emptyPixel, "This domain has been reported to violate our terms of service. Connected IP addresses have been collected and will be reported to the authorities."
 	case code >= 400 && code < 500:
 		return emptyPixel, "Um, looks like you don't have access to this resource, or it may be down. To learn how to create your own Web3 content visit us at <a href='https://diode.io'>DIODE</a>"
 	case code >= 500 && code < 600:

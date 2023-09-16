@@ -58,7 +58,7 @@ func gatewayHandler() (err error) {
 	socksCfg := rpc.Config{
 		Addr:            cfg.SocksServerAddr(),
 		FleetAddr:       cfg.FleetAddr,
-		Blocklists:      cfg.Blocklists,
+		Blocklists:      cfg.Blocklists(),
 		Allowlists:      cfg.Allowlists,
 		EnableProxy:     true,
 		ProxyServerAddr: cfg.ProxyServerAddr(),

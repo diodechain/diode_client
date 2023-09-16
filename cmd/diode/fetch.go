@@ -101,7 +101,6 @@ func init() {
 	fetchCmd.Flag.BoolVar(&fetchCfg.Verbose, "verbose", false, "Print more information about the connection.")
 }
 
-//
 func fetchHandler() (err error) {
 	err = nil
 	if len(fetchCfg.URL) == 0 {
@@ -137,7 +136,7 @@ func fetchHandler() (err error) {
 	socksCfg := rpc.Config{
 		Addr:            cfg.SocksServerAddr(),
 		FleetAddr:       cfg.FleetAddr,
-		Blocklists:      cfg.Blocklists,
+		Blocklists:      cfg.Blocklists(),
 		Allowlists:      cfg.Allowlists,
 		EnableProxy:     false,
 		ProxyServerAddr: cfg.ProxyServerAddr(),

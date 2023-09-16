@@ -927,6 +927,15 @@ func (client *Client) GetCacheOrResolvePeers(deviceName string) ([]Address, erro
 // ResolveBNS resolves the (primary) destination of the BNS entry
 func (client *Client) ResolveBNS(name string) (addr []Address, err error) {
 	client.Log().Info("Resolving BNS: %s", name)
+	name = strings.ToLower(name)
+	for _, v := range client.config.SBlockdomains {
+		blockedDomain := strings.ToLower(v)
+		if blockedDomain == name {
+			client.Log().Error("Aborting domain: %s", name)
+			return nil, HttpError{403, fmt.Errorf("domain %s is not allowed", name)}
+		}
+	}
+
 	arrayKey := contract.BNSDestinationArrayLocation(name)
 	size := client.GetAccountValueInt(0, contract.BNSAddr, arrayKey)
 
