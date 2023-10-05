@@ -91,6 +91,7 @@ type Config struct {
 	ProtectedPublishedPorts StringValues     `yaml:"published_protected_ports,omitempty" json:"-"`
 	PrivatePublishedPorts   StringValues     `yaml:"published_private_ports,omitempty" json:"-"`
 	blocklists              map[Address]bool `yaml:"-" json:"-"`
+	BnsCacheTime            time.Duration    `yaml:"-" json:"-"` // BNS cache time
 	Allowlists              map[Address]bool `yaml:"-" json:"-"`
 	LogMode                 int              `yaml:"-" json:"-"`
 	LogDateTime             bool             `yaml:"-" json:"-"`
@@ -242,12 +243,13 @@ type Bind struct {
 
 // Port struct for listening port
 type Port struct {
-	SrcHost   string
-	Src       int
-	To        int
-	Mode      int
-	Protocol  int
-	Allowlist map[Address]bool
+	SrcHost      string
+	Src          int
+	To           int
+	Mode         int
+	Protocol     int
+	Allowlist    map[Address]bool
+	BnsAllowlist map[string]bool
 }
 
 // ModeIdentifier returns a mode code of the human readable version

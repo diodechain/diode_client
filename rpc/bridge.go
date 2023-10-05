@@ -183,7 +183,27 @@ func (client *Client) isAllowlisted(port *config.Port, addr Address) bool {
 
 		return false
 	case config.PrivatePublishedMode:
-		return port.Allowlist[addr]
+		if port.Allowlist[addr] {
+			return true
+		} else if len(port.BnsAllowlist) == 0 {
+			return false
+		} else {
+			for bns, allowed := range port.BnsAllowlist {
+				if !allowed {
+					continue
+				}
+				addrs, err := client.GetCacheOrResolveBNS(bns)
+				if err != nil {
+					continue
+				}
+				for _, a := range addrs {
+					if a == addr {
+						return true
+					}
+				}
+			}
+			return false
+		}
 	default:
 		return false
 	}

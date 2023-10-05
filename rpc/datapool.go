@@ -21,6 +21,7 @@ type DataPool struct {
 	publishedPorts map[int]*config.Port
 
 	memoryCache *cache.Cache
+	bnsCache    *cache.Cache
 	ctx         *openssl.Ctx
 
 	srv *genserver.GenServer
@@ -35,6 +36,7 @@ func NewPool() *DataPool {
 		srv:            genserver.New("DataPool"),
 		locks:          make(map[string]bool),
 		memoryCache:    cache.New(5*time.Minute, 10*time.Minute),
+		bnsCache:       cache.New(config.AppConfig.BnsCacheTime, config.AppConfig.BnsCacheTime*2),
 		devices:        make(map[string]*ConnectedPort),
 		publishedPorts: make(map[int]*config.Port),
 	}
@@ -89,7 +91,7 @@ func (p *DataPool) pushClientSession(client Address, session []byte) {
 
 func (p *DataPool) getCacheBNS(key string) (bns []Address, ok bool) {
 	p.srv.Call(func() {
-		cachedBNS, hit := p.memoryCache.Get(key)
+		cachedBNS, hit := p.bnsCache.Get(key)
 		if !hit {
 			ok = false
 			return
@@ -180,12 +182,12 @@ func (p *DataPool) ClosePorts(client *Client) {
 
 func (p *DataPool) SetCacheBNS(key string, bns []Address) {
 	p.srv.Cast(func() {
-		p.memoryCache.Set(key, bns, cache.DefaultExpiration)
+		p.bnsCache.Set(key, bns, cache.DefaultExpiration)
 	})
 }
 func (p *DataPool) DeleteCacheBNS(key string) {
 	p.srv.Cast(func() {
-		p.memoryCache.Delete(key)
+		p.bnsCache.Delete(key)
 	})
 }
 
