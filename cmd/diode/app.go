@@ -230,7 +230,6 @@ func (dio *Diode) Init() error {
 		var shouldUpdateDiode bool
 		lastUpdateAtByt, err = db.DB.Get("last_update_at")
 		if err != nil {
-			lastUpdateAt = time.Now()
 			shouldUpdateDiode = true
 		} else {
 			lastUpdateAtInt := util.DecodeBytesToInt(lastUpdateAtByt)
