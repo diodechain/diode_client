@@ -27,8 +27,8 @@ require (
 	github.com/sc0vu/didyoumean v0.0.0-20201016060748-8033fa1fcd65
 	github.com/spf13/cobra v1.5.0
 	github.com/stretchr/testify v1.8.1
-	golang.org/x/crypto v0.11.0
-	golang.org/x/net v0.12.0
+	golang.org/x/crypto v0.14.0
+	golang.org/x/net v0.17.0
 	golang.org/x/tools v0.11.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0
 )
