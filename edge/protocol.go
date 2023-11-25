@@ -160,7 +160,7 @@ func parseBlockHeaderResponse(buffer []byte) (interface{}, error) {
 		dminerPubkey,
 		util.DecodeBytesToUint(timestamp.Value),
 		util.DecodeBytesToUint(number.Value),
-		util.DecodeBytesToUint(nonce.Value),
+		*util.DecodeBytesToBigInt(nonce.Value),
 	)
 	if err != nil {
 		return nil, err

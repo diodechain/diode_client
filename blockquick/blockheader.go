@@ -6,6 +6,7 @@ package blockquick
 import (
 	"fmt"
 	"log"
+	"math/big"
 
 	"github.com/diodechain/diode_client/crypto"
 	"github.com/diodechain/diode_client/crypto/secp256k1"
@@ -23,11 +24,11 @@ type BlockHeader struct {
 	minerPubkey []byte
 	timestamp   uint64
 	number      uint64
-	nonce       uint64
+	nonce       big.Int
 }
 
 // NewHeader creates a new block header from existing data
-func NewHeader(txHash []byte, stateHash []byte, prevBlock []byte, minerSig []byte, minerPubkey []byte, timestamp uint64, number uint64, nonce uint64) (bh BlockHeader, err error) {
+func NewHeader(txHash []byte, stateHash []byte, prevBlock []byte, minerSig []byte, minerPubkey []byte, timestamp uint64, number uint64, nonce big.Int) (bh BlockHeader, err error) {
 	header := BlockHeader{
 		txHash:      txHash,
 		stateHash:   stateHash,
