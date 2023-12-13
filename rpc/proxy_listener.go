@@ -52,7 +52,7 @@ func (pl *proxyListener) run() {
 
 		go func() {
 			if err = tlsConn.Handshake(); err != nil {
-				config.AppConfig.Logger.Warn("Handshake error: %s %v", tlsConn.ConnectionState().ServerName, err)
+				config.AppConfig.Logger.Warn("[%s] Handshake error: %s %v", tlsConn.RemoteAddr().String(), tlsConn.ConnectionState().ServerName, err)
 				// Testing: Comment the following two lines for local testing without certs
 				tlsConn.Close()
 				return
@@ -63,7 +63,7 @@ func (pl *proxyListener) run() {
 			isWS, mode, deviceID, port, err := parseHost(name)
 
 			if err != nil {
-				pl.proxy.logger.Error("Failed to parseHost(%v '%v')", name, deviceID)
+				pl.proxy.logger.Error("[%s] Failed to parseHost(%v '%v')", tlsConn.RemoteAddr().String(), name, deviceID)
 				return
 			}
 
@@ -79,7 +79,7 @@ func (pl *proxyListener) run() {
 			})
 
 			if err != nil {
-				pl.proxy.logger.Error("Failed to accept(%v '%v'): %v", name, deviceID, err.Error())
+				pl.proxy.logger.Error("[%s] Failed to accept(%v '%v'): %v", tlsConn.RemoteAddr().String(), name, deviceID, err.Error())
 				if conn != nil {
 					if httpErr, ok := err.(HttpError); ok {
 						rawHttpError(conn, httpErr.code, httpErr.Error())
