@@ -27,7 +27,7 @@ var (
 	publishCmd = &command.Command{
 		Name:             "publish",
 		HelpText:         `  Publish ports of the local device to the Diode Network.`,
-		ExampleText:      `  diode publish -public 80:80 -public 8080:8080 -protected 3000:3000 -protected 3001:3001 -private 22:22,0x......,0x...... -private 33:33,0x......,0x......`,
+		ExampleText:      `  diode publish -public 80:80 -public 8080:8080 -protected 3000:3000 -protected 3001:3001 -private 22:22,0x......,exampleBnsName -private 33:33,0x......,exampleBnsName`,
 		Run:              publishHandler,
 		Type:             command.DaemonCommand,
 		SingleConnection: true,
@@ -64,6 +64,7 @@ func parsePorts(portStrings []string, mode int) ([]*config.Port, error) {
 	for _, portString := range portStrings {
 		segments := strings.Split(portString, ",")
 		allowlist := make(map[util.Address]bool)
+		bnsAllowlist := make(map[string]bool)
 		for _, segment := range segments {
 			portDef := portPattern.FindStringSubmatch(segment)
 			if len(portDef) == 8 {
@@ -98,12 +99,13 @@ func parsePorts(portStrings []string, mode int) ([]*config.Port, error) {
 				}
 
 				port := &config.Port{
-					SrcHost:   srcHostStr,
-					Src:       srcPort,
-					To:        toPort,
-					Mode:      mode,
-					Protocol:  config.AnyProtocol,
-					Allowlist: allowlist,
+					SrcHost:      srcHostStr,
+					Src:          srcPort,
+					To:           toPort,
+					Mode:         mode,
+					Protocol:     config.AnyProtocol,
+					Allowlist:    allowlist,
+					BnsAllowlist: bnsAllowlist,
 				}
 
 				switch protocol {
@@ -125,6 +127,11 @@ func parsePorts(portStrings []string, mode int) ([]*config.Port, error) {
 			} else {
 				access := accessPattern.FindString(segment)
 				if access == "" {
+					bnsName := bnsPattern.FindString(segment)
+					if bnsName != "" && isValidBNS(bnsName) {
+						bnsAllowlist[bnsName] = true
+						continue
+					}
 					err := fmt.Errorf("port format expected (<from_ip>:)<from_port>(:<to_port>:<protocol>) or <address> but got: %v", segment)
 					return nil, err
 				}
@@ -141,16 +148,16 @@ func parsePorts(portStrings []string, mode int) ([]*config.Port, error) {
 	}
 
 	for _, v := range ports {
-		if mode == config.PublicPublishedMode && len(v.Allowlist) > 0 {
+		if mode == config.PublicPublishedMode && (len(v.Allowlist) > 0 || len(v.BnsAllowlist) > 0) {
 			err := fmt.Errorf("public port publishing does not support providing addresses")
 			return nil, err
 		}
-		if mode == config.PrivatePublishedMode && len(v.Allowlist) == 0 {
+		if mode == config.PrivatePublishedMode && (len(v.Allowlist) == 0 && len(v.BnsAllowlist) == 0) {
 			err := fmt.Errorf("private port publishing requires providing at least one address")
 			return nil, err
 		}
 		// limit fleet address size when publish protected port
-		if mode == config.ProtectedPublishedMode && len(v.Allowlist) > 5 {
+		if mode == config.ProtectedPublishedMode && (len(v.Allowlist) > 5 || len(v.BnsAllowlist) > 5) {
 			err := fmt.Errorf("fleet address size should not exceeds 5 when publish protected port")
 			return nil, err
 		}
@@ -295,15 +302,22 @@ func publishHandler() (err error) {
 			if port.To == httpPort {
 				if port.Mode == config.PublicPublishedMode {
 					cfg.PrintLabel("HTTP Gateway Enabled", fmt.Sprintf("http://%s.derateknoloji.com/", name))
+
 				}
-				break
+				if (8000 <= port.To && port.To <= 8100) || (8400 <= port.To && port.To <= 8500) {
+					cfg.PrintLabel("HTTP Gateway Enabled", fmt.Sprintf("https://%s.diode.link:%d/", name, port.To))
+				}
 			}
 		}
 		cfg.PrintLabel("Port      <name>", "<extern>     <mode>    <protocol>     <allowlist>")
 		for _, port := range cfg.PublishedPorts {
-			addrs := make([]string, 0, len(port.Allowlist))
+
+			addrs := make([]string, 0, len(port.Allowlist)+len(port.BnsAllowlist))
 			for addr := range port.Allowlist {
 				addrs = append(addrs, addr.HexString())
+			}
+			for bnsName := range port.BnsAllowlist {
+				addrs = append(addrs, bnsName)
 			}
 			host := net.JoinHostPort(port.SrcHost, strconv.Itoa(port.Src))
 			cfg.PrintLabel(fmt.Sprintf("Port %12s", host), fmt.Sprintf("%8d  %10s       %s        %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol), strings.Join(addrs, ",")))
@@ -318,7 +332,7 @@ func publishHandler() (err error) {
 	socksCfg := rpc.Config{
 		Addr:            cfg.SocksServerAddr(),
 		FleetAddr:       cfg.FleetAddr,
-		Blocklists:      cfg.Blocklists,
+		Blocklists:      cfg.Blocklists(),
 		Allowlists:      cfg.Allowlists,
 		EnableProxy:     true,
 		ProxyServerAddr: cfg.ProxyServerAddr(),

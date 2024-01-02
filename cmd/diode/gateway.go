@@ -15,12 +15,13 @@ var (
 	gatewayCmd = &command.Command{
 		Name:        "gateway",
 		HelpText:    `  Enable a public gateway server as is used by the "diode.link" website`,
-		ExampleText: `  diode gateway -httpd_port 8080 -httpsd_port 443 -secure -certpath ./cert.pem -privpath ./priv.pem`,
+		ExampleText: `  diode gateway -httpd_port 8080 -httpsd_port 443 -secure -certpath ./fullchain.pem -privpath ./privkey.pem`,
 		Run:         gatewayHandler,
 		Type:        command.DaemonCommand,
 	}
-	edgeACME      = false
-	edgeACMEEmail = ""
+	edgeACME           = false
+	edgeACMEEmail      = ""
+	edgeACMEAddtlCerts = ""
 )
 
 func init() {
@@ -35,12 +36,13 @@ func init() {
 	gatewayCmd.Flag.IntVar(&cfg.SProxyServerPort, "httpsd_port", 443, "port of httpsd server listening to")
 	gatewayCmd.Flag.StringVar(&cfg.SProxyServerPorts, "additional_ports", "", "httpsd secure server ports")
 
-	gatewayCmd.Flag.StringVar(&cfg.SProxyServerCertPath, "certpath", "./priv/cert.pem", "Pem format of certificate file path of httpsd secure server")
-	gatewayCmd.Flag.StringVar(&cfg.SProxyServerPrivPath, "privpath", "./priv/priv.pem", "Pem format of private key file path of httpsd secure server")
+	gatewayCmd.Flag.StringVar(&cfg.SProxyServerCertPath, "certpath", "./priv/fullchain.pem", "Pem format of certificate file path of httpsd secure server")
+	gatewayCmd.Flag.StringVar(&cfg.SProxyServerPrivPath, "privpath", "./priv/privkey.pem", "Pem format of private key file path of httpsd secure server")
 	gatewayCmd.Flag.BoolVar(&cfg.EnableSProxyServer, "secure", false, "enable httpsd server")
 	gatewayCmd.Flag.BoolVar(&cfg.AllowRedirectToSProxy, "allow_redirect", false, "allow redirect all http transmission to httpsd")
-	gatewayCmd.Flag.BoolVar(&edgeACME, "edge_acme", false, "allow to use ACME generate certificates automatically")
+	gatewayCmd.Flag.BoolVar(&edgeACME, "edge_acme", false, "allow to use ACME to generate certificates automatically")
 	gatewayCmd.Flag.StringVar(&edgeACMEEmail, "edge_acme_email", "", "ACME email configuration")
+	gatewayCmd.Flag.StringVar(&edgeACMEAddtlCerts, "edge_acme_addtl_certs", "", "comma separated list of additional directories containing fullchain.pem/privkey.pem pairs of private keys to import")
 }
 
 func gatewayHandler() (err error) {
@@ -58,7 +60,7 @@ func gatewayHandler() (err error) {
 	socksCfg := rpc.Config{
 		Addr:            cfg.SocksServerAddr(),
 		FleetAddr:       cfg.FleetAddr,
-		Blocklists:      cfg.Blocklists,
+		Blocklists:      cfg.Blocklists(),
 		Allowlists:      cfg.Allowlists,
 		EnableProxy:     true,
 		ProxyServerAddr: cfg.ProxyServerAddr(),
@@ -82,15 +84,16 @@ func gatewayHandler() (err error) {
 		return
 	}
 	proxyCfg := rpc.ProxyConfig{
-		EnableSProxy:      cfg.EnableSProxyServer,
-		ProxyServerAddr:   cfg.ProxyServerAddr(),
-		SProxyServerAddr:  cfg.SProxyServerAddr(),
-		SProxyServerPorts: cfg.SProxyAdditionalPorts(),
-		CertPath:          cfg.SProxyServerCertPath,
-		PrivPath:          cfg.SProxyServerPrivPath,
-		AllowRedirect:     cfg.AllowRedirectToSProxy,
-		EdgeACME:          edgeACME,
-		EdgeACMEEmail:     edgeACMEEmail,
+		EnableSProxy:       cfg.EnableSProxyServer,
+		ProxyServerAddr:    cfg.ProxyServerAddr(),
+		SProxyServerAddr:   cfg.SProxyServerAddr(),
+		SProxyServerPorts:  cfg.SProxyAdditionalPorts(),
+		CertPath:           cfg.SProxyServerCertPath,
+		PrivPath:           cfg.SProxyServerPrivPath,
+		AllowRedirect:      cfg.AllowRedirectToSProxy,
+		EdgeACME:           edgeACME,
+		EdgeACMEEmail:      edgeACMEEmail,
+		EdgeACMEAddtlCerts: edgeACMEAddtlCerts,
 	}
 	var proxyServer *rpc.ProxyServer
 	proxyServer, err = rpc.NewProxyServer(proxyCfg, socksServer)

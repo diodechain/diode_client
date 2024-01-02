@@ -167,6 +167,10 @@ func (client *Client) Host() (host string, err error) {
 
 // GetDeviceKey returns device key of given ref
 func (client *Client) GetDeviceKey(ref string) string {
+	if client == nil {
+		return ""
+	}
+
 	prefix := util.EncodeToString(client.serverID[:])
 	return fmt.Sprintf("%s:%s", prefix, ref)
 }
@@ -903,6 +907,9 @@ func (client *Client) ResolveReverseBNS(addr Address) (name string, err error) {
 	size := binary.BigEndian.Uint16(raw[len(raw)-2:])
 	if size%2 == 0 {
 		size = size / 2
+		if size > 30 {
+			return name, fmt.Errorf("found invalid string")
+		}
 		return string(raw[:size]), nil
 	}
 	// Todo fetch additional string parts
@@ -920,6 +927,15 @@ func (client *Client) GetCacheOrResolvePeers(deviceName string) ([]Address, erro
 // ResolveBNS resolves the (primary) destination of the BNS entry
 func (client *Client) ResolveBNS(name string) (addr []Address, err error) {
 	client.Log().Info("Resolving BNS: %s", name)
+	name = strings.ToLower(name)
+	for _, v := range client.config.SBlockdomains {
+		blockedDomain := strings.ToLower(v)
+		if blockedDomain == name {
+			client.Log().Error("Aborting domain: %s", name)
+			return nil, HttpError{403, fmt.Errorf("domain %s is not allowed", name)}
+		}
+	}
+
 	arrayKey := contract.BNSDestinationArrayLocation(name)
 	size := client.GetAccountValueInt(0, contract.BNSAddr, arrayKey)
 

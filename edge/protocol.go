@@ -160,7 +160,7 @@ func parseBlockHeaderResponse(buffer []byte) (interface{}, error) {
 		dminerPubkey,
 		util.DecodeBytesToUint(timestamp.Value),
 		util.DecodeBytesToUint(number.Value),
-		util.DecodeBytesToUint(nonce.Value),
+		*util.DecodeBytesToBigInt(nonce.Value),
 	)
 	if err != nil {
 		return nil, err
@@ -499,7 +499,8 @@ func parseInboundPortOpenRequest(buffer []byte) (interface{}, error) {
 		return portOpen, nil
 	}
 
-	return nil, fmt.Errorf("not supported port format: %v", inboundRequest.Payload.Port)
+	portOpen.Err = fmt.Errorf("not supported port format: %v", inboundRequest.Payload.Port)
+	return portOpen, nil
 }
 
 func parseInboundPortSendRequest(buffer []byte) (interface{}, error) {

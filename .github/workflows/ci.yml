@@ -6,8 +6,8 @@ jobs:
     name: "Run tests and build artifacts"
     strategy:
       matrix:
-        os: ["windows-latest", "ubuntu-latest", "macOS-latest"]
-        go: ["1.17.x"]
+        os: ["windows-latest", "ubuntu-20.04", "macos-11"]
+        go: ["1.20.6"]
     runs-on: ${{ matrix.os }}
     steps:
     # Install general deps
@@ -18,22 +18,23 @@ jobs:
 
     # Installing GO
     - if: runner.os == 'Windows'
-      name: "Install Golang on Windows"
+      name: "Install mingw deps"
       uses: msys2/setup-msys2@v2
       with:
-          install: pacman-mirrors pkg-config base-devel mingw-w64-x86_64-toolchain mingw-w64-x86_64-go upx mingw-w64-x86_64-dlfcn git
+          install: pacman-mirrors pkg-config base-devel mingw-w64-x86_64-toolchain upx mingw-w64-x86_64-dlfcn git
           update: false
-    - uses: actions/setup-go@v1
-      name: "Install Golang on Linux/macOS"
-      if: runner.os != 'Windows'
+
+    - uses: actions/setup-go@v3
+      name: "Install Golang on Linux/macOS/Windows"
       with:
         go-version: ${{ matrix.go }}
 
     # Building the app
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - if: runner.os == 'Windows'
       shell: msys2 {0}
       run: |
+        cp -r /c/hostedtoolcache/windows/go/1.20.6/x64/* /usr/
         make openssl
         make windows_test
         make dist
@@ -58,12 +59,12 @@ jobs:
         mkdir darwin_package_build
         DIODE_BUILD_DST=darwin_package_build DIODE_BINARY_DIRECTORY=dist sh darwin_package.sh
     - name: Archive production artifacts
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: ${{ env.ZIPNAME }}
         path: dist
     - name: Archive macos package production artifacts
-      uses: actions/upload-artifact@v1
+      uses: actions/upload-artifact@v3
       if: runner.os == 'macOS'
       with:
         name: ${{ runner.os }}
@@ -74,11 +75,11 @@ jobs:
     name: "Run app"
     strategy:
       matrix:
-        os: ["windows-latest", "ubuntu-latest", "macOS-latest"]
-        go: ["1.14.x"]
+        os: ["windows-latest", "ubuntu-20.04", "macos-11"]
+        go: ["1.20.6"]
     runs-on: ${{ matrix.os }}
     steps:
-    - uses: actions/checkout@v2
+    - uses: actions/checkout@v3
     - run: echo "ZIPNAME=`./deployment/zipname.sh`" >> $GITHUB_ENV
       shell: bash
     - uses: actions/download-artifact@v2
@@ -86,26 +87,26 @@ jobs:
         name: ${{ env.ZIPNAME }}
     - run: |
         chmod +x ./diode 
-        ./diode config -list
-        ./diode time
+        ./diode -update=false config -list
+        ./diode -update=false time
       shell: bash
 
   build_linux_arm:
     name: "Run build linux arm artifact"
     runs-on: "ubuntu-latest"
     steps:
-    - uses: actions/checkout@v1
+    - uses: actions/checkout@v3
     - name: "Compile pi-arm32 & pi-arm64"
       run: |
         cd .github
         bash ./build.sh
     - name: "Archive pi-arm32 artifacts"
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: "diode_linux_arm.zip"
         path: ${{ github.workspace }}/.github/diode_linux_arm.zip
     - name: "Archive pi-arm64 artifacts"
-      uses: actions/upload-artifact@v2
+      uses: actions/upload-artifact@v3
       with:
         name: "diode_linux_arm64.zip"
         path: ${{ github.workspace }}/.github/diode_linux_arm64.zip

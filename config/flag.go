@@ -49,6 +49,7 @@ type Config struct {
 	RetryWait        time.Duration `yaml:"retrywait,omitempty" json:"retrywait,omitempty"`
 	RlimitNofile     int           `yaml:"rlimit_nofile,omitempty" json:"rlimit_nofile,omitempty"`
 	LogFilePath      string        `yaml:"logfilepath,omitempty" json:"logfilepath,omitempty"`
+	SBlockdomains    StringValues  `yaml:"blockdomains,omitempty" json:"blockdomains,omitempty"`
 	SBlocklists      StringValues  `yaml:"blocklists,omitempty" json:"blocklists,omitempty"`
 	SAllowlists      StringValues  `yaml:"allowlists,omitempty" json:"allowlists,omitempty"`
 	SBinds           StringValues  `yaml:"bind,omitempty" json:"bind,omitempty"`
@@ -89,7 +90,8 @@ type Config struct {
 	PublicPublishedPorts    StringValues     `yaml:"published_public_ports,omitempty" json:"-"`
 	ProtectedPublishedPorts StringValues     `yaml:"published_protected_ports,omitempty" json:"-"`
 	PrivatePublishedPorts   StringValues     `yaml:"published_private_ports,omitempty" json:"-"`
-	Blocklists              map[Address]bool `yaml:"-" json:"-"`
+	blocklists              map[Address]bool `yaml:"-" json:"-"`
+	BnsCacheTime            time.Duration    `yaml:"-" json:"-"` // BNS cache time
 	Allowlists              map[Address]bool `yaml:"-" json:"-"`
 	LogMode                 int              `yaml:"-" json:"-"`
 	LogDateTime             bool             `yaml:"-" json:"-"`
@@ -202,6 +204,21 @@ func (cfg *Config) SProxyAdditionalPorts() []int {
 	return ports
 }
 
+func (cfg *Config) Blocklists() map[Address]bool {
+	if cfg.blocklists == nil {
+		cfg.blocklists = make(map[util.Address]bool)
+		for _, v := range cfg.SBlocklists {
+			addr, err := util.DecodeAddress(v)
+			if err == nil {
+				cfg.blocklists[addr] = true
+			} else {
+				cfg.PrintError("Invalid address in blocklist", err)
+			}
+		}
+	}
+	return cfg.blocklists
+}
+
 func (cfg *Config) PrintLabel(label string, value string) {
 	msg := fmt.Sprintf("%-20s : %-42s", label, value)
 	msg = strings.Replace(msg, "%", "%%", -1)
@@ -209,7 +226,7 @@ func (cfg *Config) PrintLabel(label string, value string) {
 }
 
 func (cfg *Config) PrintError(msg string, err error) {
-	cfg.Logger.Error(msg, "error", err.Error())
+	cfg.Logger.Error(fmt.Sprintf("%s: %s", msg, err.Error()))
 }
 
 func (cfg *Config) PrintInfo(msg string) {
@@ -226,12 +243,13 @@ type Bind struct {
 
 // Port struct for listening port
 type Port struct {
-	SrcHost   string
-	Src       int
-	To        int
-	Mode      int
-	Protocol  int
-	Allowlist map[Address]bool
+	SrcHost      string
+	Src          int
+	To           int
+	Mode         int
+	Protocol     int
+	Allowlist    map[Address]bool
+	BnsAllowlist map[string]bool
 }
 
 // ModeIdentifier returns a mode code of the human readable version

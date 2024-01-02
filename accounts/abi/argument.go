@@ -239,13 +239,14 @@ func (arguments Arguments) unpackTuple(v interface{}, marshalledValues []interfa
 		}
 	}
 	for i, arg := range nonIndexedArgs {
+		tmp := arg.Type
 		switch kind {
 		case reflect.Struct:
 			field := value.FieldByName(abi2struct[arg.Name])
 			if !field.IsValid() {
 				return fmt.Errorf("abi: field %s can't be found in the given value", arg.Name)
 			}
-			if err := unpack(&arg.Type, field.Addr().Interface(), marshalledValues[i]); err != nil {
+			if err := unpack(&tmp, field.Addr().Interface(), marshalledValues[i]); err != nil {
 				return err
 			}
 		case reflect.Slice, reflect.Array:
@@ -256,7 +257,7 @@ func (arguments Arguments) unpackTuple(v interface{}, marshalledValues []interfa
 			if err := requireAssignable(v, reflect.ValueOf(marshalledValues[i])); err != nil {
 				return err
 			}
-			if err := unpack(&arg.Type, v.Addr().Interface(), marshalledValues[i]); err != nil {
+			if err := unpack(&tmp, v.Addr().Interface(), marshalledValues[i]); err != nil {
 				return err
 			}
 		default:

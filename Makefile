@@ -1,6 +1,10 @@
 TESTS= $(shell go list ./... | grep -v -e gowasm_test -e cmd)
 GOPATH= $(shell go env GOPATH)
 GOMODCACHE= $(shell go env GOMODCACHE)
+# go 1.14 patch
+ifeq ($(GOMODCACHE),)
+GOMODCACHE := $(shell go env GOPATH)/pkg/mod
+endif
 COMMIT= $(shell git describe --tags --dirty)
 BUILDTIME= $(shell date +"%d %b %Y")
 GOBUILD=go build -ldflags '-s -r ./ -X "main.version=${COMMIT}${VARIANT}" -X "main.buildTime=${BUILDTIME}"' -tags patch_runtime
@@ -58,27 +62,28 @@ ci_test: runtime
 .PHONY: lint
 lint: runtime
 	go vet ./...
-	GO111MODULE=on go get honnef.co/go/tools/cmd/staticcheck@2020.1.3
+	cd tools && go install honnef.co/go/tools/cmd/staticcheck@latest
 	$(GOPATH)/bin/staticcheck -go 1.14 ./...
 
 # Exclude rules from security check:
 # G104 (CWE-703): Errors unhandled.
 # G108 (CWE-200): Profiling endpoint is automatically exposed on /debug/pprof
 # G110 (CWE-409): Potential DoS vulnerability via decompression bomb.
+# G112: Potential slowloris attack
+# G114: Use of net/http serve function that has no support for setting timeouts
 # G204 (CWE-78): Subprocess launched with variable.
 # G304 (CWE-22): Potential file inclusion via variable.
 # G402 (CWE-295): TLS InsecureSkipVerify set true.
 # G404 (CWE-338): Use of weak random number generator (math/rand instead of crypto/rand).
 .PHONY: seccheck
 seccheck: runtime
-	go vet ./...
-	GO111MODULE=on go get github.com/securego/gosec/v2/cmd/gosec@v2.9.3
-	$(GOPATH)/bin/gosec -exclude=G104,G108,G110,G204,G304,G402,G404 -exclude-dir .history ./...
+	cd tools && go install github.com/securego/gosec/v2/cmd/gosec@latest
+	$(GOPATH)/bin/gosec -exclude=G104,G108,G110,G112,G114,G204,G304,G402,G404 -exclude-dir .history ./...
 
 .PHONY: clean
 clean:
 	-rm $(BINS)
-	go clean -cache ./...
+	go clean -cache
 
 .PHONY: install
 install:

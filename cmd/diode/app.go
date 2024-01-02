@@ -74,9 +74,11 @@ func init() {
 	diodeCmd.Flag.DurationVar(&cfg.RemoteRPCTimeout, "timeout", 5*time.Second, "timeout seconds to connect to the remote rpc server")
 	diodeCmd.Flag.DurationVar(&cfg.RetryWait, "retrywait", 1*time.Second, "wait seconds before next retry")
 	diodeCmd.Flag.Var(&cfg.RemoteRPCAddrs, "diodeaddrs", "addresses of Diode node server (default: asia.prenet.diode.io:41046, europe.prenet.diode.io:41046, usa.prenet.diode.io:41046)")
-	diodeCmd.Flag.Var(&cfg.SBlocklists, "blocklists", "addresses are not allowed to connect to published resource (worked when allowlists is empty)")
-	diodeCmd.Flag.Var(&cfg.SAllowlists, "allowlists", "addresses are allowed to connect to published resource (worked when blocklists is empty)")
+	diodeCmd.Flag.Var(&cfg.SBlockdomains, "blockdomains", "domains (bns names) that are not allowed")
+	diodeCmd.Flag.Var(&cfg.SBlocklists, "blocklists", "addresses are not allowed to connect to published resource (used when allowlists is empty)")
+	diodeCmd.Flag.Var(&cfg.SAllowlists, "allowlists", "addresses are allowed to connect to published resource (used when blocklists is empty)")
 	diodeCmd.Flag.Var(&cfg.SBinds, "bind", "bind a remote port to a local port. -bind <local_port>:<to_address>:<to_port>:(udp|tcp)")
+	diodeCmd.Flag.DurationVar(&cfg.BnsCacheTime, "bnscachetime", 10*time.Minute, "time for bns address resolve cache. (default: 10 minutes)")
 	config.AppConfig = cfg
 	// Add diode commands
 	diodeCmd.AddSubCommand(bnsCmd)
@@ -128,7 +130,15 @@ func prepareDiode() error {
 	} else {
 		remoteRPCAddrs := []string{}
 		for _, RPCAddr := range cfg.RemoteRPCAddrs {
-			if isValidRPCAddress(RPCAddr) && !util.StringsContain(remoteRPCAddrs, RPCAddr) {
+			if !isValidRPCAddress(RPCAddr) {
+				NewRPCAddr := RPCAddr + ":41046"
+				if !isValidRPCAddress(NewRPCAddr) {
+					return fmt.Errorf("invalid RPC address: %s", RPCAddr)
+				}
+				RPCAddr = NewRPCAddr
+			}
+
+			if !util.StringsContain(remoteRPCAddrs, RPCAddr) {
 				remoteRPCAddrs = append(remoteRPCAddrs, RPCAddr)
 			}
 		}
@@ -220,7 +230,6 @@ func (dio *Diode) Init() error {
 		var shouldUpdateDiode bool
 		lastUpdateAtByt, err = db.DB.Get("last_update_at")
 		if err != nil {
-			lastUpdateAt = time.Now()
 			shouldUpdateDiode = true
 		} else {
 			lastUpdateAtInt := util.DecodeBytesToInt(lastUpdateAtByt)

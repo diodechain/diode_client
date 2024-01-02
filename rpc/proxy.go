@@ -5,11 +5,13 @@
 package rpc
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,15 +23,16 @@ import (
 
 // Config is Proxy Server configuration
 type ProxyConfig struct {
-	ProxyServerAddr   string
-	SProxyServerAddr  string
-	SProxyServerPorts []int
-	CertPath          string
-	PrivPath          string
-	EnableSProxy      bool
-	AllowRedirect     bool
-	EdgeACME          bool
-	EdgeACMEEmail     string
+	ProxyServerAddr    string
+	SProxyServerAddr   string
+	SProxyServerPorts  []int
+	CertPath           string
+	PrivPath           string
+	EnableSProxy       bool
+	AllowRedirect      bool
+	EdgeACME           bool
+	EdgeACMEEmail      string
+	EdgeACMEAddtlCerts string
 }
 
 type HttpError struct {
@@ -280,11 +283,14 @@ func (proxyServer *ProxyServer) Start() error {
 		httpsdHandler := http.HandlerFunc(proxyServer.pipeProxy)
 		protos := make(map[string]func(*http.Server, *tls.Conn, http.Handler))
 		httpsServer := &http.Server{Handler: httpsdHandler, TLSNextProto: protos}
-		// load pem format certificate key pair
+
+		// Load pem format certificate key pair, we need at least one existing cert
+		// (preferabbly wildcard for the primary domain) to operate
 		cert, err := tls.LoadX509KeyPair(proxyServer.Config.CertPath, proxyServer.Config.PrivPath)
 		if err != nil {
 			return err
 		}
+
 		var tlsConfig *tls.Config
 		if proxyServer.Config.EdgeACME {
 			// must listen to 443 for ACME
@@ -296,6 +302,11 @@ func (proxyServer *ProxyServer) Start() error {
 			certmagicCfg := certmagic.NewDefault()
 			certmagicCfg.OnDemand = &certmagic.OnDemandConfig{
 				DecisionFunc: func(name string) error {
+					dots := strings.Count(name, ".")
+					if dots > 3 {
+						return fmt.Errorf("rejecting invalid domain %v", name)
+					}
+
 					_, _, deviceID, _, err := parseHost(name)
 					if err != nil {
 						return err
@@ -307,15 +318,21 @@ func (proxyServer *ProxyServer) Start() error {
 					return nil
 				},
 			}
+
 			// cache the certificate
-			certmagicCfg.CacheUnmanagedTLSCertificate(cert, nil)
+			certmagicCfg.CacheUnmanagedTLSCertificate(context.Background(), cert, nil)
+			for _, path := range strings.Split(proxyServer.Config.EdgeACMEAddtlCerts, ",") {
+				extraCert, err := tls.LoadX509KeyPair(fmt.Sprintf("%s/fullchain.pem", path), fmt.Sprintf("%s/privkey.pem", path))
+				if err == nil {
+					proxyServer.logger.Info("Loading additional certificate from %s\n", path)
+					certmagicCfg.CacheUnmanagedTLSCertificate(context.Background(), extraCert, nil)
+				} else {
+					proxyServer.logger.Error("Loading additional certificate from %s failed: %v\n", path, err)
+				}
+			}
+
 			tlsConfig = certmagicCfg.TLSConfig()
 			tlsConfig.NextProtos = append([]string{"http/1.1"}, tlsConfig.NextProtos...)
-			// don't have to sync certificates
-			// err := certmagicCfg.ManageSync([]string{})
-			// if err != nil {
-			// 	return err
-			// }
 		} else {
 			httpsdAddr = config.AppConfig.SProxyServerAddr()
 			tlsConfig = &tls.Config{

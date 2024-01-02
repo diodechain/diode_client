@@ -47,7 +47,7 @@ func socksdHandler() (err error) {
 	socksCfg := rpc.Config{
 		Addr:            cfg.SocksServerAddr(),
 		FleetAddr:       cfg.FleetAddr,
-		Blocklists:      cfg.Blocklists,
+		Blocklists:      cfg.Blocklists(),
 		Allowlists:      cfg.Allowlists,
 		EnableProxy:     false,
 		ProxyServerAddr: cfg.ProxyServerAddr(),

@@ -22,12 +22,11 @@ Name
 SYNOPSYS
   diode [-allowlists=] [-api=false] [-apiaddr=localho...]
         [-bind=] [-blocklists=] [-blockprofile=] [-blockprofilerate=1]
-        [-configpath=] [-cpuprofile=] [-dbpath=/Users/...] [-debug=false]
-        [-diodeaddrs=] [-e2etimeout=5s] [-fleet=]
-        [-keepalive=true] [-keepaliveinterval=5s] [-logdatetime=false] [-logfilepath=]
-        [-memprofile=] [-metrics=false] [-mutexprofile=] [-mutexprofilerate=1]
-        [-pprofport=0] [-retrytimes=3] [-retrywait=1s] [-rlimit_nofile=0]
-        [-timeout=5s] [-update=true] COMMAND <args>
+        [-bnscachetime=10m0s] [-configpath=] [-cpuprofile=] [-dbpath=/home/t...]
+        [-debug=false] [-diodeaddrs=] [-e2etimeout=15s] [-fleet=]
+        [-logdatetime=false] [-logfilepath=] [-memprofile=] [-metrics=false]
+        [-mutexprofile=] [-mutexprofilerate=1] [-pprofport=0] [-retrytimes=3]
+        [-retrywait=1s] [-rlimit_nofile=0] [-timeout=5s] [-update=true] COMMAND <args>
 
 COMMANDS
   bns          Register/Update name service on diode blockchain.

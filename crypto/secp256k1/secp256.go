@@ -103,9 +103,7 @@ func RecoverPubkey(msg []byte, sig []byte) ([]byte, error) {
 		return nil, err
 	}
 	shiftSig := make([]byte, 65)
-	for i, byt := range sig[1:] {
-		shiftSig[i] = byt
-	}
+	copy(shiftSig, sig[1:])
 	shiftSig[64] = sig[0]
 
 	var (
