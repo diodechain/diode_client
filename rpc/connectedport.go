@@ -278,6 +278,11 @@ func (port *ConnectedPort) UpgradeTLSServer() (err error) {
 }
 
 func (port *ConnectedPort) upgradeTLS(fn func(*E2EServer) error) error {
+	if port.client == nil {
+		err := fmt.Errorf("aborting TLS upgrade during client shutdown")
+		port.Log().Error("Failed to tunnel openssl client: %v", err.Error())
+		return err
+	}
 	e2eServer := port.NewE2EServer(port.Conn, port.DeviceID, port.client.pool)
 	err := fn(e2eServer)
 	if err != nil {
