@@ -1,7 +1,7 @@
 TESTS= $(shell go list ./... | grep -v -e gowasm_test -e cmd)
 GOPATH= $(shell go env GOPATH)
 GOMODCACHE= $(shell go env GOMODCACHE)
-# go 1.14 patch
+# go 1.20 patch
 ifeq ($(GOMODCACHE),)
 GOMODCACHE := $(shell go env GOPATH)/pkg/mod
 endif
