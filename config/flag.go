@@ -28,9 +28,9 @@ const (
 
 var (
 	AppConfig                  *Config
-	NullAddr                   = [20]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-	DefaultFleetAddr           = [20]byte{96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
-	errConfigNotLoadedFromFile = fmt.Errorf("config wasn't loaded from file")
+	NullAddr                   util.Address = [20]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	DefaultFleetAddr                        = [20]byte{96, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	errConfigNotLoadedFromFile              = fmt.Errorf("config wasn't loaded from file")
 )
 
 // Address represents an Ethereum address

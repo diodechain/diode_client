@@ -188,6 +188,12 @@ func handleRegister() (done bool, err error) {
 		bnsAddr = append(bnsAddr, cfg.ClientAddr)
 	}
 	// check bns
+	ownerAddr, err := client.ResolveBNSOwner(bnsName)
+	if err == nil && ownerAddr != config.NullAddr && ownerAddr != cfg.ClientAddr {
+		cfg.PrintError(fmt.Sprintf("BNS name is already registered by a different owner %s", ownerAddr.HexString()), fmt.Errorf("conflict"))
+		return
+	}
+
 	obnsAddr, err = client.ResolveBNS(bnsName)
 	if err == nil && len(obnsAddr) == len(bnsAddr) {
 		if util.Equal(obnsAddr, bnsAddr) && !cfg.BNSForce {
