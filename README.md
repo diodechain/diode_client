@@ -22,7 +22,7 @@ Name
 SYNOPSYS
   diode [-allowlists=] [-api=false] [-apiaddr=localho...]
         [-bind=] [-blocklists=] [-blockprofile=] [-blockprofilerate=1]
-        [-bnscachetime=10m0s] [-configpath=] [-cpuprofile=] [-dbpath=/home/t...]
+        [-resolvecachetime=10m0s] [-configpath=] [-cpuprofile=] [-dbpath=/home/t...]
         [-debug=false] [-diodeaddrs=] [-e2etimeout=15s] [-fleet=]
         [-logdatetime=false] [-logfilepath=] [-memprofile=] [-metrics=false]
         [-mutexprofile=] [-mutexprofilerate=1] [-pprofport=0] [-retrytimes=3]
