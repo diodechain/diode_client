@@ -164,23 +164,23 @@ func (p *DataPool) GetCacheOrResolvePeers(deviceName string, client *Client) ([]
 
 }
 
-// getCacheOrResolvePeersOfDrive get peers of drive address
-func (p *DataPool) GetCacheOrResolvePeersOfDrive(addr Address, client *Client) ([]Address, error) {
-
+func (p *DataPool) GetCacheOrResolveAllPeersOfAddrs(addr Address, client *Client) ([]Address, error) {
 	peerKey := fmt.Sprintf("peers:%s", addr.HexString())
 	peers, cached := p.getCacheBNS(peerKey)
+	addrs := []Address{addr}
 	if cached {
-		//check if cache is expired if so call updateCacheResolvePeersOfDrive async. Expire duration is config.AppConfig.ResolveCacheTime
+		//check if cache is expired if so call updateCacheResolveAllPeersOfAddrs async. Expire duration is config.AppConfig.ResolveCacheTime
 		if !p.bnsCacheUpdatingFlag[peerKey] && config.AppConfig.ResolveCacheTime > 0 {
 			if expireTime, ok := p.bnsCacheExpireItem[peerKey]; ok && time.Now().After(expireTime) {
 				p.bnsCacheUpdatingFlag[peerKey] = true
-				go p.updateCacheResolvePeersOfDrive(addr, client)
+				go p.updateCacheResolveAllPeersOfAddrs(addrs, client)
 			}
 		}
+
 		return peers, nil
 	}
 
-	p.updateCacheResolvePeersOfDrive(addr, client)
+	p.updateCacheResolveAllPeersOfAddrs(addrs, client)
 
 	peers, cached = p.getCacheBNS(peerKey)
 	if cached {
@@ -190,59 +190,11 @@ func (p *DataPool) GetCacheOrResolvePeersOfDrive(addr Address, client *Client) (
 	return nil, nil
 }
 
-// getCacheOrResolveMembersOfDriveMember get members of drive member address
-func (p *DataPool) GetCacheOrResolveMembersOfDriveMember(addr Address, client *Client) ([]Address, error) {
-	peerKey := fmt.Sprintf("members:%s", addr.HexString())
-	peers, cached := p.getCacheBNS(peerKey)
-	if cached {
-		//check if cache is expired if so call updateCacheResolveMembersOfDriveMember async. Expire duration is config.AppConfig.ResolveCacheTime
-		if !p.bnsCacheUpdatingFlag[peerKey] && config.AppConfig.ResolveCacheTime > 0 {
-			if expireTime, ok := p.bnsCacheExpireItem[peerKey]; ok && time.Now().After(expireTime) {
-				p.bnsCacheUpdatingFlag[peerKey] = true
-				go p.updateCacheResolveMembersOfDriveMember(addr, client)
-			}
-		}
-		return peers, nil
-	}
+func (p *DataPool) updateCacheResolveAllPeersOfAddrs(members []Address, client *Client) {
+	peerKey := fmt.Sprintf("peers:%s", members[0].HexString())
+	peers := resolveAllPeersOfAddrs(members, client)
 
-	p.updateCacheResolveMembersOfDriveMember(addr, client)
-
-	peers, cached = p.getCacheBNS(peerKey)
-	if cached {
-		return peers, nil
-	}
-
-	return nil, nil
-}
-
-func (p *DataPool) updateCacheResolveMembersOfDriveMember(addr Address, client *Client) {
-	peerKey := fmt.Sprintf("members:%s", addr.HexString())
-	var peersList []Address
-	members, err := client.ResolveMembers(addr)
-	if err == nil {
-		peersList = append(peersList, members...)
-	}
-
-	p.SetCacheBNS(peerKey, peersList)
-	p.bnsCacheExpireItem[peerKey] = time.Now().Add(config.AppConfig.ResolveCacheTime)
-	p.bnsCacheUpdatingFlag[peerKey] = false
-}
-
-func (p *DataPool) updateCacheResolvePeersOfDrive(addr Address, client *Client) {
-	peerKey := fmt.Sprintf("peers:%s", addr.HexString())
-	var peersList []Address
-	members, err := client.ResolveMembers(addr)
-	if err == nil {
-		peersList = append(peersList, members...)
-	}
-	for _, address := range members {
-		members, new_err := client.ResolveMembers(address)
-		if new_err == nil {
-			peersList = append(peersList, members...)
-		}
-	}
-
-	p.SetCacheBNS(peerKey, peersList)
+	p.SetCacheBNS(peerKey, peers)
 	p.bnsCacheExpireItem[peerKey] = time.Now().Add(config.AppConfig.ResolveCacheTime)
 	p.bnsCacheUpdatingFlag[peerKey] = false
 }
@@ -255,12 +207,7 @@ func (p *DataPool) updateCacheResolvePeers(deviceName string, client *Client) {
 		return
 	}
 
-	for _, address := range bnsResult {
-		members, new_err := client.ResolveMembers(address)
-		if new_err == nil {
-			addr = append(addr, members...)
-		}
-	}
+	addr = resolveAllPeersOfAddrs(bnsResult, client)
 
 	p.SetCacheBNS(peerKey, addr)
 	p.bnsCacheExpireItem[peerKey] = time.Now().Add(config.AppConfig.ResolveCacheTime)
@@ -275,6 +222,33 @@ func (p *DataPool) updateCacheResolveBNS(deviceName string, client *Client) {
 		p.bnsCacheExpireItem[bnsKey] = time.Now().Add(config.AppConfig.ResolveCacheTime)
 	}
 	p.bnsCacheUpdatingFlag[bnsKey] = false
+}
+
+func resolveAllPeersOfAddrs(members []Address, client *Client) (peers []Address) {
+	for _, maybePeerAddr := range members {
+		members, new_err := client.ResolveMembers(maybePeerAddr)
+		if new_err == nil {
+			//if member count is 1 and member is itself, it is a peer.
+			if len(members) == 1 && members[0] == maybePeerAddr {
+				peers = append(peers, maybePeerAddr)
+				continue
+			}
+			// check if members list includes itself to prevent infinite loop. If so, delete itself from members list
+			for i, member := range members {
+				if member == maybePeerAddr {
+					members = append(members[:i], members[i+1:]...)
+					break
+				}
+			}
+			// smart contract, might need to recurse
+			peers = append(peers, resolveAllPeersOfAddrs(members, client)...)
+		} else {
+			fmt.Printf("resolvedPeer: %x\n", maybePeerAddr)
+			// not a smart contract, instead a real (device) peer
+			peers = append(peers, maybePeerAddr)
+		}
+	}
+	return peers
 }
 
 func (p *DataPool) Lock(name string) {

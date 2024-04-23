@@ -924,12 +924,8 @@ func (client *Client) GetCacheOrResolvePeers(deviceName string) ([]Address, erro
 	return client.pool.GetCacheOrResolvePeers(deviceName, client)
 }
 
-func (client *Client) GetCacheOrResolvePeersOfDrive(driveAddress Address) ([]Address, error) {
-	return client.pool.GetCacheOrResolvePeersOfDrive(driveAddress, client)
-}
-
-func (client *Client) GetCacheOrResolveMembersOfDriveMember(driveMember Address) ([]Address, error) {
-	return client.pool.GetCacheOrResolveMembersOfDriveMember(driveMember, client)
+func (client *Client) GetCacheOrResolveAllPeersOfAddrs(addrs Address) ([]Address, error) {
+	return client.pool.GetCacheOrResolveAllPeersOfAddrs(addrs, client)
 }
 
 // ResolveBNS resolves the (primary) destination of the BNS entry
@@ -1077,7 +1073,7 @@ func (client *Client) ResolveMembers(members Address) (addr []Address, err error
 // driveMember are the members of the Drive contract, identified by trying to get member account value raw of the resolved members of the given address. GetAccountValueRaw returns err for the member addresses of the given address when driveMember address is given.
 // Drive are the drive contract addresses, identified by trying to get member account value raw of the resolved members of the given address. GetAccountValueRaw returns members array for the member addresses of the given address when drive address is given.
 func (client *Client) ResolveAccountType(addr Address) (string, error) {
-	client.Log().Info("Resolving Account Type: %s", addr.HexString())
+	client.Log().Info("Resolving Account Type of: %s", addr.HexString())
 
 	blockNumber, _ := client.LastValid()
 

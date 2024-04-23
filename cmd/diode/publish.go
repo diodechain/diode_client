@@ -129,11 +129,17 @@ func parsePorts(portStrings []string, mode int) ([]*config.Port, error) {
 				}
 				ports = append(ports, port)
 			} else {
+				client := app.clientManager.GetNearestClient()
 				access := accessPattern.FindString(segment)
 				if access == "" {
 					bnsName := bnsPattern.FindString(segment)
 					if bnsName != "" && isValidBNS(bnsName) {
 						bnsAllowlist[bnsName] = true
+						_, err := client.GetCacheOrResolvePeers(bnsName)
+						if err != nil {
+							err = fmt.Errorf("port format couldn't resolve BNS name: %v", segment)
+							return nil, err
+						}
 						continue
 					}
 					err := fmt.Errorf("port format expected (<from_ip>:)<from_port>(:<to_port>:<protocol>) or <address> but got: %v", segment)
@@ -145,31 +151,31 @@ func parsePorts(portStrings []string, mode int) ([]*config.Port, error) {
 					err = fmt.Errorf("port format couldn't parse port address: %v", segment)
 					return nil, err
 				}
-				client := app.clientManager.GetNearestClient()
 				addrType, err := client.ResolveAccountType(addr)
 				if err != nil {
 					err = fmt.Errorf("port format couldn't resolve account type: %v", segment)
 					return nil, err
 				}
 				//Add to the list and initialize cache for drive member and drive
+				//config.AppConfig.Logger.Info("Account type of the address: %s is %v\n", addr.HexString(), addrType)
 				if addrType == "driveMember" {
 					driveMemberAllowlist[addr] = true
-					config.AppConfig.Logger.Info("Resolving members of the Device: %x\n", addr)
-					_, err := client.GetCacheOrResolveMembersOfDriveMember(addr)
+					config.AppConfig.Logger.Info("Resolving members of the Device: %s\n", addr.HexString())
+					_, err := client.GetCacheOrResolveAllPeersOfAddrs(addr)
 					if err != nil {
 						err = fmt.Errorf("port format couldn't resolve Device: %v", segment)
 						return nil, err
 					}
-					config.AppConfig.Logger.Info("Resolved members of the Device: %x\n", addr)
+					config.AppConfig.Logger.Info("Resolved members of the Device: %s\n", addr.HexString())
 				} else if addrType == "drive" {
 					driveAllowlist[addr] = true
-					config.AppConfig.Logger.Info("Resolving members and peers of the Drive: %x\n", addr)
-					_, err := client.GetCacheOrResolvePeersOfDrive(addr)
+					config.AppConfig.Logger.Info("Resolving members and peers of the Drive: %s\n", addr.HexString())
+					_, err := client.GetCacheOrResolveAllPeersOfAddrs(addr)
 					if err != nil {
 						err = fmt.Errorf("port format couldn't resolve drive: %v", segment)
 						return nil, err
 					}
-					config.AppConfig.Logger.Info("Resolved members and peers of the Drive: %x\n", addr)
+					config.AppConfig.Logger.Info("Resolved members and peers of the Drive: %s\n", addr.HexString())
 				} else {
 					allowlist[addr] = true
 				}

@@ -207,7 +207,7 @@ func (client *Client) isAllowlisted(port *config.Port, addr Address) bool {
 					if !allowed {
 						continue
 					}
-					addrs, err := client.GetCacheOrResolveMembersOfDriveMember(driveMember)
+					addrs, err := client.GetCacheOrResolveAllPeersOfAddrs(driveMember)
 					if err != nil {
 						continue
 					}
@@ -223,7 +223,7 @@ func (client *Client) isAllowlisted(port *config.Port, addr Address) bool {
 					if !allowed {
 						continue
 					}
-					addrs, err := client.GetCacheOrResolvePeersOfDrive(drive)
+					addrs, err := client.GetCacheOrResolveAllPeersOfAddrs(drive)
 					if err != nil {
 						continue
 					}
