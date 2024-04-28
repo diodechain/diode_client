@@ -92,6 +92,7 @@ type Config struct {
 	PrivatePublishedPorts   StringValues     `yaml:"published_private_ports,omitempty" json:"-"`
 	blocklists              map[Address]bool `yaml:"-" json:"-"`
 	ResolveCacheTime        time.Duration    `yaml:"-" json:"-"` // BNS cache time
+	BnsCacheTime            time.Duration    `yaml:"-" json:"-"` // BNS cache time
 	Allowlists              map[Address]bool `yaml:"-" json:"-"`
 	LogMode                 int              `yaml:"-" json:"-"`
 	LogDateTime             bool             `yaml:"-" json:"-"`
