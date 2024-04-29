@@ -924,6 +924,10 @@ func (client *Client) GetCacheOrResolvePeers(deviceName string) ([]Address, erro
 	return client.pool.GetCacheOrResolvePeers(deviceName, client)
 }
 
+func (client *Client) GetCacheOrResolveAllPeersOfAddrs(addrs Address) ([]Address, error) {
+	return client.pool.GetCacheOrResolveAllPeersOfAddrs(addrs, client)
+}
+
 // ResolveBNS resolves the (primary) destination of the BNS entry
 func (client *Client) ResolveBNS(name string) (addr []Address, err error) {
 	client.Log().Info("Resolving BNS: %s", name)
@@ -1016,6 +1020,10 @@ func (client *Client) ResolveBlockHash(blockNumber uint64) (blockHash []byte, er
 }
 
 // ResolveMembers a multisig
+// ResolveMembers resolves the members of a given address.
+// It retrieves the owner and other member addresses associated with the given address.
+// If there is no contract associated with the address, it assumes the address is a normal address.
+// It returns a slice of addresses and an error, if any.
 func (client *Client) ResolveMembers(members Address) (addr []Address, err error) {
 	client.Log().Info("Resolving Members: %s", members.HexString())
 
@@ -1058,6 +1066,34 @@ func (client *Client) ResolveMembers(members Address) (addr []Address, err error
 		}
 	}
 	return addr, nil
+}
+
+// Resolve Account type of the given address. Types are: driveMember, user or Drive
+// users are the normal addresses, identifed by trying to get member account value raw. GetAccountValueRaw returns err when user address is given.
+// driveMember are the members of the Drive contract, identified by trying to get member account value raw of the resolved members of the given address. GetAccountValueRaw returns err for the member addresses of the given address when driveMember address is given.
+// Drive are the drive contract addresses, identified by trying to get member account value raw of the resolved members of the given address. GetAccountValueRaw returns members array for the member addresses of the given address when drive address is given.
+func (client *Client) ResolveAccountType(addr Address) (string, error) {
+	client.Log().Info("Resolving Account Type of: %s", addr.HexString())
+
+	blockNumber, _ := client.LastValid()
+
+	_, err := client.GetAccountValueRaw(blockNumber, addr, contract.MemberIndex())
+	if err != nil {
+		return "user", nil
+	}
+	raw, err := client.GetAccountValueRaw(blockNumber, addr, contract.MemberLocation(0))
+	if err != nil {
+		//error resolving members of the given address
+		client.Log().Error("Read invalid Member record offset: %d %v (%v)", 0, err, string(raw))
+		return "", err
+	}
+	var memberAddr util.Address
+	copy(memberAddr[:], raw[12:])
+	_, err = client.GetAccountValueRaw(blockNumber, memberAddr, contract.MemberIndex())
+	if err != nil {
+		return "driveMember", nil
+	}
+	return "drive", nil
 }
 
 // IsDeviceAllowlisted returns is given address allowlisted

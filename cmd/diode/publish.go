@@ -65,6 +65,8 @@ func parsePorts(portStrings []string, mode int) ([]*config.Port, error) {
 		segments := strings.Split(portString, ",")
 		allowlist := make(map[util.Address]bool)
 		bnsAllowlist := make(map[string]bool)
+		driveAllowlist := make(map[util.Address]bool)
+		driveMemberAllowlist := make(map[util.Address]bool)
 		for _, segment := range segments {
 			portDef := portPattern.FindStringSubmatch(segment)
 			if len(portDef) == 8 {
@@ -99,13 +101,15 @@ func parsePorts(portStrings []string, mode int) ([]*config.Port, error) {
 				}
 
 				port := &config.Port{
-					SrcHost:      srcHostStr,
-					Src:          srcPort,
-					To:           toPort,
-					Mode:         mode,
-					Protocol:     config.AnyProtocol,
-					Allowlist:    allowlist,
-					BnsAllowlist: bnsAllowlist,
+					SrcHost:              srcHostStr,
+					Src:                  srcPort,
+					To:                   toPort,
+					Mode:                 mode,
+					Protocol:             config.AnyProtocol,
+					Allowlist:            allowlist,
+					BnsAllowlist:         bnsAllowlist,
+					DriveAllowList:       driveAllowlist,
+					DriveMemberAllowList: driveMemberAllowlist,
 				}
 
 				switch protocol {
@@ -125,11 +129,17 @@ func parsePorts(portStrings []string, mode int) ([]*config.Port, error) {
 				}
 				ports = append(ports, port)
 			} else {
+				client := app.clientManager.GetNearestClient()
 				access := accessPattern.FindString(segment)
 				if access == "" {
 					bnsName := bnsPattern.FindString(segment)
 					if bnsName != "" && isValidBNS(bnsName) {
 						bnsAllowlist[bnsName] = true
+						_, err := client.GetCacheOrResolvePeers(bnsName)
+						if err != nil {
+							err = fmt.Errorf("port format couldn't resolve BNS name: %v", segment)
+							return nil, err
+						}
 						continue
 					}
 					err := fmt.Errorf("port format expected (<from_ip>:)<from_port>(:<to_port>:<protocol>) or <address> but got: %v", segment)
@@ -141,8 +151,35 @@ func parsePorts(portStrings []string, mode int) ([]*config.Port, error) {
 					err = fmt.Errorf("port format couldn't parse port address: %v", segment)
 					return nil, err
 				}
+				addrType, err := client.ResolveAccountType(addr)
+				if err != nil {
+					err = fmt.Errorf("port format couldn't resolve account type: %v", segment)
+					return nil, err
+				}
+				//Add to the list and initialize cache for drive member and drive
+				//config.AppConfig.Logger.Info("Account type of the address: %s is %v\n", addr.HexString(), addrType)
+				if addrType == "driveMember" {
+					driveMemberAllowlist[addr] = true
+					config.AppConfig.Logger.Info("Resolving members of the Device: %s\n", addr.HexString())
+					_, err := client.GetCacheOrResolveAllPeersOfAddrs(addr)
+					if err != nil {
+						err = fmt.Errorf("port format couldn't resolve Device: %v", segment)
+						return nil, err
+					}
+					config.AppConfig.Logger.Info("Resolved members of the Device: %s\n", addr.HexString())
+				} else if addrType == "drive" {
+					driveAllowlist[addr] = true
+					config.AppConfig.Logger.Info("Resolving members and peers of the Drive: %s\n", addr.HexString())
+					_, err := client.GetCacheOrResolveAllPeersOfAddrs(addr)
+					if err != nil {
+						err = fmt.Errorf("port format couldn't resolve drive: %v", segment)
+						return nil, err
+					}
+					config.AppConfig.Logger.Info("Resolved members and peers of the Drive: %s\n", addr.HexString())
+				} else {
+					allowlist[addr] = true
+				}
 
-				allowlist[addr] = true
 			}
 		}
 	}
@@ -152,7 +189,7 @@ func parsePorts(portStrings []string, mode int) ([]*config.Port, error) {
 			err := fmt.Errorf("public port publishing does not support providing addresses")
 			return nil, err
 		}
-		if mode == config.PrivatePublishedMode && (len(v.Allowlist) == 0 && len(v.BnsAllowlist) == 0) {
+		if mode == config.PrivatePublishedMode && (len(v.Allowlist) == 0 && len(v.BnsAllowlist) == 0 && len(v.DriveAllowList) == 0 && len(v.DriveMemberAllowList) == 0) {
 			err := fmt.Errorf("private port publishing requires providing at least one address")
 			return nil, err
 		}
@@ -233,6 +270,10 @@ func publishHandler() (err error) {
 		}
 		portString[port.To] = port
 	}
+	err = app.Start()
+	if err != nil {
+		return
+	}
 	ports, err = parsePorts(cfg.PrivatePublishedPorts, config.PrivatePublishedMode)
 	if err != nil {
 		return
@@ -287,10 +328,6 @@ func publishHandler() (err error) {
 		os.Exit(2)
 	}
 
-	err = app.Start()
-	if err != nil {
-		return
-	}
 	if len(cfg.PublishedPorts) > 0 {
 		cfg.PrintInfo("")
 		name := cfg.ClientAddr.HexString()
@@ -317,6 +354,12 @@ func publishHandler() (err error) {
 			}
 			for bnsName := range port.BnsAllowlist {
 				addrs = append(addrs, bnsName)
+			}
+			for drive := range port.DriveAllowList {
+				addrs = append(addrs, drive.HexString())
+			}
+			for driveMember := range port.DriveMemberAllowList {
+				addrs = append(addrs, driveMember.HexString())
 			}
 			host := net.JoinHostPort(port.SrcHost, strconv.Itoa(port.Src))
 			cfg.PrintLabel(fmt.Sprintf("Port %12s", host), fmt.Sprintf("%8d  %10s       %s        %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol), strings.Join(addrs, ",")))

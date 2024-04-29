@@ -78,7 +78,8 @@ func init() {
 	diodeCmd.Flag.Var(&cfg.SBlocklists, "blocklists", "addresses are not allowed to connect to published resource (used when allowlists is empty)")
 	diodeCmd.Flag.Var(&cfg.SAllowlists, "allowlists", "addresses are allowed to connect to published resource (used when blocklists is empty)")
 	diodeCmd.Flag.Var(&cfg.SBinds, "bind", "bind a remote port to a local port. -bind <local_port>:<to_address>:<to_port>:(udp|tcp)")
-	diodeCmd.Flag.DurationVar(&cfg.BnsCacheTime, "bnscachetime", 10*time.Minute, "time for bns address resolve cache. (default: 10 minutes)")
+	diodeCmd.Flag.DurationVar(&cfg.ResolveCacheTime, "resolvecachetime", 10*time.Minute, "time for member and bns resolvers cache. (default: 10 minutes)")
+	diodeCmd.Flag.DurationVar(&cfg.ResolveCacheTime, "bnscachetime", 10*time.Minute, "(Deprecated. Please use resolvecachetime) time for bns address resolve cache. (default: 10 minutes)")
 	config.AppConfig = cfg
 	// Add diode commands
 	diodeCmd.AddSubCommand(bnsCmd)
@@ -162,6 +163,10 @@ func prepareDiode() error {
 		cfg.Binds = append(cfg.Binds, *bind)
 	}
 
+	if cfg.BnsCacheTime > 0 {
+		fmt.Println("Warning: bnscachetime is deprecated, please use resolvecachetime instead")
+		cfg.ResolveCacheTime = cfg.BnsCacheTime
+	}
 	// initialize diode application
 	app = NewDiode(cfg)
 	if err := app.Init(); err != nil {

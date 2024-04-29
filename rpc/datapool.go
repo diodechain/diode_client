@@ -24,6 +24,10 @@ type DataPool struct {
 	bnsCache    *cache.Cache
 	ctx         *openssl.Ctx
 
+	bnsCacheExpireItem   map[string]time.Time
+	bnsCacheExpire       time.Duration
+	bnsCacheUpdatingFlag map[string]bool
+
 	srv *genserver.GenServer
 }
 
@@ -33,12 +37,15 @@ type SessionCache struct {
 
 func NewPool() *DataPool {
 	pool := &DataPool{
-		srv:            genserver.New("DataPool"),
-		locks:          make(map[string]bool),
-		memoryCache:    cache.New(5*time.Minute, 10*time.Minute),
-		bnsCache:       cache.New(config.AppConfig.BnsCacheTime, config.AppConfig.BnsCacheTime*2),
-		devices:        make(map[string]*ConnectedPort),
-		publishedPorts: make(map[int]*config.Port),
+		srv:                  genserver.New("DataPool"),
+		locks:                make(map[string]bool),
+		memoryCache:          cache.New(5*time.Minute, 10*time.Minute),
+		bnsCache:             cache.New(0, 0),
+		devices:              make(map[string]*ConnectedPort),
+		publishedPorts:       make(map[int]*config.Port),
+		bnsCacheExpireItem:   make(map[string]time.Time),
+		bnsCacheExpire:       config.AppConfig.ResolveCacheTime,
+		bnsCacheUpdatingFlag: make(map[string]bool),
 	}
 	if !config.AppConfig.LogDateTime {
 		pool.srv.DeadlockCallback = nil
@@ -112,39 +119,136 @@ func (p *DataPool) GetCacheOrResolveBNS(deviceName string, client *Client) ([]Ad
 	bnsKey := fmt.Sprintf("bns:%s", deviceName)
 	bns, cached := p.getCacheBNS(bnsKey)
 	if cached {
+		//check if cache is expired if so call updateCacheResolveBNS async. Expire duration is config.AppConfig.ResolveCacheTime
+		if !p.bnsCacheUpdatingFlag[bnsKey] && config.AppConfig.ResolveCacheTime > 0 {
+			if expireTime, ok := p.bnsCacheExpireItem[bnsKey]; ok && time.Now().After(expireTime) {
+				p.bnsCacheUpdatingFlag[bnsKey] = true
+				go p.updateCacheResolveBNS(deviceName, client)
+			}
+		}
 		return bns, nil
 	}
-	var err error
-	bns, err = client.ResolveBNS(deviceName)
-	if err == nil {
-		p.SetCacheBNS(bnsKey, bns)
+
+	p.updateCacheResolveBNS(deviceName, client)
+
+	bns, cached = p.getCacheBNS(bnsKey)
+	if cached {
+		return bns, nil
 	}
-	return bns, err
+
+	return nil, nil
 }
 
 func (p *DataPool) GetCacheOrResolvePeers(deviceName string, client *Client) ([]Address, error) {
 	peerKey := fmt.Sprintf("peers:%s", deviceName)
 	peers, cached := p.getCacheBNS(peerKey)
 	if cached {
+		//check if cache is expired if so call updateCacheResolvePeers async. Expire duration is config.AppConfig.ResolveCacheTime
+		if !p.bnsCacheUpdatingFlag[peerKey] && config.AppConfig.ResolveCacheTime > 0 {
+			if expireTime, ok := p.bnsCacheExpireItem[peerKey]; ok && time.Now().After(expireTime) {
+				p.bnsCacheUpdatingFlag[peerKey] = true
+				go p.updateCacheResolvePeers(deviceName, client)
+			}
+		}
 		return peers, nil
 	}
 
+	p.updateCacheResolvePeers(deviceName, client)
+
+	peers, cached = p.getCacheBNS(peerKey)
+	if cached {
+		return peers, nil
+	}
+
+	return nil, nil
+
+}
+
+func (p *DataPool) GetCacheOrResolveAllPeersOfAddrs(addr Address, client *Client) ([]Address, error) {
+	peerKey := fmt.Sprintf("peers:%s", addr.HexString())
+	peers, cached := p.getCacheBNS(peerKey)
+	addrs := []Address{addr}
+	if cached {
+		//check if cache is expired if so call updateCacheResolveAllPeersOfAddrs async. Expire duration is config.AppConfig.ResolveCacheTime
+		if !p.bnsCacheUpdatingFlag[peerKey] && config.AppConfig.ResolveCacheTime > 0 {
+			if expireTime, ok := p.bnsCacheExpireItem[peerKey]; ok && time.Now().After(expireTime) {
+				p.bnsCacheUpdatingFlag[peerKey] = true
+				go p.updateCacheResolveAllPeersOfAddrs(addrs, client)
+			}
+		}
+
+		return peers, nil
+	}
+
+	p.updateCacheResolveAllPeersOfAddrs(addrs, client)
+
+	peers, cached = p.getCacheBNS(peerKey)
+	if cached {
+		return peers, nil
+	}
+
+	return nil, nil
+}
+
+func (p *DataPool) updateCacheResolveAllPeersOfAddrs(members []Address, client *Client) {
+	peerKey := fmt.Sprintf("peers:%s", members[0].HexString())
+	peers := resolveAllPeersOfAddrs(members, client)
+
+	p.SetCacheBNS(peerKey, peers)
+	p.bnsCacheExpireItem[peerKey] = time.Now().Add(config.AppConfig.ResolveCacheTime)
+	p.bnsCacheUpdatingFlag[peerKey] = false
+}
+
+func (p *DataPool) updateCacheResolvePeers(deviceName string, client *Client) {
+	peerKey := fmt.Sprintf("peers:%s", deviceName)
 	var addr []Address
 	bnsResult, err := p.GetCacheOrResolveBNS(deviceName, client)
 	if err != nil {
-		return addr, err
+		return
 	}
 
-	for _, address := range bnsResult {
-		members, new_err := client.ResolveMembers(address)
-		if new_err == nil {
-			addr = append(addr, members...)
-		}
-	}
+	addr = resolveAllPeersOfAddrs(bnsResult, client)
 
 	p.SetCacheBNS(peerKey, addr)
-	return addr, err
+	p.bnsCacheExpireItem[peerKey] = time.Now().Add(config.AppConfig.ResolveCacheTime)
+	p.bnsCacheUpdatingFlag[peerKey] = false
+}
 
+func (p *DataPool) updateCacheResolveBNS(deviceName string, client *Client) {
+	bnsKey := fmt.Sprintf("bns:%s", deviceName)
+	bns, err := client.ResolveBNS(deviceName)
+	if err == nil {
+		p.SetCacheBNS(bnsKey, bns)
+		p.bnsCacheExpireItem[bnsKey] = time.Now().Add(config.AppConfig.ResolveCacheTime)
+	}
+	p.bnsCacheUpdatingFlag[bnsKey] = false
+}
+
+func resolveAllPeersOfAddrs(members []Address, client *Client) (peers []Address) {
+	for _, maybePeerAddr := range members {
+		members, new_err := client.ResolveMembers(maybePeerAddr)
+		if new_err == nil {
+			//if member count is 1 and member is itself, it is a peer.
+			if len(members) == 1 && members[0] == maybePeerAddr {
+				peers = append(peers, maybePeerAddr)
+				continue
+			}
+			// check if members list includes itself to prevent infinite loop. If so, delete itself from members list
+			for i, member := range members {
+				if member == maybePeerAddr {
+					members = append(members[:i], members[i+1:]...)
+					break
+				}
+			}
+			// smart contract, might need to recurse
+			peers = append(peers, resolveAllPeersOfAddrs(members, client)...)
+		} else {
+			fmt.Printf("resolvedPeer: %x\n", maybePeerAddr)
+			// not a smart contract, instead a real (device) peer
+			peers = append(peers, maybePeerAddr)
+		}
+	}
+	return peers
 }
 
 func (p *DataPool) Lock(name string) {

@@ -185,20 +185,52 @@ func (client *Client) isAllowlisted(port *config.Port, addr Address) bool {
 	case config.PrivatePublishedMode:
 		if port.Allowlist[addr] {
 			return true
-		} else if len(port.BnsAllowlist) == 0 {
-			return false
 		} else {
-			for bns, allowed := range port.BnsAllowlist {
-				if !allowed {
-					continue
+			if len(port.BnsAllowlist) != 0 {
+				for bns, allowed := range port.BnsAllowlist {
+					if !allowed {
+						continue
+					}
+					addrs, err := client.GetCacheOrResolvePeers(bns)
+					if err != nil {
+						continue
+					}
+					for _, a := range addrs {
+						if a == addr {
+							return true
+						}
+					}
 				}
-				addrs, err := client.GetCacheOrResolveBNS(bns)
-				if err != nil {
-					continue
+			}
+			if len(port.DriveMemberAllowList) != 0 {
+				for driveMember, allowed := range port.DriveMemberAllowList {
+					if !allowed {
+						continue
+					}
+					addrs, err := client.GetCacheOrResolveAllPeersOfAddrs(driveMember)
+					if err != nil {
+						continue
+					}
+					for _, a := range addrs {
+						if a == addr {
+							return true
+						}
+					}
 				}
-				for _, a := range addrs {
-					if a == addr {
-						return true
+			}
+			if len(port.DriveAllowList) != 0 {
+				for drive, allowed := range port.DriveAllowList {
+					if !allowed {
+						continue
+					}
+					addrs, err := client.GetCacheOrResolveAllPeersOfAddrs(drive)
+					if err != nil {
+						continue
+					}
+					for _, a := range addrs {
+						if a == addr {
+							return true
+						}
 					}
 				}
 			}
