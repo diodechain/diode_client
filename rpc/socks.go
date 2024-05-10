@@ -969,7 +969,7 @@ func NewSocksServer(socksCfg Config, clientManager *ClientManager) (*Server, err
 // SetConfig update the config of socks server
 func (socksServer *Server) SetConfig(config Config) error {
 	if len(config.Fallback) > 0 && config.Fallback != "localhost" && config.Fallback != "false" {
-		return fmt.Errorf("wrong parameters for socks fallback")
+		return fmt.Errorf("wrong parameters for socks fallback, valid values are 'localhost' or 'false'")
 	}
 
 	socksServer.Config = config
