@@ -110,6 +110,10 @@ func (proxyServer *ProxyServer) isAllowedDevice(deviceName string) (err error) {
 		return
 	}
 
+	if len(deviceIDs) == 0 {
+		err = fmt.Errorf("device not found")
+		return
+	}
 	deviceID := deviceIDs[0]
 
 	// Checking blocklist and allowlist

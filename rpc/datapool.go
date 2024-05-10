@@ -136,7 +136,7 @@ func (p *DataPool) GetCacheOrResolveBNS(deviceName string, client *Client) ([]Ad
 		return bns, nil
 	}
 
-	return nil, nil
+	return nil, errEmptyBNSresult
 }
 
 func (p *DataPool) GetCacheOrResolvePeers(deviceName string, client *Client) ([]Address, error) {
