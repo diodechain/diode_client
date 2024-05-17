@@ -122,7 +122,7 @@ func (client *Client) addLatencyMeasurement(latency time.Duration) {
 func (client *Client) doConnect() (err error) {
 	err = client.doDial()
 	if err != nil {
-		client.Log().Error("Failed to connect: (%v)", err)
+		// client.Log().Error("Failed to connect: (%v)", err)
 		// Retry to connect
 		isOk := false
 		for i := 1; i <= client.config.RetryTimes; i++ {
@@ -134,7 +134,7 @@ func (client *Client) doConnect() (err error) {
 				isOk = true
 				break
 			}
-			client.Log().Warn("Failed to connect: (%v)", err)
+			// client.Log().Warn("Failed to connect: (%v)", err)
 		}
 		if !isOk {
 			return fmt.Errorf("failed to connect to host: %s", client.host)

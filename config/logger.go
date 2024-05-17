@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/diodechain/zap"
 	"github.com/diodechain/zap/zapcore"
@@ -80,7 +81,10 @@ func (l *Logger) Debug(msg string, args ...interface{}) {
 
 // Error logs to logger in Error level
 func (l *Logger) Error(msg string, args ...interface{}) {
-	l.logger.Error(fmt.Sprintf(msg, args...))
+	msg = fmt.Sprintf(msg, args...)
+	if !strings.Contains(msg, "rpc call has been cancelled") {
+		l.logger.Error(msg)
+	}
 }
 
 // Warn logs to logger in Warn level
