@@ -342,6 +342,7 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 		}
 
 		for _, serverID := range device.GetServerIDs() {
+			socksServer.logger.Debug("Found device %s on server %s", deviceID.HexString(), serverID.HexString())
 			candidates = append(candidates, candidate{deviceID, serverID})
 		}
 	}
