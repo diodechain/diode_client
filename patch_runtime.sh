@@ -14,7 +14,7 @@ index 33ecc260dd..dea79f6095 100644
 + // GetGoID returns the goid
 + func GetGoID() uint64 {
 + 	_g_ := getg()
-+ 	return _g_.goid
++ 	return uint64(_g_.goid)
 + }
 + 
   var ticks ticksType
