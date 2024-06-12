@@ -23,8 +23,8 @@ import (
 var (
 	fetchCmd = &command.Command{
 		Name:        "fetch",
-		HelpText:    " Fetch is the command to make http GET/POST/DELETE/PUT/OPTION request through diode network.",
-		ExampleText: ` diode fetch -method post -data "{'username': 'test', password: '123456', 'csrf': 'abcdefg'} -header 'content-type:application/json'"`,
+		HelpText:    "  Fetch is the command to make http GET/POST/DELETE/PUT/OPTION request through diode network.",
+		ExampleText: `  diode fetch -method post -data "{'username': 'test', password: '123456', 'csrf': 'abcdefg'} -header 'content-type:application/json'"`,
 		Run:         fetchHandler,
 		Type:        command.OneOffCommand,
 	}
