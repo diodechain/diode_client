@@ -33,7 +33,7 @@ require (
 	github.com/petermattis/goid v0.0.0-20231126143041-f558c26febf5 // indirect
 	github.com/rcrowley/go-metrics v0.0.0-20201227073835-cf1acfcdf475
 	github.com/rivo/uniseg v0.4.4 // indirect
-	github.com/rs/cors v1.10.1
+	github.com/rs/cors v1.11.0
 	github.com/sc0vu/didyoumean v0.0.0-20230904130613-22d315697818
 	github.com/spf13/cobra v1.8.0
 	github.com/stretchr/testify v1.8.4
