@@ -319,7 +319,7 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 	if err != nil {
 		// Errors are fatal such as 'deviceName' is not an address
 		// or 'deviceName' is not on the allow list. In latter case caching
-		// might delay the time until an allowance reckognized
+		// might delay the time until an allowance recognized
 		return nil, err
 	}
 

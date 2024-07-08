@@ -230,29 +230,19 @@ func parseDeviceTicketResponse(buffer []byte) (interface{}, error) {
 
 func parseDeviceObjectResponse(buffer []byte) (interface{}, error) {
 	var response objectResponse
+	var responseV2 objectResponseV2
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
-	err := decodeStream.Decode(&response)
-	if err != nil {
-		// TODO: Fix this to return proper nil/not found result when the response object is just ""
-		// Currently it just crashes in that case with "rlp: expected input list for struct { Location string; ServerID []uint8; PeakBlock uint64; FleetAddr []uint8; TotalConnections uint64; TotalBytes uint64; LocalAddr []uint8; DeviceSig []uint8; ServerSig []uint8 }, decoding into (edge.objectResponse).Payload.Ticket"
-		return nil, fmt.Errorf("failed decoding or empty device response")
+
+	if err := decodeStream.Decode(&response); err != nil {
+		decodeStream.Reset(bytes.NewReader(buffer), 0)
+		if err2 := decodeStream.Decode(&responseV2); err2 != nil {
+			return nil, fmt.Errorf("failed decoding or empty device response: %w & %w", err, err2)
+		} else {
+			return responseV2.makeDeviceTicket(), nil
+		}
 	}
-	serverID := [20]byte{}
-	copy(serverID[:], response.Payload.Ticket.ServerID)
-	fleetAddr := [20]byte{}
-	copy(fleetAddr[:], response.Payload.Ticket.FleetAddr)
-	deviceObj := &DeviceTicket{
-		ServerID:         serverID,
-		BlockNumber:      response.Payload.Ticket.PeakBlock,
-		BlockHash:        nil,
-		FleetAddr:        fleetAddr,
-		TotalConnections: response.Payload.Ticket.TotalConnections,
-		TotalBytes:       response.Payload.Ticket.TotalBytes,
-		DeviceSig:        response.Payload.Ticket.DeviceSig,
-		ServerSig:        response.Payload.Ticket.ServerSig,
-		LocalAddr:        response.Payload.Ticket.LocalAddr,
-	}
-	return deviceObj, nil
+
+	return response.makeDeviceTicket(), nil
 }
 
 // TODO: decode merkle tree from message

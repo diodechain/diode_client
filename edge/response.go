@@ -168,6 +168,25 @@ type objectResponse struct {
 	}
 }
 
+type objectResponseV2 struct {
+	RequestID uint64
+	Payload   struct {
+		Type   string
+		Ticket struct {
+			Location         string // should be "location"
+			ServerID         []byte
+			ChainID          uint64
+			Epoch            uint64
+			FleetAddr        []byte
+			TotalConnections uint64
+			TotalBytes       uint64
+			LocalAddr        []byte
+			DeviceSig        []byte
+			ServerSig        []byte
+		}
+	}
+}
+
 type serverObjectResponse struct {
 	RequestID uint64
 	Payload   struct {
@@ -217,4 +236,42 @@ func findItemInItems(items interface{}, key string) (item Item, err error) {
 	}
 	err = errKeyNotFoundInItems
 	return
+}
+
+func (response *objectResponse) makeDeviceTicket() *DeviceTicket {
+	serverID := [20]byte{}
+	copy(serverID[:], response.Payload.Ticket.ServerID)
+	fleetAddr := [20]byte{}
+	copy(fleetAddr[:], response.Payload.Ticket.FleetAddr)
+	return &DeviceTicket{
+		Version:          1,
+		ServerID:         serverID,
+		BlockNumber:      response.Payload.Ticket.PeakBlock,
+		BlockHash:        nil,
+		FleetAddr:        fleetAddr,
+		TotalConnections: response.Payload.Ticket.TotalConnections,
+		TotalBytes:       response.Payload.Ticket.TotalBytes,
+		DeviceSig:        response.Payload.Ticket.DeviceSig,
+		ServerSig:        response.Payload.Ticket.ServerSig,
+		LocalAddr:        response.Payload.Ticket.LocalAddr,
+	}
+}
+
+func (response *objectResponseV2) makeDeviceTicket() *DeviceTicket {
+	serverID := [20]byte{}
+	copy(serverID[:], response.Payload.Ticket.ServerID)
+	fleetAddr := [20]byte{}
+	copy(fleetAddr[:], response.Payload.Ticket.FleetAddr)
+	return &DeviceTicket{
+		Version:          2,
+		ServerID:         serverID,
+		ChainID:          response.Payload.Ticket.ChainID,
+		Epoch:            response.Payload.Ticket.Epoch,
+		FleetAddr:        fleetAddr,
+		TotalConnections: response.Payload.Ticket.TotalConnections,
+		TotalBytes:       response.Payload.Ticket.TotalBytes,
+		DeviceSig:        response.Payload.Ticket.DeviceSig,
+		ServerSig:        response.Payload.Ticket.ServerSig,
+		LocalAddr:        response.Payload.Ticket.LocalAddr,
+	}
 }

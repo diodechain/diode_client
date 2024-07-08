@@ -314,6 +314,15 @@ func (client *Client) CheckTicket() {
 func (client *Client) isRecentTicket(tck *edge.DeviceTicket) bool {
 	lvbn, _ := client.LastValid()
 
+	if tck.Version == 2 {
+		header := client.GetBlockHeaderValid(lvbn)
+		if header.Number() == 0 {
+			return false
+		}
+		epoch := uint64(header.Timestamp()) / 2_592_000
+		return tck.Epoch >= epoch
+	}
+
 	if tck == nil {
 		return false
 	}

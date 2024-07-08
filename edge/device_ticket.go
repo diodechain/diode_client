@@ -21,6 +21,7 @@ var (
 
 // DeviceTicket struct for connection and transmission
 type DeviceTicket struct {
+	Version          uint64
 	ServerID         Address
 	BlockNumber      uint64
 	BlockHash        []byte
@@ -30,10 +31,15 @@ type DeviceTicket struct {
 	LocalAddr        []byte
 	DeviceSig        []byte
 	ServerSig        []byte
-	Err              error
 
+	// Version two fields
+	ChainID uint64
+	Epoch   uint64
+
+	// Extra fields
 	CacheTime     time.Time
 	deviceAddress *util.Address
+	Err           error
 }
 
 // ValidateValues checks length of byte[] arrays and returns an error message
