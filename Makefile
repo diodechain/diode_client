@@ -77,11 +77,11 @@ lint: runtime
 # G404 (CWE-338): Use of weak random number generator (math/rand instead of crypto/rand).
 .PHONY: seccheck
 seccheck: runtime
-	if [ ! -f $(GOPATH)/bin/gosec ]; \
+	if [ ! -f ./gosec ]; \
 	then \
-		curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b $(go env GOPATH)/bin v2.20.0; \
+		curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b ./ v2.20.0; \
 	fi;
-	$(GOPATH)/bin/gosec -exclude=G104,G108,G110,G112,G114,G204,G304,G402,G404 -exclude-dir .history ./...
+	./gosec -exclude=G104,G108,G110,G112,G114,G204,G304,G402,G404 -exclude-dir .history ./...
 
 .PHONY: clean
 clean:
