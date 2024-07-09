@@ -204,6 +204,7 @@ func parseDeviceTicketResponse(buffer []byte) (interface{}, error) {
 		}
 		err = ErrTicketTooLow
 		ticket := DeviceTicket{
+			Version:          1,
 			BlockHash:        response.Payload.BlockHash,
 			TotalConnections: response.Payload.TotalConnections,
 			TotalBytes:       response.Payload.TotalBytes,
@@ -221,7 +222,8 @@ func parseDeviceTicketResponse(buffer []byte) (interface{}, error) {
 		}
 		err = ErrTicketTooOld
 		ticket := DeviceTicket{
-			Err: err,
+			Version: 1,
+			Err:     err,
 		}
 		return ticket, nil
 	}

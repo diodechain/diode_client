@@ -603,6 +603,7 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 	lvbn, lvbh := client.LastValid()
 
 	ticket := &edge.DeviceTicket{
+		Version:          1,
 		ServerID:         serverID,
 		BlockNumber:      lvbn,
 		BlockHash:        lvbh[:],
@@ -664,16 +665,14 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 
 				if !lastTicket.ValidateDeviceSig(client.config.ClientAddr) {
 					lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)
-				}
-				if lastTicket.ValidateDeviceSig(client.config.ClientAddr) {
+					client.Log().Warn("received fake ticket.. last_ticket=%v", lastTicket)
+				} else {
 					client.s.setTotalBytes(lastTicket.TotalBytes + 1024)
 					client.s.totalConnections = lastTicket.TotalConnections + 1
 					err = client.SubmitNewTicket()
 					if err != nil {
 						client.Log().Error("failed to re-submit ticket: %v", err)
 					}
-				} else {
-					client.Log().Warn("received fake ticket.. last_ticket=%v", lastTicket)
 				}
 			} else if lastTicket.Err == edge.ErrTicketTooOld {
 				client.Log().Info("received too old ticket")

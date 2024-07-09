@@ -44,8 +44,19 @@ type DeviceTicket struct {
 
 // ValidateValues checks length of byte[] arrays and returns an error message
 func (ct *DeviceTicket) ValidateValues() error {
-	if len(ct.BlockHash) != 32 {
-		return fmt.Errorf("blockhash must be 32 bytes")
+	if ct.Version == 1 {
+		if len(ct.BlockHash) != 32 {
+			return fmt.Errorf("blockhash must be 32 bytes")
+		}
+	} else if ct.Version == 2 {
+		if ct.Epoch == 0 {
+			return fmt.Errorf("epoch must be greater than 0")
+		}
+		if ct.ChainID == 0 {
+			return fmt.Errorf("chainid must be greater than 0")
+		}
+	} else {
+		return fmt.Errorf("version must be 1 or 2")
 	}
 	return nil
 }
@@ -55,7 +66,8 @@ func (ct *DeviceTicket) HashWithoutSig() ([]byte, error) {
 	if err := ct.ValidateValues(); err != nil {
 		return nil, err
 	}
-	return crypto.Sha3Hash(ct.arrayBlob()[:192]), nil
+	blob := ct.arrayBlob()
+	return crypto.Sha3Hash(blob[:len(blob)-len(ct.DeviceSig)]), nil
 }
 
 // Hash returns hash of device object
@@ -67,24 +79,28 @@ func (ct *DeviceTicket) Hash() ([]byte, error) {
 }
 
 func (ct *DeviceTicket) arrayBlob() []byte {
-	//  From DiodeRegistry.sol:
-	//    bytes32[] memory message = new bytes32[](6);
-	//    message[0] = blockhash(blockHeight);
-	//    message[1] = bytes32(fleetContract);
-	//    message[2] = bytes32(nodeAddress);
-	//    message[3] = bytes32(totalConnections);
-	//    message[4] = bytes32(totalBytes);
-	//    message[5] = localAddress;
-
-	msg := [32*6 + 65]byte{}
-	copy(msg[0:32], ct.BlockHash)
-	copy(msg[44:64], ct.FleetAddr[:])
-	copy(msg[76:96], ct.ServerID[:])
-	binary.BigEndian.PutUint64(msg[120:128], ct.TotalConnections)
-	binary.BigEndian.PutUint64(msg[152:160], ct.TotalBytes)
-	copy(msg[160:192], crypto.Sha256(ct.LocalAddr))
-	copy(msg[192:], ct.DeviceSig)
-	return msg[:192+len(ct.DeviceSig)]
+	if ct.Version == 2 {
+		msg := [32*7 + 65]byte{}
+		binary.BigEndian.PutUint64(msg[24:32], ct.ChainID)
+		binary.BigEndian.PutUint64(msg[56:64], ct.Epoch)
+		copy(msg[76:96], ct.FleetAddr[:])
+		copy(msg[108:128], ct.ServerID[:])
+		binary.BigEndian.PutUint64(msg[152:160], ct.TotalConnections)
+		binary.BigEndian.PutUint64(msg[184:192], ct.TotalBytes)
+		copy(msg[192:224], crypto.Sha256(ct.LocalAddr))
+		copy(msg[224:], ct.DeviceSig)
+		return msg[:224+len(ct.DeviceSig)]
+	} else {
+		msg := [32*6 + 65]byte{}
+		copy(msg[0:32], ct.BlockHash)
+		copy(msg[44:64], ct.FleetAddr[:])
+		copy(msg[76:96], ct.ServerID[:])
+		binary.BigEndian.PutUint64(msg[120:128], ct.TotalConnections)
+		binary.BigEndian.PutUint64(msg[152:160], ct.TotalBytes)
+		copy(msg[160:192], crypto.Sha256(ct.LocalAddr))
+		copy(msg[192:], ct.DeviceSig)
+		return msg[:192+len(ct.DeviceSig)]
+	}
 }
 
 // Sign ticket with given ecdsa private key
