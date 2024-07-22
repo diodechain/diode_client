@@ -174,7 +174,7 @@ func (cm *ClientManager) GetClient(nodeID util.Address) (client *Client) {
 	return client
 }
 
-func (cm *ClientManager) GetClientorConnect(nodeID util.Address) (client *Client, err error) {
+func (cm *ClientManager) GetClientOrConnect(nodeID util.Address) (client *Client, err error) {
 	if client = cm.GetClient(nodeID); client != nil {
 		return
 	}

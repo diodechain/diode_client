@@ -979,7 +979,7 @@ func (socksServer *Server) SetConfig(config Config) error {
 
 // GetServer gets or creates a new SSL connection to the given server
 func (socksServer *Server) GetServer(nodeID Address) (client *Client, err error) {
-	return socksServer.clientManager.GetClientorConnect(nodeID)
+	return socksServer.clientManager.GetClientOrConnect(nodeID)
 }
 
 // Closed returns whether socks server had closed
