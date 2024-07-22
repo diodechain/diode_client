@@ -653,7 +653,7 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 	go func() {
 		resp, err := client.waitResponse(call)
 		if err != nil {
-			client.Log().Error("failed to submit ticket: %v", err)
+			client.Log().Error("failed to confirm ticket submission: %v", err)
 			return
 		}
 
