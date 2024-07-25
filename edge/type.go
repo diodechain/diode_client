@@ -62,12 +62,14 @@ type Goodbye struct {
 }
 
 type ServerObj struct {
+	Node         util.Address
 	Host         []byte
 	EdgePort     uint64
 	ServerPort   uint64
 	Sig          []byte
 	ServerPubKey []byte
 	Extra        map[string]big.Int
+	ExtraString  map[string]string
 }
 
 type StateRoots struct {

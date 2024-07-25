@@ -189,6 +189,7 @@ func (cm *ClientManager) GetClientOrConnect(nodeID util.Address) (client *Client
 		fclient.Log().Error("GetServer(): failed to getnode %v", err)
 		return
 	}
+
 	if util.PubkeyToAddress(serverObj.ServerPubKey) != nodeID {
 		err = fmt.Errorf("GetServer(): wrong signature in server object %+v", serverObj)
 		return

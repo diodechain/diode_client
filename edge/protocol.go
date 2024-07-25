@@ -357,11 +357,12 @@ func doParseServerObjResponse(buffer []byte) (obj *ServerObj, err error) {
 	}
 
 	obj = &ServerObj{
-		Host:       data[1].([]byte),
-		EdgePort:   parseUint(data[2].([]byte)),
-		ServerPort: parseUint(data[3].([]byte)),
-		Sig:        data[len(data)-1].([]byte),
-		Extra:      map[string]big.Int{},
+		Host:        data[1].([]byte),
+		EdgePort:    parseUint(data[2].([]byte)),
+		ServerPort:  parseUint(data[3].([]byte)),
+		Sig:         data[len(data)-1].([]byte),
+		Extra:       map[string]big.Int{},
+		ExtraString: map[string]string{},
 	}
 
 	var bertdata []byte
@@ -377,9 +378,16 @@ func doParseServerObjResponse(buffer []byte) (obj *ServerObj, err error) {
 		tuples := make([]bert.Term, len(extra))
 		for i, elem := range extra {
 			slice := elem.([]interface{})
-			value := parseBigUint(slice[1].([]byte))
-			obj.Extra[string(slice[0].([]byte))] = value
-			tuples[i] = [2]bert.Term{slice[0].([]byte), value}
+			key := string(slice[0].([]byte))
+			if key == "name" {
+				value := slice[1].([]byte)
+				obj.ExtraString[key] = string(value)
+				tuples[i] = [2]bert.Term{slice[0].([]byte), value}
+			} else {
+				value := parseBigUint(slice[1].([]byte))
+				obj.Extra[key] = value
+				tuples[i] = [2]bert.Term{slice[0].([]byte), value}
+			}
 		}
 
 		bertdata, err = bert.Encode([5]bert.Term{
@@ -401,6 +409,7 @@ func doParseServerObjResponse(buffer []byte) (obj *ServerObj, err error) {
 		return
 	}
 	obj.ServerPubKey = pubkey
+	obj.Node = util.PubkeyToAddress(pubkey)
 	return obj, nil
 }
 
