@@ -22,8 +22,14 @@ index 33ecc260dd..dea79f6095 100644
   type ticksType struct {
 EOF
 
-CMD="-tN -r- `go env GOROOT`/src/runtime/runtime.go"
+FILE="$(go env GOROOT)/src/runtime/runtime.go"
+CMD="-tN -r- $FILE"
 OS=`uname -s`
+
+if [[ ! -z $(grep "GetGoID" "$FILE") ]]; then
+	echo "$FILE is already patched!"
+	exit 0
+fi
 
 if ! patch --dry-run -R $CMD <<< "$PATCH" >> /dev/null; then
 	if [[ $OS == "Darwin" ]]; then
