@@ -243,9 +243,6 @@ func (dio *Diode) Init() error {
 			shouldUpdateDiode = diff.Hours() >= 24
 		}
 		if shouldUpdateDiode {
-			lastUpdateAt = time.Now()
-			lastUpdateAtByt = util.DecodeInt64ToBytes(lastUpdateAt.Unix())
-			db.DB.Put("last_update_at", lastUpdateAtByt)
 			doUpdate()
 		}
 	}

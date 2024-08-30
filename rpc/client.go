@@ -1038,17 +1038,22 @@ func (client *Client) ResolveMembers(members Address) (addr []Address, err error
 	blockNumber, _ := client.LastValid()
 
 	var raw []byte
+
+	owner := client.GetAccountValueAddress(blockNumber, members, contract.OwnerLocation())
+	addr = append(addr, owner)
+
 	raw, err = client.GetAccountValueRaw(blockNumber, members, contract.MemberIndex())
 	// If this there is no such contract we assume
 	// this is a normal address
 	if err != nil {
-		addr = append(addr, members)
-		err = nil
-		return
+		//if owner is 0x0, return empty array
+		if owner == [20]byte{} {
+			return
+		} else {
+			addr = append(addr, members)
+		}
+		return addr, nil
 	}
-
-	owner := client.GetAccountValueAddress(blockNumber, members, contract.OwnerLocation())
-	addr = append(addr, owner)
 
 	var size big.Int
 	size.SetBytes(raw)

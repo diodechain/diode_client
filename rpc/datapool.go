@@ -243,9 +243,15 @@ func resolveAllPeersOfAddrs(members []Address, client *Client) (peers []Address)
 			// smart contract, might need to recurse
 			peers = append(peers, resolveAllPeersOfAddrs(members, client)...)
 		} else {
-			fmt.Printf("resolvedPeer: %x\n", maybePeerAddr)
 			// not a smart contract, instead a real (device) peer
 			peers = append(peers, maybePeerAddr)
+			// log peers
+			peersString := "["
+			for _, peer := range peers {
+				peersString += peer.HexString() + ", "
+			}
+			peersString = peersString[:len(peersString)-2] + "]"
+			client.Log().Debug("Resolved all peers of %s. Peers list is %v", maybePeerAddr.HexString(), peersString)
 		}
 	}
 	return peers
