@@ -21,6 +21,7 @@ func generateKeyPair() (pubkey, privkey []byte) {
 	if err != nil {
 		panic(err)
 	}
+	//lint:ignore SA1019 because S256() doesn't have it's own Marshal method
 	pubkey = elliptic.Marshal(S256(), key.X, key.Y)
 
 	privkey = make([]byte, 32)

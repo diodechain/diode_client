@@ -6,7 +6,7 @@ package util
 import (
 	"bytes"
 	"crypto/ecdsa"
-	"math/rand"
+	"crypto/rand"
 	"testing"
 
 	"github.com/diodechain/diode_client/crypto"

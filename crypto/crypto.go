@@ -49,8 +49,10 @@ type ECPublicKey struct {
 
 // ECPrivateKey reflects an ASN.1 Elliptic Curve Private Key Structure.
 // References:
-//   RFC 5915
-//   SEC1 - http://www.secg.org/sec1-v2.pdf
+//
+//	RFC 5915
+//	SEC1 - http://www.secg.org/sec1-v2.pdf
+//
 // Per RFC 5915 the NamedCurveOID is marked as ASN.1 OPTIONAL, however in
 // most cases it is not.
 type ECPrivateKey struct {
@@ -141,6 +143,7 @@ func toECDSA(d []byte, strict bool) (*ecdsa.PrivateKey, error) {
 
 // UnmarshalPubkey converts bytes to a secp256k1 public key.
 func UnmarshalPubkey(pub []byte) (*ecdsa.PublicKey, error) {
+	//lint:ignore SA1019 because S256() doesn't have it's own NewPublicKey method
 	x, y := elliptic.Unmarshal(S256(), pub)
 	if x == nil {
 		return nil, errInvalidPubkey
@@ -153,6 +156,7 @@ func MarshalPubkey(pub *ecdsa.PublicKey) []byte {
 	if pub == nil || pub.X == nil || pub.Y == nil {
 		return nil
 	}
+	//lint:ignore SA1019 because S256() doesn't have it's own Marshal method
 	return elliptic.Marshal(S256(), pub.X, pub.Y)
 }
 

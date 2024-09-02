@@ -412,7 +412,7 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 	if _, ok := err.(RPCError); ok {
 		return nil, HttpError{404, DeviceError{err}}
 	}
-	return nil, HttpError{500, fmt.Errorf(msg)}
+	return nil, HttpError{500, errors.New(msg)}
 }
 
 func (socksServer *Server) connectDevice(deviceName string, port int, protocol int, mode string, fn func(*ConnectedPort) (net.Conn, error)) (*ConnectedPort, error) {
@@ -682,8 +682,7 @@ func (socksServer *Server) Start() error {
 					return
 				}
 				// Check whether error is temporary
-				// See: https://golang.org/src/net/net.go?h=Temporary
-				if ne, ok := err.(net.Error); ok && ne.Temporary() {
+				if ne, ok := err.(net.Error); ok && ne.Timeout() {
 					delayTime := 5 * time.Millisecond
 					socksServer.logger.Warn("socks: Accept error %v, retry in %v", err, delayTime)
 					time.Sleep(delayTime)
@@ -918,8 +917,7 @@ func (socksServer *Server) startBind(bind *Bind) error {
 						return
 					}
 					// Check whether error is temporary
-					// See: https://golang.org/src/net/net.go?h=Temporary
-					if ne, ok := err.(net.Error); ok && ne.Temporary() {
+					if ne, ok := err.(net.Error); ok && ne.Timeout() {
 						delayTime := 5 * time.Millisecond
 						socksServer.logger.Warn("StartBind(): Accept error %v, retry in %v", err, delayTime)
 						time.Sleep(delayTime)
