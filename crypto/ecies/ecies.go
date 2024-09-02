@@ -95,6 +95,7 @@ func ImportECDSA(prv *ecdsa.PrivateKey) *PrivateKey {
 // Generate an elliptic curve public / private keypair. If params is nil,
 // the recommended default parameters for the key will be chosen.
 func GenerateKey(rand io.Reader, curve elliptic.Curve, params *ECIESParams) (prv *PrivateKey, err error) {
+	//lint:ignore SA1019 because S256() doesn't have it's own GenerateKey method
 	pb, x, y, err := elliptic.GenerateKey(curve, rand)
 	if err != nil {
 		return
@@ -283,6 +284,7 @@ func Encrypt(rand io.Reader, pub *PublicKey, m, s1, s2 []byte) (ct []byte, err e
 
 	d := messageTag(params.Hash, Km, em, s2)
 
+	//lint:ignore SA1019 because S256() doesn't have it's own Marshal method
 	Rb := elliptic.Marshal(pub.Curve, R.PublicKey.X, R.PublicKey.Y)
 	ct = make([]byte, len(Rb)+len(em)+len(d))
 	copy(ct, Rb)
@@ -329,6 +331,7 @@ func (prv *PrivateKey) Decrypt(c, s1, s2 []byte) (m []byte, err error) {
 
 	R := new(PublicKey)
 	R.Curve = prv.PublicKey.Curve
+	//lint:ignore SA1019 because S256() doesn't have it's own Unmarshal method
 	R.X, R.Y = elliptic.Unmarshal(R.Curve, c[:rLen])
 	if R.X == nil {
 		err = ErrInvalidPublicKey

@@ -91,9 +91,9 @@ type Decoder interface {
 // rules for the field such that input values of size zero decode as a nil
 // pointer. This tag can be useful when decoding recursive types.
 //
-//     type StructWithEmptyOK struct {
-//         Foo *[20]byte `rlp:"nil"`
-//     }
+//	type StructWithEmptyOK struct {
+//	    Foo *[20]byte `rlp:"nil"`
+//	}
 //
 // To decode into a slice, the input must be a list and the resulting
 // slice will contain the input elements in order. For byte slices,
@@ -113,8 +113,8 @@ type Decoder interface {
 // To decode into an interface value, Decode stores one of these
 // in the value:
 //
-//	  []interface{}, for RLP lists
-//	  []byte, for RLP strings
+//	[]interface{}, for RLP lists
+//	[]byte, for RLP strings
 //
 // Non-empty interface types are not supported, nor are booleans,
 // signed integers, floating point numbers, maps, channels and
@@ -124,7 +124,7 @@ type Decoder interface {
 // and may be vulnerable to panics cause by huge value sizes. If
 // you need an input limit, use
 //
-//     NewStream(r, limit).Decode(val)
+//	NewStream(r, limit).Decode(val)
 func Decode(r io.Reader, val interface{}) error {
 	// TODO: this could use a Stream from a pool.
 	return NewStream(r, 0).Decode(val)
@@ -199,9 +199,9 @@ func makeDecoder(typ reflect.Type, tags tags) (dec decoder, err error) {
 		return decodeRawValue, nil
 	case typ.Implements(decoderInterface):
 		return decodeDecoder, nil
-	case kind != reflect.Ptr && reflect.PtrTo(typ).Implements(decoderInterface):
+	case kind != reflect.Ptr && reflect.PointerTo(typ).Implements(decoderInterface):
 		return decodeDecoderNoPtr, nil
-	case typ.AssignableTo(reflect.PtrTo(bigInt)):
+	case typ.AssignableTo(reflect.PointerTo(bigInt)):
 		return decodeBigInt, nil
 	case typ.AssignableTo(bigInt):
 		return decodeBigIntNoPtr, nil
@@ -288,7 +288,7 @@ func decodeBigInt(s *Stream, val reflect.Value) error {
 
 func makeListDecoder(typ reflect.Type, tag tags) (decoder, error) {
 	etype := typ.Elem()
-	if etype.Kind() == reflect.Uint8 && !reflect.PtrTo(etype).Implements(decoderInterface) {
+	if etype.Kind() == reflect.Uint8 && !reflect.PointerTo(etype).Implements(decoderInterface) {
 		if typ.Kind() == reflect.Array {
 			return decodeByteArray, nil
 		}

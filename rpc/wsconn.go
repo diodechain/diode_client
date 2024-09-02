@@ -31,7 +31,7 @@ func (c *WSConn) Close() error {
 
 // Read data from the connectionn
 func (c *WSConn) Read(buf []byte) (n int, err error) {
-	if c.readBuffer != nil && len(c.readBuffer) > 0 {
+	if len(c.readBuffer) > 0 {
 		n = copy(buf, c.readBuffer)
 		c.readBuffer = c.readBuffer[n:]
 		return

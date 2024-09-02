@@ -101,14 +101,7 @@ $ diode socksd
 
 ## Prerequisite
 
-* go >= 1.14
-* enable go module (see: https://blog.golang.org/using-go-modules)
-
-  ```BASH
-  export GO111MODULE=on
-  ```
-
-* optional: run dev diodechain locally (see: https://github.com/diodechain/diode_server_ex)
+* go <= 1.22
 
 ## Setup go environment
 

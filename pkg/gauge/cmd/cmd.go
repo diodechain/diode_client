@@ -6,7 +6,7 @@ package cmd
 import (
 	"crypto/tls"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"net"
 	"net/http"
 	"net/http/httptrace"
@@ -236,7 +236,7 @@ func gaugeHandler(cmd *cobra.Command, args []string) (err error) {
 			app.addConn(c)
 			defer app.delConn(c)
 			defer resp.Body.Close()
-			_, err = ioutil.ReadAll(resp.Body)
+			_, err = io.ReadAll(resp.Body)
 			if err != nil {
 				app.Println(row, fmt.Sprintf(errorRowTemplate, j, err.Error()))
 				wg.Done()

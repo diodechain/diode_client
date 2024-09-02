@@ -149,7 +149,6 @@ func prepareDiode() error {
 			cfg.RemoteRPCAddrs = remoteRPCAddrs
 		}
 	}
-	rand.Seed(time.Now().Unix())
 	rand.Shuffle(len(cfg.RemoteRPCAddrs), func(i, j int) {
 		cfg.RemoteRPCAddrs[i], cfg.RemoteRPCAddrs[j] = cfg.RemoteRPCAddrs[j], cfg.RemoteRPCAddrs[i]
 	})

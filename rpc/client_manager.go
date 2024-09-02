@@ -40,7 +40,6 @@ type nodeRequest struct {
 
 // NewClientManager returns a new manager rpc client
 func NewClientManager(cfg *config.Config) *ClientManager {
-	rand.Seed(time.Now().Unix())
 	cm := &ClientManager{
 		srv:           genserver.New("ClientManager"),
 		clientMap:     make(map[util.Address]*Client),
