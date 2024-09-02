@@ -31,10 +31,13 @@ var (
 	}
 )
 
-func updateHandler() (err error) {
+func writeLastUpdateAt() {
 	lastUpdateAt := time.Now()
 	lastUpdateAtByt := util.DecodeInt64ToBytes(lastUpdateAt.Unix())
 	db.DB.Put("last_update_at", lastUpdateAtByt)
+}
+
+func updateHandler() (err error) {
 	doUpdate()
 	return
 }
@@ -54,13 +57,16 @@ func doUpdate() int {
 		m.Command += ".exe"
 	}
 
-	tarball, ok := download(m)
+	tarball, ok, err := download(m)
 	if !ok {
 		// Will recheck for an update in 24 hours
 		go func() {
 			time.Sleep(time.Hour * 24)
 			doUpdate()
 		}()
+		if err == nil {
+			writeLastUpdateAt()
+		}
 		return 0
 	}
 
@@ -85,12 +91,12 @@ func doUpdate() int {
 
 	cmd := path.Join(dir, m.Command)
 	fmt.Printf("Updated, restarting %s...\n", cmd)
-
+	writeLastUpdateAt()
 	update.Restart(cmd)
 	return 0
 }
 
-func download(m *update.Manager) (string, bool) {
+func download(m *update.Manager) (string, bool, error) {
 	cfg := config.AppConfig
 	ansi.HideCursor()
 	defer ansi.ShowCursor()
@@ -101,13 +107,13 @@ func download(m *update.Manager) (string, bool) {
 	releases, err := m.LatestReleases()
 	if err != nil {
 		cfg.PrintInfo(fmt.Sprintf("Error fetching releases: %s", err))
-		return "", false
+		return "", false, err
 	}
 
 	// no updates
 	if len(releases) == 0 {
 		cfg.PrintInfo("No updates")
-		return "", false
+		return "", false, nil
 	}
 
 	// latest release
@@ -117,7 +123,7 @@ func download(m *update.Manager) (string, bool) {
 	a := latest.FindZip(runtime.GOOS, runtime.GOARCH)
 	if a == nil {
 		cfg.PrintInfo(fmt.Sprintf("No binary for your system (%s_%s)", runtime.GOOS, runtime.GOARCH))
-		return "", false
+		return "", false, nil
 	}
 
 	// whitespace
@@ -129,5 +135,5 @@ func download(m *update.Manager) (string, bool) {
 		cfg.PrintError("Error downloading", err)
 	}
 
-	return tarball, true
+	return tarball, true, nil
 }
