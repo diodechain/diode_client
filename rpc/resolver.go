@@ -86,7 +86,7 @@ func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTi
 		// Calling GetObject to locate the device
 		cachedDevice := resolver.datapool.GetCacheDevice(deviceID)
 		if cachedDevice != nil {
-			if cachedDevice != nil && cachedDevice.BlockNumber == 0 && time.Since(cachedDevice.CacheTime) < 8*time.Hour {
+			if cachedDevice.BlockNumber == 0 && time.Since(cachedDevice.CacheTime) < 8*time.Hour {
 				// The last time we checked there was no object (device was offline)
 				continue
 			} else if client.isRecentTicket(cachedDevice) {
@@ -109,6 +109,7 @@ func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTi
 			// Setting a nil to cache, to mark the current time of the last check
 			resolver.datapool.SetCacheDevice(deviceID, &edge.DeviceTicket{})
 			continue
+			client.Log().Warn("found outdated deviceticket() %v", device)
 		}
 
 		if device.BlockHash, err = client.ResolveBlockHash(device.BlockNumber); err != nil {
@@ -116,6 +117,7 @@ func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTi
 			continue
 		}
 		if device.Err != nil {
+			err = device.Err
 			continue
 		}
 		if !device.ValidateDeviceSig(deviceID) {
