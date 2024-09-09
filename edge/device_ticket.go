@@ -38,7 +38,7 @@ type DeviceTicket struct {
 
 	// Extra fields
 	CacheTime     time.Time
-	deviceAddress *util.Address
+	deviceAddress util.Address
 	Err           error
 }
 
@@ -151,16 +151,15 @@ func (ct *DeviceTicket) GetServerIDs() (ret []Address) {
 
 // DeviceAddress returns device address
 func (ct *DeviceTicket) DeviceAddress() (Address, error) {
-	if ct.deviceAddress == nil {
+	if ct.deviceAddress == [20]byte{} {
 		devicePubkey, err := ct.RecoverDevicePubKey()
 		if err != nil {
 			return [20]byte{}, err
 		}
-		addr := util.PubkeyToAddress(devicePubkey)
-		ct.deviceAddress = &addr
+		ct.deviceAddress = util.PubkeyToAddress(devicePubkey)
 	}
 
-	return *ct.deviceAddress, nil
+	return ct.deviceAddress, nil
 }
 
 // GetDeviceID returns the hex formatted address
