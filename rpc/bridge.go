@@ -278,7 +278,7 @@ func (client *Client) handleInboundMessage(msg edge.Message) {
 		res, err := call.Parse(msg.Buffer)
 		if err != nil {
 			rpcError := edge.Error{
-				Message: err.Error(),
+				Message: fmt.Sprintf("failed processing response %v %v", msg.Buffer, err.Error()),
 			}
 			call.enqueueResponse(rpcError)
 			return
