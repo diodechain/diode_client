@@ -88,7 +88,6 @@ func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTi
 		if cachedDevice != nil && cachedDevice.Version != 0 {
 			if client.isRecentTicket(cachedDevice) {
 				ret = append(ret, cachedDevice)
-				fmt.Println("using cachedDevice", cachedDevice)
 				continue
 			} else if time.Since(cachedDevice.CacheTime) < 15*time.Minute {
 				// The ticket is not recent but the entry had been fetched recently
