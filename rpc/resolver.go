@@ -105,7 +105,7 @@ func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTi
 		if !client.isRecentTicket(device) {
 			// Setting a nil to cache, to mark the current time of the last check
 			resolver.datapool.SetCacheDevice(deviceID, device)
-			client.Log().Warn("found outdated deviceticket() %v", device)
+			client.Log().Warn("found outdated deviceticket() %+v", device)
 			continue
 		}
 
