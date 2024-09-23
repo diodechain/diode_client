@@ -251,14 +251,27 @@ func (cm *ClientManager) GetNearestClient() (client *Client) {
 	return
 }
 
-// PeekNearestClients is a non-blocking version of GetNearestClient but can return nil
-func (cm *ClientManager) PeekNearestClients() (prim *util.Address, secd *util.Address) {
+// PeekNearestAddresses is a non-blocking version of GetNearestClient but can return nil
+func (cm *ClientManager) PeekNearestAddresses() (prim *util.Address, secd *util.Address) {
+	primClient, secdClient := cm.PeekNearestClients()
+
+	if primClient != nil {
+		prim = &primClient.serverID
+	}
+
+	if secdClient != nil {
+		secd = &secdClient.serverID
+	}
+	return
+}
+
+func (cm *ClientManager) PeekNearestClients() (prim *Client, secd *Client) {
 	cm.srv.Call(func() {
 		if primary := cm.topClient(0); primary != nil {
-			prim = &primary.serverID
+			prim = primary
 		}
 		if secondary := cm.topClient(1); secondary != nil {
-			secd = &secondary.serverID
+			secd = secondary
 		}
 	})
 	return

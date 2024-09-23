@@ -332,6 +332,8 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 		serverID util.Address
 	}
 
+	nearestClient, _ := socksServer.clientManager.PeekNearestClients()
+
 	candidates := make([]candidate, 0)
 	for _, device := range devices {
 		var deviceID Address
@@ -341,8 +343,15 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 			continue
 		}
 
+		if nearestClient != nil {
+			candidates = append(candidates, candidate{deviceID, nearestClient.serverID})
+		}
+
 		for _, serverID := range device.GetServerIDs() {
 			socksServer.logger.Debug("Found device %s on server %s", deviceID.HexString(), serverID.HexString())
+			if nearestClient != nil && serverID == nearestClient.serverID {
+				continue
+			}
 			candidates = append(candidates, candidate{deviceID, serverID})
 		}
 	}

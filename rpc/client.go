@@ -613,7 +613,7 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 		LocalAddr:        []byte{},
 	}
 
-	prim, secd := client.clientMan.PeekNearestClients()
+	prim, secd := client.clientMan.PeekNearestAddresses()
 
 	if prim != nil {
 		if *prim == serverID {
