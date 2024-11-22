@@ -1141,6 +1141,7 @@ func (client *Client) Close() {
 		}
 		if client.s != nil {
 			client.s.Close()
+			client.s = nil
 		}
 	})
 	if timeout == nil && doCleanup {
