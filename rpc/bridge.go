@@ -310,11 +310,17 @@ func (client *Client) recvMessageLoop() {
 	}()
 
 	for {
+		if client.s == nil {
+			if !client.isClosed {
+				client.Log().Info("Client connection closed prematurely.")
+				client.Close()
+			}
+			return
+		}
 		msg, err := client.s.readMessage()
 		if err != nil {
 			if !client.isClosed {
-				// This was unexpected...
-				client.Log().Info("Client connection closed: %v", err)
+				client.Log().Info("Client connection closed unexpectedly: %v", err)
 				client.Close()
 			}
 			return
