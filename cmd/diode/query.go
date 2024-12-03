@@ -10,7 +10,7 @@ import (
 	"github.com/diodechain/diode_client/command"
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/rpc"
-	//"github.com/diodechain/diode_client/util"
+	"github.com/diodechain/diode_client/util"
 )
 
 var (
@@ -45,15 +45,28 @@ func queryHandler() (err error) {
 	resolverConfig := rpc.Config{}
 	resolver := rpc.NewResolver(resolverConfig, app.clientManager)
 
+	client := app.clientManager.GetNearestClient()
+	addr, err := util.DecodeAddress(cfg.QueryAddress)
+	if err == nil {
+		addrType, err := client.ResolveAccountType(addr)
+		if err != nil {
+			cfg.PrintError("Couldn't resolve account type: ", err)
+		} else {
+			cfg.PrintLabel("Account Type: ", addrType)
+		}
+	}
+
 	devices, err := resolver.ResolveDevice(cfg.QueryAddress, false)
 	if err != nil || len(devices) == 0 {
 		cfg.PrintError("Couldn't resolve any devices: ", err)
+		err = nil
 		return
 	}
 
 	cfg.PrintLabel("Devices: ", fmt.Sprintf("%d", len(devices)))
 	for i, device := range devices {
-		cfg.PrintLabel(fmt.Sprintf("Device [%d]: ", i), "")
+		cfg.PrintLabel("", "")
+		cfg.PrintLabel(fmt.Sprintf("Device Ticket %d: ", i+1), device.GetDeviceID())
 		cfg.PrintLabel("  Version: ", fmt.Sprintf("%d", device.Version))
 		cfg.PrintLabel("  ServerID: ", device.ServerID.HexString())
 		cfg.PrintLabel("  BlockNumber: ", fmt.Sprintf("%d", device.BlockNumber))
@@ -67,7 +80,6 @@ func queryHandler() (err error) {
 		cfg.PrintLabel("  ChainID: ", fmt.Sprintf("%d", device.ChainID))
 		cfg.PrintLabel("  Epoch: ", fmt.Sprintf("%d", device.Epoch))
 		cfg.PrintLabel("  CacheTime: ", device.CacheTime.Format(time.RFC3339))
-		cfg.PrintLabel("  DeviceAddress: ", device.GetDeviceID())
 		if device.Err != nil {
 			cfg.PrintLabel("  Validation Error: ", device.Err.Error())
 		} else {

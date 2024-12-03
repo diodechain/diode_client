@@ -532,7 +532,10 @@ func (client *Client) GetObject(deviceID [20]byte) (*edge.DeviceTicket, error) {
 		device.BlockHash, err = client.ResolveBlockHash(device.BlockNumber)
 		return device, err
 	}
-	return nil, nil
+	if err, ok := rawObject.(error); ok {
+		return nil, err
+	}
+	return nil, fmt.Errorf("unknown object type")
 }
 
 // GetNode returns network address for node
@@ -837,10 +840,42 @@ func (client *Client) GetAccountValue(blockNumber uint64, account [20]byte, rawK
 	return nil, nil
 }
 
+func (client *Client) GetMoonAccountValueRaw(account [20]byte, rawKey []byte) ([]byte, error) {
+	// pad key to 32 bytes
+	key := util.PaddingBytesPrefix(rawKey, 0, 32)
+	rawAccountValue, err := client.CallContext("glmr:getaccountvalue", "latest", account[:], key)
+	if err != nil {
+		return nil, err
+	}
+	if accountValue, ok := rawAccountValue.([]byte); ok {
+		return accountValue, nil
+	}
+	return nil, nil
+}
+
+func (client *Client) GetMoonAccountValueInt(addr [20]byte, key []byte) *big.Int {
+	raw, err := client.GetMoonAccountValueRaw(addr, key)
+	ret := big.NewInt(0)
+	if err != nil {
+		return ret
+	}
+	ret.SetBytes(raw)
+	return ret
+}
+
+func (client *Client) GetMoonAccountValueAddress(addr [20]byte, key []byte) Address {
+	raw, err := client.GetMoonAccountValueRaw(addr, key)
+	var address util.Address
+	if err == nil {
+		copy(address[:], raw[12:])
+	}
+	return address
+}
+
 // GetAccountValueInt returns account value as Integer
-func (client *Client) GetAccountValueInt(blockNumber uint64, addr [20]byte, key []byte) big.Int {
+func (client *Client) GetAccountValueInt(blockNumber uint64, addr [20]byte, key []byte) *big.Int {
 	raw, err := client.GetAccountValueRaw(blockNumber, addr, key)
-	var ret big.Int
+	ret := big.NewInt(0)
 	if err != nil {
 		return ret
 	}
@@ -938,6 +973,24 @@ func (client *Client) GetCacheOrResolveAllPeersOfAddrs(addrs Address) ([]Address
 
 // ResolveBNS resolves the (primary) destination of the BNS entry
 func (client *Client) ResolveBNS(name string) (addr []Address, err error) {
+	if strings.HasSuffix(name, ".glmr") {
+		name = strings.TrimSuffix(name, ".glmr")
+		return client.ResolveMoonBNS(name)
+	}
+
+	if strings.HasSuffix(name, ".diode") {
+		name = strings.TrimSuffix(name, ".diode")
+		return client.ResolveDiodeBNS(name)
+	}
+
+	if addr, err = client.ResolveDiodeBNS(name); err != nil {
+		return client.ResolveMoonBNS(name)
+	}
+
+	return addr, nil
+}
+
+func (client *Client) ResolveDiodeBNS(name string) (addr []Address, err error) {
 	client.Log().Info("Resolving BNS: %s", name)
 	name = strings.ToLower(name)
 	for _, v := range client.config.SBlockdomains {
@@ -949,18 +1002,16 @@ func (client *Client) ResolveBNS(name string) (addr []Address, err error) {
 	}
 
 	arrayKey := contract.BNSDestinationArrayLocation(name)
-	size := client.GetAccountValueInt(0, contract.BNSAddr, arrayKey)
-
-	intSize := size.Int64()
+	size := int(client.GetAccountValueInt(0, contract.BNSAddr, arrayKey).Uint64())
 
 	// Todo remove once memory issue is found
-	if intSize > 128 {
-		client.Log().Error("Read invalid BNS entry count: %d", intSize)
-		intSize = 0
+	if size > 128 {
+		client.Log().Error("Read invalid BNS entry count: %d", size)
+		size = 0
 	}
 
 	// Fallback for old style DNS entries
-	if intSize == 0 {
+	if size == 0 {
 		key := contract.BNSEntryLocation(name)
 		raw, err := client.GetAccountValueRaw(0, contract.BNSAddr, key)
 		if err != nil {
@@ -975,9 +1026,65 @@ func (client *Client) ResolveBNS(name string) (addr []Address, err error) {
 		return addr, nil
 	}
 
-	for i := int64(0); i < intSize; i++ {
+	for i := 0; i < size; i++ {
 		key := contract.BNSDestinationArrayElementLocation(name, int(i))
 		raw, err := client.GetAccountValueRaw(0, contract.BNSAddr, key)
+		if err != nil {
+			client.Log().Error("Read invalid BNS record offset: %d %v (%v)", i, err, string(raw))
+			continue
+		}
+
+		var address util.Address
+		copy(address[:], raw[12:])
+		addr = append(addr, address)
+	}
+	if len(addr) == 0 {
+		return addr, errEmptyBNSresult
+	}
+	return addr, nil
+}
+
+func (client *Client) ResolveMoonBNS(name string) (addr []Address, err error) {
+	client.Log().Info("Resolving Moonbeam BNS: %s", name)
+	name = strings.ToLower(name)
+	for _, v := range client.config.SBlockdomains {
+		blockedDomain := strings.ToLower(v)
+		if blockedDomain == name {
+			client.Log().Error("Aborting domain: %s", name)
+			return nil, HttpError{403, fmt.Errorf("domain %s is not allowed", name)}
+		}
+	}
+
+	arrayKey := contract.BNSDestinationArrayLocation(name)
+	size := client.GetMoonAccountValueInt(contract.MoonBNSAddr, arrayKey)
+
+	intSize := size.Int64()
+
+	// Todo remove once memory issue is found
+	if intSize > 128 {
+		client.Log().Error("Read invalid BNS entry count: %d", intSize)
+		intSize = 0
+	}
+
+	// Fallback for old style DNS entries
+	if intSize == 0 {
+		key := contract.BNSEntryLocation(name)
+		raw, err := client.GetMoonAccountValueRaw(contract.MoonBNSAddr, key)
+		if err != nil {
+			return addr, err
+		}
+
+		addr = make([]util.Address, 1)
+		copy(addr[0][:], raw[12:])
+		if addr[0] == [20]byte{} {
+			return addr, errEmptyBNSresult
+		}
+		return addr, nil
+	}
+
+	for i := int64(0); i < intSize; i++ {
+		key := contract.BNSDestinationArrayElementLocation(name, int(i))
+		raw, err := client.GetMoonAccountValueRaw(contract.MoonBNSAddr, key)
 		if err != nil {
 			client.Log().Error("Read invalid BNS record offset: %d %v (%v)", i, err, string(raw))
 			continue
@@ -1034,47 +1141,69 @@ func (client *Client) ResolveBlockHash(blockNumber uint64) (blockHash []byte, er
 // It returns a slice of addresses and an error, if any.
 func (client *Client) ResolveMembers(members Address) (addr []Address, err error) {
 	client.Log().Info("Resolving Members: %s", members.HexString())
+	if members == [20]byte{} {
+		return
+	}
 
+	addr, err = client.ResolveDiodeMembers(members)
+	if err == nil && len(addr) > 0 {
+		return
+	}
+
+	addr, err = client.ResolveMoonMembers(members)
+	if err != nil {
+		return []Address{}, err
+	}
+
+	if len(addr) == 0 {
+		return append(addr, members), nil
+	}
+
+	return addr, nil
+}
+
+func (client *Client) ResolveDiodeMembers(members Address) (addr []Address, err error) {
 	blockNumber, _ := client.LastValid()
 
-	var raw []byte
-
 	owner := client.GetAccountValueAddress(blockNumber, members, contract.OwnerLocation())
-	addr = append(addr, owner)
-
-	raw, err = client.GetAccountValueRaw(blockNumber, members, contract.MemberIndex())
-	// If this there is no such contract we assume
-	// this is a normal address
-	if err != nil {
-		//if owner is 0x0, return empty array
-		if owner == [20]byte{} {
-			return
-		} else {
-			addr = append(addr, members)
-		}
-		return addr, nil
+	if owner != [20]byte{} {
+		addr = append(addr, owner)
 	}
 
-	var size big.Int
-	size.SetBytes(raw)
-	intSize := size.Int64()
+	size := int(client.GetAccountValueInt(blockNumber, members, contract.MemberIndex()).Uint64())
 
-	// Safety belt, to protect against unreasonable allocation. TODO remove
-	if intSize > 128 {
-		client.Log().Error("Read invalid member entry count: %d", intSize)
-		intSize = 0
+	// Safety belt, to protect against unreasonable allocation.
+	if size > 128 {
+		client.Log().Error("Read invalid member entry count: %d", size)
+		size = 0
 	}
 
-	for i := int(0); i < int(intSize); i++ {
-		raw, err := client.GetAccountValueRaw(blockNumber, members, contract.MemberLocation(i))
-		if err != nil {
-			client.Log().Error("Read invalid Member record offset: %d %v (%v)", i, err, string(raw))
-			continue
+	for i := 0; i < size; i++ {
+		address := client.GetAccountValueAddress(blockNumber, members, contract.MemberLocation(i))
+		if address != owner && address != [20]byte{} {
+			addr = append(addr, address)
 		}
+	}
+	return addr, nil
+}
 
-		var address util.Address
-		copy(address[:], raw[12:])
-		if address != owner {
+func (client *Client) ResolveMoonMembers(members Address) (addr []Address, err error) {
+	owner := client.GetMoonAccountValueAddress(members, contract.OwnerLocation())
+	if owner != [20]byte{} {
+		addr = append(addr, owner)
+	}
+
+	size := int(client.GetMoonAccountValueInt(members, contract.MemberIndex()).Uint64())
+
+	// Safety belt, to protect against unreasonable allocation.
+	if size > 128 {
+		client.Log().Error("Read invalid member entry count: %d", size)
+		size = 0
+	}
+
+	for i := 0; i < size; i++ {
+		address := client.GetMoonAccountValueAddress(members, contract.MemberLocation(i))
+		if address != owner && address != [20]byte{} {
 			addr = append(addr, address)
 		}
 	}
@@ -1087,7 +1216,35 @@ func (client *Client) ResolveMembers(members Address) (addr []Address, err error
 // Drive are the drive contract addresses, identified by trying to get member account value raw of the resolved members of the given address. GetAccountValueRaw returns members array for the member addresses of the given address when drive address is given.
 func (client *Client) ResolveAccountType(addr Address) (string, error) {
 	client.Log().Info("Resolving Account Type of: %s", addr.HexString())
+	addrType, err := client.ResolveDiodeAccountType(addr)
+	if addrType == "user" {
+		addrType, err = client.ResolveMoonAccountType(addr)
+	}
+	return addrType, err
+}
 
+func (client *Client) ResolveMoonAccountType(addr Address) (string, error) {
+	owner := client.GetMoonAccountValueAddress(addr, contract.OwnerLocation())
+	if owner == [20]byte{} {
+		return "user", nil
+	}
+
+	raw, err := client.GetMoonAccountValueRaw(addr, contract.MemberLocation(0))
+	if err != nil {
+		//error resolving members of the given address
+		client.Log().Error("Read invalid Member record offset: %d %v (%v)", 0, err, string(raw))
+		return "", err
+	}
+	var memberAddr util.Address
+	copy(memberAddr[:], raw[12:])
+	_, err = client.GetMoonAccountValueRaw(addr, contract.MemberIndex())
+	if err != nil {
+		return "driveMember", nil
+	}
+	return "drive", nil
+}
+
+func (client *Client) ResolveDiodeAccountType(addr Address) (string, error) {
 	blockNumber, _ := client.LastValid()
 
 	_, err := client.GetAccountValueRaw(blockNumber, addr, contract.MemberIndex())

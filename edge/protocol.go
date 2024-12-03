@@ -48,7 +48,7 @@ var (
 	errKeyNotFoundInItems      = fmt.Errorf("key not found")
 	ErrFailedToParseTicket     = fmt.Errorf("failed to parse ticket")
 	ErrResponseHandlerNotFound = fmt.Errorf("couldn't find handler for response")
-	ErrRPCNotSupport           = fmt.Errorf("rpc method not support")
+	ErrRPCNotSupport           = fmt.Errorf("rpc method not supported")
 )
 
 // parse response
@@ -86,6 +86,7 @@ func parseResponse(buffer []byte) (interface{}, error) {
 	} else if bytes.Contains(buffer, ticketPivot) {
 		return parseDeviceTicketResponse(buffer)
 	}
+	fmt.Printf("buffer: %v\n", buffer)
 	return nil, ErrResponseHandlerNotFound
 }
 
@@ -231,30 +232,36 @@ func parseDeviceTicketResponse(buffer []byte) (interface{}, error) {
 }
 
 func parseDeviceObjectResponse(buffer []byte) (interface{}, error) {
-	var response objectResponse
+	var response emptyResponse
+	var responseV1 objectResponse
 	var responseV2 objectResponseV2
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 
-	err := decodeStream.Decode(&response)
-	if err == nil && response.Payload.Ticket.ObjectType != "ticket" {
-		err = fmt.Errorf("wrong ticketv1 object type: %v", response.Payload.Ticket.ObjectType)
+	if decodeStream.Decode(&response) == nil {
+		return fmt.Errorf("empty response"), nil
+	}
+
+	decodeStream.Reset(bytes.NewReader(buffer), 0)
+	err := decodeStream.Decode(&responseV1)
+	if err == nil && responseV1.Payload.Ticket.ObjectType != "ticket" {
+		err = fmt.Errorf("wrong ticketv1 object type: %v", responseV1.Payload.Ticket.ObjectType)
 	}
 
 	if err == nil {
-		return response.makeDeviceTicket(), nil
+		return responseV1.makeDeviceTicket(), nil
 	}
 
 	decodeStream.Reset(bytes.NewReader(buffer), 0)
 	err2 := decodeStream.Decode(&responseV2)
 	if err2 == nil && responseV2.Payload.Ticket.ObjectType != "ticketv2" {
-		err = fmt.Errorf("wrong ticketv2 object type: %v", responseV2.Payload.Ticket.ObjectType)
+		err2 = fmt.Errorf("wrong ticketv2 object type: %v", responseV2.Payload.Ticket.ObjectType)
 	}
 
 	if err2 == nil {
 		return responseV2.makeDeviceTicket(), nil
 	}
 
-	return nil, fmt.Errorf("failed decoding or empty device response: %w & %w", err, err2)
+	return nil, fmt.Errorf("failed decoding device response: %w & %w", err, err2)
 }
 
 // TODO: decode merkle tree from message
@@ -305,6 +312,7 @@ func parseAccountValueResponse(buffer []byte) (interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	accountTree, err := NewMerkleTree(response.Payload.MerkleProof)
 	if err != nil {
 		return nil, err
@@ -313,6 +321,17 @@ func parseAccountValueResponse(buffer []byte) (interface{}, error) {
 		accountTree: accountTree,
 	}
 	return accountValue, nil
+}
+
+func parseMoonAccountValueResponse(buffer []byte) (interface{}, error) {
+	var response moonAccountValueResponse
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	err := decodeStream.Decode(&response)
+	if err != nil {
+		return nil, err
+	}
+
+	return response.Payload.Value, nil
 }
 
 func parsePortSendResponse(buffer []byte) (interface{}, error) {
@@ -642,6 +661,8 @@ func NewMessage(writer io.Writer, requestID uint64, method string, args ...inter
 		return parseAccountRootsResponse, nil
 	case "getaccountvalue":
 		return parseAccountValueResponse, nil
+	case "glmr:getaccountvalue":
+		return parseMoonAccountValueResponse, nil
 	case "ticket":
 		return parseDeviceTicketResponse, nil
 	case "portopen":

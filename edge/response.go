@@ -134,6 +134,14 @@ type accountValueResponse struct {
 	}
 }
 
+type moonAccountValueResponse struct {
+	RequestID uint64
+	Payload   struct {
+		Type  string
+		Value []byte
+	}
+}
+
 type portSendResponse struct {
 	RequestID uint64
 	Payload   struct {
@@ -148,6 +156,14 @@ type portOpenResponse struct {
 		Type   string
 		Result string
 		Ref    string
+	}
+}
+
+type emptyResponse struct {
+	RequestID uint64
+	Payload   struct {
+		Type  string // "response"
+		Empty string // ""
 	}
 }
 
