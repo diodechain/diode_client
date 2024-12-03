@@ -235,16 +235,26 @@ func parseDeviceObjectResponse(buffer []byte) (interface{}, error) {
 	var responseV2 objectResponseV2
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 
-	if err := decodeStream.Decode(&response); err != nil {
-		decodeStream.Reset(bytes.NewReader(buffer), 0)
-		if err2 := decodeStream.Decode(&responseV2); err2 != nil {
-			return nil, fmt.Errorf("failed decoding or empty device response: %w & %w", err, err2)
-		} else {
-			return responseV2.makeDeviceTicket(), nil
-		}
+	err := decodeStream.Decode(&response)
+	if err == nil && response.Payload.Ticket.ObjectType != "ticket" {
+		err = fmt.Errorf("wrong ticketv1 object type: %v", response.Payload.Ticket.ObjectType)
 	}
 
-	return response.makeDeviceTicket(), nil
+	if err == nil {
+		return response.makeDeviceTicket(), nil
+	}
+
+	decodeStream.Reset(bytes.NewReader(buffer), 0)
+	err2 := decodeStream.Decode(&responseV2)
+	if err2 == nil && responseV2.Payload.Ticket.ObjectType != "ticketv2" {
+		err = fmt.Errorf("wrong ticketv2 object type: %v", responseV2.Payload.Ticket.ObjectType)
+	}
+
+	if err2 == nil {
+		return responseV2.makeDeviceTicket(), nil
+	}
+
+	return nil, fmt.Errorf("failed decoding or empty device response: %w & %w", err, err2)
 }
 
 // TODO: decode merkle tree from message

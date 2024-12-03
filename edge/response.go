@@ -4,6 +4,7 @@
 package edge
 
 import (
+	"math/big"
 	"reflect"
 )
 
@@ -101,8 +102,8 @@ type ticketTooLowResponse struct {
 		Type             string
 		Result           string
 		BlockHash        []byte
-		TotalConnections uint64
-		TotalBytes       uint64
+		TotalConnections *big.Int
+		TotalBytes       *big.Int
 		LocalAddr        []byte
 		DeviceSig        []byte
 	}
@@ -155,12 +156,12 @@ type objectResponse struct {
 	Payload   struct {
 		Type   string
 		Ticket struct {
-			Location         string // should be "location"
+			ObjectType       string // "ticket"
 			ServerID         []byte
 			PeakBlock        uint64
 			FleetAddr        []byte
-			TotalConnections uint64
-			TotalBytes       uint64
+			TotalConnections *big.Int
+			TotalBytes       *big.Int
 			LocalAddr        []byte
 			DeviceSig        []byte
 			ServerSig        []byte
@@ -173,13 +174,13 @@ type objectResponseV2 struct {
 	Payload   struct {
 		Type   string
 		Ticket struct {
-			Location         string // should be "location"
+			ObjectType       string // "ticketv2"
 			ServerID         []byte
 			ChainID          uint64
 			Epoch            uint64
 			FleetAddr        []byte
-			TotalConnections uint64
-			TotalBytes       uint64
+			TotalConnections *big.Int
+			TotalBytes       *big.Int
 			LocalAddr        []byte
 			DeviceSig        []byte
 			ServerSig        []byte

@@ -32,7 +32,92 @@ func NewResolver(socksCfg Config, clientManager *ClientManager) (resolver *Resol
 }
 
 // ResolveDevice
-func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTicket, err error) {
+func (resolver *Resolver) ResolveDevice(deviceName string, validate bool) (ret []*edge.DeviceTicket, err error) {
+	deviceIDs, err := resolver.ResolveDeviceIDs(deviceName)
+	if err != nil {
+		return nil, err
+	}
+
+	client := resolver.clientManager.GetNearestClient()
+	if client == nil {
+		return nil, HttpError{404, err}
+	}
+
+	if len(deviceIDs) == 0 {
+		err = fmt.Errorf("device %s is not allowed", deviceName)
+		return nil, HttpError{403, err}
+	}
+
+	// Finding accessible deviceIDs
+	for _, deviceID := range deviceIDs {
+
+		// Calling GetObject to locate the device
+		cachedDevice := resolver.datapool.GetCacheDevice(deviceID)
+		if cachedDevice != nil && cachedDevice.Version != 0 {
+			if client.isRecentTicket(cachedDevice) {
+				ret = append(ret, cachedDevice)
+				continue
+			} else if time.Since(cachedDevice.CacheTime) < 15*time.Minute {
+				// The ticket is not recent but the entry had been fetched recently
+				// So we skip re-fetching it, assuming there is no newer atm
+				continue
+			}
+		}
+
+		var device *edge.DeviceTicket
+		device, err = client.GetObject(deviceID)
+		if err != nil {
+			continue
+		}
+
+		if !client.isRecentTicket(device) {
+			// Setting a nil to cache, to mark the current time of the last check
+			resolver.datapool.SetCacheDevice(deviceID, &edge.DeviceTicket{})
+			client.Log().Warn("found outdated deviceticket() %+v", device)
+		}
+
+		errors := resolver.ValidateTicket(client, deviceID, device)
+		if len(errors) > 0 {
+			err = errors[0]
+			device.Err = err
+		} else {
+			resolver.datapool.SetCacheDevice(deviceID, device)
+		}
+
+		if len(errors) == 0 || !validate {
+			ret = append(ret, device)
+		}
+
+	}
+	if len(ret) == 0 {
+		return ret, err
+	}
+	return ret, nil
+}
+
+func (resolver *Resolver) ValidateTicket(client *Client, deviceID Address, device *edge.DeviceTicket) (errors []error) {
+	var err error
+
+	if !client.isRecentTicket(device) {
+		errors = append(errors, fmt.Errorf("outdated device ticket"))
+	}
+
+	if device.BlockHash, err = client.ResolveBlockHash(device.BlockNumber); err != nil {
+		errors = append(errors, fmt.Errorf("failed to resolve block hash: %v", err))
+	}
+
+	if !device.ValidateDeviceSig(deviceID) {
+		errors = append(errors, fmt.Errorf("wrong device signature"))
+	}
+
+	if !device.ValidateServerSig() {
+		errors = append(errors, fmt.Errorf("wrong server signature"))
+	}
+
+	return errors
+}
+
+func (resolver *Resolver) ResolveDeviceIDs(deviceName string) (ret []Address, err error) {
 	// Resolving BNS if needed
 	var deviceIDs []Address
 	client := resolver.clientManager.GetNearestClient()
@@ -74,62 +159,5 @@ func (resolver *Resolver) ResolveDevice(deviceName string) (ret []*edge.DeviceTi
 		}
 		return true
 	})
-
-	if len(deviceIDs) == 0 {
-		err = fmt.Errorf("device %s is not allowed", deviceName)
-		return nil, HttpError{403, err}
-	}
-
-	// Finding accessible deviceIDs
-	for _, deviceID := range deviceIDs {
-
-		// Calling GetObject to locate the device
-		cachedDevice := resolver.datapool.GetCacheDevice(deviceID)
-		if cachedDevice != nil && cachedDevice.Version != 0 {
-			if client.isRecentTicket(cachedDevice) {
-				ret = append(ret, cachedDevice)
-				continue
-			} else if time.Since(cachedDevice.CacheTime) < 15*time.Minute {
-				// The ticket is not recent but the entry had been fetched recently
-				// So we skip re-fetching it, assuming there is no newer atm
-				continue
-			}
-		}
-
-		var device *edge.DeviceTicket
-		device, err = client.GetObject(deviceID)
-		if err != nil {
-			continue
-		}
-
-		if !client.isRecentTicket(device) {
-			// Setting a nil to cache, to mark the current time of the last check
-			resolver.datapool.SetCacheDevice(deviceID, device)
-			client.Log().Warn("found outdated deviceticket() %+v", device)
-			continue
-		}
-
-		if device.BlockHash, err = client.ResolveBlockHash(device.BlockNumber); err != nil {
-			client.Log().Error("failed to resolve() %v", err)
-			continue
-		}
-		if device.Err != nil {
-			err = device.Err
-			continue
-		}
-		if !device.ValidateDeviceSig(deviceID) {
-			client.Log().Error("wrong device signature in device object")
-			continue
-		}
-		if !device.ValidateServerSig() {
-			client.Log().Error("wrong server signature in device object")
-			continue
-		}
-		resolver.datapool.SetCacheDevice(deviceID, device)
-		ret = append(ret, device)
-	}
-	if len(ret) == 0 {
-		return ret, err
-	}
-	return ret, nil
+	return deviceIDs, nil
 }

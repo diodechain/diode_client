@@ -315,7 +315,7 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 
 	// This is double checked in some cases, but it does not hurt since
 	// ResolveDevice internally caches
-	devices, err := socksServer.resolver.ResolveDevice(deviceName)
+	devices, err := socksServer.resolver.ResolveDevice(deviceName, true)
 	if err != nil {
 		// Errors are fatal such as 'deviceName' is not an address
 		// or 'deviceName' is not on the allow list. In latter case caching

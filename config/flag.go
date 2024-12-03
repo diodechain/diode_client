@@ -107,6 +107,7 @@ type Config struct {
 	BNSAccount              string           `yaml:"-" json:"-"`
 	Experimental            bool             `yaml:"-" json:"-"`
 	LoadFromFile            bool             `yaml:"-" json:"-"`
+	QueryAddress            string           `yaml:"-" json:"-"`
 }
 
 // LoadConfigFromFile returns bytes data of config
@@ -227,7 +228,11 @@ func (cfg *Config) PrintLabel(label string, value string) {
 }
 
 func (cfg *Config) PrintError(msg string, err error) {
-	cfg.Logger.Error(fmt.Sprintf("%s: %s", msg, err.Error()))
+	if err != nil {
+		cfg.Logger.Error(fmt.Sprintf("%s: %s", msg, err.Error()))
+	} else {
+		cfg.Logger.Error(fmt.Sprintf("%s: <null>", msg))
+	}
 }
 
 func (cfg *Config) PrintInfo(msg string) {

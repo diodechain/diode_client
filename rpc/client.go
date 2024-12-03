@@ -608,8 +608,8 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 		BlockNumber:      lvbn,
 		BlockHash:        lvbh[:],
 		FleetAddr:        client.config.FleetAddr,
-		TotalConnections: client.s.TotalConnections(),
-		TotalBytes:       total,
+		TotalConnections: big.NewInt(int64(client.s.TotalConnections())),
+		TotalBytes:       big.NewInt(int64(total)),
 		LocalAddr:        []byte{},
 	}
 
@@ -646,7 +646,7 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 // SubmitTicket submit ticket to server
 // TODO: resend when got too old error
 func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
-	call, err := client.CastContext(nil, "ticket", uint64(ticket.BlockNumber), ticket.FleetAddr[:], uint64(ticket.TotalConnections), uint64(ticket.TotalBytes), ticket.LocalAddr, ticket.DeviceSig)
+	call, err := client.CastContext(nil, "ticket", uint64(ticket.BlockNumber), ticket.FleetAddr[:], ticket.TotalConnections, ticket.TotalBytes, ticket.LocalAddr, ticket.DeviceSig)
 	if err != nil {
 		return fmt.Errorf("failed to submit ticket: %v", err)
 	}
@@ -667,8 +667,8 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 					lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)
 					client.Log().Warn("received fake ticket.. last_ticket=%v", lastTicket)
 				} else {
-					client.s.setTotalBytes(lastTicket.TotalBytes + 1024)
-					client.s.totalConnections = lastTicket.TotalConnections + 1
+					client.s.setTotalBytes(lastTicket.TotalBytes.Uint64() + 1024)
+					client.s.totalConnections = lastTicket.TotalConnections.Uint64() + 1
 					err = client.SubmitNewTicket()
 					if err != nil {
 						client.Log().Error("failed to re-submit ticket: %v", err)

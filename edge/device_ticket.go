@@ -7,6 +7,7 @@ import (
 	"crypto/ecdsa"
 	"encoding/binary"
 	"fmt"
+	"math/big"
 	"time"
 
 	"github.com/diodechain/diode_client/crypto"
@@ -26,8 +27,8 @@ type DeviceTicket struct {
 	BlockNumber      uint64
 	BlockHash        []byte
 	FleetAddr        Address
-	TotalConnections uint64
-	TotalBytes       uint64
+	TotalConnections *big.Int
+	TotalBytes       *big.Int
 	LocalAddr        []byte
 	DeviceSig        []byte
 	ServerSig        []byte
@@ -85,8 +86,8 @@ func (ct *DeviceTicket) arrayBlob() []byte {
 		binary.BigEndian.PutUint64(msg[56:64], ct.Epoch)
 		copy(msg[76:96], ct.FleetAddr[:])
 		copy(msg[108:128], ct.ServerID[:])
-		binary.BigEndian.PutUint64(msg[152:160], ct.TotalConnections)
-		binary.BigEndian.PutUint64(msg[184:192], ct.TotalBytes)
+		copy(msg[128:160], to32Bytes(ct.TotalConnections))
+		copy(msg[160:192], to32Bytes(ct.TotalBytes))
 		copy(msg[192:224], crypto.Sha256(ct.LocalAddr))
 		copy(msg[224:], ct.DeviceSig)
 		return msg[:224+len(ct.DeviceSig)]
@@ -95,8 +96,8 @@ func (ct *DeviceTicket) arrayBlob() []byte {
 		copy(msg[0:32], ct.BlockHash)
 		copy(msg[44:64], ct.FleetAddr[:])
 		copy(msg[76:96], ct.ServerID[:])
-		binary.BigEndian.PutUint64(msg[120:128], ct.TotalConnections)
-		binary.BigEndian.PutUint64(msg[152:160], ct.TotalBytes)
+		copy(msg[96:128], to32Bytes(ct.TotalConnections))
+		copy(msg[128:160], to32Bytes(ct.TotalBytes))
 		copy(msg[160:192], crypto.Sha256(ct.LocalAddr))
 		copy(msg[192:], ct.DeviceSig)
 		return msg[:192+len(ct.DeviceSig)]
@@ -207,4 +208,14 @@ func (ct *DeviceTicket) ValidateServerSig() bool {
 		return false
 	}
 	return util.PubkeyToAddress(pub) == ct.ServerID
+}
+
+func to32Bytes(value *big.Int) []byte {
+	bytes := value.Bytes()
+	if len(bytes) > 32 {
+		panic("value is too big to be converted to 32 bytes")
+	}
+	blob := make([]byte, 32)
+	copy(blob[32-len(bytes):], bytes)
+	return blob
 }

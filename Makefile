@@ -59,6 +59,10 @@ ci_test: runtime
 	chmod +x ./diode_race_test
 	./ci_test.sh
 
+.PHONY: format
+format: runtime
+	go fmt ./...
+
 .PHONY: lint
 lint: runtime
 	go vet ./...

@@ -156,8 +156,9 @@ func TestInvalidABI(t *testing.T) {
 
 // TestConstructor tests a constructor function.
 // The test is based on the following contract:
-// 	contract TestConstructor {
-// 		constructor(uint256 a, uint256 b) public{}
+//
+//	contract TestConstructor {
+//		constructor(uint256 a, uint256 b) public{}
 //	}
 func TestConstructor(t *testing.T) {
 	json := `[{	"inputs": [{"internalType": "uint256","name": "a","type": "uint256"	},{	"internalType": "uint256","name": "b","type": "uint256"}],"stateMutability": "nonpayable","type": "constructor"}]`
