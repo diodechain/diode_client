@@ -83,6 +83,7 @@ func init() {
 	config.AppConfig = cfg
 	// Add diode commands
 	diodeCmd.AddSubCommand(bnsCmd)
+	diodeCmd.AddSubCommand(queryCmd)
 	diodeCmd.AddSubCommand(configCmd)
 	diodeCmd.AddSubCommand(fetchCmd)
 	diodeCmd.AddSubCommand(gatewayCmd)
