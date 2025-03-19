@@ -4,7 +4,7 @@
 package main
 
 // Cmd for testing:
-// diode join -config 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+// ./diode join -config 0xB7A5bd0345EF1Cc5E66bf61BdeC17D2461fBd968
 
 import (
 	"bytes"
@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/diodechain/diode_client/accounts/abi"
 	"github.com/diodechain/diode_client/command"
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/rpc"
@@ -33,9 +34,11 @@ var (
 		Type:             command.DaemonCommand,
 		SingleConnection: true,
 	}
+	dryRun = false
 )
 
 func init() {
+	joinCmd.Flag.BoolVar(&dryRun, "dry", false, "run a single check of the property values without starting the daemon")
 }
 
 // Anvil for testing
@@ -122,104 +125,70 @@ func callContract(to string, data []byte) ([]byte, error) {
 	return result, nil
 }
 
-// encodeGetPropertyValueCall encodes the call to getPropertyValue(bytes32,string)
-func encodeGetPropertyValueCall(deviceAddr util.Address, key string) ([]byte, error) {
-	// Function selector for getPropertyValue(bytes32,string)
-	// keccak256("getPropertyValue(bytes32,string)")[0:4]
+// getPropertyValue fetches property values from the smart contract
+func getPropertyValue(deviceAddr util.Address, key string) (string, error) {
+	// Function selector for getPropertyValue(address,string)
+	// keccak256("getPropertyValue(address,string)")[0:4]
 	functionSelector := []byte{0x9d, 0x64, 0xb8, 0x69}
 
-	// Encode deviceAddr as bytes32 (pad to 32 bytes)
-	deviceBytes := make([]byte, 32)
-	copy(deviceBytes[12:], deviceAddr[:]) // Address is 20 bytes, pad left
+	// Create string argument type for ABI packing
+	stringType, _ := abi.NewType("string", "", nil)
+	addressType, _ := abi.NewType("address", "", nil)
 
-	// Encode the string parameter
-	// First 32 bytes: offset to string data (64 in this case - after deviceBytes and offset itself)
-	offsetBytes := make([]byte, 32)
-	offsetBytes[31] = 64 // 0x40 = 64
-
-	// Next 32 bytes: length of the string
-	lengthBytes := make([]byte, 32)
-	lengthBytes[31] = byte(len(key))
-
-	// String data (padded to 32 bytes)
-	keyBytes := make([]byte, (len(key)+31)/32*32) // Round up to nearest 32 bytes
-	copy(keyBytes, []byte(key))
-
-	// Combine all parts
-	callData := append(functionSelector, deviceBytes...)
-	callData = append(callData, offsetBytes...)
-	callData = append(callData, lengthBytes...)
-	callData = append(callData, keyBytes...)
-
-	return callData, nil
-}
-
-// decodeStringResult decodes a string result from an eth_call
-func decodeStringResult(data []byte) (string, error) {
-	if len(data) < 64 {
-		return "", fmt.Errorf("data too short to contain a string")
+	// Create arguments structure
+	arguments := abi.Arguments{
+		{Type: addressType},
+		{Type: stringType},
 	}
 
-	// First 32 bytes: offset to string data
-	offset := int(data[31])
-
-	if offset >= len(data) {
-		return "", fmt.Errorf("offset out of bounds")
+	// Pack arguments using abi.Arguments.Pack
+	packedData, err := arguments.Pack(deviceAddr, key)
+	if err != nil {
+		return "", fmt.Errorf("failed to pack inputs: %v", err)
 	}
 
-	// Next 32 bytes after offset: length of the string
-	lengthStart := offset
-	if lengthStart+32 > len(data) {
-		return "", fmt.Errorf("data too short to contain string length")
+	// Combine function selector and packed data
+	callData := append(functionSelector, packedData...)
+
+	// Call the contract
+	result, err := callContract(contractAddress, callData)
+	if err != nil {
+		return "", fmt.Errorf("failed to call contract: %v", err)
 	}
 
-	length := int(data[lengthStart+31])
-
-	// String data
-	stringStart := lengthStart + 32
-	if stringStart+length > len(data) {
-		return "", fmt.Errorf("data too short to contain string value")
+	// Create output arguments for unpacking
+	outputArgs := abi.Arguments{
+		{Type: stringType},
 	}
 
-	return string(data[stringStart : stringStart+length]), nil
+	// Unpack the result
+	var value string
+	err = outputArgs.Unpack(&value, result)
+	if err != nil {
+		return "", fmt.Errorf("failed to unpack result: %v", err)
+	}
+
+	return value, nil
 }
 
 // updatePortsFromContract fetches port configurations from the smart contract
 func updatePortsFromContract(deviceAddr util.Address) (publicPorts, protectedPorts []string, err error) {
-	// Encode call to get public_ports
-	publicPortsData, err := encodeGetPropertyValueCall(deviceAddr, "public_ports")
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to encode public_ports call: %v", err)
+	// If dry run mode is enabled, use mock values for testing
+	if dryRun {
+		config.AppConfig.Logger.Info("Using mock values for testing")
+		return []string{"8080:80"}, []string{"443"}, nil
 	}
 
-	// Make the call
-	publicPortsResult, err := callContract(contractAddress, publicPortsData)
+	// Get public_ports value
+	publicPortsStr, err := getPropertyValue(deviceAddr, "public_ports")
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to call contract for public_ports: %v", err)
+		return nil, nil, fmt.Errorf("failed to get public_ports: %v", err)
 	}
 
-	// Decode the result
-	publicPortsStr, err := decodeStringResult(publicPortsResult)
+	// Get protected_ports value
+	protectedPortsStr, err := getPropertyValue(deviceAddr, "protected_ports")
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to decode public_ports result: %v", err)
-	}
-
-	// Encode call to get protected_ports
-	protectedPortsData, err := encodeGetPropertyValueCall(deviceAddr, "protected_ports")
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to encode protected_ports call: %v", err)
-	}
-
-	// Make the call
-	protectedPortsResult, err := callContract(contractAddress, protectedPortsData)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to call contract for protected_ports: %v", err)
-	}
-
-	// Decode the result
-	protectedPortsStr, err := decodeStringResult(protectedPortsResult)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to decode protected_ports result: %v", err)
+		return nil, nil, fmt.Errorf("failed to get protected_ports: %v", err)
 	}
 
 	// Split the comma-separated port lists
@@ -244,6 +213,11 @@ func updatePublishedPorts(client *rpc.Client) error {
 		cfg.Logger.Error("Failed to update ports from contract: %v", err)
 		return err
 	}
+
+	// Debug output for port configurations
+	cfg.PrintInfo("Fetched configuration from contract:")
+	cfg.PrintLabel("Public Ports", strings.Join(publicPorts, ","))
+	cfg.PrintLabel("Protected Ports", strings.Join(protectedPorts, ","))
 
 	// Update the config with new port settings
 	cfg.PublicPublishedPorts = publicPorts
@@ -335,6 +309,19 @@ func joinHandler() (err error) {
 		return
 	}
 
+	// Dry run mode - just check property values once and exit
+	if dryRun {
+		client := app.WaitForFirstClient(true)
+		if client == nil {
+			err = fmt.Errorf("could not connect to network for dry run")
+			return
+		}
+
+		err = updatePublishedPorts(client)
+		return
+	}
+
+	// Normal operation mode
 	for {
 		app.Wait()
 		if !app.Closed() {
