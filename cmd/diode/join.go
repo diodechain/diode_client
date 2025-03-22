@@ -14,6 +14,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -30,20 +31,20 @@ var (
 		Name:             "join",
 		HelpText:         `  Join the Diode Network.`,
 		ExampleText:      `  diode join -config 0x0000000000000000000000000000000000000000000000000000000000000000`,
-		Run:              joinHandler,
 		Type:             command.DaemonCommand,
 		SingleConnection: true,
 	}
-	dryRun = false
+	dryRun          = false
+	network         = "mainnet"
+	rpcURL          = ""
+	contractAddress = ""
 )
 
 func init() {
+	joinCmd.Run = joinHandler
 	joinCmd.Flag.BoolVar(&dryRun, "dry", false, "run a single check of the property values without starting the daemon")
+	joinCmd.Flag.StringVar(&network, "network", "mainnet", "network to connect to (local, testnet, mainnet)")
 }
-
-// Anvil for testing
-const configNetwork = "http://localhost:8545"
-const contractAddress = "0x5FbDB2315678afecb367f032d93F642f64180aa3" // Default Anvil contract address
 
 // JSON-RPC request structure
 type jsonRPCRequest struct {
@@ -88,7 +89,7 @@ func callContract(to string, data []byte) ([]byte, error) {
 	}
 
 	// Make the HTTP request
-	resp, err := http.Post(configNetwork, "application/json", bytes.NewBuffer(requestJSON))
+	resp, err := http.Post(rpcURL, "application/json", bytes.NewBuffer(requestJSON))
 	if err != nil {
 		return nil, fmt.Errorf("failed to make HTTP request: %v", err)
 	}
@@ -125,30 +126,43 @@ func callContract(to string, data []byte) ([]byte, error) {
 	return result, nil
 }
 
+const jsondata = `
+[
+	{
+		"type": "function",
+		"name" : "getPropertyValue",
+		"stateMutability": "view",
+		"inputs": [
+			{"name": "_deviceId", "type": "address"}, 
+			{"name": "_key", "type": "string"}
+		],
+		"outputs": [
+			{"name": "_value", "type": "string"}
+		]
+	}
+]
+`
+
 // getPropertyValue fetches property values from the smart contract
 func getPropertyValue(deviceAddr util.Address, key string) (string, error) {
-	// Function selector for getPropertyValue(address,string)
-	// keccak256("getPropertyValue(address,string)")[0:4]
-	functionSelector := []byte{0x9d, 0x64, 0xb8, 0x69}
+	abi, err := abi.JSON(strings.NewReader(jsondata))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse ABI: %v", err)
+	}
 
-	// Create string argument type for ABI packing
-	stringType, _ := abi.NewType("string", "", nil)
-	addressType, _ := abi.NewType("address", "", nil)
-
-	// Create arguments structure
-	arguments := abi.Arguments{
-		{Type: addressType},
-		{Type: stringType},
+	method, ok := abi.Methods["getPropertyValue"]
+	if !ok {
+		return "", fmt.Errorf("method not found")
 	}
 
 	// Pack arguments using abi.Arguments.Pack
-	packedData, err := arguments.Pack(deviceAddr, key)
+	packedData, err := method.Inputs.Pack(deviceAddr, key)
 	if err != nil {
 		return "", fmt.Errorf("failed to pack inputs: %v", err)
 	}
 
 	// Combine function selector and packed data
-	callData := append(functionSelector, packedData...)
+	callData := append(method.ID, packedData...)
 
 	// Call the contract
 	result, err := callContract(contractAddress, callData)
@@ -156,14 +170,13 @@ func getPropertyValue(deviceAddr util.Address, key string) (string, error) {
 		return "", fmt.Errorf("failed to call contract: %v", err)
 	}
 
-	// Create output arguments for unpacking
-	outputArgs := abi.Arguments{
-		{Type: stringType},
+	if len(result) == 0 {
+		return "", nil
 	}
 
 	// Unpack the result
 	var value string
-	err = outputArgs.Unpack(&value, result)
+	err = method.Outputs.Unpack(&value, result)
 	if err != nil {
 		return "", fmt.Errorf("failed to unpack result: %v", err)
 	}
@@ -173,22 +186,16 @@ func getPropertyValue(deviceAddr util.Address, key string) (string, error) {
 
 // updatePortsFromContract fetches port configurations from the smart contract
 func updatePortsFromContract(deviceAddr util.Address) (publicPorts, protectedPorts []string, err error) {
-	// If dry run mode is enabled, use mock values for testing
-	if dryRun {
-		config.AppConfig.Logger.Info("Using mock values for testing")
-		return []string{"8080:80"}, []string{"443"}, nil
-	}
-
 	// Get public_ports value
-	publicPortsStr, err := getPropertyValue(deviceAddr, "public_ports")
+	publicPortsStr, err := getPropertyValue(deviceAddr, "public")
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get public_ports: %v", err)
+		return nil, nil, fmt.Errorf("failed to get public: %v", err)
 	}
 
 	// Get protected_ports value
-	protectedPortsStr, err := getPropertyValue(deviceAddr, "protected_ports")
+	protectedPortsStr, err := getPropertyValue(deviceAddr, "protected")
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get protected_ports: %v", err)
+		return nil, nil, fmt.Errorf("failed to get protected: %v", err)
 	}
 
 	// Split the comma-separated port lists
@@ -202,6 +209,9 @@ func updatePortsFromContract(deviceAddr util.Address) (publicPorts, protectedPor
 	return publicPorts, protectedPorts, nil
 }
 
+var lastPublicPorts []string
+var lastProtectedPorts []string
+
 // updatePublishedPorts updates the published ports based on contract configuration
 func updatePublishedPorts(client *rpc.Client) error {
 	cfg := config.AppConfig
@@ -214,8 +224,15 @@ func updatePublishedPorts(client *rpc.Client) error {
 		return err
 	}
 
+	if reflect.DeepEqual(lastPublicPorts, publicPorts) && reflect.DeepEqual(lastProtectedPorts, protectedPorts) {
+		cfg.Logger.Info("No changes to port configurations")
+		return nil
+	}
+
+	lastPublicPorts = publicPorts
+	lastProtectedPorts = protectedPorts
+
 	// Debug output for port configurations
-	cfg.PrintInfo("Fetched configuration from contract:")
 	cfg.PrintLabel("Public Ports", strings.Join(publicPorts, ","))
 	cfg.PrintLabel("Protected Ports", strings.Join(protectedPorts, ","))
 
@@ -301,7 +318,24 @@ func updatePublishedPorts(client *rpc.Client) error {
 }
 
 func joinHandler() (err error) {
+	contractAddress = joinCmd.Flag.Arg(0)
+	if contractAddress == "" {
+		return fmt.Errorf("contract address is required")
+	}
+
+	switch network {
+	case "mainnet":
+		rpcURL = "https://sapphire.oasis.io"
+	case "testnet":
+		rpcURL = "https://testnet.sapphire.oasis.io"
+	case "local":
+		rpcURL = "http://localhost:8545"
+	default:
+		return fmt.Errorf("invalid network: %s", network)
+	}
+
 	cfg := config.AppConfig
+	cfg.PrintLabel("Contract Address", contractAddress)
 
 	// Start the application
 	err = app.Start()
@@ -323,47 +357,24 @@ func joinHandler() (err error) {
 
 	// Normal operation mode
 	for {
-		app.Wait()
-		if !app.Closed() {
-			// Restart to join until user sends sigint to client
-			var client *rpc.Client
-			for {
-				client = app.WaitForFirstClient(true)
-				if client != nil {
-					break
-				}
-				cfg.Logger.Info("Could not connect to network trying again in 5 seconds")
-				// TODO: backoff?
-				time.Sleep(5 * time.Second)
-			}
-
-			// Initial port update
-			err = updatePublishedPorts(client)
-			if err != nil {
-				cfg.Logger.Error("Failed to update published ports: %v", err)
-			}
-
-			// Start a goroutine to periodically update ports
-			go func() {
-				ticker := time.NewTicker(30 * time.Second)
-				defer ticker.Stop()
-
-				for {
-					select {
-					case <-ticker.C:
-						if app.Closed() {
-							return
-						}
-
-						err := updatePublishedPorts(client)
-						if err != nil {
-							cfg.Logger.Error("Failed to update published ports: %v", err)
-						}
-					}
-				}
-			}()
-		} else {
+		if app.Closed() {
+			cfg.Logger.Info("Client closed, exiting")
 			return
 		}
+
+		client := app.WaitForFirstClient(true)
+
+		if client == nil {
+			cfg.Logger.Info("Could not connect to network trying again in 5 seconds")
+			time.Sleep(5 * time.Second)
+			continue
+		}
+
+		err = updatePublishedPorts(client)
+		if err != nil {
+			cfg.Logger.Error("Failed to update published ports: %v", err)
+		}
+
+		time.Sleep(30 * time.Second)
 	}
 }
