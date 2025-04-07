@@ -303,13 +303,12 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 	// we might need to add some kind of memory here
 	stickyPort := socksServer.datapool.FindOpenPort(deviceName)
 	if stickyPort != nil && !stickyPort.client.Closed() {
-		socksServer.logger.Debug("%d: Opening stickyPort %v for %v", requestId, string(stickyPort.DeviceID.Hex()), deviceName)
-		portOpen, err := stickyPort.client.PortOpen(stickyPort.DeviceID, port, portName, mode)
-		if err == nil && portOpen != nil && portOpen.Err == nil {
-			portOpen.PortNumber = port
-			return NewConnectedPort(requestId, portOpen.Ref, stickyPort.DeviceID, stickyPort.client, port), nil
+		socksServer.logger.Debug("%d: Opening using sticky port data %v for %v", requestId, string(stickyPort.DeviceID.Hex()), deviceName)
+		conn, err := doCreatePort(stickyPort.client, stickyPort.DeviceID, port, portName, mode, requestId)
+		if err != nil {
+			socksServer.logger.Error("%d: sticky doCreatePort() failed: %v", requestId, err)
 		} else {
-			socksServer.logger.Debug("%d: stickyPort %v for %v failed!", requestId, string(stickyPort.DeviceID.Hex()), deviceName)
+			return conn, nil
 		}
 	}
 
@@ -369,28 +368,22 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 			}()
 			maxConcurrency <- struct{}{}
 
-			var client *Client
-			client, err = socksServer.GetServer(serverID)
+			client, err := socksServer.GetServer(serverID)
 			if err != nil {
 				socksServer.logger.Error("%d: GetServer() failed: %v", requestId, err)
 				return
 			}
 
-			var portOpen *edge.PortOpen
-			portOpen, err = client.PortOpen(deviceID, port, portName, mode)
+			conn, err := doCreatePort(client, deviceID, port, portName, mode, requestId)
 			if err != nil {
+				socksServer.logger.Error("%d: doCreatePort() failed: %v", requestId, err)
 				return
 			}
-			if portOpen != nil && portOpen.Err != nil {
-				err = portOpen.Err
-				return
-			}
-			portOpen.PortNumber = port
-			connPort := NewConnectedPort(requestId, portOpen.Ref, deviceID, client, port)
+
 			select {
-			case ports <- connPort:
+			case ports <- conn:
 			default:
-				connPort.Shutdown()
+				conn.Shutdown()
 			}
 		}(candidate.deviceID, candidate.serverID)
 	}
@@ -422,6 +415,21 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 		return nil, HttpError{404, DeviceError{err}}
 	}
 	return nil, HttpError{500, errors.New(msg)}
+}
+
+func doCreatePort(client *Client, deviceID Address, port int, portName string, mode string, requestId int64) (conn *ConnectedPort, err error) {
+	var portOpen *edge.PortOpen
+	portOpen, err = client.PortOpen(deviceID, port, portName, mode)
+	if err != nil {
+		return
+	}
+	if portOpen != nil && portOpen.Err != nil {
+		err = portOpen.Err
+		return
+	}
+	portOpen.PortNumber = port
+	conn = NewConnectedPort(requestId, portOpen.Ref, deviceID, client, port)
+	return conn, nil
 }
 
 func (socksServer *Server) connectDevice(deviceName string, port int, protocol int, mode string, fn func(*ConnectedPort) (net.Conn, error)) (*ConnectedPort, error) {
