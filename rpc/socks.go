@@ -433,12 +433,20 @@ func doCreatePort(client *Client, deviceID Address, port int, portName string, m
 }
 
 func (socksServer *Server) connectDevice(deviceName string, port int, protocol int, mode string, fn func(*ConnectedPort) (net.Conn, error)) (*ConnectedPort, error) {
+	return socksServer.connectDeviceFrom(deviceName, port, protocol, mode, "", fn)
+}
+
+func (socksServer *Server) connectDeviceFrom(deviceName string, port int, protocol int, mode string, remoteAddr string, fn func(*ConnectedPort) (net.Conn, error)) (*ConnectedPort, error) {
 	if protocol == config.TLSProtocol && strings.Contains(mode, "s") {
 		protocol = config.TCPProtocol
 	}
 
 	requestID := rand.Int63()
-	socksServer.logger.Debug("%d: New request for %v", requestID, deviceName)
+	if remoteAddr != "" {
+		socksServer.logger.Debug("%d: New request for %v from %v", requestID, deviceName, remoteAddr)
+	} else {
+		socksServer.logger.Debug("%d: New request for %v", requestID, deviceName)
+	}
 	connPort, err := socksServer.doConnectDevice(requestID, deviceName, port, protocol, mode, 1)
 
 	if err != nil {
@@ -538,7 +546,7 @@ func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, deviceID s
 			socksServer.logger.Error("panic pipeSocksThenClose %s: %v\n%s", conn.RemoteAddr().String(), err, buf)
 		}
 	}()
-	connPort, err := socksServer.connectDevice(deviceID, port, config.TLSProtocol, mode, func(connPort *ConnectedPort) (net.Conn, error) {
+	connPort, err := socksServer.connectDeviceFrom(deviceID, port, config.TLSProtocol, mode, conn.RemoteAddr().String(), func(connPort *ConnectedPort) (net.Conn, error) {
 		writeSocksReturn(conn, ver, connPort.ClientLocalAddr(), port)
 		return conn, nil
 	})

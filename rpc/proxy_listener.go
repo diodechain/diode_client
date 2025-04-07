@@ -74,7 +74,7 @@ func (pl *proxyListener) run() {
 
 			protocol := config.TLSProtocol
 			var connPort *ConnectedPort
-			connPort, err = pl.proxy.socksServer.connectDevice(deviceID, port, protocol, mode, func(*ConnectedPort) (net.Conn, error) {
+			connPort, err = pl.proxy.socksServer.connectDeviceFrom(deviceID, port, protocol, mode, tlsConn.RemoteAddr().String(), func(*ConnectedPort) (net.Conn, error) {
 				return conn, nil
 			})
 
