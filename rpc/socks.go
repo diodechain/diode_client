@@ -375,7 +375,8 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 				return
 			}
 
-			conn, err := doCreatePort(client, deviceID, port, portName, mode, requestId)
+			var conn *ConnectedPort
+			conn, err = doCreatePort(client, deviceID, port, portName, mode, requestId)
 			if err != nil {
 				socksServer.logger.Error("%d: doCreatePort() failed: %v", requestId, err)
 				return
