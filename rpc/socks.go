@@ -368,7 +368,8 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 			}()
 			maxConcurrency <- struct{}{}
 
-			client, err := socksServer.GetServer(serverID)
+			var client *Client
+			client, err = socksServer.GetServer(serverID)
 			if err != nil {
 				socksServer.logger.Error("%d: GetServer() failed: %v", requestId, err)
 				return
