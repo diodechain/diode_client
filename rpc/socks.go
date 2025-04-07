@@ -287,7 +287,7 @@ func isDiodeHost(host string) bool {
 	return len(subdomainPort) == 4
 }
 
-func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, port int, protocol int, mode string, retry int) (*ConnectedPort, error) {
+func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, port int, protocol int, mode string, retry int) (conn *ConnectedPort, err error) {
 	// Define portname
 	var portName string
 	if protocol == config.UDPProtocol {
@@ -304,7 +304,7 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 	stickyPort := socksServer.datapool.FindOpenPort(deviceName)
 	if stickyPort != nil && !stickyPort.client.Closed() {
 		socksServer.logger.Debug("%d: Opening using sticky port data %v for %v", requestId, string(stickyPort.DeviceID.Hex()), deviceName)
-		conn, err := doCreatePort(stickyPort.client, stickyPort.DeviceID, port, portName, mode, requestId)
+		conn, err = doCreatePort(stickyPort.client, stickyPort.DeviceID, port, portName, mode, requestId)
 		if err != nil {
 			socksServer.logger.Error("%d: sticky doCreatePort() failed: %v", requestId, err)
 		} else {
@@ -314,7 +314,8 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 
 	// This is double checked in some cases, but it does not hurt since
 	// ResolveDevice internally caches
-	devices, err := socksServer.resolver.ResolveDevice(deviceName, true)
+	var devices []*edge.DeviceTicket
+	devices, err = socksServer.resolver.ResolveDevice(deviceName, true)
 	if err != nil {
 		// Errors are fatal such as 'deviceName' is not an address
 		// or 'deviceName' is not on the allow list. In latter case caching
