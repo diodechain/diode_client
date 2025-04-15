@@ -88,7 +88,9 @@ func callContract(to string, data []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to marshal request: %v", err)
 	}
 
-	// Make the HTTP request
+	// Make the HTTP request, G107 is a false positive because we're using
+	// only URLs from a static list.
+	// #nosec G107
 	resp, err := http.Post(rpcURL, "application/json", bytes.NewBuffer(requestJSON))
 	if err != nil {
 		return nil, fmt.Errorf("failed to make HTTP request: %v", err)
@@ -323,7 +325,7 @@ func joinHandler() (err error) {
 
 	contractAddress = joinCmd.Flag.Arg(0)
 	if !util.IsAddress([]byte(contractAddress)) {
-		return fmt.Errorf("Valid contract address is required, received: '%s'", contractAddress)
+		return fmt.Errorf("valid contract address is required, received: '%s'", contractAddress)
 	}
 
 	switch network {
