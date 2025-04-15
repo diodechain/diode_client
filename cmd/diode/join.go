@@ -318,9 +318,12 @@ func updatePublishedPorts(client *rpc.Client) error {
 }
 
 func joinHandler() (err error) {
+	cfg := config.AppConfig
+	cfg.Logger.Warn("join command is still BETA, parameters may change")
+
 	contractAddress = joinCmd.Flag.Arg(0)
-	if contractAddress == "" {
-		return fmt.Errorf("contract address is required")
+	if !util.IsAddress([]byte(contractAddress)) {
+		return fmt.Errorf("Valid contract address is required, received: '%s'", contractAddress)
 	}
 
 	switch network {
@@ -334,7 +337,6 @@ func joinHandler() (err error) {
 		return fmt.Errorf("invalid network: %s", network)
 	}
 
-	cfg := config.AppConfig
 	cfg.PrintLabel("Contract Address", contractAddress)
 
 	// Start the application
