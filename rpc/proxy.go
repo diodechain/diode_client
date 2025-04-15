@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,16 @@ import (
 	"github.com/diodechain/diode_client/util"
 	"github.com/gorilla/websocket"
 )
+
+// containsString checks if a slice of strings contains a specific string
+func containsString(slice []string, str string) bool {
+	for _, item := range slice {
+		if item == str {
+			return true
+		}
+	}
+	return false
+}
 
 // Config is Proxy Server configuration
 type ProxyConfig struct {
@@ -298,6 +309,7 @@ func (proxyServer *ProxyServer) Start() error {
 		var tlsConfig *tls.Config
 		if proxyServer.Config.EdgeACME {
 			// must listen to 443 for ACME
+			rejectDomains := strings.Split(os.Getenv("REJECT_DOMAINS"), ";")
 			httpsdAddr = config.AppConfig.SProxyServerAddrForPort(443)
 			certmagic.DefaultACME.CA = certmagic.LetsEncryptProductionCA
 			certmagic.DefaultACME.Email = proxyServer.Config.EdgeACMEEmail
@@ -307,7 +319,7 @@ func (proxyServer *ProxyServer) Start() error {
 			certmagicCfg.OnDemand = &certmagic.OnDemandConfig{
 				DecisionFunc: func(name string) error {
 					dots := strings.Count(name, ".")
-					if dots > 3 {
+					if dots > 3 || (len(rejectDomains) > 0 && containsString(rejectDomains, name)) {
 						return fmt.Errorf("rejecting invalid domain %v", name)
 					}
 

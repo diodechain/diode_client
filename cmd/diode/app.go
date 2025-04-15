@@ -88,6 +88,7 @@ func init() {
 	diodeCmd.AddSubCommand(fetchCmd)
 	diodeCmd.AddSubCommand(gatewayCmd)
 	diodeCmd.AddSubCommand(publishCmd)
+	diodeCmd.AddSubCommand(joinCmd)
 	diodeCmd.AddSubCommand(resetCmd)
 	diodeCmd.AddSubCommand(socksdCmd)
 	diodeCmd.AddSubCommand(timeCmd)
