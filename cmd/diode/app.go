@@ -93,6 +93,7 @@ func init() {
 	diodeCmd.AddSubCommand(socksdCmd)
 	diodeCmd.AddSubCommand(timeCmd)
 	diodeCmd.AddSubCommand(tokenCmd)
+	diodeCmd.AddSubCommand(sshCmd)
 	diodeCmd.AddSubCommand(versionCmd)
 	diodeCmd.AddSubCommand(updateCmd)
 }
@@ -405,7 +406,7 @@ func (dio *Diode) Start() error {
 		return err
 	}
 	lvbn, lvbh = client.LastValid()
-	cfg.Logger.Info("Network is validated, last valid block: %d 0x%x", lvbn, lvbh)
+	cfg.Logger.Info("Network is validated, last valid block: %d 0x%s", lvbn, lvbh.String())
 	name, err := client.ResolveReverseBNS(cfg.ClientAddr)
 	if err == nil {
 		cfg.PrintLabel("Client name", fmt.Sprintf("%s.diode", name))
