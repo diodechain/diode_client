@@ -363,10 +363,13 @@ func (client *Client) validateNetwork() error {
 	// Checking chain of previous blocks
 	for i := windowSize - 2; i >= 0; i-- {
 		if blockHeaders[i].Hash() != blockHeaders[i+1].Parent() {
-			return fmt.Errorf("recevied blocks parent is not his parent: %+v %+v", blockHeaders[i+1], blockHeaders[i])
+			number := blockHeaders[i].Number()
+			hash := blockHeaders[i].Hash().String()
+			prevHash := blockHeaders[i+1].Parent().String()
+			return fmt.Errorf("received blocks parent is not his parent: n=%v, blockHeaders[i].Hash()=%v, blockHeaders[i+1].Parent()=%v", number, hash, prevHash)
 		}
 		if !blockHeaders[i].ValidateSig() {
-			return fmt.Errorf("recevied blocks signature is not valid: %v", blockHeaders[i])
+			return fmt.Errorf("received blocks signature is not valid: %v", blockHeaders[i])
 		}
 	}
 

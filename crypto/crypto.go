@@ -24,6 +24,10 @@ var (
 // Sha3 hash
 type Sha3 [32]byte
 
+func (s Sha3) String() string {
+	return hex.EncodeToString(s[:])
+}
+
 var errInvalidPubkey = errors.New("invalid secp256k1 public key")
 
 // ECPEMPrivateKey openssl ec pem private key
