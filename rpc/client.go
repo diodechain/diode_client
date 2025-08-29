@@ -665,7 +665,8 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 
 		if lastTicket, ok := resp.(edge.DeviceTicket); ok {
 			if lastTicket.Err == edge.ErrTicketTooLow {
-				sid, _ := client.s.GetServerID()
+				ssl := client.s
+				sid, _ := ssl.GetServerID()
 				lastTicket.ServerID = sid
 				lastTicket.FleetAddr = client.config.FleetAddr
 
@@ -673,8 +674,8 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 					lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)
 					client.Log().Warn("received fake ticket.. last_ticket=%v", lastTicket)
 				} else {
-					client.s.setTotalBytes(lastTicket.TotalBytes.Uint64() + 1024)
-					client.s.totalConnections = lastTicket.TotalConnections.Uint64() + 1
+					ssl.setTotalBytes(lastTicket.TotalBytes.Uint64() + 1024)
+					ssl.totalConnections = lastTicket.TotalConnections.Uint64() + 1
 					err = client.SubmitNewTicket()
 					if err != nil {
 						client.Log().Error("failed to re-submit ticket: %v", err)
