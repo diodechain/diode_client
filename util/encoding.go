@@ -144,13 +144,6 @@ func DecodeStringToInt(src string) (uint64, error) {
 	return out.Uint64(), nil
 }
 
-// EncodeForce encode bytes
-func EncodeForce(src []byte) (dst []byte) {
-	dst = make([]byte, len(src)*2)
-	num := hex.Encode(dst, src)
-	return dst[:num]
-}
-
 // DecodeForce decode bytes
 func DecodeForce(src []byte) (dst []byte) {
 	dst = make([]byte, len(src)/2)

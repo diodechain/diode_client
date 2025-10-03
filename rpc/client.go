@@ -1383,7 +1383,8 @@ func (client *Client) doWatchLatestBlock() {
 		}
 		err = bq.AddBlock(blockHeader, false)
 		if err != nil {
-			client.Log().Error("Couldn't add block %v %v: %v", num, blockHeader.Hash(), err)
+			blockHash := blockHeader.Hash()
+			client.Log().Error("Couldn't add block %v %v: %v", num, util.EncodeToString(blockHash[:]), err)
 			return
 		}
 	}

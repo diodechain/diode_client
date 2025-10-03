@@ -309,12 +309,3 @@ func TestEncodeToString(t *testing.T) {
 		}
 	}
 }
-
-func TestEncodeForce(t *testing.T) {
-	for _, v := range decodeStringTest {
-		res := fmt.Sprintf("0x%s", string(EncodeForce(v.Res)))
-		if v.Src != res {
-			t.Errorf("Wrong result when call EncodeToString")
-		}
-	}
-}

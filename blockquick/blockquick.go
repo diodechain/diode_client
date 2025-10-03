@@ -177,7 +177,8 @@ func (win *Window) AddBlock(bh BlockHeader, allowGap bool) error {
 			return fmt.Errorf("child number is wrong %v, %v", bh.number, bs.parent.bh.number)
 		}
 	} else if !allowGap {
-		return fmt.Errorf("don't know direct parent of this block")
+		lfnum, lfhash := win.Last()
+		return fmt.Errorf("last final is: %v %v, and don't know direct parent of this block %v", lfnum, util.EncodeToString(lfhash[:]), bh.number)
 	}
 
 	// Adding block
