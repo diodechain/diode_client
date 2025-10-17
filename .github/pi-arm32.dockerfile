@@ -1,4 +1,4 @@
-FROM debian:buster
+FROM debian:bullseye
 LABEL crosscompie={pi-arm32}
 
 ENV GOOS=linux
