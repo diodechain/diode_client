@@ -465,11 +465,16 @@ func (client *Client) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]blockquic
 	mx := sync.Mutex{}
 	wg := sync.WaitGroup{}
 	wg.Add(count)
+	errorMessages := []string{}
+
 	for _, i := range blockNumbers {
 		go func(bn uint64) {
 			defer wg.Done()
 			header, err := client.GetBlockHeaderUnsafe(bn)
 			if err != nil {
+				mx.Lock()
+				errorMessages = append(errorMessages, fmt.Sprintf("block %v: %v", bn, err.Error()))
+				mx.Unlock()
 				return
 			}
 			mx.Lock()
@@ -481,7 +486,7 @@ func (client *Client) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]blockquic
 	wg.Wait()
 
 	if headersCount != count {
-		return []blockquick.BlockHeader{}, fmt.Errorf("failed fetching all blocks")
+		return []blockquick.BlockHeader{}, fmt.Errorf("failed fetching some blocks: %v", strings.Join(errorMessages, ", "))
 	}
 
 	// copy responses to headers
