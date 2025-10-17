@@ -5,7 +5,6 @@ package util
 
 import (
 	"bytes"
-	"fmt"
 	"testing"
 )
 
