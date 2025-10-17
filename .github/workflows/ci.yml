@@ -6,7 +6,7 @@ jobs:
     name: "Run tests and build artifacts"
     strategy:
       matrix:
-        os: ["windows-latest", "ubuntu-20.04", "macos-13"]
+        os: ["windows-latest", "ubuntu-20.04", "macos-14"]
         go: ["1.25.3"]
     runs-on: ${{ matrix.os }}
     steps:
