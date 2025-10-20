@@ -41,6 +41,7 @@ jobs:
     - if: runner.os != 'Windows'
       run: |
         SUDO=sudo make openssl
+        echo "Hostname: `hostname`"
         make ci_test
         make dist
 
