@@ -6,8 +6,8 @@ jobs:
     name: "Run tests and build artifacts"
     strategy:
       matrix:
-        os: ["windows-latest", "ubuntu-20.04", "macos-13"]
-        go: ["1.22.6"]
+        os: ["windows-latest", "ubuntu-20.04", "macos-14"]
+        go: ["1.25.3"]
     runs-on: ${{ matrix.os }}
     steps:
     # Install general deps
@@ -34,13 +34,14 @@ jobs:
     - if: runner.os == 'Windows'
       shell: msys2 {0}
       run: |
-        cp -r /c/hostedtoolcache/windows/go/1.22.6/x64/* /usr/
+        cp -r /c/hostedtoolcache/windows/go/1.25.3/x64/* /usr/
         make openssl
         make windows_test
         make dist
     - if: runner.os != 'Windows'
       run: |
         SUDO=sudo make openssl
+        echo "Hostname: `hostname`"
         make ci_test
         make dist
 
@@ -75,8 +76,8 @@ jobs:
     name: "Run app"
     strategy:
       matrix:
-        os: ["windows-latest", "ubuntu-20.04", "macos-13"]
-        go: ["1.22.6"]
+        os: ["windows-latest", "ubuntu-20.04", "macos-14"]
+        go: ["1.25.3"]
     runs-on: ${{ matrix.os }}
     steps:
     - uses: actions/checkout@v3

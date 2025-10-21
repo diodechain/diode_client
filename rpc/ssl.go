@@ -348,6 +348,11 @@ func doInitSSLCtx(config *config.Config) (*openssl.Ctx, error) {
 	if err != nil {
 		return nil, err
 	}
+	if len(name) > 64 {
+		config.Logger.Warn("Hostname is too long: %s", name)
+		name = name[len(name)-64:]
+	}
+
 	info := &openssl.CertificateInfo{
 		Serial: serial,
 		// The go-openssl library converts these Issued and Expires relative to 'now'
