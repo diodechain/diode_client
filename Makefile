@@ -1,5 +1,6 @@
 TESTS= $(shell go list ./... | grep -v -e gowasm_test -e cmd)
 GOPATH= $(shell go env GOPATH)
+GOBIN= $(shell go env GOBIN)
 GOMODCACHE= $(shell go env GOMODCACHE)
 # go 1.20 patch
 ifeq ($(GOMODCACHE),)
@@ -67,7 +68,7 @@ format: runtime
 lint: runtime
 	go vet ./...
 	cd tools && go install honnef.co/go/tools/cmd/staticcheck@latest
-	$(GOPATH)/bin/staticcheck -go 1.22 ./...
+	$(GOBIN)/staticcheck -go 1.25 ./...
 
 # Exclude rules from security check:
 # G104 (CWE-703): Errors unhandled.
