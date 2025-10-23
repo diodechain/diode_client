@@ -1,6 +1,7 @@
 TESTS= $(shell go list ./... | grep -v -e gowasm_test -e cmd)
 GOPATH= $(shell go env GOPATH)
 GOBIN= $(shell go env GOBIN)
+GOBIN?= $(GOPATH)/bin
 GOMODCACHE= $(shell go env GOMODCACHE)
 # go 1.20 patch
 ifeq ($(GOMODCACHE),)
