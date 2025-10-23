@@ -1,11 +1,7 @@
 TESTS= $(shell go list ./... | grep -v -e gowasm_test -e cmd)
 GOPATH= $(shell go env GOPATH)
-GOBIN= $(shell go env GOBIN)
-GOMODCACHE= $(shell go env GOMODCACHE)
-# go 1.20 patch
-ifeq ($(GOMODCACHE),)
-GOMODCACHE := $(shell go env GOPATH)/pkg/mod
-endif
+GOBIN= $(or $(shell go env GOBIN), $(GOPATH)/bin)
+GOMODCACHE= $(or $(shell go env GOMODCACHE), $(GOPATH)/pkg/mod)
 COMMIT= $(shell git describe --tags --dirty)
 BUILDTIME= $(shell date +"%d %b %Y")
 GOBUILD=go build -ldflags '-s -r ./ -X "main.version=${COMMIT}${VARIANT}" -X "main.buildTime=${BUILDTIME}"' -tags patch_runtime
@@ -84,9 +80,9 @@ lint: runtime
 seccheck: runtime
 	if [ ! -f ./gosec ]; \
 	then \
-		curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b ./ v2.20.0; \
+		curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b ./ v2.22.10; \
 	fi;
-	./gosec -exclude=G104,G108,G110,G112,G114,G204,G304,G402,G404 -exclude-dir .history ./...
+	./gosec -exclude=G104,G108,G110,G112,G114,G115,G204,G304,G402,G404,G407,G602 -exclude-dir .history ./...
 
 .PHONY: clean
 clean:

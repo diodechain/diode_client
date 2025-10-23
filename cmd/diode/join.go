@@ -238,7 +238,7 @@ func ensureDir(path string) error {
 		return nil
 	}
 	if os.IsNotExist(err) {
-		return os.MkdirAll(path, 0o755)
+		return os.MkdirAll(path, 0o750)
 	}
 	return err
 }
@@ -417,7 +417,7 @@ func enableWGInterface(cfgPath, ifaceName string, logger *config.Logger) error {
 	cmd := exec.Command("wg-quick", "up", cfgPath)
 	out, err := cmd.CombinedOutput()
 	if len(out) > 0 {
-		logger.Info(fmt.Sprintf("wg-quick output: %s", strings.TrimSpace(string(out))))
+		logger.Info("wg-quick output: %s", strings.TrimSpace(string(out)))
 	}
 	if err != nil {
 		return fmt.Errorf("failed to enable WireGuard interface: %w", err)
