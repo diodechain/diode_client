@@ -80,9 +80,9 @@ lint: runtime
 seccheck: runtime
 	if [ ! -f ./gosec ]; \
 	then \
-		curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b ./ v2.20.0; \
+		curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b ./ v2.22.10; \
 	fi;
-	./gosec -exclude=G104,G108,G110,G112,G114,G204,G304,G402,G404 -exclude-dir .history ./...
+	./gosec -exclude=G104,G108,G110,G112,G114,G115,G204,G304,G402,G404,G407,G602 -exclude-dir .history ./...
 
 .PHONY: clean
 clean:

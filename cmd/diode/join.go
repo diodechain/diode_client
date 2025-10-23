@@ -238,7 +238,7 @@ func ensureDir(path string) error {
 		return nil
 	}
 	if os.IsNotExist(err) {
-		return os.MkdirAll(path, 0o755)
+		return os.MkdirAll(path, 0o750)
 	}
 	return err
 }
