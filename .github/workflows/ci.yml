@@ -41,7 +41,6 @@ jobs:
     - if: runner.os != 'Windows'
       run: |
         SUDO=sudo make openssl
-        go env
         make ci_test
         make dist
 
@@ -49,6 +48,7 @@ jobs:
     - if: runner.os == 'Linux'
       name: "Lint & Secchcek"
       run: |
+        go env
         make lint
         make seccheck
 
