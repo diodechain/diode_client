@@ -1,6 +1,6 @@
 module github.com/diodechain/diode_client
 
-go 1.22
+go 1.25
 
 require (
 	github.com/caddyserver/certmagic v0.19.2

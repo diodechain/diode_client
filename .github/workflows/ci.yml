@@ -24,7 +24,7 @@ jobs:
           install: pacman-mirrors pkg-config base-devel mingw-w64-x86_64-toolchain upx mingw-w64-x86_64-dlfcn git
           update: false
 
-    - uses: actions/setup-go@v3
+    - uses: actions/setup-go@v6
       name: "Install Golang on Linux/macOS/Windows"
       with:
         go-version: ${{ matrix.go }}
@@ -41,7 +41,7 @@ jobs:
     - if: runner.os != 'Windows'
       run: |
         SUDO=sudo make openssl
-        echo "Hostname: `hostname`"
+        go env
         make ci_test
         make dist
 
