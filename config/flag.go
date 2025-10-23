@@ -224,7 +224,7 @@ func (cfg *Config) Blocklists() map[Address]bool {
 func (cfg *Config) PrintLabel(label string, value string) {
 	msg := fmt.Sprintf("%-20s : %-42s", label, value)
 	msg = strings.Replace(msg, "%", "%%", -1)
-	cfg.Logger.Info(msg)
+	cfg.Logger.Info("%s", msg)
 }
 
 func (cfg *Config) PrintError(msg string, err error) {
@@ -236,7 +236,7 @@ func (cfg *Config) PrintError(msg string, err error) {
 }
 
 func (cfg *Config) PrintInfo(msg string) {
-	cfg.Logger.Info(msg)
+	cfg.Logger.Info("%s", msg)
 }
 
 // Bind struct for port forwarding
