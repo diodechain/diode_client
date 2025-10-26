@@ -43,6 +43,7 @@ type Config struct {
 	EdgeE2ETimeout   time.Duration `yaml:"e2etimeout,omitempty" json:"e2etimeout,omitempty"`
 	EnableUpdate     bool          `yaml:"update,omitempty" json:"update,omitempty"`
 	EnableMetrics    bool          `yaml:"metrics,omitempty" json:"metrics,omitempty"`
+	EnableTray       bool          `yaml:"tray,omitempty" json:"tray,omitempty"`
 	RemoteRPCAddrs   StringValues  `yaml:"diodeaddrs,omitempty" json:"diodeaddrs,omitempty"`
 	RemoteRPCTimeout time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	RetryTimes       int           `yaml:"retrytimes,omitempty" json:"retrytimes,omitempty"`

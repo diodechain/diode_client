@@ -31,15 +31,23 @@ func hasTrayFlag(args []string) bool {
             return true
         }
         if strings.HasPrefix(a, "-tray=") || strings.HasPrefix(a, "--tray=") {
-            v := strings.TrimPrefix(strings.TrimPrefix(a, "-tray="), "--tray=")
-            v = strings.ToLower(v)
-            if v == "1" || v == "t" || v == "true" || v == "yes" || v == "y" {
-                return true
+            _, v, found := strings.Cut(a, "=")
+            if found {
+                v = strings.ToLower(v)
+                if v == "1" || v == "t" || v == "true" || v == "yes" || v == "y" {
+                    return true
+                }
             }
         }
     }
     return false
-}
+import (
+    "sync"
+    // ... other imports
+)
+
+// Add a sync.Once to guard app.Close()
+var appCloseOnce sync.Once
 
 // onTrayReady initializes the tray icon and starts the CLI in a goroutine
 func onTrayReady() {
@@ -68,17 +76,23 @@ func onTrayReady() {
     // Handle Quit
     go func() {
         <-mQuit.ClickedCh
-        if !app.Closed() {
-            app.Close()
-        }
+        appCloseOnce.Do(func() {
+            if !app.Closed() {
+                app.Close()
+            }
+        })
         systray.Quit()
     }()
 }
-
+    }()
 // onTrayExit is called when the tray is shutting down
 func onTrayExit() {
-    if !app.Closed() {
-        app.Close()
+    appCloseOnce.Do(func() {
+        if !app.Closed() {
+            app.Close()
+        }
+    })
+}
     }
 }
 

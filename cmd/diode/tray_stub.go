@@ -42,13 +42,7 @@ func maybeRunWithTray(args []string) bool {
         if strings.HasPrefix(e, "LD_LIBRARY_PATH=") || strings.HasPrefix(e, "LD_PRELOAD=") {
             continue
         }
-        // Avoid passing SNAP-based hints to the tray child
-        kv := strings.SplitN(e, "=", 2)
-        if len(kv) == 2 && strings.Contains(kv[1], "/snap/") {
-            // Keep safe variables that contain '/snap/' only if essential
-            // For simplicity, drop and rely on system defaults
-            continue
-        }
+        // Only filter out LD_LIBRARY_PATH and LD_PRELOAD above; keep other environment variables.
         env = append(env, e)
     }
 
@@ -68,14 +62,19 @@ func maybeRunWithTray(args []string) bool {
 }
 
 func hasTrayFlag(args []string) bool {
-    for _, a := range args {
-        if a == "-tray" || a == "--tray" {
-            return true
-        }
+    if err := cmd.Run(); err != nil {
+        fmt.Fprintf(os.Stderr, "Failed to run tray binary: %v\n", err)
+        os.Exit(1)
+    }
         if strings.HasPrefix(a, "-tray=") || strings.HasPrefix(a, "--tray=") {
-            v := strings.TrimPrefix(strings.TrimPrefix(a, "-tray="), "--tray=")
-            v = strings.ToLower(v)
-            if v == "1" || v == "t" || v == "true" || v == "yes" || v == "y" {
+            _, v, found := strings.Cut(a, "=")
+            if found {
+                v = strings.ToLower(v)
+                if v == "1" || v == "t" || v == "true" || v == "yes" || v == "y" {
+                    return true
+                }
+            }
+        }
                 return true
             }
         }

@@ -5,6 +5,8 @@ GOMODCACHE= $(or $(shell go env GOMODCACHE), $(GOPATH)/pkg/mod)
 COMMIT= $(shell git describe --tags --dirty)
 BUILDTIME= $(shell date +"%d %b %Y")
 GOBUILD=go build -ldflags '-s -r ./ -X "main.version=${COMMIT}${VARIANT}" -X "main.buildTime=${BUILDTIME}"' -tags patch_runtime
+# Variant without RPATH for CGO GUI/tray builds to avoid odd loader paths
+GOBUILD_NORPATH=go build -ldflags '-s -X "main.version=${COMMIT}${VARIANT}" -X "main.buildTime=${BUILDTIME}"' -tags patch_runtime
 ARCHIVE= $(shell ./deployment/zipname.sh)
 
 UNAME_S := $(shell uname -s)
@@ -101,8 +103,13 @@ uninstall:
 dist: diode$(EXE)
 	mkdir -p dist
 	cp diode$(EXE) dist/
+	@if [ -f diode_tray$(EXE) ]; then cp diode_tray$(EXE) dist/; fi
 	$(STRIP) dist/diode$(EXE)
 	$(UPX) --force dist/diode$(EXE)
+	@if [ -f dist/diode_tray$(EXE) ]; then \
+		$(STRIP) dist/diode_tray$(EXE) || echo "Warning: strip failed on dist/diode_tray$(EXE)"; \
+		$(UPX) --force dist/diode_tray$(EXE) || echo "Warning: UPX compression failed on dist/diode_tray$(EXE)"; \
+	fi
 
 .PHONY: archive
 archive: $(ARCHIVE)
@@ -116,7 +123,36 @@ gateway: diode_debug
 
 .PHONY: diode$(EXE)
 diode$(EXE): runtime
-	$(GOBUILD) -o diode$(EXE) cmd/diode/*.go
+	$(GOBUILD) -o diode$(EXE) ./cmd/diode
+
+.PHONY: traybin
+traybin: diode_tray
+
+.PHONY: diode_tray
+# Build tray-enabled helper binary as a separate executable
+diode_tray: VARIANT=
+diode_tray: runtime
+	CGO_ENABLED=1 $(GOBUILD_NORPATH) -tags 'patch_runtime tray_ui' -o diode_tray$(EXE) ./cmd/diode
+
+.PHONY: tray
+tray: diode_tray
+
+.PHONY: run_tray
+# Run diode with a sanitized environment to avoid Snap/GLIBC conflicts
+run_tray: diode_tray
+	./diode -tray=true $(ARGS)
+
+.PHONY: tray_legacy
+tray_legacy: diode_tray_legacy
+
+.PHONY: diode_tray_legacy
+diode_tray_legacy: VARIANT=
+diode_tray_legacy: runtime
+	CGO_ENABLED=1 $(GOBUILD_NORPATH) -tags 'patch_runtime tray_ui legacy_appindicator' -o diode$(EXE) ./cmd/diode
+
+.PHONY: run_tray_legacy
+run_tray_legacy: diode_tray_legacy
+	./diode -tray=true $(ARGS)
 
 .PHONY: config_server$(EXE)
 config_server$(EXE): runtime
