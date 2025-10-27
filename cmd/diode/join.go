@@ -344,25 +344,25 @@ func readOrCreateWGPrivateKey(keyPath string) (privB64, pubB64 string, err error
 // normalizeWireGuardConfig attempts to format a minified/single-line WireGuard config
 // into a standard multi-line INI-style format so our parser can locate sections.
 func normalizeWireGuardConfig(cfg string) string {
-    // Normalize newlines and trim
-    s := strings.ReplaceAll(cfg, "\r\n", "\n")
-    s = strings.TrimSpace(s)
+	// Normalize newlines and trim
+	s := strings.ReplaceAll(cfg, "\r\n", "\n")
+	s = strings.TrimSpace(s)
 
-    // Ensure section headers are on their own lines
-    reInterface := regexp.MustCompile(`(?i)\s*\[interface\]\s*`)
-    rePeer := regexp.MustCompile(`(?i)\s*\[peer\]\s*`)
-    s = reInterface.ReplaceAllString(s, "\n[Interface]\n")
-    s = rePeer.ReplaceAllString(s, "\n[Peer]\n")
+	// Ensure section headers are on their own lines
+	reInterface := regexp.MustCompile(`(?i)\s*\[interface\]\s*`)
+	rePeer := regexp.MustCompile(`(?i)\s*\[peer\]\s*`)
+	s = reInterface.ReplaceAllString(s, "\n[Interface]\n")
+	s = rePeer.ReplaceAllString(s, "\n[Peer]\n")
 
-    // Insert newlines before known WireGuard keys only
-    reKVKnown := regexp.MustCompile(`(?i)\s+(Address|ListenPort|DNS|MTU|Table|PreUp|PostUp|PreDown|PostDown|SaveConfig|PrivateKey|PublicKey|PresharedKey|AllowedIPs|Endpoint|PersistentKeepalive)\s*=`)
-    s = reKVKnown.ReplaceAllString(s, "\n$1 =")
+	// Insert newlines before known WireGuard keys only
+	reKVKnown := regexp.MustCompile(`(?i)\s+(Address|ListenPort|DNS|MTU|Table|PreUp|PostUp|PreDown|PostDown|SaveConfig|PrivateKey|PublicKey|PresharedKey|AllowedIPs|Endpoint|PersistentKeepalive)\s*=`)
+	s = reKVKnown.ReplaceAllString(s, "\n$1 =")
 
-    // Collapse excessive blank lines
-    reMultiNL := regexp.MustCompile(`\n{2,}`)
-    s = reMultiNL.ReplaceAllString(s, "\n")
+	// Collapse excessive blank lines
+	reMultiNL := regexp.MustCompile(`\n{2,}`)
+	s = reMultiNL.ReplaceAllString(s, "\n")
 
-    return strings.TrimSpace(s)
+	return strings.TrimSpace(s)
 }
 
 // injectPrivateKeyIntoConfig ensures the [Interface] section contains PrivateKey
