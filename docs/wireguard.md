@@ -5,10 +5,19 @@ Overview
 - The on-chain WireGuard config must NOT include a private key. The client generates and stores a private key locally and injects it into the final config file.
 - One interface per Diode network: the interface name and config path are derived from the network, e.g. `wg-diode-prod` for mainnet and `wg-diode-dev` for testnet.
 
+First Run Key Generation
+- To generate your local WireGuard keypair and print the public key without requiring an on-chain config, run:
+  - `diode join -wireguard <contract_address>`
+- Optional: specify a custom suffix for the interface/config names:
+  - `diode join -wireguard -suffix staging <contract_address>`
+- This creates `<iface>.key` in the platform-specific WireGuard directory and prints the public key so you can add it to your on-chain config later.
+
 Interface Names and Paths
-- Mainnet: interface `wg-diode-prod`
-- Testnet: interface `wg-diode-dev`
-- Local: interface `wg-diode-local`
+- Default mapping:
+  - Mainnet: interface `wg-diode-prod`
+  - Testnet: interface `wg-diode-dev`
+  - Local: interface `wg-diode-local`
+- Custom suffix: use `-suffix <name>` to override the default (allowed: letters, digits, `.`, `_`, `-`). Example: `-suffix staging` -> `wg-diode-staging`.
 
 Config file locations by OS
 - Linux: `/etc/wireguard/wg-diode-<net>.conf`
@@ -18,6 +27,7 @@ Config file locations by OS
 Private Key Handling
 - The client creates a private key on first use and stores it next to the config as `/etc/wireguard/wg-diode-<net>.key` (or the platform’s directory) with `0600` permissions.
 - The client derives the public key and logs it for your reference. Keep the private key file secure.
+  - If key creation fails due to permissions (e.g., Linux system path), run with elevated privileges (e.g., `sudo`).
 
 On-Chain WireGuard Property
 - Property key: `wireguard`
@@ -51,4 +61,3 @@ Updating
 Security
 - The private key is never stored on-chain.
 - The generated local key is stored with restrictive permissions. Ensure your system backups and access controls protect this file.
-
