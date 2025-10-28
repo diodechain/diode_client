@@ -1,5 +1,5 @@
-//go:build tray_ui
-// +build tray_ui
+//go:build !no_tray
+// +build !no_tray
 
 package main
 

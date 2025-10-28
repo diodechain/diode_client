@@ -89,6 +89,7 @@ seccheck: runtime
 .PHONY: clean
 clean:
 	-rm $(BINS)
+	-rm -f diode_tray$(EXE)
 	go clean -cache
 
 .PHONY: install
@@ -103,13 +104,8 @@ uninstall:
 dist: diode$(EXE)
 	mkdir -p dist
 	cp diode$(EXE) dist/
-	@if [ -f diode_tray$(EXE) ]; then cp diode_tray$(EXE) dist/; fi
 	$(STRIP) dist/diode$(EXE)
 	$(UPX) --force dist/diode$(EXE)
-	@if [ -f dist/diode_tray$(EXE) ]; then \
-		$(STRIP) dist/diode_tray$(EXE) || echo "Warning: strip failed on dist/diode_tray$(EXE)"; \
-		$(UPX) --force dist/diode_tray$(EXE) || echo "Warning: UPX compression failed on dist/diode_tray$(EXE)"; \
-	fi
 
 .PHONY: archive
 archive: $(ARCHIVE)
@@ -123,32 +119,32 @@ gateway: diode_debug
 
 .PHONY: diode$(EXE)
 diode$(EXE): runtime
-	$(GOBUILD) -o diode$(EXE) ./cmd/diode
+	CGO_ENABLED=1 $(GOBUILD_NORPATH) -o diode$(EXE) ./cmd/diode
 
 .PHONY: traybin
-traybin: diode_tray
+# Backwards-compatible alias now that tray is integrated.
+traybin: diode
 
 .PHONY: diode_tray
-# Build tray-enabled helper binary as a separate executable
-diode_tray: VARIANT=
-diode_tray: runtime
-	CGO_ENABLED=1 $(GOBUILD_NORPATH) -tags 'patch_runtime tray_ui' -o diode_tray$(EXE) ./cmd/diode
+# Deprecated: tray is now integrated into the main diode binary
+diode_tray: diode
 
 .PHONY: tray
-tray: diode_tray
+tray: diode
 
 .PHONY: run_tray
-# Run diode with a sanitized environment to avoid Snap/GLIBC conflicts
-run_tray: diode_tray
+# Run diode with tray UI enabled
+run_tray: diode
 	./diode -tray=true $(ARGS)
 
 .PHONY: tray_legacy
 tray_legacy: diode_tray_legacy
 
 .PHONY: diode_tray_legacy
+# Build single diode binary with legacy appindicator support
 diode_tray_legacy: VARIANT=
 diode_tray_legacy: runtime
-	CGO_ENABLED=1 $(GOBUILD_NORPATH) -tags 'patch_runtime tray_ui legacy_appindicator' -o diode$(EXE) ./cmd/diode
+	CGO_ENABLED=1 $(GOBUILD_NORPATH) -tags 'patch_runtime legacy_appindicator' -o diode$(EXE) ./cmd/diode
 
 .PHONY: run_tray_legacy
 run_tray_legacy: diode_tray_legacy
@@ -164,9 +160,9 @@ gauge$(EXE): runtime
 
 .PHONY: diode_race_test
 diode_race_test: runtime
-	$(GOBUILD) -race -o diode_race_test cmd/diode/*.go
+	CGO_ENABLED=1 $(GOBUILD_NORPATH) -race -o diode_race_test ./cmd/diode
 
 .PHONY: debug
 diode_debug: VARIANT=-debug
 diode_debug: runtime
-	$(GOBUILD) -gcflags="-N -l" -o diode_debug cmd/diode/*.go
+	CGO_ENABLED=1 $(GOBUILD_NORPATH) -gcflags="-N -l" -o diode_debug ./cmd/diode
