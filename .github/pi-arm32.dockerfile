@@ -35,6 +35,7 @@ ENV GOROOT "/usr/local/go"
 RUN mkdir /go
 ENV GOPATH "/go"
 ENV PATH "$GOPATH/bin:$GOROOT/bin:$PATH"
+ENV GOFLAGS "-tags no_tray"
 
 RUN mkdir build
 WORKDIR /build
