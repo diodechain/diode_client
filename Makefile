@@ -4,9 +4,10 @@ GOBIN= $(or $(shell go env GOBIN), $(GOPATH)/bin)
 GOMODCACHE= $(or $(shell go env GOMODCACHE), $(GOPATH)/pkg/mod)
 COMMIT= $(shell git describe --tags --dirty)
 BUILDTIME= $(shell date +"%d %b %Y")
-GOBUILD=go build -ldflags '-s -r ./ -X "main.version=${COMMIT}${VARIANT}" -X "main.buildTime=${BUILDTIME}"' -tags patch_runtime
+TAGS := $(strip patch_runtime $(EXTRA_TAGS))
+GOBUILD=go build -ldflags '-s -r ./ -X "main.version=${COMMIT}${VARIANT}" -X "main.buildTime=${BUILDTIME}"' -tags "$(TAGS)"
 # Variant without RPATH for CGO GUI/tray builds to avoid odd loader paths
-GOBUILD_NORPATH=go build -ldflags '-s -X "main.version=${COMMIT}${VARIANT}" -X "main.buildTime=${BUILDTIME}"' -tags patch_runtime
+GOBUILD_NORPATH=go build -ldflags '-s -X "main.version=${COMMIT}${VARIANT}" -X "main.buildTime=${BUILDTIME}"' -tags "$(TAGS)"
 ARCHIVE= $(shell ./deployment/zipname.sh)
 
 UNAME_S := $(shell uname -s)
@@ -144,7 +145,7 @@ tray_legacy: diode_tray_legacy
 # Build single diode binary with legacy appindicator support
 diode_tray_legacy: VARIANT=
 diode_tray_legacy: runtime
-	CGO_ENABLED=1 $(GOBUILD_NORPATH) -tags 'patch_runtime legacy_appindicator' -o diode$(EXE) ./cmd/diode
+	EXTRA_TAGS=legacy_appindicator CGO_ENABLED=1 $(GOBUILD_NORPATH) -o diode$(EXE) ./cmd/diode
 
 .PHONY: run_tray_legacy
 run_tray_legacy: diode_tray_legacy
