@@ -46,14 +46,18 @@ var (
 	}
 	dryRun          = false
 	network         = "mainnet"
-	rpcURL          = ""
-	contractAddress = ""
+    rpcURL          = ""
+    contractAddress = ""
+    wantWireGuard   = false
+    wgSuffix        = ""
 )
 
 func init() {
-	joinCmd.Run = joinHandler
-	joinCmd.Flag.BoolVar(&dryRun, "dry", false, "run a single check of the property values without starting the daemon")
-	joinCmd.Flag.StringVar(&network, "network", "mainnet", "network to connect to (local, testnet, mainnet)")
+    joinCmd.Run = joinHandler
+    joinCmd.Flag.BoolVar(&dryRun, "dry", false, "run a single check of the property values without starting the daemon")
+    joinCmd.Flag.StringVar(&network, "network", "mainnet", "network to connect to (local, testnet, mainnet)")
+    joinCmd.Flag.BoolVar(&wantWireGuard, "wireguard", false, "generate and show WireGuard public key on startup")
+    joinCmd.Flag.StringVar(&wgSuffix, "suffix", "", "custom suffix for WireGuard interface and files (default derived from -network)")
 }
 
 // JSON-RPC request structure
@@ -285,6 +289,22 @@ func networkSuffix(n string) string {
 	}
 }
 
+// effectiveWGSuffix returns the suffix to use for WireGuard interface/config
+// Either the user-provided -suffix or the default derived from -network.
+// It validates that the suffix contains only safe filename characters.
+func effectiveWGSuffix() (string, error) {
+    s := strings.TrimSpace(wgSuffix)
+    if s == "" {
+        s = networkSuffix(network)
+    }
+    // Allow only alphanumerics, dash, underscore and dot
+    re := regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+    if !re.MatchString(s) {
+        return "", fmt.Errorf("invalid suffix: %q (allowed: letters, digits, . _ -)", s)
+    }
+    return s, nil
+}
+
 // generateWGPrivateKey generates a new WireGuard private key (X25519) and returns base64
 func generateWGPrivateKey() (privB64 string, pubB64 string, err error) {
 	// Generate 32 random bytes
@@ -344,25 +364,25 @@ func readOrCreateWGPrivateKey(keyPath string) (privB64, pubB64 string, err error
 // normalizeWireGuardConfig attempts to format a minified/single-line WireGuard config
 // into a standard multi-line INI-style format so our parser can locate sections.
 func normalizeWireGuardConfig(cfg string) string {
-    // Normalize newlines and trim
-    s := strings.ReplaceAll(cfg, "\r\n", "\n")
-    s = strings.TrimSpace(s)
+	// Normalize newlines and trim
+	s := strings.ReplaceAll(cfg, "\r\n", "\n")
+	s = strings.TrimSpace(s)
 
-    // Ensure section headers are on their own lines
-    reInterface := regexp.MustCompile(`(?i)\s*\[interface\]\s*`)
-    rePeer := regexp.MustCompile(`(?i)\s*\[peer\]\s*`)
-    s = reInterface.ReplaceAllString(s, "\n[Interface]\n")
-    s = rePeer.ReplaceAllString(s, "\n[Peer]\n")
+	// Ensure section headers are on their own lines
+	reInterface := regexp.MustCompile(`(?i)\s*\[interface\]\s*`)
+	rePeer := regexp.MustCompile(`(?i)\s*\[peer\]\s*`)
+	s = reInterface.ReplaceAllString(s, "\n[Interface]\n")
+	s = rePeer.ReplaceAllString(s, "\n[Peer]\n")
 
-    // Insert newlines before known WireGuard keys only
-    reKVKnown := regexp.MustCompile(`(?i)\s+(Address|ListenPort|DNS|MTU|Table|PreUp|PostUp|PreDown|PostDown|SaveConfig|PrivateKey|PublicKey|PresharedKey|AllowedIPs|Endpoint|PersistentKeepalive)\s*=`)
-    s = reKVKnown.ReplaceAllString(s, "\n$1 =")
+	// Insert newlines before known WireGuard keys only
+	reKVKnown := regexp.MustCompile(`(?i)\s+(Address|ListenPort|DNS|MTU|Table|PreUp|PostUp|PreDown|PostDown|SaveConfig|PrivateKey|PublicKey|PresharedKey|AllowedIPs|Endpoint|PersistentKeepalive)\s*=`)
+	s = reKVKnown.ReplaceAllString(s, "\n$1 =")
 
-    // Collapse excessive blank lines
-    reMultiNL := regexp.MustCompile(`\n{2,}`)
-    s = reMultiNL.ReplaceAllString(s, "\n")
+	// Collapse excessive blank lines
+	reMultiNL := regexp.MustCompile(`\n{2,}`)
+	s = reMultiNL.ReplaceAllString(s, "\n")
 
-    return strings.TrimSpace(s)
+	return strings.TrimSpace(s)
 }
 
 // injectPrivateKeyIntoConfig ensures the [Interface] section contains PrivateKey
@@ -427,7 +447,7 @@ func enableWGInterface(cfgPath, ifaceName string, logger *config.Logger) error {
 
 // updateWireGuardFromContract fetches wireguard config and applies it
 func updateWireGuardFromContract(deviceAddr util.Address) error {
-	cfg := config.AppConfig
+    cfg := config.AppConfig
 	// Get wireguard configuration from contract
 	wgConf, err := getPropertyValue(deviceAddr, "wireguard")
 	if err != nil {
@@ -447,18 +467,21 @@ func updateWireGuardFromContract(deviceAddr util.Address) error {
 		return nil
 	}
 
-	dir, err := wgConfigDirectory()
-	if err != nil {
-		return err
-	}
-	if err := ensureDir(dir); err != nil {
-		return err
-	}
+    dir, err := wgConfigDirectory()
+    if err != nil {
+        return err
+    }
+    if err := ensureDir(dir); err != nil {
+        return err
+    }
 
-	suffix := networkSuffix(network)
-	iface := fmt.Sprintf("wg-diode-%s", suffix)
-	confPath := filepath.Join(dir, fmt.Sprintf("%s.conf", iface))
-	keyPath := filepath.Join(dir, fmt.Sprintf("%s.key", iface))
+    suffix, err := effectiveWGSuffix()
+    if err != nil {
+        return err
+    }
+    iface := fmt.Sprintf("wg-diode-%s", suffix)
+    confPath := filepath.Join(dir, fmt.Sprintf("%s.conf", iface))
+    keyPath := filepath.Join(dir, fmt.Sprintf("%s.key", iface))
 
 	// Ensure private key exists and derive pubkey
 	privB64, pubB64, err := readOrCreateWGPrivateKey(keyPath)
@@ -493,6 +516,36 @@ func updateWireGuardFromContract(deviceAddr util.Address) error {
 	}
 
 	lastWGConfigHash = hashStr
+	return nil
+}
+
+// prepareWireGuardKeyOnly ensures the WireGuard private key exists for this network
+// and prints the corresponding public key. It does not require any on-chain config
+// and does not write a WireGuard interface config.
+func prepareWireGuardKeyOnly() error {
+    cfg := config.AppConfig
+
+	dir, err := wgConfigDirectory()
+	if err != nil {
+		return err
+	}
+	if err := ensureDir(dir); err != nil {
+		return err
+	}
+
+    suffix, err := effectiveWGSuffix()
+    if err != nil {
+        return err
+    }
+    iface := fmt.Sprintf("wg-diode-%s", suffix)
+    keyPath := filepath.Join(dir, fmt.Sprintf("%s.key", iface))
+
+	_, pubB64, err := readOrCreateWGPrivateKey(keyPath)
+	if err != nil {
+		return fmt.Errorf("failed to prepare private key: %w", err)
+	}
+
+	cfg.PrintLabel("WireGuard Public Key", pubB64)
 	return nil
 }
 
@@ -622,6 +675,16 @@ func joinHandler() (err error) {
 	}
 
 	cfg.PrintLabel("Contract Address", contractAddress)
+
+	// If requested, prepare WireGuard key material and print the public key
+	if wantWireGuard {
+		if err := prepareWireGuardKeyOnly(); err != nil {
+			cfg.Logger.Warn("WireGuard key generation failed: %v", err)
+			if runtime.GOOS != "windows" {
+				cfg.PrintInfo("If permission denied, try running with elevated privileges (e.g., sudo)")
+			}
+		}
+	}
 
 	// Start the application
 	err = app.Start()

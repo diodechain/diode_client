@@ -52,6 +52,7 @@ func init() {
 	// should put to httpd or other command
 	diodeCmd.Flag.BoolVar(&cfg.EnableUpdate, "update", true, "enable update when start diode")
 	diodeCmd.Flag.BoolVar(&cfg.EnableMetrics, "metrics", false, "enable metrics stats")
+	diodeCmd.Flag.BoolVar(&cfg.EnableTray, "tray", false, "show a system tray icon")
 	diodeCmd.Flag.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
 	diodeCmd.Flag.BoolVar(&cfg.EnableAPIServer, "api", false, "turn on the config api")
 	diodeCmd.Flag.StringVar(&cfg.APIServerAddr, "apiaddr", "localhost:1081", "define config api server address")

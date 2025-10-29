@@ -21,26 +21,33 @@ Name
 
 SYNOPSYS
   diode [-allowlists=] [-api=false] [-apiaddr=localho...]
-        [-bind=] [-blocklists=] [-blockprofile=] [-blockprofilerate=1]
-        [-resolvecachetime=10m0s] [-configpath=] [-cpuprofile=] [-dbpath=/home/t...]
-        [-debug=false] [-diodeaddrs=] [-e2etimeout=15s] [-fleet=]
-        [-logdatetime=false] [-logfilepath=] [-memprofile=] [-metrics=false]
-        [-mutexprofile=] [-mutexprofilerate=1] [-pprofport=0] [-retrytimes=3]
-        [-retrywait=1s] [-rlimit_nofile=0] [-timeout=5s] [-update=true] COMMAND <args>
+        [-bind=] [-blockdomains=] [-blocklists=]
+        [-blockprofile=] [-blockprofilerate=1]
+        [-bnscachetime=10m0s] [-configpath=] [-cpuprofile=]
+        [-dbpath=<path>] [-debug=false] [-diodeaddrs=]
+        [-e2etimeout=15s] [-fleet=] [-logdatetime=false]
+        [-logfilepath=] [-memprofile=] [-metrics=false]
+        [-mutexprofile=] [-mutexprofilerate=1] [-pprofport=0]
+        [-resolvecachetime=10m0s] [-retrytimes=3] [-retrywait=1s]
+        [-rlimit_nofile=0] [-timeout=5s] [-tray=false] [-update=true] COMMAND <args>
 
 COMMANDS
-  bns          Register/Update name service on diode blockchain.
-  config       Manage variables in the local config store.
-  gateway      Enable a public gateway server as is used by the "diode.link" website
-  publish      Publish ports of the local device to the Diode Network.
-  reset        Initialize a new account and a new fleet contract in the network. WARNING deletes current credentials!
-  socksd       Enable a socks proxy for use with browsers and other apps.
-  time         Lookup the current time from the blockchain consensus.
-  token        Transfer DIODEs to the given address on diode blockchain.
-  update       Force updating the diode client version.
-  version      Print the diode client version.
+  bns         Register/Update name service on diode blockchain.
+  config      Manage variables in the local config store.
+  fetch       HTTP client over the Diode Network.
+  gateway     Public gateway server as used by "diode.link".
+  join        Join the Diode Network; watch on-chain properties and optionally manage WireGuard.
+  publish     Publish local ports to the Diode Network.
+  query       Query device/account information from the network.
+  reset       Initialize a new account and fleet contract (DESTRUCTIVE).
+  socksd      Start a local SOCKS5 proxy for browsers/apps.
+  ssh         SSH via Diode network (beta; not on Windows).
+  time        Lookup the current time from blockchain consensus.
+  token       Transfer DIODE tokens to an address.
+  update      Force update the diode client.
+  version     Print the diode client version.
 
-Run 'diode COMMAND --help' for more information on a command.
+Run 'diode COMMAND --help' for command-specific flags and examples.
 ```
 
 ## Tunnel ssh using your diode socks proxy
@@ -147,6 +154,80 @@ $ make test
 $ make
 ```
 
+### System Tray UI
+
+- Enable the tray UI by passing `-tray=true` to any command that keeps the client running, e.g. `diode -tray=true publish ...`.
+- Windows, macOS, and most Linux desktop environments are supported out of the box.
+- Linux legacy AppIndicator: for older environments that require AppIndicator, build the legacy variant:
+  - `make diode_tray_legacy` (uses `-tags legacy_appindicator`)
+
+Notes:
+- CGO must be enabled for tray builds (the default in our Makefile). The `diode` binary already includes tray support; no separate tray binary is needed.
+
 ## Notes on debugging with pprof
 
 To enable pprof on port 6060 run with `diode -pprofport 6060`
+
+## WireGuard Integration (Join Command)
+
+Overview
+- The `diode join` command can read a WireGuard configuration from the device’s on-chain `wireguard` property and configure a local WireGuard interface for the selected Diode network.
+- The on-chain WireGuard config must NOT include a `PrivateKey`. The client generates and stores a private key locally and injects it into the final config file.
+- One interface per Diode network: interface name and config path derive from the network, e.g. `wg-diode-prod` for mainnet and `wg-diode-dev` for testnet.
+
+First Run Key Generation
+- Generate your local WireGuard keypair and print the public key without requiring an on-chain config:
+  - `diode join -wireguard <contract_address>`
+- Optional: specify a custom suffix for interface/config names:
+  - `diode join -wireguard -suffix staging <contract_address>`
+- This creates `<iface>.key` in the platform WireGuard directory and prints the public key so you can add it to your on-chain config later.
+
+Interface Names and Paths
+- Default mapping:
+  - Mainnet: interface `wg-diode-prod`
+  - Testnet: interface `wg-diode-dev`
+  - Local: interface `wg-diode-local`
+- Custom suffix: use `-suffix <name>` to override the default (allowed: letters, digits, `.`, `_`, `-`). Example: `-suffix staging` -> `wg-diode-staging`.
+
+Config file locations by OS
+- Linux: `/etc/wireguard/wg-diode-<net>.conf`
+- macOS: `/usr/local/etc/wireguard/wg-diode-<net>.conf`
+- Windows: `C:\\Program Files\\WireGuard\\Data\\Configurations\\wg-diode-<net>.conf` (or user-local fallback)
+
+Private Key Handling
+- The client creates a private key on first use and stores it next to the config as `/etc/wireguard/wg-diode-<net>.key` (or the platform’s directory) with `0600` permissions.
+- The client derives the public key and logs it for your reference. Keep the private key file secure.
+  - If key creation fails due to permissions (e.g., Linux system path), run with elevated privileges (e.g., `sudo`).
+
+On-Chain WireGuard Property
+- Property key: `wireguard`
+- Value: the WireGuard config content WITHOUT `PrivateKey`. Example:
+
+```
+[Interface]
+Address = 10.7.0.2/32
+DNS = 1.1.1.1
+
+[Peer]
+PublicKey = <remote-public-key>
+AllowedIPs = 0.0.0.0/0, ::/0
+Endpoint = example.org:51820
+PersistentKeepalive = 25
+```
+
+Notes
+- Omit `PrivateKey` from the on-chain configuration. The client injects a locally generated key automatically.
+- You may include additional fields in `[Interface]` (e.g., `Address`, `DNS`) and in `[Peer]` typically `PublicKey`, `AllowedIPs`, `Endpoint`, and `PersistentKeepalive`.
+
+Bringing the Interface Up
+- Linux/macOS: the client tries to enable the interface using `wg-quick up` automatically. If it fails due to permissions, run with administrative permissions or run manually:
+  - `sudo wg-quick up /etc/wireguard/wg-diode-<net>.conf`
+- Windows: import and activate the generated config in WireGuard for Windows (GUI), or install it as a service (admin shell):
+  - `"C:\\Program Files\\WireGuard\\wireguard.exe" /installtunnelservice C:\\Program Files\\WireGuard\\Data\\Configurations\\wg-diode-<net>.conf`
+
+Updating
+- When the on-chain `wireguard` property changes, the client rewrites the config and attempts to re-enable the interface. Any manual edits will be overwritten; change the config on-chain instead.
+
+Security
+- The private key is never stored on-chain.
+- The generated local key is stored with restrictive permissions. Ensure your system backups and access controls protect this file.

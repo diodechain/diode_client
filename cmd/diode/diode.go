@@ -4,14 +4,14 @@
 package main
 
 import (
-	"bytes"
-	"os"
-	"time"
+    "bytes"
+    "os"
+    "time"
 
-	"github.com/diodechain/diode_client/config"
-	"github.com/diodechain/diode_client/edge"
-	"github.com/diodechain/diode_client/rpc"
-	"github.com/diodechain/diode_client/util"
+    "github.com/diodechain/diode_client/config"
+    "github.com/diodechain/diode_client/edge"
+    "github.com/diodechain/diode_client/rpc"
+    "github.com/diodechain/diode_client/util"
 )
 
 var (
@@ -21,14 +21,27 @@ var (
 )
 
 func main() {
-	cfg := config.AppConfig
-	err := diodeCmd.Execute()
-	// TODO: set status to custom error struct
-	if err != nil {
-		cfg.PrintError("Couldn't execute command", err)
-		os.Exit(2)
-	}
-	os.Exit(0)
+    // If tray build is enabled, the tray implementation may decide to take over
+    if maybeRunWithTray(os.Args[1:]) {
+        os.Exit(0)
+    }
+
+    cfg := config.AppConfig
+    err := diodeCmd.Execute()
+    if err != nil {
+        // Derive exit status from custom error types when available
+        status := 2
+        type statusError interface{ Status() int }
+        type codeError interface{ Code() int }
+        if se, ok := err.(statusError); ok {
+            status = se.Status()
+        } else if ce, ok := err.(codeError); ok {
+            status = ce.Code()
+        }
+        cfg.PrintError("Couldn't execute command", err)
+        os.Exit(status)
+    }
+    os.Exit(0)
 }
 
 // ensure account state has been changed
