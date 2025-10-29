@@ -15,6 +15,7 @@ import (
 	"sync"
 
 	"github.com/diodechain/diode_client/config"
+	"github.com/diodechain/diode_client/resources"
 	"github.com/getlantern/systray"
 )
 
@@ -53,7 +54,7 @@ var appCloseOnce sync.Once
 // onTrayReady initializes the tray icon and starts the CLI in a goroutine
 func onTrayReady() {
 	// Set a simple generated icon and tooltip/title
-	systray.SetIcon(genTrayIcon())
+	systray.SetIcon(loadTrayIcon())
 	systray.SetTitle("Diode Client")
 	systray.SetTooltip("Diode Client is running")
 
@@ -87,6 +88,19 @@ func onTrayReady() {
 // onTrayExit is called when the tray is shutting down
 func onTrayExit() {
 	appCloseOnce.Do(func() { safeAppClose() })
+}
+
+// loadTrayIcon returns icon bytes for the tray.
+// - On Windows, use embedded .ico as-is.
+// - On other platforms, convert embedded .ico to PNG.
+// - If anything fails, fall back to a generated icon.
+func loadTrayIcon() []byte {
+	if len(resources.TrayICO) > 0 {
+		// systray accepts .ico/.jpg/.png on macOS/Linux and .ico on Windows
+		return resources.TrayICO
+	}
+	// Fallback to generated icon if embed missing
+	return genTrayIcon()
 }
 
 // genTrayIcon produces a small 16x16 PNG for the tray icon at runtime
