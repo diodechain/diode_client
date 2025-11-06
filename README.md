@@ -176,11 +176,13 @@ Overview
 - One interface per Diode network: interface name and config path derive from the network, e.g. `wg-diode-prod` for mainnet and `wg-diode-dev` for testnet.
 
 First Run Key Generation
-- Generate your local WireGuard keypair and print the public key without requiring an on-chain config:
-  - `diode join -wireguard <contract_address>`
+- Generate your local WireGuard keypair and print the public key. You can run this with or without a contract address:
+  - With address (normal): `diode join -wireguard <contract_address>`
+  - Without address (key-only mode): `diode join -wireguard`
 - Optional: specify a custom suffix for interface/config names:
   - `diode join -wireguard -suffix staging <contract_address>`
-- This creates `<iface>.key` in the platform WireGuard directory and prints the public key so you can add it to your on-chain config later.
+  - Works in key-only mode too: `diode join -wireguard -suffix staging`
+- This creates `<iface>.key` in the platform WireGuard directory and prints the public key so you can add it to your on-chain config later. In key-only mode the command exits after printing the key.
 
 Interface Names and Paths
 - Default mapping:
