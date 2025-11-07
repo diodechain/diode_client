@@ -160,6 +160,8 @@ $ make
 - Windows, macOS, and most Linux desktop environments are supported out of the box.
 - Linux legacy AppIndicator: for older environments that require AppIndicator, build the legacy variant:
   - `make diode_tray_legacy` (uses `-tags legacy_appindicator`)
+- Linux dependencies: the tray UI loads GTK/AppIndicator on demand. Install `libayatana-appindicator3` and `libgtk-3-0` (or distribution equivalents) if you want the tray; otherwise the binary will continue without a tray when those libraries are missing.
+- WSL: tray support is disabled automatically; the client keeps running without a UI even if `-tray=true` is passed.
 
 Notes:
 - CGO must be enabled for tray builds (the default in our Makefile). The `diode` binary already includes tray support; no separate tray binary is needed.

@@ -6,6 +6,7 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -25,8 +26,71 @@ func maybeRunWithTray(args []string) bool {
 	if !hasTrayFlag(args) {
 		return false
 	}
-	systray.Run(onTrayReady, onTrayExit)
+	sanitizeTrayEnv()
+	if err := systray.Run(onTrayReady, onTrayExit); err != nil {
+		cfg := config.AppConfig
+		msg := "Install libayatana-appindicator3 (and libgtk-3) to enable tray support."
+		lower := strings.ToLower(err.Error())
+		needsHint := strings.Contains(lower, "dlopen") || strings.Contains(lower, "dlsym") || strings.Contains(lower, "indicator") || strings.Contains(lower, "undefined symbol")
+		if cfg != nil && cfg.Logger != nil {
+			cfg.PrintError("Tray initialization failed", err)
+			if needsHint {
+				cfg.PrintInfo(msg)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "Tray initialization failed: %v\n", err)
+			if needsHint {
+				fmt.Fprintln(os.Stderr, msg)
+			}
+		}
+		return false
+	}
 	return true
+}
+
+func sanitizeTrayEnv() {
+	sanitizeEnvOnce.Do(func() {
+		env := os.Environ()
+		for _, kv := range env {
+			key, value, ok := strings.Cut(kv, "=")
+			if !ok {
+				continue
+			}
+			switch key {
+			case "PATH":
+				if strings.Contains(value, "/snap/") {
+					filtered := filterSnapPaths(value)
+					if filtered != value {
+						if filtered == "" {
+							_ = os.Unsetenv(key)
+						} else {
+							_ = os.Setenv(key, filtered)
+						}
+					}
+				}
+			case "LD_LIBRARY_PATH", "LIBGL_DRIVERS_PATH", "LIBGL_DIR", "GTK_PATH", "GTK_EXE_PREFIX", "GDK_PIXBUF_MODULEDIR", "GDK_PIXBUF_MODULE_FILE", "GTK_IM_MODULE_FILE", "GIO_MODULE_DIR", "LOCPATH":
+				if strings.Contains(value, "/snap/") {
+					_ = os.Unsetenv(key)
+				}
+			default:
+				if key == "SNAP" || strings.HasPrefix(key, "SNAP_") {
+					_ = os.Unsetenv(key)
+				}
+			}
+		}
+	})
+}
+
+func filterSnapPaths(pathValue string) string {
+	parts := strings.Split(pathValue, ":")
+	filtered := make([]string, 0, len(parts))
+	for _, p := range parts {
+		if p == "" || strings.Contains(p, "/snap/") {
+			continue
+		}
+		filtered = append(filtered, p)
+	}
+	return strings.Join(filtered, ":")
 }
 
 // hasTrayFlag checks whether the -tray flag is present and truthy
@@ -48,8 +112,11 @@ func hasTrayFlag(args []string) bool {
 	return false
 }
 
-// Add a sync.Once to guard app.Close()
-var appCloseOnce sync.Once
+// Add sync.Once guards for shutdown and env sanitization
+var (
+	appCloseOnce    sync.Once
+	sanitizeEnvOnce sync.Once
+)
 
 // onTrayReady initializes the tray icon and starts the CLI in a goroutine
 func onTrayReady() {
