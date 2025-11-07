@@ -669,6 +669,12 @@ func joinHandler() (err error) {
         contractAddress = ""
     }
 
+    // In key-only mode, print standard header before anything else
+    if contractless && wantWireGuard {
+        cfg.PrintLabel("Client address", cfg.ClientAddr.HexString())
+        cfg.PrintLabel("Fleet address", cfg.FleetAddr.HexString())
+    }
+
     // If we have a valid contract address, set RPC URL used for eth_call
     if !contractless {
         switch network {
