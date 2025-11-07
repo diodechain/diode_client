@@ -655,26 +655,46 @@ func updatePublishedPorts(client *rpc.Client) error {
 }
 
 func joinHandler() (err error) {
-	cfg := config.AppConfig
-	cfg.Logger.Warn("join command is still BETA, parameters may change")
+    cfg := config.AppConfig
+    cfg.Logger.Warn("join command is still BETA, parameters may change")
+    // Read optional contract/perimeter address argument
+    rawArg := strings.TrimSpace(joinCmd.Flag.Arg(0))
+    contractless := rawArg == "" || rawArg == "0"
+    if !contractless {
+        contractAddress = rawArg
+        if !util.IsAddress([]byte(contractAddress)) {
+            return fmt.Errorf("valid contract address is required, received: '%s'", contractAddress)
+        }
+    } else {
+        contractAddress = ""
+    }
 
-	contractAddress = joinCmd.Flag.Arg(0)
-	if !util.IsAddress([]byte(contractAddress)) {
-		return fmt.Errorf("valid contract address is required, received: '%s'", contractAddress)
-	}
+    // In key-only mode, print standard header before anything else
+    if contractless && wantWireGuard {
+        cfg.PrintLabel("Client address", cfg.ClientAddr.HexString())
+        cfg.PrintLabel("Fleet address", cfg.FleetAddr.HexString())
+    }
 
-	switch network {
-	case "mainnet":
-		rpcURL = "https://sapphire.oasis.io"
-	case "testnet":
-		rpcURL = "https://testnet.sapphire.oasis.io"
-	case "local":
-		rpcURL = "http://localhost:8545"
-	default:
-		return fmt.Errorf("invalid network: %s", network)
-	}
-
-	cfg.PrintLabel("Contract Address", contractAddress)
+    // If we have a valid contract address, set RPC URL used for eth_call
+    if !contractless {
+        switch network {
+        case "mainnet":
+            rpcURL = "https://sapphire.oasis.io"
+        case "testnet":
+            rpcURL = "https://testnet.sapphire.oasis.io"
+        case "local":
+            rpcURL = "http://localhost:8545"
+        default:
+            return fmt.Errorf("invalid network: %s", network)
+        }
+        cfg.PrintLabel("Contract Address", contractAddress)
+    } else {
+        if wantWireGuard {
+            cfg.PrintInfo("WireGuard key-only mode (no contract address provided)")
+        } else {
+            return fmt.Errorf("valid contract address is required unless -wireguard is specified")
+        }
+    }
 
 	// If requested, prepare WireGuard key material and print the public key
 	if wantWireGuard {
@@ -686,49 +706,54 @@ func joinHandler() (err error) {
 		}
 	}
 
-	// Start the application
-	err = app.Start()
-	if err != nil {
-		return
-	}
+    // If no contract address was provided and -wireguard was requested,
+    // run key preparation and exit without starting the daemon.
+    if contractless {
+        return nil
+    }
 
-	// Dry run mode - just check property values once and exit
-	if dryRun {
-		client := app.WaitForFirstClient(true)
-		if client == nil {
-			err = fmt.Errorf("could not connect to network for dry run")
-			return
-		}
+    err = app.Start()
+    if err != nil {
+        return
+    }
 
-		err = updatePublishedPorts(client)
-		return
-	}
+    // Dry run mode - just check property values once and exit
+    if dryRun {
+        client := app.WaitForFirstClient(true)
+        if client == nil {
+            err = fmt.Errorf("could not connect to network for dry run")
+            return
+        }
 
-	// Normal operation mode
-	for {
-		if app.Closed() {
-			cfg.Logger.Info("Client closed, exiting")
-			return
-		}
+        err = updatePublishedPorts(client)
+        return
+    }
 
-		client := app.WaitForFirstClient(true)
+    // Normal operation mode
+    for {
+        if app.Closed() {
+            cfg.Logger.Info("Client closed, exiting")
+            return
+        }
 
-		if client == nil {
-			cfg.Logger.Info("Could not connect to network trying again in 5 seconds")
-			time.Sleep(5 * time.Second)
-			continue
-		}
+        client := app.WaitForFirstClient(true)
 
-		err = updatePublishedPorts(client)
-		if err != nil {
-			cfg.Logger.Error("Failed to update published ports: %v", err)
-		}
+        if client == nil {
+            cfg.Logger.Info("Could not connect to network trying again in 5 seconds")
+            time.Sleep(5 * time.Second)
+            continue
+        }
 
-		// Update WireGuard configuration, if any
-		if err := updateWireGuardFromContract(cfg.ClientAddr); err != nil {
-			cfg.Logger.Error("Failed to process wireguard config: %v", err)
-		}
+        err = updatePublishedPorts(client)
+        if err != nil {
+            cfg.Logger.Error("Failed to update published ports: %v", err)
+        }
 
-		time.Sleep(30 * time.Second)
-	}
+        // Update WireGuard configuration, if any
+        if err := updateWireGuardFromContract(cfg.ClientAddr); err != nil {
+            cfg.Logger.Error("Failed to process wireguard config: %v", err)
+        }
+
+        time.Sleep(30 * time.Second)
+    }
 }
