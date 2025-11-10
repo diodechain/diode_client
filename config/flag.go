@@ -44,6 +44,7 @@ type Config struct {
 	EnableUpdate     bool          `yaml:"update,omitempty" json:"update,omitempty"`
 	EnableMetrics    bool          `yaml:"metrics,omitempty" json:"metrics,omitempty"`
 	EnableTray       bool          `yaml:"tray,omitempty" json:"tray,omitempty"`
+	EnableBlockquick bool          `yaml:"blockquick,omitempty" json:"blockquick,omitempty"`
 	RemoteRPCAddrs   StringValues  `yaml:"diodeaddrs,omitempty" json:"diodeaddrs,omitempty"`
 	RemoteRPCTimeout time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
 	RetryTimes       int           `yaml:"retrytimes,omitempty" json:"retrytimes,omitempty"`

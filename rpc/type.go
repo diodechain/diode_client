@@ -100,12 +100,22 @@ func WindowSize() int {
 
 // LastValid returns the last valid block number and block header
 func (client *Client) LastValid() (uint64, crypto.Sha3) {
-	var bq *blockquick.Window
-	client.callTimeout(func() { bq = client.bq })
-	if bq == nil {
+	if client == nil {
 		return restoreLastValid()
 	}
-	return bq.Last()
+	if client.useBlockquick {
+		var bq *blockquick.Window
+		client.callTimeout(func() { bq = client.bq })
+		if bq != nil {
+			return bq.Last()
+		}
+	} else {
+		if header := client.snapshotLastValidHeader(); header != nil {
+			hash := header.Hash()
+			return header.Number(), hash
+		}
+	}
+	return restoreLastValid()
 
 }
 

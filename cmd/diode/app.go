@@ -53,6 +53,7 @@ func init() {
 	diodeCmd.Flag.BoolVar(&cfg.EnableUpdate, "update", true, "enable update when start diode")
 	diodeCmd.Flag.BoolVar(&cfg.EnableMetrics, "metrics", false, "enable metrics stats")
 	diodeCmd.Flag.BoolVar(&cfg.EnableTray, "tray", false, "show a system tray icon")
+	diodeCmd.Flag.BoolVar(&cfg.EnableBlockquick, "blockquick", false, "enable blockquick chain validation")
 	diodeCmd.Flag.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
 	diodeCmd.Flag.BoolVar(&cfg.EnableAPIServer, "api", false, "turn on the config api")
 	diodeCmd.Flag.StringVar(&cfg.APIServerAddr, "apiaddr", "localhost:1081", "define config api server address")
@@ -407,7 +408,11 @@ func (dio *Diode) Start() error {
 		return err
 	}
 	lvbn, lvbh = client.LastValid()
-	cfg.Logger.Info("Network is validated, last valid block: %d 0x%s", lvbn, lvbh.String())
+	statusMsg := "Network is validated"
+	if !cfg.EnableBlockquick {
+		statusMsg = "Connected to network (blockquick disabled)"
+	}
+	cfg.Logger.Info("%s, last valid block: %d 0x%s", statusMsg, lvbn, lvbh.String())
 	name, err := client.ResolveReverseBNS(cfg.ClientAddr)
 	if err == nil {
 		cfg.PrintLabel("Client name", fmt.Sprintf("%s.diode", name))

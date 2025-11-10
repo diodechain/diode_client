@@ -50,6 +50,16 @@ COMMANDS
 Run 'diode COMMAND --help' for command-specific flags and examples.
 ```
 
+### Optional Blockquick Validation
+
+The classic Blockquick chain-validation algorithm is now opt-in. By default the client trusts the remote node’s finalized blocks, which avoids the extra cross-checking traffic Blockquick requires. If you still want the stricter validation path, start any long-running command with `-blockquick`, for example:
+
+```bash
+diode -blockquick publish -public 80:8080
+```
+
+When enabled, the client downloads the additional block headers and runs the local Blockquick window just like earlier releases. Leaving it off keeps resource usage lower while preserving the ability to re-enable the feature whenever you need it.
+
 ## Tunnel ssh using your diode socks proxy
 
 On the client:

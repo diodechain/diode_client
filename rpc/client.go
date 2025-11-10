@@ -60,6 +60,9 @@ type Client struct {
 	pool          *DataPool
 	config        *config.Config
 	bq            *blockquick.Window
+	useBlockquick bool
+	lastValidMu   sync.RWMutex
+	lastValidHdr  *blockquick.BlockHeader
 	lastTicket    *edge.DeviceTicket
 	latencySum    int64
 	latencyCount  int64
@@ -97,6 +100,7 @@ func NewClient(host string, clientMan *ClientManager, cfg *config.Config, pool *
 		config:        cfg,
 		enableMetrics: cfg.EnableMetrics,
 		timer:         NewTimer(),
+		useBlockquick: cfg != nil && cfg.EnableBlockquick,
 	}
 
 	if client.enableMetrics {
@@ -117,6 +121,55 @@ func (client *Client) averageLatency() int64 {
 func (client *Client) addLatencyMeasurement(latency time.Duration) {
 	client.latencySum += latency.Milliseconds()
 	client.latencyCount++
+}
+
+func (client *Client) snapshotLastValidHeader() *blockquick.BlockHeader {
+	client.lastValidMu.RLock()
+	defer client.lastValidMu.RUnlock()
+	if client.lastValidHdr == nil {
+		return nil
+	}
+	header := *client.lastValidHdr
+	return &header
+}
+
+func (client *Client) updateLastValidHeader(header blockquick.BlockHeader) bool {
+	client.lastValidMu.Lock()
+	defer client.lastValidMu.Unlock()
+	if client.lastValidHdr != nil && client.lastValidHdr.Number() >= header.Number() {
+		return false
+	}
+	h := header
+	client.lastValidHdr = &h
+	return true
+}
+
+func (client *Client) refreshLastValidFromServer() error {
+	blockPeak, err := client.GetBlockPeak()
+	if err != nil {
+		return err
+	}
+	if blockPeak <= confirmationSize {
+		return fmt.Errorf("block peak below confirmation window: %d <= %d", blockPeak, confirmationSize)
+	}
+	target := blockPeak - confirmationSize
+	header, err := client.GetBlockHeaderUnsafe(target)
+	if err != nil {
+		return err
+	}
+	if client.updateLastValidHeader(header) {
+		client.storeLastValid()
+	}
+	return nil
+}
+
+func (client *Client) hasLastValidState() bool {
+	if client.useBlockquick {
+		return client.bq != nil
+	}
+	client.lastValidMu.RLock()
+	defer client.lastValidMu.RUnlock()
+	return client.lastValidHdr != nil
 }
 
 func (client *Client) doConnect() (err error) {
@@ -295,7 +348,7 @@ func (client *Client) CheckTicket() {
 			return
 		}
 
-		if client.bq == nil {
+		if !client.hasLastValidState() {
 			return
 		}
 
@@ -336,6 +389,9 @@ func (client *Client) isRecentTicket(tck *edge.DeviceTicket) bool {
 // ValidateNetwork validate blockchain network is secure and valid
 // Run blockquick algorithm, more information see: https://eprint.iacr.org/2019/579.pdf
 func (client *Client) validateNetwork() error {
+	if !client.useBlockquick {
+		return client.refreshLastValidFromServer()
+	}
 
 	lvbn, lvbh := restoreLastValid()
 	blockNumMin := lvbn - windowSize + 1
@@ -502,9 +558,17 @@ func (client *Client) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]blockquic
 // GetBlockHeaderValid returns a validated recent block header
 // (only available for the last windowsSize blocks)
 func (client *Client) GetBlockHeaderValid(blockNum uint64) blockquick.BlockHeader {
-	// client.rm.Lock()
-	// defer client.rm.Unlock()
-	return client.bq.GetBlockHeader(blockNum)
+	if client.useBlockquick {
+		if client.bq == nil {
+			return blockquick.BlockHeader{}
+		}
+		return client.bq.GetBlockHeader(blockNum)
+	}
+	header := client.snapshotLastValidHeader()
+	if header != nil && header.Number() == blockNum {
+		return *header
+	}
+	return blockquick.BlockHeader{}
 }
 
 // GetBlockHeadersUnsafe returns a consecutive range of block headers
@@ -570,7 +634,7 @@ func (client *Client) greet() error {
 
 func (client *Client) SubmitNewTicket() (err error) {
 	client.srv.Cast(func() {
-		if client.bq == nil {
+		if !client.hasLastValidState() {
 			return
 		}
 
@@ -1357,6 +1421,13 @@ func (client *Client) watchLatestBlock() {
 }
 
 func (client *Client) doWatchLatestBlock() {
+	if !client.useBlockquick {
+		if err := client.refreshLastValidFromServer(); err != nil {
+			client.Log().Error("Couldn't refresh last valid block: %v", err)
+		}
+		return
+	}
+
 	var bq *blockquick.Window
 	client.callTimeout(func() { bq = client.bq })
 	if bq == nil {
