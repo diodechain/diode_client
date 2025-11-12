@@ -129,3 +129,13 @@ func (client *Client) storeLastValid() {
 	db.DB.Put(lvbnKey, util.DecodeUintToBytes(lvbn))
 	db.DB.Put(lvbhKey, lvbh[:])
 }
+
+func resetLastValid() error {
+	if err := db.DB.Del(lvbnKey); err != nil {
+		return err
+	}
+	if err := db.DB.Del(lvbhKey); err != nil {
+		return err
+	}
+	return nil
+}

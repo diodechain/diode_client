@@ -33,9 +33,11 @@ import (
 
 const (
 	// 4194304 = 1024 * 4096 (server limit is 41943040)
-	packetLimit   = 65000
-	ticketBound   = 4194304
-	callQueueSize = 1024
+	packetLimit                  = 65000
+	ticketBound                  = 4194304
+	callQueueSize                = 1024
+	blockquickDowngradeThreshold = 5
+	blockquickValidationError    = "couldn't validate any new blocks"
 )
 
 var (
@@ -44,7 +46,26 @@ var (
 	errSendTransactionFailed        = fmt.Errorf("server returned false")
 	errClientClosed                 = fmt.Errorf("rpc client was closed")
 	errPortOpenTimeout              = fmt.Errorf("portopen timeout")
+	blockquickDowngrade      blockquickDowngradeTracker
 )
+
+type blockquickDowngradeTracker struct {
+	sync.Mutex
+	failures int
+}
+
+func (t *blockquickDowngradeTracker) reset() {
+	t.Lock()
+	t.failures = 0
+	t.Unlock()
+}
+
+func (t *blockquickDowngradeTracker) increment() int {
+	t.Lock()
+	defer t.Unlock()
+	t.failures++
+	return t.failures
+}
 
 // Client struct for rpc client
 type Client struct {
@@ -1398,14 +1419,55 @@ func (client *Client) doWatchLatestBlock() {
 
 }
 
-func (client *Client) initialize() (err error) {
-	err = client.validateNetwork()
-	if err != nil && strings.Contains(err.Error(), "sent reference block does not match") {
-		// the lvbn was removed, we can validate network again
-		err = client.validateNetwork()
+func (client *Client) tryDowngradeBlockquick(err error) bool {
+	if err == nil || !client.config.BlockquickDowngrade {
+		blockquickDowngrade.reset()
+		return false
 	}
-	if err != nil {
-		return
+	if !strings.Contains(err.Error(), blockquickValidationError) {
+		blockquickDowngrade.reset()
+		return false
+	}
+
+	failures := blockquickDowngrade.increment()
+	if failures < blockquickDowngradeThreshold {
+		return false
+	}
+
+	blockquickDowngrade.reset()
+
+	if derr := resetLastValid(); derr != nil {
+		client.Log().Error("Blockquick downgrade failed to reset stored window: %v", derr)
+		return false
+	}
+	if derr := client.callTimeout(func() { client.bq = nil }); derr != nil {
+		client.Log().Error("Blockquick downgrade failed to clear memory window: %v", derr)
+		return false
+	}
+	client.Log().Warn("Reset blockquick window after %d consecutive validation failures", blockquickDowngradeThreshold)
+	return true
+}
+
+func (client *Client) initialize() (err error) {
+	mismatchRetried := false
+	for {
+		err = client.validateNetwork()
+		if err == nil {
+			blockquickDowngrade.reset()
+			break
+		}
+
+		if strings.Contains(err.Error(), "sent reference block does not match") && !mismatchRetried {
+			// the lvbn was removed, we can validate network again
+			mismatchRetried = true
+			continue
+		}
+
+		if client.tryDowngradeBlockquick(err) {
+			continue
+		}
+
+		return err
 	}
 
 	client.serverID, err = client.s.GetServerID()
