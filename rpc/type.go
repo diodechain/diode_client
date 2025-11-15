@@ -125,7 +125,18 @@ func restoreLastValid() (uint64, crypto.Sha3) {
 }
 
 func (client *Client) storeLastValid() {
-	lvbn, lvbh := client.LastValid()
+	var (
+		bq  *blockquick.Window
+		err error
+	)
+	if client == nil {
+		return
+	}
+	err = client.callTimeout(func() { bq = client.bq })
+	if err != nil || bq == nil {
+		return
+	}
+	lvbn, lvbh := bq.Last()
 	db.DB.Put(lvbnKey, util.DecodeUintToBytes(lvbn))
 	db.DB.Put(lvbhKey, lvbh[:])
 }

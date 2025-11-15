@@ -46,26 +46,7 @@ var (
 	errSendTransactionFailed        = fmt.Errorf("server returned false")
 	errClientClosed                 = fmt.Errorf("rpc client was closed")
 	errPortOpenTimeout              = fmt.Errorf("portopen timeout")
-	blockquickDowngrade      blockquickDowngradeTracker
 )
-
-type blockquickDowngradeTracker struct {
-	sync.Mutex
-	failures int
-}
-
-func (t *blockquickDowngradeTracker) reset() {
-	t.Lock()
-	t.failures = 0
-	t.Unlock()
-}
-
-func (t *blockquickDowngradeTracker) increment() int {
-	t.Lock()
-	defer t.Unlock()
-	t.failures++
-	return t.failures
-}
 
 // Client struct for rpc client
 type Client struct {
@@ -86,6 +67,7 @@ type Client struct {
 	latencyCount  int64
 	serverID      util.Address
 	onConnect     func(util.Address)
+	bqFailures    int
 	// close event
 	OnClose func()
 
@@ -1419,32 +1401,47 @@ func (client *Client) doWatchLatestBlock() {
 
 }
 
+func (client *Client) clearBlockquickWindow() error {
+	return client.callTimeout(func() {
+		client.bq = nil
+		client.lastTicket = nil
+	})
+}
+
+func (client *Client) forceResetBlockquickState() {
+	if derr := resetLastValid(); derr != nil {
+		client.Log().Error("Blockquick downgrade failed to reset stored window: %v", derr)
+		return
+	}
+	if derr := client.clearBlockquickWindow(); derr != nil {
+		client.Log().Error("Blockquick downgrade failed to clear memory window: %v", derr)
+	}
+}
+
 func (client *Client) tryDowngradeBlockquick(err error) bool {
 	if err == nil || !client.config.BlockquickDowngrade {
-		blockquickDowngrade.reset()
+		client.bqFailures = 0
 		return false
 	}
 	if !strings.Contains(err.Error(), blockquickValidationError) {
-		blockquickDowngrade.reset()
+		client.bqFailures = 0
 		return false
 	}
 
-	failures := blockquickDowngrade.increment()
-	if failures < blockquickDowngradeThreshold {
+	client.bqFailures++
+	if client.bqFailures < blockquickDowngradeThreshold {
 		return false
 	}
 
-	blockquickDowngrade.reset()
-
-	if derr := resetLastValid(); derr != nil {
-		client.Log().Error("Blockquick downgrade failed to reset stored window: %v", derr)
-		return false
-	}
-	if derr := client.callTimeout(func() { client.bq = nil }); derr != nil {
-		client.Log().Error("Blockquick downgrade failed to clear memory window: %v", derr)
-		return false
-	}
+	client.bqFailures = 0
 	client.Log().Warn("Reset blockquick window after %d consecutive validation failures", blockquickDowngradeThreshold)
+
+	if client.clientMan != nil {
+		client.clientMan.resetBlockquickState(fmt.Sprintf("downgrade triggered by %s", client.host))
+	} else {
+		client.forceResetBlockquickState()
+	}
+
 	return true
 }
 
@@ -1453,7 +1450,7 @@ func (client *Client) initialize() (err error) {
 	for {
 		err = client.validateNetwork()
 		if err == nil {
-			blockquickDowngrade.reset()
+			client.bqFailures = 0
 			break
 		}
 

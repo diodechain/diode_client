@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/diodechain/diode_client/config"
@@ -28,8 +29,9 @@ type ClientManager struct {
 	waitingAny  []*genserver.Reply
 	waitingNode map[util.Address]*nodeRequest
 
-	pool   *DataPool
-	Config *config.Config
+	pool      *DataPool
+	Config    *config.Config
+	bqResetMx sync.Mutex
 }
 
 type nodeRequest struct {
@@ -236,6 +238,34 @@ func (cm *ClientManager) connect(nodeID util.Address, host string) (ret *Client,
 		return false
 	}, 15*time.Second)
 	return
+}
+
+func (cm *ClientManager) resetBlockquickState(reason string) {
+	cm.srv.Call(func() {
+		cm.doResetBlockquickState(reason)
+	})
+}
+
+func (cm *ClientManager) doResetBlockquickState(reason string) {
+	cm.bqResetMx.Lock()
+	defer cm.bqResetMx.Unlock()
+
+	if err := resetLastValid(); err != nil {
+		cm.Config.Logger.Error("Blockquick downgrade failed to reset stored window: %v", err)
+		return
+	}
+
+	if reason == "" {
+		cm.Config.Logger.Warn("Reset blockquick window")
+	} else {
+		cm.Config.Logger.Warn("Reset blockquick window (%s)", reason)
+	}
+
+	for _, client := range cm.clients {
+		if err := client.clearBlockquickWindow(); err != nil {
+			client.Log().Error("Blockquick downgrade failed to clear memory window: %v", err)
+		}
+	}
 }
 
 func (cm *ClientManager) GetNearestClient() (client *Client) {
