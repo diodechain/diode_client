@@ -129,9 +129,6 @@ func (client *Client) storeLastValid() {
 		bq  *blockquick.Window
 		err error
 	)
-	if client == nil {
-		return
-	}
 	err = client.callTimeout(func() { bq = client.bq })
 	if err != nil || bq == nil {
 		return
