@@ -50,24 +50,25 @@ var (
 
 // Client struct for rpc client
 type Client struct {
-	host          string
-	backoff       Backoff
-	s             *SSL
-	enableMetrics bool
-	metrics       *Metrics
-	Verbose       bool
-	clientMan     *ClientManager
-	cm            *callManager
-	localTimeout  time.Duration
-	pool          *DataPool
-	config        *config.Config
-	bq            *blockquick.Window
-	lastTicket    *edge.DeviceTicket
-	latencySum    int64
-	latencyCount  int64
-	serverID      util.Address
-	onConnect     func(util.Address)
-	bqFailures    int
+	host                 string
+	backoff              Backoff
+	s                    *SSL
+	enableMetrics        bool
+	metrics              *Metrics
+	Verbose              bool
+	clientMan            *ClientManager
+	cm                   *callManager
+	localTimeout         time.Duration
+	pool                 *DataPool
+	config               *config.Config
+	bq                   *blockquick.Window
+	lastTicket           *edge.DeviceTicket
+	latencySum           int64
+	latencyCount         int64
+	serverID             util.Address
+	onConnect            func(util.Address)
+	bqFailures           int
+	rebuildingBlockquick uint32
 	// close event
 	OnClose func()
 
@@ -1360,6 +1361,9 @@ func (client *Client) watchLatestBlock() {
 }
 
 func (client *Client) doWatchLatestBlock() {
+	if client.isRebuildingBlockquick() {
+		return
+	}
 	var bq *blockquick.Window
 	client.callTimeout(func() { bq = client.bq })
 	if bq == nil {
@@ -1392,7 +1396,11 @@ func (client *Client) doWatchLatestBlock() {
 		err = bq.AddBlock(blockHeader, false)
 		if err != nil {
 			blockHash := blockHeader.Hash()
-			client.Log().Error("Couldn't add block %v %v: %v", num, util.EncodeToString(blockHash[:]), err)
+			hashStr := util.EncodeToString(blockHash[:])
+			if client.shouldRebuildBlockquick(uint64(num), hashStr, err) {
+				return
+			}
+			client.Log().Error("Couldn't add block %v %v: %v", num, hashStr, err)
 			return
 		}
 	}
@@ -1416,6 +1424,52 @@ func (client *Client) forceResetBlockquickState() {
 	if derr := client.clearBlockquickWindow(); derr != nil {
 		client.Log().Error("Blockquick downgrade failed to clear memory window: %v", derr)
 	}
+}
+
+func (client *Client) isRebuildingBlockquick() bool {
+	return atomic.LoadUint32(&client.rebuildingBlockquick) == 1
+}
+
+func (client *Client) startBlockquickRebuild(reason string) {
+	if reason == "" {
+		reason = "blockquick window reset"
+	}
+	if !atomic.CompareAndSwapUint32(&client.rebuildingBlockquick, 0, 1) {
+		client.Log().Debug("Blockquick rebuild already running (%s)", reason)
+		return
+	}
+
+	go func() {
+		defer atomic.StoreUint32(&client.rebuildingBlockquick, 0)
+
+		if err := client.clearBlockquickWindow(); err != nil {
+			client.Log().Error("Failed to clear blockquick window (%s): %v", reason, err)
+			return
+		}
+
+		if err := client.ensureBlockquickWindow(); err != nil {
+			client.Log().Error("Failed to rebuild blockquick window (%s): %v", reason, err)
+			return
+		}
+
+		client.Log().Info("Blockquick window rebuilt (%s)", reason)
+		client.SubmitNewTicket()
+	}()
+}
+
+func (client *Client) shouldRebuildBlockquick(blockNum uint64, hash string, err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "don't know direct parent") && !strings.Contains(msg, "child number is wrong") {
+		return false
+	}
+
+	reason := fmt.Sprintf("block %d/%s", blockNum, hash)
+	client.Log().Warn("Detected inconsistent blockquick window at %s: %v", reason, err)
+	client.startBlockquickRebuild(reason)
+	return true
 }
 
 func (client *Client) tryDowngradeBlockquick(err error) bool {
@@ -1445,17 +1499,16 @@ func (client *Client) tryDowngradeBlockquick(err error) bool {
 	return true
 }
 
-func (client *Client) initialize() (err error) {
+func (client *Client) ensureBlockquickWindow() error {
 	mismatchRetried := false
 	for {
-		err = client.validateNetwork()
+		err := client.validateNetwork()
 		if err == nil {
 			client.bqFailures = 0
-			break
+			return nil
 		}
 
 		if strings.Contains(err.Error(), "sent reference block does not match") && !mismatchRetried {
-			// the lvbn was removed, we can validate network again
 			mismatchRetried = true
 			continue
 		}
@@ -1464,6 +1517,12 @@ func (client *Client) initialize() (err error) {
 			continue
 		}
 
+		return err
+	}
+}
+
+func (client *Client) initialize() (err error) {
+	if err = client.ensureBlockquickWindow(); err != nil {
 		return err
 	}
 
