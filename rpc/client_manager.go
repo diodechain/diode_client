@@ -307,6 +307,17 @@ func (cm *ClientManager) PeekNearestClients() (prim *Client, secd *Client) {
 	return
 }
 
+func (cm *ClientManager) ClientsByLatency() (clients []*Client) {
+	cm.srv.Call(func() {
+		clients = make([]*Client, 0, len(cm.clientMap))
+		for _, client := range cm.clientMap {
+			clients = append(clients, client)
+		}
+	})
+	sort.Sort(ByLatency(clients))
+	return
+}
+
 type ByLatency []*Client
 
 func (a ByLatency) Len() int           { return len(a) }
