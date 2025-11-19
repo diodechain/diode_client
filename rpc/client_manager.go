@@ -9,7 +9,6 @@ import (
 	"math/rand"
 	"net"
 	"sort"
-	"sync"
 	"time"
 
 	"github.com/diodechain/diode_client/config"
@@ -29,9 +28,8 @@ type ClientManager struct {
 	waitingAny  []*genserver.Reply
 	waitingNode map[util.Address]*nodeRequest
 
-	pool      *DataPool
-	Config    *config.Config
-	bqResetMx sync.Mutex
+	pool   *DataPool
+	Config *config.Config
 }
 
 type nodeRequest struct {
@@ -247,8 +245,6 @@ func (cm *ClientManager) resetBlockquickState(reason string) {
 }
 
 func (cm *ClientManager) doResetBlockquickState(reason string) {
-	cm.bqResetMx.Lock()
-	defer cm.bqResetMx.Unlock()
 
 	if err := resetLastValid(); err != nil {
 		cm.Config.Logger.Error("Blockquick downgrade failed to reset stored window: %v", err)

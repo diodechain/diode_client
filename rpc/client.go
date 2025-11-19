@@ -23,7 +23,6 @@ import (
 	"github.com/diodechain/diode_client/blockquick"
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/contract"
-	"github.com/diodechain/diode_client/db"
 	"github.com/diodechain/diode_client/edge"
 	"github.com/diodechain/diode_client/util"
 	"github.com/diodechain/openssl"
@@ -359,8 +358,10 @@ func (client *Client) validateNetwork() error {
 	hash := blockHeaders[windowSize-1].Hash()
 	if hash != lvbh {
 		// the lvbh was different, remove the lvbn
-		client.Log().Debug("Reference block does not match -- resetting lvbn.")
-		db.DB.Del(lvbnKey)
+		client.Log().Debug("Reference block does not match -- resetting stored blockquick window.")
+		if err := resetLastValid(); err != nil {
+			client.Log().Warn("Failed to reset last valid block: %v", err)
+		}
 		return fmt.Errorf("sent reference block does not match %v: %v != %v", lvbn, lvbh, hash)
 	}
 
