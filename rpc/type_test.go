@@ -93,11 +93,12 @@ func TestRestoreLastValidInvalidCombinedRecord(t *testing.T) {
 		}
 
 		bn, bh := restoreLastValid()
-		if bn != defaultLastValidBN {
-			t.Fatalf("expected default block %d, got %d", defaultLastValidBN, bn)
+		expectedBN, expectedHash := defaultLastValidRecord.bn, defaultLastValidRecord.hash
+		if bn != expectedBN {
+			t.Fatalf("expected default block %d, got %d", expectedBN, bn)
 		}
-		if bh != defaultLastValidHash {
-			t.Fatalf("expected default hash %x, got %x", defaultLastValidHash, bh)
+		if bh != expectedHash {
+			t.Fatalf("expected default hash %x, got %x", expectedHash, bh)
 		}
 
 		if _, err := db.DB.Get(lastValidRecordKey); err == nil {

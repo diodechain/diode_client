@@ -26,14 +26,19 @@ const (
 	lastValidRecordKey   = "lv4"
 	sha3Length           = 32
 	lastValidRecordSize  = 8 + sha3Length
-	defaultLastValidBN   = 500
 	legacyHashBufferSize = sha3Length
 )
 
 var (
-	NullData             = []byte("null")
-	enqueueTimeout       = 100 * time.Millisecond
-	defaultLastValidHash = crypto.Sha3{0, 0, 91, 137, 111, 20, 109, 80, 251, 76, 143, 80, 134, 152, 142, 201, 98, 250, 205, 7, 108, 135, 20, 235, 135, 65, 44, 186, 4, 161, 71, 238}
+	defaultLastValidRecord = struct {
+		bn   uint64
+		hash crypto.Sha3
+	}{
+		bn:   10000000,
+		hash: crypto.Sha3{0, 0, 3, 187, 6, 231, 253, 114, 130, 126, 222, 57, 150, 123, 138, 80, 115, 49, 95, 159, 114, 31, 76, 221, 94, 250, 94, 197, 36, 170, 99, 129},
+	}
+	NullData       = []byte("null")
+	enqueueTimeout = 100 * time.Millisecond
 )
 
 type Call struct {
@@ -131,7 +136,7 @@ func restoreLastValid() (uint64, crypto.Sha3) {
 		}
 	}
 	resetLastValid()
-	return defaultLastValidBN, defaultLastValidHash
+	return defaultLastValidRecord.bn, defaultLastValidRecord.hash
 }
 
 func (client *Client) storeLastValid() {
