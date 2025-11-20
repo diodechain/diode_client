@@ -238,6 +238,32 @@ func (cm *ClientManager) connect(nodeID util.Address, host string) (ret *Client,
 	return
 }
 
+func (cm *ClientManager) resetBlockquickState(reason string) {
+	cm.srv.Call(func() {
+		cm.doResetBlockquickState(reason)
+	})
+}
+
+func (cm *ClientManager) doResetBlockquickState(reason string) {
+
+	if err := resetLastValid(); err != nil {
+		cm.Config.Logger.Error("Blockquick downgrade failed to reset stored window: %v", err)
+		return
+	}
+
+	if reason == "" {
+		cm.Config.Logger.Warn("Reset blockquick window")
+	} else {
+		cm.Config.Logger.Warn("Reset blockquick window (%s)", reason)
+	}
+
+	for _, client := range cm.clients {
+		if err := client.clearBlockquickWindow(); err != nil {
+			client.Log().Error("Blockquick downgrade failed to clear memory window: %v", err)
+		}
+	}
+}
+
 func (cm *ClientManager) GetNearestClient() (client *Client) {
 	cm.srv.Call2(func(r *genserver.Reply) bool {
 		if len(cm.clientMap) == 0 {
@@ -274,6 +300,17 @@ func (cm *ClientManager) PeekNearestClients() (prim *Client, secd *Client) {
 			secd = secondary
 		}
 	})
+	return
+}
+
+func (cm *ClientManager) ClientsByLatency() (clients []*Client) {
+	cm.srv.Call(func() {
+		clients = make([]*Client, 0, len(cm.clientMap))
+		for _, client := range cm.clientMap {
+			clients = append(clients, client)
+		}
+	})
+	sort.Sort(ByLatency(clients))
 	return
 }
 

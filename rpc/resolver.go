@@ -5,12 +5,16 @@
 package rpc
 
 import (
+	"errors"
 	"fmt"
-	"time"
 
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/edge"
 	"github.com/diodechain/diode_client/util"
+)
+
+var (
+	errOutdatedDeviceTicket = errors.New("outdated device ticket")
 )
 
 // Resolver represents the bns name resolver of device
@@ -38,8 +42,8 @@ func (resolver *Resolver) ResolveDevice(deviceName string, validate bool) (ret [
 		return nil, err
 	}
 
-	client := resolver.clientManager.GetNearestClient()
-	if client == nil {
+	primary := resolver.clientManager.GetNearestClient()
+	if primary == nil {
 		return nil, HttpError{404, err}
 	}
 
@@ -48,58 +52,148 @@ func (resolver *Resolver) ResolveDevice(deviceName string, validate bool) (ret [
 		return nil, HttpError{403, err}
 	}
 
-	// Finding accessible deviceIDs
 	for _, deviceID := range deviceIDs {
-
-		// Calling GetObject to locate the device
-		cachedDevice := resolver.datapool.GetCacheDevice(deviceID)
-		if cachedDevice != nil && cachedDevice.Version != 0 {
-			if client.isRecentTicket(cachedDevice) {
-				ret = append(ret, cachedDevice)
-				continue
-			} else if time.Since(cachedDevice.CacheTime) < 15*time.Minute {
-				// The ticket is not recent but the entry had been fetched recently
-				// So we skip re-fetching it, assuming there is no newer atm
-				continue
+		device, fetchErr := resolver.resolveDeviceID(primary, deviceID)
+		if fetchErr != nil {
+			err = fetchErr
+			if !validate && device != nil {
+				ret = append(ret, device)
 			}
-		}
-
-		var device *edge.DeviceTicket
-		device, err = client.GetObject(deviceID)
-		if err != nil {
 			continue
 		}
-
-		if !client.isRecentTicket(device) {
-			// Setting a nil to cache, to mark the current time of the last check
-			resolver.datapool.SetCacheDevice(deviceID, &edge.DeviceTicket{})
-			client.Log().Warn("found outdated deviceticket() %+v", device)
-		}
-
-		errors := resolver.ValidateTicket(client, deviceID, device)
-		if len(errors) > 0 {
-			err = errors[0]
-			device.Err = err
-		} else {
-			resolver.datapool.SetCacheDevice(deviceID, device)
-		}
-
-		if len(errors) == 0 || !validate {
-			ret = append(ret, device)
-		}
-
+		ret = append(ret, device)
 	}
+
 	if len(ret) == 0 {
 		return ret, err
 	}
 	return ret, nil
 }
 
+func (resolver *Resolver) resolveDeviceID(primary *Client, deviceID Address) (*edge.DeviceTicket, error) {
+	var preferredServer Address
+	cachedDevice := resolver.datapool.GetCacheDevice(deviceID)
+	if cachedDevice != nil && cachedDevice.Version != 0 {
+		if primary.isRecentTicket(cachedDevice) {
+			return cachedDevice, nil
+		}
+		preferredServer = cachedDevice.ServerID
+	}
+
+	return resolver.fetchDeviceTicket(primary, deviceID, preferredServer)
+}
+
+func (resolver *Resolver) fetchDeviceTicket(primary *Client, deviceID Address, preferred Address) (*edge.DeviceTicket, error) {
+	clients := resolver.clientManager.ClientsByLatency()
+	clients = prependClient(clients, primary)
+	if preferred != (Address{}) {
+		if specific := resolver.clientManager.GetClient(preferred); specific != nil {
+			clients = prependClient(clients, specific)
+		} else if direct, err := resolver.clientManager.GetClientOrConnect(preferred); err == nil {
+			clients = prependClient(clients, direct)
+		} else {
+			resolver.logger.Debug("failed to proactively connect to preferred server %s: %v", preferred.HexString(), err)
+		}
+	}
+	clients = uniqueClients(clients)
+	if len(clients) == 0 {
+		return nil, fmt.Errorf("no relay connections available")
+	}
+
+	var lastTicket *edge.DeviceTicket
+	var lastErr error
+	triedServers := make(map[Address]bool)
+
+	for _, client := range clients {
+		if client == nil {
+			continue
+		}
+		ticket, err := resolver.fetchAndValidate(client, deviceID)
+		if err == nil {
+			return ticket, nil
+		}
+		lastTicket = ticket
+		lastErr = err
+
+		if !errors.Is(err, errOutdatedDeviceTicket) || ticket == nil {
+			continue
+		}
+		client.Log().Warn("found outdated deviceticket() %+v", ticket)
+
+		srvID := ticket.ServerID
+		if srvID == (Address{}) || triedServers[srvID] {
+			continue
+		}
+		triedServers[srvID] = true
+
+		homeClient, connErr := resolver.clientManager.GetClientOrConnect(srvID)
+		if connErr != nil {
+			resolver.logger.Warn("failed to reach preferred server %s: %v", srvID.HexString(), connErr)
+			continue
+		}
+		if homeClient == client {
+			continue
+		}
+
+		ticket, err = resolver.fetchAndValidate(homeClient, deviceID)
+		if err == nil {
+			return ticket, nil
+		}
+		lastTicket = ticket
+		lastErr = err
+	}
+
+	// No cache poisoning on outdated tickets; caller can retry shortly.
+	return lastTicket, lastErr
+}
+
+func prependClient(list []*Client, client *Client) []*Client {
+	if client == nil {
+		return list
+	}
+	for _, existing := range list {
+		if existing == client {
+			return list
+		}
+	}
+	return append([]*Client{client}, list...)
+}
+
+func uniqueClients(list []*Client) []*Client {
+	seen := make(map[*Client]bool, len(list))
+	res := make([]*Client, 0, len(list))
+	for _, client := range list {
+		if client == nil || seen[client] {
+			continue
+		}
+		seen[client] = true
+		res = append(res, client)
+	}
+	return res
+}
+
+func (resolver *Resolver) fetchAndValidate(client *Client, deviceID Address) (*edge.DeviceTicket, error) {
+	device, err := client.GetObject(deviceID)
+	if err != nil {
+		return nil, err
+	}
+
+	errors := resolver.ValidateTicket(client, deviceID, device)
+	if len(errors) > 0 {
+		err = errors[0]
+		device.Err = err
+		return device, err
+	}
+
+	resolver.datapool.SetCacheDevice(deviceID, device)
+	return device, nil
+}
+
 func (resolver *Resolver) ValidateTicket(client *Client, deviceID Address, device *edge.DeviceTicket) (errors []error) {
 	var err error
 
 	if !client.isRecentTicket(device) {
-		errors = append(errors, fmt.Errorf("outdated device ticket"))
+		errors = append(errors, errOutdatedDeviceTicket)
 	}
 
 	if device.BlockHash, err = client.ResolveBlockHash(device.BlockNumber); err != nil {

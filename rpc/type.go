@@ -5,6 +5,7 @@ package rpc
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
 	"sync"
 	"time"
@@ -17,14 +18,25 @@ import (
 )
 
 const (
-	confirmationSize  = 6
-	windowSize        = 100
-	rpcCallRetryTimes = 2
-	lvbnKey           = "lvbn3"
-	lvbhKey           = "lvbh3"
+	confirmationSize     = 6
+	windowSize           = 100
+	rpcCallRetryTimes    = 2
+	lvbnKey              = "lvbn3"
+	lvbhKey              = "lvbh3"
+	lastValidRecordKey   = "lv4"
+	sha3Length           = 32
+	lastValidRecordSize  = 8 + sha3Length
+	legacyHashBufferSize = sha3Length
 )
 
 var (
+	defaultLastValidRecord = struct {
+		bn   uint64
+		hash crypto.Sha3
+	}{
+		bn:   10000000,
+		hash: crypto.Sha3{0, 0, 3, 187, 6, 231, 253, 114, 130, 126, 222, 57, 150, 123, 138, 80, 115, 49, 95, 159, 114, 31, 76, 221, 94, 250, 94, 197, 36, 170, 99, 129},
+	}
 	NullData       = []byte("null")
 	enqueueTimeout = 100 * time.Millisecond
 )
@@ -110,22 +122,60 @@ func (client *Client) LastValid() (uint64, crypto.Sha3) {
 }
 
 func restoreLastValid() (uint64, crypto.Sha3) {
-	lvbn, err := db.DB.Get(lvbnKey)
-	var lvbh []byte
-	if err == nil {
-		lvbnNum := util.DecodeBytesToUint(lvbn)
-		lvbh, err = db.DB.Get(lvbhKey)
-		if err == nil {
-			var hash [32]byte
-			copy(hash[:], lvbh)
+	if lvbn, lvbh, ok := loadStoredLastValid(); ok {
+		return lvbn, lvbh
+	}
+	if lvbnBytes, err := db.DB.Get(lvbnKey); err == nil {
+		lvbhBytes, err := db.DB.Get(lvbhKey)
+		if err == nil && len(lvbhBytes) == legacyHashBufferSize {
+			lvbnNum := util.DecodeBytesToUint(lvbnBytes)
+			var hash crypto.Sha3
+			copy(hash[:], lvbhBytes)
+			persistLastValidRecord(lvbnNum, hash)
 			return lvbnNum, hash
 		}
 	}
-	return 500, [32]byte{0, 0, 91, 137, 111, 20, 109, 80, 251, 76, 143, 80, 134, 152, 142, 201, 98, 250, 205, 7, 108, 135, 20, 235, 135, 65, 44, 186, 4, 161, 71, 238}
+	resetLastValid()
+	return defaultLastValidRecord.bn, defaultLastValidRecord.hash
 }
 
 func (client *Client) storeLastValid() {
 	lvbn, lvbh := client.LastValid()
+	persistLastValidRecord(lvbn, lvbh)
+}
+
+func resetLastValid() error {
+	if err := db.DB.Del(lastValidRecordKey); err != nil {
+		return err
+	}
+	if err := db.DB.Del(lvbnKey); err != nil {
+		return err
+	}
+	if err := db.DB.Del(lvbhKey); err != nil {
+		return err
+	}
+	return nil
+}
+
+func loadStoredLastValid() (uint64, crypto.Sha3, bool) {
+	payload, err := db.DB.Get(lastValidRecordKey)
+	if err != nil {
+		return 0, crypto.Sha3{}, false
+	}
+	if len(payload) != lastValidRecordSize {
+		db.DB.Del(lastValidRecordKey)
+		return 0, crypto.Sha3{}, false
+	}
+	var hash crypto.Sha3
+	copy(hash[:], payload[8:])
+	return binary.BigEndian.Uint64(payload[:8]), hash, true
+}
+
+func persistLastValidRecord(lvbn uint64, lvbh crypto.Sha3) {
+	record := make([]byte, lastValidRecordSize)
+	binary.BigEndian.PutUint64(record[:8], lvbn)
+	copy(record[8:], lvbh[:])
+	db.DB.Put(lastValidRecordKey, record)
 	db.DB.Put(lvbnKey, util.DecodeUintToBytes(lvbn))
 	db.DB.Put(lvbhKey, lvbh[:])
 }
