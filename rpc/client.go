@@ -293,12 +293,12 @@ func (client *Client) CheckTicket() {
 	defer client.timer.profile(time.Now(), "CheckTicket")
 
 	client.srv.Cast(func() {
-		if client.s.TotalBytes() < client.s.Counter()+ticketBound &&
-			client.lastTicket != nil && client.isRecentTicket(client.lastTicket) {
+		if client.s == nil || client.bq == nil {
 			return
 		}
 
-		if client.bq == nil {
+		if client.s.TotalBytes() < client.s.Counter()+ticketBound &&
+			client.lastTicket != nil && client.isRecentTicket(client.lastTicket) {
 			return
 		}
 
