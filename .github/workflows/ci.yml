@@ -73,9 +73,9 @@ jobs:
 
     - name: Archive macos package production artifacts
       uses: actions/upload-artifact@v4
-      if: runner.os == 'macOS'
+      if: runner.os == 'macOS' && runner.arch == 'ARM64'
       with:
-        name: ${{ runner.os }}-${{ runner.arch }}
+        name: ${{ runner.os }}
         path: darwin_package_build
 
   download_and_run_test:
