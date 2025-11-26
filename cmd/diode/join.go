@@ -159,7 +159,7 @@ func getPropertyValues(deviceAddr util.Address, keys []string) (map[string]strin
 	if err := json.Unmarshal(body, &responses); err != nil {
 		var single jsonRPCResponse
 		if err2 := json.Unmarshal(body, &single); err2 != nil {
-			return nil, fmt.Errorf("failed to unmarshal batch response: %v", err)
+return nil, fmt.Errorf("failed to unmarshal response as batch (%v) or single (%v)", err, err2)
 		}
 		responses = []jsonRPCResponse{single}
 	}
