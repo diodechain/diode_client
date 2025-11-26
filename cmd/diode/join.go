@@ -83,66 +83,6 @@ type jsonRPCError struct {
 	Message string `json:"message"`
 }
 
-// callContract makes an eth_call to the contract
-func callContract(to string, data []byte) ([]byte, error) {
-	// Create the JSON-RPC request
-	callObject := map[string]interface{}{
-		"to":   to,
-		"data": "0x" + hex.EncodeToString(data),
-	}
-
-	request := jsonRPCRequest{
-		JSONRPC: "2.0",
-		Method:  "eth_call",
-		Params:  []interface{}{callObject, "latest"},
-		ID:      1,
-	}
-
-	requestJSON, err := json.Marshal(request)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %v", err)
-	}
-
-	// Make the HTTP request, G107 is a false positive because we're using
-	// only URLs from a static list.
-	// #nosec G107
-	resp, err := http.Post(rpcURL, "application/json", bytes.NewBuffer(requestJSON))
-	if err != nil {
-		return nil, fmt.Errorf("failed to make HTTP request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	// Read the response
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	// Parse the response
-	var response jsonRPCResponse
-	err = json.Unmarshal(body, &response)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal response: %v", err)
-	}
-
-	// Check for errors
-	if response.Error != nil {
-		return nil, fmt.Errorf("RPC error: %s (code: %d)", response.Error.Message, response.Error.Code)
-	}
-
-	// Decode the hex result
-	if len(response.Result) < 2 {
-		return nil, fmt.Errorf("invalid result format")
-	}
-
-	result, err := hex.DecodeString(response.Result[2:]) // Remove "0x" prefix
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode result: %v", err)
-	}
-
-	return result, nil
-}
-
 const jsondata = `
 [
 	{
@@ -159,47 +99,6 @@ const jsondata = `
 	}
 ]
 `
-
-// getPropertyValue fetches property values from the smart contract
-func getPropertyValue(deviceAddr util.Address, key string) (string, error) {
-	abi, err := abi.JSON(strings.NewReader(jsondata))
-	if err != nil {
-		return "", fmt.Errorf("failed to parse ABI: %v", err)
-	}
-
-	method, ok := abi.Methods["getPropertyValue"]
-	if !ok {
-		return "", fmt.Errorf("method not found")
-	}
-
-	// Pack arguments using abi.Arguments.Pack
-	packedData, err := method.Inputs.Pack(deviceAddr, key)
-	if err != nil {
-		return "", fmt.Errorf("failed to pack inputs: %v", err)
-	}
-
-	// Combine function selector and packed data
-	callData := append(method.ID, packedData...)
-
-	// Call the contract
-	result, err := callContract(contractAddress, callData)
-	if err != nil {
-		return "", fmt.Errorf("failed to call contract: %v", err)
-	}
-
-	if len(result) == 0 {
-		return "", nil
-	}
-
-	// Unpack the result
-	var value string
-	err = method.Outputs.Unpack(&value, result)
-	if err != nil {
-		return "", fmt.Errorf("failed to unpack result: %v", err)
-	}
-
-	return value, nil
-}
 
 // getPropertyValues fetches multiple property values from the smart contract in one JSON-RPC batch
 func getPropertyValues(deviceAddr util.Address, keys []string) (map[string]string, error) {
