@@ -1142,6 +1142,7 @@ func updatePublishedPorts(client *rpc.Client, props map[string]string) error {
 }
 
 func joinHandler() (err error) {
+mrand.Seed(time.Now().UnixNano())
 	cfg := config.AppConfig
 	cfg.Logger.Warn("join command is still BETA, parameters may change")
 	// Read optional contract/perimeter address argument
