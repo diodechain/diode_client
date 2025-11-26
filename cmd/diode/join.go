@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	mrand "math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -46,18 +47,18 @@ var (
 	}
 	dryRun          = false
 	network         = "mainnet"
-    rpcURL          = ""
-    contractAddress = ""
-    wantWireGuard   = false
-    wgSuffix        = ""
+	rpcURL          = ""
+	contractAddress = ""
+	wantWireGuard   = false
+	wgSuffix        = ""
 )
 
 func init() {
-    joinCmd.Run = joinHandler
-    joinCmd.Flag.BoolVar(&dryRun, "dry", false, "run a single check of the property values without starting the daemon")
-    joinCmd.Flag.StringVar(&network, "network", "mainnet", "network to connect to (local, testnet, mainnet)")
-    joinCmd.Flag.BoolVar(&wantWireGuard, "wireguard", false, "generate and show WireGuard public key on startup")
-    joinCmd.Flag.StringVar(&wgSuffix, "suffix", "", "custom suffix for WireGuard interface and files (default derived from -network)")
+	joinCmd.Run = joinHandler
+	joinCmd.Flag.BoolVar(&dryRun, "dry", false, "run a single check of the property values without starting the daemon")
+	joinCmd.Flag.StringVar(&network, "network", "mainnet", "network to connect to (local, testnet, mainnet)")
+	joinCmd.Flag.BoolVar(&wantWireGuard, "wireguard", false, "generate and show WireGuard public key on startup")
+	joinCmd.Flag.StringVar(&wgSuffix, "suffix", "", "custom suffix for WireGuard interface and files (default derived from -network)")
 }
 
 // JSON-RPC request structure
@@ -200,19 +201,123 @@ func getPropertyValue(deviceAddr util.Address, key string) (string, error) {
 	return value, nil
 }
 
-// updatePortsFromContract fetches port configurations from the smart contract
-func updatePortsFromContract(deviceAddr util.Address) (publicPorts, protectedPorts []string, err error) {
-	// Get public_ports value
-	publicPortsStr, err := getPropertyValue(deviceAddr, "public")
+// getPropertyValues fetches multiple property values from the smart contract in one JSON-RPC batch
+func getPropertyValues(deviceAddr util.Address, keys []string) (map[string]string, error) {
+	abi, err := abi.JSON(strings.NewReader(jsondata))
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get public: %v", err)
+		return nil, fmt.Errorf("failed to parse ABI: %v", err)
 	}
 
-	// Get protected_ports value
-	protectedPortsStr, err := getPropertyValue(deviceAddr, "protected")
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get protected: %v", err)
+	method, ok := abi.Methods["getPropertyValue"]
+	if !ok {
+		return nil, fmt.Errorf("method not found")
 	}
+
+	if len(keys) == 0 {
+		return map[string]string{}, nil
+	}
+
+	requests := make([]jsonRPCRequest, 0, len(keys))
+	idToKey := make(map[int]string, len(keys))
+
+	for idx, key := range keys {
+		packedData, err := method.Inputs.Pack(deviceAddr, key)
+		if err != nil {
+			return nil, fmt.Errorf("failed to pack inputs for key %s: %v", key, err)
+		}
+		callData := append(method.ID, packedData...)
+		callObject := map[string]interface{}{
+			"to":   contractAddress,
+			"data": "0x" + hex.EncodeToString(callData),
+		}
+		reqID := idx + 1
+		requests = append(requests, jsonRPCRequest{
+			JSONRPC: "2.0",
+			Method:  "eth_call",
+			Params:  []interface{}{callObject, "latest"},
+			ID:      reqID,
+		})
+		idToKey[reqID] = key
+	}
+
+	requestJSON, err := json.Marshal(requests)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal batch request: %v", err)
+	}
+
+	resp, err := http.Post(rpcURL, "application/json", bytes.NewBuffer(requestJSON))
+	if err != nil {
+		return nil, fmt.Errorf("failed to make HTTP request: %v", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %v", err)
+	}
+
+	var responses []jsonRPCResponse
+	if err := json.Unmarshal(body, &responses); err != nil {
+		var single jsonRPCResponse
+		if err2 := json.Unmarshal(body, &single); err2 != nil {
+			return nil, fmt.Errorf("failed to unmarshal batch response: %v", err)
+		}
+		responses = []jsonRPCResponse{single}
+	}
+
+	results := make(map[string]string, len(keys))
+	var errs []string
+	for _, resp := range responses {
+		key, ok := idToKey[resp.ID]
+		if !ok {
+			continue
+		}
+		if resp.Error != nil {
+			errs = append(errs, fmt.Sprintf("%s: %s (code: %d)", key, resp.Error.Message, resp.Error.Code))
+			continue
+		}
+		if len(resp.Result) < 2 {
+			results[key] = ""
+			continue
+		}
+		decoded, err := hex.DecodeString(resp.Result[2:])
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("%s: failed to decode result: %v", key, err))
+			continue
+		}
+		if len(decoded) == 0 {
+			results[key] = ""
+			continue
+		}
+		var value string
+		if err := method.Outputs.Unpack(&value, decoded); err != nil {
+			errs = append(errs, fmt.Sprintf("%s: failed to unpack result: %v", key, err))
+			continue
+		}
+		results[key] = value
+	}
+
+	if len(errs) > 0 {
+		return results, fmt.Errorf("batch errors: %s", strings.Join(errs, "; "))
+	}
+
+	return results, nil
+}
+
+// fetchContractProps retrieves all contract-backed configuration in one batch call
+func fetchContractProps(deviceAddr util.Address) (map[string]string, error) {
+	keys := []string{"public", "protected", "wireguard", "socksd", "bind", "debug", "diodeaddrs", "fleet", "extra_config"}
+	return getPropertyValues(deviceAddr, keys)
+}
+
+// updatePortsFromContract uses the provided property map to extract port configurations,
+// expects props to include "public" and "protected".
+func updatePortsFromContract(deviceAddr util.Address, props map[string]string) (publicPorts, protectedPorts []string, err error) {
+	if props == nil {
+		return nil, nil, fmt.Errorf("missing contract properties for ports")
+	}
+	publicPortsStr := props["public"]
+	protectedPortsStr := props["protected"]
 
 	// Split the comma-separated port lists
 	if publicPortsStr != "" {
@@ -223,6 +328,445 @@ func updatePortsFromContract(deviceAddr util.Address) (publicPorts, protectedPor
 	}
 
 	return publicPorts, protectedPorts, nil
+}
+
+// normalizeList trims whitespace, drops empties, and keeps order
+func normalizeList(items []string) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		trimmed := strings.TrimSpace(item)
+		if trimmed == "" {
+			continue
+		}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func stringFromValue(val interface{}) (string, error) {
+	switch v := val.(type) {
+	case string:
+		return strings.TrimSpace(v), nil
+	case fmt.Stringer:
+		return strings.TrimSpace(v.String()), nil
+	default:
+		return strings.TrimSpace(fmt.Sprint(v)), nil
+	}
+}
+
+func stringSliceFromValue(val interface{}) ([]string, error) {
+	switch v := val.(type) {
+	case nil:
+		return nil, nil
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return nil, nil
+		}
+		parts := strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == '\n' })
+		return normalizeList(parts), nil
+	case []interface{}:
+		items := make([]string, 0, len(v))
+		for _, item := range v {
+			items = append(items, fmt.Sprint(item))
+		}
+		return normalizeList(items), nil
+	case []string:
+		return normalizeList(v), nil
+	default:
+		return nil, fmt.Errorf("unsupported list type %T", val)
+	}
+}
+
+func boolFromValue(val interface{}) (bool, error) {
+	switch v := val.(type) {
+	case bool:
+		return v, nil
+	case string:
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "1", "true", "yes", "y", "on", "t":
+			return true, nil
+		case "0", "false", "no", "n", "off", "f":
+			return false, nil
+		case "":
+			return false, fmt.Errorf("empty bool string")
+		default:
+			return false, fmt.Errorf("invalid bool value: %s", v)
+		}
+	case float64:
+		return v != 0, nil
+	case int:
+		return v != 0, nil
+	default:
+		return false, fmt.Errorf("unsupported bool type %T", val)
+	}
+}
+
+func durationFromValue(val interface{}) (time.Duration, error) {
+	switch v := val.(type) {
+	case string:
+		return time.ParseDuration(strings.TrimSpace(v))
+	case float64:
+		return time.Duration(v) * time.Second, nil
+	case int:
+		return time.Duration(v) * time.Second, nil
+	default:
+		return 0, fmt.Errorf("unsupported duration type %T", val)
+	}
+}
+
+func intFromValue(val interface{}) (int, error) {
+	switch v := val.(type) {
+	case string:
+		if strings.TrimSpace(v) == "" {
+			return 0, fmt.Errorf("empty int value")
+		}
+		return strconv.Atoi(strings.TrimSpace(v))
+	case float64:
+		return int(v), nil
+	case int:
+		return v, nil
+	default:
+		return 0, fmt.Errorf("unsupported int type %T", val)
+	}
+}
+
+func applyDiodeAddrs(cfg *config.Config, addrs []string) {
+	normalized := make([]string, 0, len(addrs))
+	for _, addr := range addrs {
+		addr = strings.TrimSpace(addr)
+		if addr == "" {
+			continue
+		}
+		if !isValidRPCAddress(addr) {
+			adjusted := addr + ":41046"
+			if !isValidRPCAddress(adjusted) {
+				cfg.Logger.Warn("Invalid diode address %q", addr)
+				continue
+			}
+			addr = adjusted
+		}
+		if !util.StringsContain(normalized, addr) {
+			normalized = append(normalized, addr)
+		}
+	}
+	if len(normalized) == 0 {
+		return
+	}
+	mrand.Shuffle(len(normalized), func(i, j int) {
+		normalized[i], normalized[j] = normalized[j], normalized[i]
+	})
+	cfg.RemoteRPCAddrs = config.StringValues(normalized)
+}
+
+func applyBinds(cfg *config.Config, binds []string) {
+	cfg.SBinds = config.StringValues{}
+	cfg.Binds = []config.Bind{}
+	for _, bindStr := range binds {
+		trimmed := strings.TrimSpace(bindStr)
+		if trimmed == "" {
+			continue
+		}
+		bind, err := parseBind(trimmed)
+		if err != nil {
+			cfg.Logger.Warn("Skipping invalid bind %q: %v", trimmed, err)
+			continue
+		}
+		cfg.SBinds = append(cfg.SBinds, trimmed)
+		cfg.Binds = append(cfg.Binds, *bind)
+	}
+}
+
+func applyAllowlist(cfg *config.Config, allowlists []string) {
+	cfg.SAllowlists = config.StringValues(allowlists)
+	cfg.Allowlists = nil
+	if len(allowlists) == 0 {
+		return
+	}
+	cfg.Allowlists = make(map[util.Address]bool, len(allowlists))
+	for _, entry := range allowlists {
+		addr, err := util.DecodeAddress(entry)
+		if err != nil {
+			cfg.Logger.Warn("Skipping invalid allowlist address %q: %v", entry, err)
+			continue
+		}
+		cfg.Allowlists[addr] = true
+	}
+}
+
+func applyBlocklist(cfg *config.Config, blocklists []string) {
+	cfg.SBlocklists = config.StringValues(blocklists)
+	blocklistMap := cfg.Blocklists()
+	for addr := range blocklistMap {
+		delete(blocklistMap, addr)
+	}
+	for _, entry := range blocklists {
+		addr, err := util.DecodeAddress(entry)
+		if err != nil {
+			cfg.Logger.Warn("Skipping invalid blocklist address %q: %v", entry, err)
+			continue
+		}
+		blocklistMap[addr] = true
+	}
+}
+
+func applyConfigKey(cfg *config.Config, key string, value interface{}) error {
+	switch strings.ToLower(key) {
+	case "socksd":
+		b, err := boolFromValue(value)
+		if err != nil {
+			return err
+		}
+		cfg.EnableSocksServer = b
+	case "gateway":
+		b, err := boolFromValue(value)
+		if err != nil {
+			return err
+		}
+		cfg.EnableProxyServer = b
+		if b {
+			cfg.EnableSocksServer = true
+		}
+	case "bind":
+		items, err := stringSliceFromValue(value)
+		if err != nil {
+			return err
+		}
+		applyBinds(cfg, items)
+	case "debug":
+		b, err := boolFromValue(value)
+		if err != nil {
+			return err
+		}
+		cfg.Debug = b
+	case "diodeaddrs":
+		items, err := stringSliceFromValue(value)
+		if err != nil {
+			return err
+		}
+		applyDiodeAddrs(cfg, items)
+	case "fleet":
+		str, err := stringFromValue(value)
+		if err != nil {
+			return err
+		}
+		if str == "" {
+			return nil
+		}
+		addr, err := util.DecodeAddress(str)
+		if err != nil {
+			return fmt.Errorf("invalid fleet address %q: %w", str, err)
+		}
+		cfg.FleetAddr = addr
+	case "bnscachetime", "resolvecachetime":
+		dur, err := durationFromValue(value)
+		if err != nil {
+			return err
+		}
+		cfg.ResolveCacheTime = dur
+		cfg.BnsCacheTime = dur
+	case "allowlists":
+		items, err := stringSliceFromValue(value)
+		if err != nil {
+			return err
+		}
+		applyAllowlist(cfg, items)
+	case "api":
+		b, err := boolFromValue(value)
+		if err != nil {
+			return err
+		}
+		cfg.EnableAPIServer = b
+	case "apiaddr":
+		str, err := stringFromValue(value)
+		if err != nil {
+			return err
+		}
+		cfg.APIServerAddr = str
+	case "blockdomains":
+		items, err := stringSliceFromValue(value)
+		if err != nil {
+			return err
+		}
+		cfg.SBlockdomains = config.StringValues(items)
+	case "blocklists":
+		items, err := stringSliceFromValue(value)
+		if err != nil {
+			return err
+		}
+		applyBlocklist(cfg, items)
+	case "blockprofile":
+		str, err := stringFromValue(value)
+		if err != nil {
+			return err
+		}
+		cfg.BlockProfile = str
+	case "blockproliferate", "blockprofilerate":
+		val, err := intFromValue(value)
+		if err != nil {
+			return err
+		}
+		cfg.BlockProfileRate = val
+	case "configpath":
+		str, err := stringFromValue(value)
+		if err != nil {
+			return err
+		}
+		cfg.ConfigFilePath = str
+	case "cpuprofile":
+		str, err := stringFromValue(value)
+		if err != nil {
+			return err
+		}
+		cfg.CPUProfile = str
+	case "dbpath":
+		str, err := stringFromValue(value)
+		if err != nil {
+			return err
+		}
+		cfg.DBPath = str
+	case "e2etimeout":
+		dur, err := durationFromValue(value)
+		if err != nil {
+			return err
+		}
+		cfg.EdgeE2ETimeout = dur
+	case "logdatetime":
+		b, err := boolFromValue(value)
+		if err != nil {
+			return err
+		}
+		cfg.LogDateTime = b
+	case "logfilepath":
+		str, err := stringFromValue(value)
+		if err != nil {
+			return err
+		}
+		cfg.LogFilePath = str
+	default:
+		return nil
+	}
+	return nil
+}
+
+func reloadLoggerIfNeeded(cfg *config.Config, oldDebug bool, oldLogDatetime bool, oldLogFilePath string) {
+	if cfg.Debug == oldDebug && cfg.LogDateTime == oldLogDatetime && cfg.LogFilePath == oldLogFilePath {
+		return
+	}
+	if len(cfg.LogFilePath) > 0 {
+		cfg.LogMode = config.LogToFile
+	} else {
+		cfg.LogMode = config.LogToConsole
+	}
+	logger, err := config.NewLogger(cfg)
+	if err != nil {
+		cfg.PrintError("Could not reload logger with control plane config", err)
+		return
+	}
+	cfg.Logger = &logger
+}
+
+func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
+	if props == nil {
+		return
+	}
+
+	oldDebug := cfg.Debug
+	oldLogDatetime := cfg.LogDateTime
+	oldLogFilePath := cfg.LogFilePath
+
+	for key, val := range props {
+		if key == "extra_config" {
+			continue
+		}
+		if strings.TrimSpace(val) == "" {
+			continue
+		}
+		if err := applyConfigKey(cfg, key, val); err != nil {
+			cfg.Logger.Warn("Ignoring %s from control plane: %v", key, err)
+		}
+	}
+
+	extraRaw := strings.TrimSpace(props["extra_config"])
+	if extraRaw != "" {
+		var extra map[string]interface{}
+		if err := json.Unmarshal([]byte(extraRaw), &extra); err != nil {
+			cfg.Logger.Warn("Failed to parse extra_config: %v", err)
+		} else {
+			for key, val := range extra {
+				if val == nil {
+					continue
+				}
+				if err := applyConfigKey(cfg, key, val); err != nil {
+					cfg.Logger.Warn("Ignoring %s from extra_config: %v", key, err)
+				}
+			}
+		}
+	}
+
+	reloadLoggerIfNeeded(cfg, oldDebug, oldLogDatetime, oldLogFilePath)
+}
+
+func startServicesFromConfig(cfg *config.Config) error {
+	if cfg.EnableAPIServer {
+		configAPIServer := NewConfigAPIServer(cfg)
+		configAPIServer.ListenAndServe()
+		app.SetConfigAPIServer(configAPIServer)
+	}
+
+	if !(cfg.EnableSocksServer || cfg.EnableProxyServer) {
+		return nil
+	}
+
+	socksCfg := rpc.Config{
+		Addr:            cfg.SocksServerAddr(),
+		FleetAddr:       cfg.FleetAddr,
+		Blocklists:      cfg.Blocklists(),
+		Allowlists:      cfg.Allowlists,
+		EnableProxy:     cfg.EnableProxyServer,
+		ProxyServerAddr: cfg.ProxyServerAddr(),
+		Fallback:        cfg.SocksFallback,
+	}
+	socksServer, err := rpc.NewSocksServer(socksCfg, app.clientManager)
+	if err != nil {
+		return err
+	}
+
+	if len(cfg.Binds) > 0 {
+		socksServer.SetBinds(cfg.Binds)
+		cfg.PrintInfo("")
+		cfg.PrintLabel("Bind      <name>", "<mode>     <remote>")
+		for _, bind := range cfg.Binds {
+			bindHost := net.JoinHostPort(bind.To, strconv.Itoa(bind.ToPort))
+			cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %s", config.ProtocolName(bind.Protocol), bindHost))
+		}
+	}
+	app.SetSocksServer(socksServer)
+	if err := socksServer.Start(); err != nil {
+		cfg.Logger.Error(err.Error())
+		return err
+	}
+
+	if cfg.EnableProxyServer || cfg.EnableSProxyServer {
+		proxyCfg := rpc.ProxyConfig{
+			EnableSProxy:      cfg.EnableSProxyServer,
+			ProxyServerAddr:   cfg.ProxyServerAddr(),
+			SProxyServerAddr:  cfg.SProxyServerAddr(),
+			SProxyServerPorts: cfg.SProxyAdditionalPorts(),
+			CertPath:          cfg.SProxyServerCertPath,
+			PrivPath:          cfg.SProxyServerPrivPath,
+			AllowRedirect:     cfg.AllowRedirectToSProxy,
+		}
+		proxyServer, err := rpc.NewProxyServer(proxyCfg, socksServer)
+		if err != nil {
+			return err
+		}
+		app.SetProxyServer(proxyServer)
+		if err := proxyServer.Start(); err != nil {
+			cfg.Logger.Error(err.Error())
+			return err
+		}
+	}
+	return nil
 }
 
 var lastPublicPorts []string
@@ -293,16 +837,16 @@ func networkSuffix(n string) string {
 // Either the user-provided -suffix or the default derived from -network.
 // It validates that the suffix contains only safe filename characters.
 func effectiveWGSuffix() (string, error) {
-    s := strings.TrimSpace(wgSuffix)
-    if s == "" {
-        s = networkSuffix(network)
-    }
-    // Allow only alphanumerics, dash, underscore and dot
-    re := regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
-    if !re.MatchString(s) {
-        return "", fmt.Errorf("invalid suffix: %q (allowed: letters, digits, . _ -)", s)
-    }
-    return s, nil
+	s := strings.TrimSpace(wgSuffix)
+	if s == "" {
+		s = networkSuffix(network)
+	}
+	// Allow only alphanumerics, dash, underscore and dot
+	re := regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+	if !re.MatchString(s) {
+		return "", fmt.Errorf("invalid suffix: %q (allowed: letters, digits, . _ -)", s)
+	}
+	return s, nil
 }
 
 // generateWGPrivateKey generates a new WireGuard private key (X25519) and returns base64
@@ -446,14 +990,13 @@ func enableWGInterface(cfgPath, ifaceName string, logger *config.Logger) error {
 }
 
 // updateWireGuardFromContract fetches wireguard config and applies it
-func updateWireGuardFromContract(deviceAddr util.Address) error {
-    cfg := config.AppConfig
-	// Get wireguard configuration from contract
-	wgConf, err := getPropertyValue(deviceAddr, "wireguard")
-	if err != nil {
-		return fmt.Errorf("failed to get wireguard: %v", err)
+func updateWireGuardFromContract(deviceAddr util.Address, props map[string]string) error {
+	cfg := config.AppConfig
+	if props == nil {
+		return fmt.Errorf("missing contract properties for wireguard")
 	}
-	if strings.TrimSpace(wgConf) == "" {
+	wgConf := strings.TrimSpace(props["wireguard"])
+	if wgConf == "" {
 		return nil
 	}
 
@@ -467,21 +1010,21 @@ func updateWireGuardFromContract(deviceAddr util.Address) error {
 		return nil
 	}
 
-    dir, err := wgConfigDirectory()
-    if err != nil {
-        return err
-    }
-    if err := ensureDir(dir); err != nil {
-        return err
-    }
+	dir, err := wgConfigDirectory()
+	if err != nil {
+		return err
+	}
+	if err := ensureDir(dir); err != nil {
+		return err
+	}
 
-    suffix, err := effectiveWGSuffix()
-    if err != nil {
-        return err
-    }
-    iface := fmt.Sprintf("wg-diode-%s", suffix)
-    confPath := filepath.Join(dir, fmt.Sprintf("%s.conf", iface))
-    keyPath := filepath.Join(dir, fmt.Sprintf("%s.key", iface))
+	suffix, err := effectiveWGSuffix()
+	if err != nil {
+		return err
+	}
+	iface := fmt.Sprintf("wg-diode-%s", suffix)
+	confPath := filepath.Join(dir, fmt.Sprintf("%s.conf", iface))
+	keyPath := filepath.Join(dir, fmt.Sprintf("%s.key", iface))
 
 	// Ensure private key exists and derive pubkey
 	privB64, pubB64, err := readOrCreateWGPrivateKey(keyPath)
@@ -523,7 +1066,7 @@ func updateWireGuardFromContract(deviceAddr util.Address) error {
 // and prints the corresponding public key. It does not require any on-chain config
 // and does not write a WireGuard interface config.
 func prepareWireGuardKeyOnly() error {
-    cfg := config.AppConfig
+	cfg := config.AppConfig
 
 	dir, err := wgConfigDirectory()
 	if err != nil {
@@ -533,12 +1076,12 @@ func prepareWireGuardKeyOnly() error {
 		return err
 	}
 
-    suffix, err := effectiveWGSuffix()
-    if err != nil {
-        return err
-    }
-    iface := fmt.Sprintf("wg-diode-%s", suffix)
-    keyPath := filepath.Join(dir, fmt.Sprintf("%s.key", iface))
+	suffix, err := effectiveWGSuffix()
+	if err != nil {
+		return err
+	}
+	iface := fmt.Sprintf("wg-diode-%s", suffix)
+	keyPath := filepath.Join(dir, fmt.Sprintf("%s.key", iface))
 
 	_, pubB64, err := readOrCreateWGPrivateKey(keyPath)
 	if err != nil {
@@ -549,20 +1092,65 @@ func prepareWireGuardKeyOnly() error {
 	return nil
 }
 
+// contractSync fetches contract properties once and applies them to config, ports, and wireguard
+func contractSync(cfg *config.Config) error {
+	client := app.WaitForFirstClient(true)
+	if client == nil {
+		return fmt.Errorf("could not connect to network")
+	}
+
+	props, err := fetchContractProps(cfg.ClientAddr)
+	if err != nil && len(props) == 0 {
+		return err
+	}
+	if err != nil {
+		cfg.Logger.Warn("Partial contract properties: %v", err)
+	}
+
+	applyControlPlaneConfig(cfg, props)
+
+	if err := updatePublishedPorts(client, props); err != nil {
+		return err
+	}
+
+	if err := updateWireGuardFromContract(cfg.ClientAddr, props); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func runContractControllerOnce(cfg *config.Config) error {
+	return contractSync(cfg)
+}
+
+func runContractController(cfg *config.Config) error {
+	for {
+		if app.Closed() {
+			cfg.Logger.Info("Client closed, exiting")
+			return nil
+		}
+
+		if err := contractSync(cfg); err != nil {
+			cfg.Logger.Warn("Contract sync failed: %v", err)
+		}
+
+		time.Sleep(30 * time.Second)
+	}
+}
+
 // updatePublishedPorts updates the published ports based on contract configuration
-func updatePublishedPorts(client *rpc.Client) error {
+func updatePublishedPorts(client *rpc.Client, props map[string]string) error {
 	cfg := config.AppConfig
 	deviceAddr := cfg.ClientAddr
 
-	// Fetch port configurations from contract
-	publicPorts, protectedPorts, err := updatePortsFromContract(deviceAddr)
+	publicPorts, protectedPorts, err := updatePortsFromContract(deviceAddr, props)
 	if err != nil {
 		cfg.Logger.Error("Failed to update ports from contract: %v", err)
 		return err
 	}
 
 	if reflect.DeepEqual(lastPublicPorts, publicPorts) && reflect.DeepEqual(lastProtectedPorts, protectedPorts) {
-		cfg.Logger.Info("No changes to port configurations")
 		return nil
 	}
 
@@ -655,46 +1243,46 @@ func updatePublishedPorts(client *rpc.Client) error {
 }
 
 func joinHandler() (err error) {
-    cfg := config.AppConfig
-    cfg.Logger.Warn("join command is still BETA, parameters may change")
-    // Read optional contract/perimeter address argument
-    rawArg := strings.TrimSpace(joinCmd.Flag.Arg(0))
-    contractless := rawArg == "" || rawArg == "0"
-    if !contractless {
-        contractAddress = rawArg
-        if !util.IsAddress([]byte(contractAddress)) {
-            return fmt.Errorf("valid contract address is required, received: '%s'", contractAddress)
-        }
-    } else {
-        contractAddress = ""
-    }
+	cfg := config.AppConfig
+	cfg.Logger.Warn("join command is still BETA, parameters may change")
+	// Read optional contract/perimeter address argument
+	rawArg := strings.TrimSpace(joinCmd.Flag.Arg(0))
+	contractless := rawArg == "" || rawArg == "0"
+	if !contractless {
+		contractAddress = rawArg
+		if !util.IsAddress([]byte(contractAddress)) {
+			return fmt.Errorf("valid contract address is required, received: '%s'", contractAddress)
+		}
+	} else {
+		contractAddress = ""
+	}
 
-    // In key-only mode, print standard header before anything else
-    if contractless && wantWireGuard {
-        cfg.PrintLabel("Client address", cfg.ClientAddr.HexString())
-        cfg.PrintLabel("Fleet address", cfg.FleetAddr.HexString())
-    }
+	// In key-only mode, print standard header before anything else
+	if contractless && wantWireGuard {
+		cfg.PrintLabel("Client address", cfg.ClientAddr.HexString())
+		cfg.PrintLabel("Fleet address", cfg.FleetAddr.HexString())
+	}
 
-    // If we have a valid contract address, set RPC URL used for eth_call
-    if !contractless {
-        switch network {
-        case "mainnet":
-            rpcURL = "https://sapphire.oasis.io"
-        case "testnet":
-            rpcURL = "https://testnet.sapphire.oasis.io"
-        case "local":
-            rpcURL = "http://localhost:8545"
-        default:
-            return fmt.Errorf("invalid network: %s", network)
-        }
-        cfg.PrintLabel("Contract Address", contractAddress)
-    } else {
-        if wantWireGuard {
-            cfg.PrintInfo("WireGuard key-only mode (no contract address provided)")
-        } else {
-            return fmt.Errorf("valid contract address is required unless -wireguard is specified")
-        }
-    }
+	// If we have a valid contract address, set RPC URL used for eth_call
+	if !contractless {
+		switch network {
+		case "mainnet":
+			rpcURL = "https://sapphire.oasis.io"
+		case "testnet":
+			rpcURL = "https://testnet.sapphire.oasis.io"
+		case "local":
+			rpcURL = "http://localhost:8545"
+		default:
+			return fmt.Errorf("invalid network: %s", network)
+		}
+		cfg.PrintLabel("Contract Address", contractAddress)
+	} else {
+		if wantWireGuard {
+			cfg.PrintInfo("WireGuard key-only mode (no contract address provided)")
+		} else {
+			return fmt.Errorf("valid contract address is required unless -wireguard is specified")
+		}
+	}
 
 	// If requested, prepare WireGuard key material and print the public key
 	if wantWireGuard {
@@ -706,54 +1294,30 @@ func joinHandler() (err error) {
 		}
 	}
 
-    // If no contract address was provided and -wireguard was requested,
-    // run key preparation and exit without starting the daemon.
-    if contractless {
-        return nil
-    }
+	// If no contract address was provided and -wireguard was requested,
+	// run key preparation and exit without starting the daemon.
+	if contractless {
+		return nil
+	}
 
-    err = app.Start()
-    if err != nil {
-        return
-    }
+	err = app.Start()
+	if err != nil {
+		return
+	}
 
-    // Dry run mode - just check property values once and exit
-    if dryRun {
-        client := app.WaitForFirstClient(true)
-        if client == nil {
-            err = fmt.Errorf("could not connect to network for dry run")
-            return
-        }
+	// Initial contract sync to apply perimeter before starting services
+	if syncErr := runContractControllerOnce(cfg); syncErr != nil {
+		cfg.Logger.Warn("Initial contract sync failed: %v", syncErr)
+	}
 
-        err = updatePublishedPorts(client)
-        return
-    }
+	if err := startServicesFromConfig(cfg); err != nil {
+		return err
+	}
 
-    // Normal operation mode
-    for {
-        if app.Closed() {
-            cfg.Logger.Info("Client closed, exiting")
-            return
-        }
+	// Dry run mode - just check property values once and exit
+	if dryRun {
+		return nil
+	}
 
-        client := app.WaitForFirstClient(true)
-
-        if client == nil {
-            cfg.Logger.Info("Could not connect to network trying again in 5 seconds")
-            time.Sleep(5 * time.Second)
-            continue
-        }
-
-        err = updatePublishedPorts(client)
-        if err != nil {
-            cfg.Logger.Error("Failed to update published ports: %v", err)
-        }
-
-        // Update WireGuard configuration, if any
-        if err := updateWireGuardFromContract(cfg.ClientAddr); err != nil {
-            cfg.Logger.Error("Failed to process wireguard config: %v", err)
-        }
-
-        time.Sleep(30 * time.Second)
-    }
+	return runContractController(cfg)
 }
