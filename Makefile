@@ -74,6 +74,7 @@ lint: runtime
 # G108 (CWE-200): Profiling endpoint is automatically exposed on /debug/pprof
 # G110 (CWE-409): Potential DoS vulnerability via decompression bomb.
 # G112: Potential slowloris attack
+# G107 (CWE-88): HTTP request made with variable url (expected in RPC calls)
 # G114: Use of net/http serve function that has no support for setting timeouts
 # G204 (CWE-78): Subprocess launched with variable.
 # G304 (CWE-22): Potential file inclusion via variable.
@@ -85,7 +86,7 @@ seccheck: runtime
 	then \
 		curl -sfL https://raw.githubusercontent.com/securego/gosec/master/install.sh | sh -s -- -b ./ v2.22.10; \
 	fi;
-	./gosec -exclude=G104,G108,G110,G112,G114,G115,G204,G304,G402,G404,G407,G602 -exclude-dir .history ./...
+	./gosec -exclude=G104,G107,G108,G110,G112,G114,G115,G204,G304,G402,G404,G407,G602 -exclude-dir .history ./...
 
 .PHONY: clean
 clean:
