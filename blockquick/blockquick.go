@@ -210,10 +210,8 @@ func (win *Window) validate(bs *BlockScore) {
 
 	visited := make(map[Address]bool)
 	var score int
-	var depth int
 
 	for p := bs; p != nil && !p.isFinal; p = p.parent {
-		depth++
 		if !visited[p.miner] {
 			visited[p.miner] = true
 			score += win.minerCounts[p.miner]
