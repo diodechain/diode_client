@@ -46,18 +46,18 @@ var (
 	}
 	dryRun          = false
 	network         = "mainnet"
-    rpcURL          = ""
-    contractAddress = ""
-    wantWireGuard   = false
-    wgSuffix        = ""
+	rpcURL          = ""
+	contractAddress = ""
+	wantWireGuard   = false
+	wgSuffix        = ""
 )
 
 func init() {
-    joinCmd.Run = joinHandler
-    joinCmd.Flag.BoolVar(&dryRun, "dry", false, "run a single check of the property values without starting the daemon")
-    joinCmd.Flag.StringVar(&network, "network", "mainnet", "network to connect to (local, testnet, mainnet)")
-    joinCmd.Flag.BoolVar(&wantWireGuard, "wireguard", false, "generate and show WireGuard public key on startup")
-    joinCmd.Flag.StringVar(&wgSuffix, "suffix", "", "custom suffix for WireGuard interface and files (default derived from -network)")
+	joinCmd.Run = joinHandler
+	joinCmd.Flag.BoolVar(&dryRun, "dry", false, "run a single check of the property values without starting the daemon")
+	joinCmd.Flag.StringVar(&network, "network", "mainnet", "network to connect to (local, testnet, mainnet)")
+	joinCmd.Flag.BoolVar(&wantWireGuard, "wireguard", false, "generate and show WireGuard public key on startup")
+	joinCmd.Flag.StringVar(&wgSuffix, "suffix", "", "custom suffix for WireGuard interface and files (default derived from -network)")
 }
 
 // JSON-RPC request structure
@@ -293,16 +293,16 @@ func networkSuffix(n string) string {
 // Either the user-provided -suffix or the default derived from -network.
 // It validates that the suffix contains only safe filename characters.
 func effectiveWGSuffix() (string, error) {
-    s := strings.TrimSpace(wgSuffix)
-    if s == "" {
-        s = networkSuffix(network)
-    }
-    // Allow only alphanumerics, dash, underscore and dot
-    re := regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
-    if !re.MatchString(s) {
-        return "", fmt.Errorf("invalid suffix: %q (allowed: letters, digits, . _ -)", s)
-    }
-    return s, nil
+	s := strings.TrimSpace(wgSuffix)
+	if s == "" {
+		s = networkSuffix(network)
+	}
+	// Allow only alphanumerics, dash, underscore and dot
+	re := regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+	if !re.MatchString(s) {
+		return "", fmt.Errorf("invalid suffix: %q (allowed: letters, digits, . _ -)", s)
+	}
+	return s, nil
 }
 
 // generateWGPrivateKey generates a new WireGuard private key (X25519) and returns base64
@@ -447,7 +447,7 @@ func enableWGInterface(cfgPath, ifaceName string, logger *config.Logger) error {
 
 // updateWireGuardFromContract fetches wireguard config and applies it
 func updateWireGuardFromContract(deviceAddr util.Address) error {
-    cfg := config.AppConfig
+	cfg := config.AppConfig
 	// Get wireguard configuration from contract
 	wgConf, err := getPropertyValue(deviceAddr, "wireguard")
 	if err != nil {
@@ -467,21 +467,21 @@ func updateWireGuardFromContract(deviceAddr util.Address) error {
 		return nil
 	}
 
-    dir, err := wgConfigDirectory()
-    if err != nil {
-        return err
-    }
-    if err := ensureDir(dir); err != nil {
-        return err
-    }
+	dir, err := wgConfigDirectory()
+	if err != nil {
+		return err
+	}
+	if err := ensureDir(dir); err != nil {
+		return err
+	}
 
-    suffix, err := effectiveWGSuffix()
-    if err != nil {
-        return err
-    }
-    iface := fmt.Sprintf("wg-diode-%s", suffix)
-    confPath := filepath.Join(dir, fmt.Sprintf("%s.conf", iface))
-    keyPath := filepath.Join(dir, fmt.Sprintf("%s.key", iface))
+	suffix, err := effectiveWGSuffix()
+	if err != nil {
+		return err
+	}
+	iface := fmt.Sprintf("wg-diode-%s", suffix)
+	confPath := filepath.Join(dir, fmt.Sprintf("%s.conf", iface))
+	keyPath := filepath.Join(dir, fmt.Sprintf("%s.key", iface))
 
 	// Ensure private key exists and derive pubkey
 	privB64, pubB64, err := readOrCreateWGPrivateKey(keyPath)
@@ -523,7 +523,7 @@ func updateWireGuardFromContract(deviceAddr util.Address) error {
 // and prints the corresponding public key. It does not require any on-chain config
 // and does not write a WireGuard interface config.
 func prepareWireGuardKeyOnly() error {
-    cfg := config.AppConfig
+	cfg := config.AppConfig
 
 	dir, err := wgConfigDirectory()
 	if err != nil {
@@ -533,12 +533,12 @@ func prepareWireGuardKeyOnly() error {
 		return err
 	}
 
-    suffix, err := effectiveWGSuffix()
-    if err != nil {
-        return err
-    }
-    iface := fmt.Sprintf("wg-diode-%s", suffix)
-    keyPath := filepath.Join(dir, fmt.Sprintf("%s.key", iface))
+	suffix, err := effectiveWGSuffix()
+	if err != nil {
+		return err
+	}
+	iface := fmt.Sprintf("wg-diode-%s", suffix)
+	keyPath := filepath.Join(dir, fmt.Sprintf("%s.key", iface))
 
 	_, pubB64, err := readOrCreateWGPrivateKey(keyPath)
 	if err != nil {
@@ -655,46 +655,46 @@ func updatePublishedPorts(client *rpc.Client) error {
 }
 
 func joinHandler() (err error) {
-    cfg := config.AppConfig
-    cfg.Logger.Warn("join command is still BETA, parameters may change")
-    // Read optional contract/perimeter address argument
-    rawArg := strings.TrimSpace(joinCmd.Flag.Arg(0))
-    contractless := rawArg == "" || rawArg == "0"
-    if !contractless {
-        contractAddress = rawArg
-        if !util.IsAddress([]byte(contractAddress)) {
-            return fmt.Errorf("valid contract address is required, received: '%s'", contractAddress)
-        }
-    } else {
-        contractAddress = ""
-    }
+	cfg := config.AppConfig
+	cfg.Logger.Warn("join command is still BETA, parameters may change")
+	// Read optional contract/perimeter address argument
+	rawArg := strings.TrimSpace(joinCmd.Flag.Arg(0))
+	contractless := rawArg == "" || rawArg == "0"
+	if !contractless {
+		contractAddress = rawArg
+		if !util.IsAddress([]byte(contractAddress)) {
+			return fmt.Errorf("valid contract address is required, received: '%s'", contractAddress)
+		}
+	} else {
+		contractAddress = ""
+	}
 
-    // In key-only mode, print standard header before anything else
-    if contractless && wantWireGuard {
-        cfg.PrintLabel("Client address", cfg.ClientAddr.HexString())
-        cfg.PrintLabel("Fleet address", cfg.FleetAddr.HexString())
-    }
+	// In key-only mode, print standard header before anything else
+	if contractless && wantWireGuard {
+		cfg.PrintLabel("Client address", cfg.ClientAddr.HexString())
+		cfg.PrintLabel("Fleet address", cfg.FleetAddr.HexString())
+	}
 
-    // If we have a valid contract address, set RPC URL used for eth_call
-    if !contractless {
-        switch network {
-        case "mainnet":
-            rpcURL = "https://sapphire.oasis.io"
-        case "testnet":
-            rpcURL = "https://testnet.sapphire.oasis.io"
-        case "local":
-            rpcURL = "http://localhost:8545"
-        default:
-            return fmt.Errorf("invalid network: %s", network)
-        }
-        cfg.PrintLabel("Contract Address", contractAddress)
-    } else {
-        if wantWireGuard {
-            cfg.PrintInfo("WireGuard key-only mode (no contract address provided)")
-        } else {
-            return fmt.Errorf("valid contract address is required unless -wireguard is specified")
-        }
-    }
+	// If we have a valid contract address, set RPC URL used for eth_call
+	if !contractless {
+		switch network {
+		case "mainnet":
+			rpcURL = "https://sapphire.oasis.io"
+		case "testnet":
+			rpcURL = "https://testnet.sapphire.oasis.io"
+		case "local":
+			rpcURL = "http://localhost:8545"
+		default:
+			return fmt.Errorf("invalid network: %s", network)
+		}
+		cfg.PrintLabel("Contract Address", contractAddress)
+	} else {
+		if wantWireGuard {
+			cfg.PrintInfo("WireGuard key-only mode (no contract address provided)")
+		} else {
+			return fmt.Errorf("valid contract address is required unless -wireguard is specified")
+		}
+	}
 
 	// If requested, prepare WireGuard key material and print the public key
 	if wantWireGuard {
@@ -706,54 +706,54 @@ func joinHandler() (err error) {
 		}
 	}
 
-    // If no contract address was provided and -wireguard was requested,
-    // run key preparation and exit without starting the daemon.
-    if contractless {
-        return nil
-    }
+	// If no contract address was provided and -wireguard was requested,
+	// run key preparation and exit without starting the daemon.
+	if contractless {
+		return nil
+	}
 
-    err = app.Start()
-    if err != nil {
-        return
-    }
+	err = app.Start()
+	if err != nil {
+		return
+	}
 
-    // Dry run mode - just check property values once and exit
-    if dryRun {
-        client := app.WaitForFirstClient(true)
-        if client == nil {
-            err = fmt.Errorf("could not connect to network for dry run")
-            return
-        }
+	// Dry run mode - just check property values once and exit
+	if dryRun {
+		client := app.WaitForFirstClient(true)
+		if client == nil {
+			err = fmt.Errorf("could not connect to network for dry run")
+			return
+		}
 
-        err = updatePublishedPorts(client)
-        return
-    }
+		err = updatePublishedPorts(client)
+		return
+	}
 
-    // Normal operation mode
-    for {
-        if app.Closed() {
-            cfg.Logger.Info("Client closed, exiting")
-            return
-        }
+	// Normal operation mode
+	for {
+		if app.Closed() {
+			cfg.Logger.Info("Client closed, exiting")
+			return
+		}
 
-        client := app.WaitForFirstClient(true)
+		client := app.WaitForFirstClient(true)
 
-        if client == nil {
-            cfg.Logger.Info("Could not connect to network trying again in 5 seconds")
-            time.Sleep(5 * time.Second)
-            continue
-        }
+		if client == nil {
+			cfg.Logger.Info("Could not connect to network trying again in 5 seconds")
+			time.Sleep(5 * time.Second)
+			continue
+		}
 
-        err = updatePublishedPorts(client)
-        if err != nil {
-            cfg.Logger.Error("Failed to update published ports: %v", err)
-        }
+		err = updatePublishedPorts(client)
+		if err != nil {
+			cfg.Logger.Error("Failed to update published ports: %v", err)
+		}
 
-        // Update WireGuard configuration, if any
-        if err := updateWireGuardFromContract(cfg.ClientAddr); err != nil {
-            cfg.Logger.Error("Failed to process wireguard config: %v", err)
-        }
+		// Update WireGuard configuration, if any
+		if err := updateWireGuardFromContract(cfg.ClientAddr); err != nil {
+			cfg.Logger.Error("Failed to process wireguard config: %v", err)
+		}
 
-        time.Sleep(30 * time.Second)
-    }
+		time.Sleep(30 * time.Second)
+	}
 }
