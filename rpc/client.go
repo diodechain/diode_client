@@ -507,9 +507,12 @@ func (client *Client) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]blockquic
 // GetBlockHeaderValid returns a validated recent block header
 // (only available for the last windowsSize blocks)
 func (client *Client) GetBlockHeaderValid(blockNum uint64) blockquick.BlockHeader {
-	// client.rm.Lock()
-	// defer client.rm.Unlock()
-	return client.bq.GetBlockHeader(blockNum)
+	var bq *blockquick.Window
+	client.callTimeout(func() { bq = client.bq })
+	if bq != nil {
+		return bq.GetBlockHeader(blockNum)
+	}
+	return blockquick.BlockHeader{}
 }
 
 // GetBlockHeadersUnsafe returns a consecutive range of block headers
@@ -1134,9 +1137,14 @@ func (client *Client) ResolveBlockHash(blockNumber uint64) (blockHash []byte, er
 	if blockNumber == 0 {
 		return
 	}
-	blockHeader := client.bq.GetBlockHeader(blockNumber)
+	var bq *blockquick.Window
+	client.callTimeout(func() { bq = client.bq })
+	var blockHeader blockquick.BlockHeader
+	if bq != nil {
+		blockHeader = bq.GetBlockHeader(blockNumber)
+	}
 	if blockHeader.Number() == 0 {
-		lvbn, _ := client.bq.Last()
+		lvbn, _ := client.LastValid()
 		client.Log().Debug("Validating ticket based on unchecked block %v %v", blockNumber, lvbn)
 		blockHeader, err = client.GetBlockHeaderUnsafe(blockNumber)
 		if err != nil {
