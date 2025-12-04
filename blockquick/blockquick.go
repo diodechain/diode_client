@@ -128,10 +128,21 @@ func (win *Window) initialize(finals []*BlockScore) {
 // collectGarbage deletes all pending blocks that are older than the last
 // valid block
 func (win *Window) collectGarbage() {
-	min := win.lastValid.bh.number
+	lv := win.lastValid
+	min := lv.bh.number
 	for hash, bs := range win.pending {
 		if bs.bh.number <= min {
 			delete(win.pending, hash)
+		}
+	}
+
+	if lv.bh.number > uint64(win.windowSize) {
+		lowest_to_keep := lv.bh.number - uint64(win.windowSize)
+		for p := lv; p != nil; p = p.parent {
+			if p.bh.number < lowest_to_keep {
+				p.parent = nil
+				break
+			}
 		}
 	}
 }
@@ -208,6 +219,17 @@ func (win *Window) validate(bs *BlockScore) {
 		return
 	}
 
+	var length int
+	for p := bs; p != nil; p = p.parent {
+		length++
+	}
+	if length < win.windowSize {
+		// This could be validated, but not finalized as we can't rebuild the window
+		// without at least windowSize blocks
+		// so we just return and wait for more blocks to be validated
+		return
+	}
+
 	visited := make(map[Address]bool)
 	var score int
 
@@ -265,6 +287,7 @@ func (win *Window) finalize(bs *BlockScore) {
 			win.add(bs)
 		}
 	}
+
 	win.collectGarbage()
 }
 
