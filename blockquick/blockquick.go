@@ -92,33 +92,15 @@ func (win *Window) GetBlockHeader(num uint64) (bh BlockHeader) {
 	return
 }
 
-// Last is the peak of the finalized blocks and can be behind lastValid
-// if a new lastValid has been validated using a couple of gapped blocks
 func (win *Window) Last() (uint64, Sha3) {
-	win.mx.Lock()
-	defer win.mx.Unlock()
-
-	return win.lastFinal().bh.number, win.lastFinal().hash
-}
-
-// lastFinal is the peak of the finalized blocks and can be behind lastValid
-// if a new lastValid has been validated using a couple of gapped blocks
-func (win *Window) lastFinal() *BlockScore {
-	return win.finals[len(win.finals)-1]
-}
-
-// NeedsUpdate informs whether the window needs to be reinitialized
-func (win *Window) NeedsUpdate() bool {
-	win.mx.Lock()
-	defer win.mx.Unlock()
-
-	return win.lastValid.bh.number != win.lastFinal().bh.number
+	last := win.lastValid
+	return last.bh.number, last.hash
 }
 
 // Initialize creates a new window
 func (win *Window) initialize(finals []*BlockScore) {
 	win.finals = finals
-	win.lastValid = win.lastFinal()
+	win.lastValid = finals[len(finals)-1]
 	win.minerCounts = make(map[Address]int, win.windowSize)
 	for _, bs := range finals {
 		win.minerCounts[bs.miner]++
@@ -176,8 +158,6 @@ func (win *Window) AddBlock(bh BlockHeader, allowGap bool) error {
 	// Linking the parent if possible
 	if bh.Parent() == win.lastValid.hash {
 		bs.parent = win.lastValid
-	} else if bh.Parent() == win.lastFinal().hash {
-		bs.parent = win.lastFinal()
 	} else {
 		bs.parent = win.pending[bh.Parent()]
 	}
@@ -188,8 +168,8 @@ func (win *Window) AddBlock(bh BlockHeader, allowGap bool) error {
 			return fmt.Errorf("child number is wrong %v, %v", bh.number, bs.parent.bh.number)
 		}
 	} else if !allowGap {
-		lfnum, lfhash := win.Last()
-		return fmt.Errorf("last final is: %v %v, and don't know direct parent of this block %v", lfnum, util.EncodeToString(lfhash[:]), bh.number)
+		lf := win.lastValid
+		return fmt.Errorf("last final is: %v %v, and don't know direct parent of this block %v", lf.bh.number, util.EncodeToString(lf.hash[:]), bh.number)
 	}
 
 	// Adding block
