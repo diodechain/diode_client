@@ -25,6 +25,7 @@ import (
 	"reflect"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -159,7 +160,7 @@ func getPropertyValues(deviceAddr util.Address, keys []string) (map[string]strin
 	if err := json.Unmarshal(body, &responses); err != nil {
 		var single jsonRPCResponse
 		if err2 := json.Unmarshal(body, &single); err2 != nil {
-return nil, fmt.Errorf("failed to unmarshal response as batch (%v) or single (%v)", err, err2)
+			return nil, fmt.Errorf("failed to unmarshal response as batch (%v) or single (%v)", err, err2)
 		}
 		responses = []jsonRPCResponse{single}
 	}
@@ -206,7 +207,42 @@ return nil, fmt.Errorf("failed to unmarshal response as batch (%v) or single (%v
 // fetchContractProps retrieves all contract-backed configuration in one batch call
 func fetchContractProps(deviceAddr util.Address) (map[string]string, error) {
 	keys := []string{"public", "protected", "wireguard", "socksd", "bind", "debug", "diodeaddrs", "fleet", "extra_config"}
-	return getPropertyValues(deviceAddr, keys)
+	logJoinContractFetch(deviceAddr, keys)
+	props, err := getPropertyValues(deviceAddr, keys)
+	logJoinContractFetchResult(deviceAddr, keys, props, err)
+	return props, err
+}
+
+func logJoinContractFetch(deviceAddr util.Address, keys []string) {
+	cfg := config.AppConfig
+	if cfg == nil || cfg.Logger == nil {
+		return
+	}
+	cfg.Logger.Debug("Fetching join contract (device=%s, contract=%s, rpc=%s, keys=%v)", deviceAddr.HexString(), contractAddress, rpcURL, keys)
+}
+
+func logJoinContractFetchResult(deviceAddr util.Address, keys []string, props map[string]string, err error) {
+	cfg := config.AppConfig
+	if cfg == nil || cfg.Logger == nil {
+		return
+	}
+	if err != nil {
+		cfg.Logger.Debug("Join contract fetch failed (device=%s): %v", deviceAddr.HexString(), err)
+		return
+	}
+	summary := make([]string, 0, len(keys))
+	for _, key := range keys {
+		val := ""
+		if props != nil {
+			val = strings.TrimSpace(props[key])
+		}
+		state := "empty"
+		if val != "" {
+			state = fmt.Sprintf("len=%d", len(val))
+		}
+		summary = append(summary, fmt.Sprintf("%s(%s)", key, state))
+	}
+	cfg.Logger.Debug("Join contract fetch success (device=%s): %s", deviceAddr.HexString(), strings.Join(summary, ", "))
 }
 
 // updatePortsFromContract uses the provided property map to extract port configurations,
@@ -258,10 +294,26 @@ func stringSliceFromValue(val interface{}) ([]string, error) {
 	case nil:
 		return nil, nil
 	case string:
-		if strings.TrimSpace(v) == "" {
+		trimmed := strings.TrimSpace(v)
+		if trimmed == "" {
 			return nil, nil
 		}
-		parts := strings.FieldsFunc(v, func(r rune) bool { return r == ',' || r == '\n' })
+		// Allow JSON-style arrays, e.g. ["bind1","bind2"]
+		if strings.HasPrefix(trimmed, "[") {
+			var strItems []string
+			if err := json.Unmarshal([]byte(trimmed), &strItems); err == nil {
+				return normalizeList(strItems), nil
+			}
+			var genericItems []interface{}
+			if err := json.Unmarshal([]byte(trimmed), &genericItems); err == nil {
+				items := make([]string, 0, len(genericItems))
+				for _, item := range genericItems {
+					items = append(items, fmt.Sprint(item))
+				}
+				return normalizeList(items), nil
+			}
+		}
+		parts := strings.FieldsFunc(trimmed, func(r rune) bool { return r == ',' || r == '\n' })
 		return normalizeList(parts), nil
 	case []interface{}:
 		items := make([]string, 0, len(v))
@@ -606,46 +658,57 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 }
 
 func startServicesFromConfig(cfg *config.Config) error {
-	if cfg.EnableAPIServer {
+	if cfg.EnableAPIServer && app.configAPIServer == nil {
 		configAPIServer := NewConfigAPIServer(cfg)
 		configAPIServer.ListenAndServe()
 		app.SetConfigAPIServer(configAPIServer)
 	}
 
-	if !(cfg.EnableSocksServer || cfg.EnableProxyServer) {
+	sig := bindSignature(cfg.SBinds)
+	needServer := cfg.EnableSocksServer || cfg.EnableProxyServer || cfg.EnableSProxyServer || len(cfg.Binds) > 0
+	if !needServer {
+		if app.socksServer != nil && sig != lastAppliedBindSignature {
+			app.socksServer.SetBinds(cfg.Binds)
+			lastAppliedBindSignature = sig
+		}
+		logBindSummary(cfg, sig)
 		return nil
 	}
 
-	socksCfg := rpc.Config{
-		Addr:            cfg.SocksServerAddr(),
-		FleetAddr:       cfg.FleetAddr,
-		Blocklists:      cfg.Blocklists(),
-		Allowlists:      cfg.Allowlists,
-		EnableProxy:     cfg.EnableProxyServer,
-		ProxyServerAddr: cfg.ProxyServerAddr(),
-		Fallback:        cfg.SocksFallback,
-	}
-	socksServer, err := rpc.NewSocksServer(socksCfg, app.clientManager)
-	if err != nil {
-		return err
-	}
-
-	if len(cfg.Binds) > 0 {
-		socksServer.SetBinds(cfg.Binds)
-		cfg.PrintInfo("")
-		cfg.PrintLabel("Bind      <name>", "<mode>     <remote>")
-		for _, bind := range cfg.Binds {
-			bindHost := net.JoinHostPort(bind.To, strconv.Itoa(bind.ToPort))
-			cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %s", config.ProtocolName(bind.Protocol), bindHost))
+	if app.socksServer == nil {
+		socksCfg := rpc.Config{
+			Addr:            cfg.SocksServerAddr(),
+			FleetAddr:       cfg.FleetAddr,
+			Blocklists:      cfg.Blocklists(),
+			Allowlists:      cfg.Allowlists,
+			EnableProxy:     cfg.EnableProxyServer,
+			ProxyServerAddr: cfg.ProxyServerAddr(),
+			Fallback:        cfg.SocksFallback,
 		}
-	}
-	app.SetSocksServer(socksServer)
-	if err := socksServer.Start(); err != nil {
-		cfg.Logger.Error(err.Error())
-		return err
+		socksServer, err := rpc.NewSocksServer(socksCfg, app.clientManager)
+		if err != nil {
+			return err
+		}
+		app.SetSocksServer(socksServer)
+		lastAppliedBindSignature = ""
 	}
 
-	if cfg.EnableProxyServer || cfg.EnableSProxyServer {
+	if app.socksServer != nil && sig != lastAppliedBindSignature {
+		app.socksServer.SetBinds(cfg.Binds)
+		lastAppliedBindSignature = sig
+	}
+	logBindSummary(cfg, sig)
+
+	shouldStartSocks := cfg.EnableSocksServer || cfg.EnableProxyServer || cfg.EnableSProxyServer
+	if shouldStartSocks && !socksServerStarted {
+		if err := app.socksServer.Start(); err != nil {
+			cfg.Logger.Error(err.Error())
+			return err
+		}
+		socksServerStarted = true
+	}
+
+	if (cfg.EnableProxyServer || cfg.EnableSProxyServer) && app.proxyServer == nil {
 		proxyCfg := rpc.ProxyConfig{
 			EnableSProxy:      cfg.EnableSProxyServer,
 			ProxyServerAddr:   cfg.ProxyServerAddr(),
@@ -655,7 +718,7 @@ func startServicesFromConfig(cfg *config.Config) error {
 			PrivPath:          cfg.SProxyServerPrivPath,
 			AllowRedirect:     cfg.AllowRedirectToSProxy,
 		}
-		proxyServer, err := rpc.NewProxyServer(proxyCfg, socksServer)
+		proxyServer, err := rpc.NewProxyServer(proxyCfg, app.socksServer)
 		if err != nil {
 			return err
 		}
@@ -668,9 +731,39 @@ func startServicesFromConfig(cfg *config.Config) error {
 	return nil
 }
 
+func logBindSummary(cfg *config.Config, sig string) {
+	if sig == "" {
+		lastBindSignature = ""
+		return
+	}
+	if sig == lastBindSignature {
+		return
+	}
+	lastBindSignature = sig
+	cfg.PrintInfo("")
+	cfg.PrintLabel("Bind      <name>", "<mode>     <remote>")
+	for _, bind := range cfg.Binds {
+		bindHost := net.JoinHostPort(bind.To, strconv.Itoa(bind.ToPort))
+		cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %s", config.ProtocolName(bind.Protocol), bindHost))
+	}
+}
+
+func bindSignature(binds config.StringValues) string {
+	if len(binds) == 0 {
+		return ""
+	}
+	items := make([]string, len(binds))
+	copy(items, binds)
+	sort.Strings(items)
+	return strings.Join(items, "|")
+}
+
 var lastPublicPorts []string
 var lastProtectedPorts []string
 var lastWGConfigHash string
+var lastBindSignature string
+var lastAppliedBindSignature string
+var socksServerStarted bool
 
 // wgBasepoint is the X25519 basepoint per RFC 7748
 var wgBasepoint = [32]byte{9}
@@ -1008,6 +1101,10 @@ func contractSync(cfg *config.Config) error {
 
 	applyControlPlaneConfig(cfg, props)
 
+	if err := startServicesFromConfig(cfg); err != nil {
+		return err
+	}
+
 	if err := updatePublishedPorts(client, props); err != nil {
 		return err
 	}
@@ -1207,10 +1304,6 @@ func joinHandler() (err error) {
 	// Initial contract sync to apply perimeter before starting services
 	if syncErr := runContractControllerOnce(cfg); syncErr != nil {
 		cfg.Logger.Warn("Initial contract sync failed: %v", syncErr)
-	}
-
-	if err := startServicesFromConfig(cfg); err != nil {
-		return err
 	}
 
 	// Dry run mode - just check property values once and exit
