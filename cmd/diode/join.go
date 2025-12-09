@@ -206,7 +206,7 @@ func getPropertyValues(deviceAddr util.Address, keys []string) (map[string]strin
 
 // fetchContractProps retrieves all contract-backed configuration in one batch call
 func fetchContractProps(deviceAddr util.Address) (map[string]string, error) {
-	keys := []string{"public", "protected", "wireguard", "socksd", "bind", "debug", "diodeaddrs", "fleet", "extra_config"}
+	keys := []string{"public", "private", "protected", "wireguard", "socksd", "bind", "debug", "diodeaddrs", "fleet", "extra_config"}
 	logJoinContractFetch(deviceAddr, keys)
 	props, err := getPropertyValues(deviceAddr, keys)
 	logJoinContractFetchResult(deviceAddr, keys, props, err)
@@ -246,23 +246,28 @@ func logJoinContractFetchResult(deviceAddr util.Address, keys []string, props ma
 }
 
 // updatePortsFromContract uses the provided property map to extract port configurations,
-// expects props to include "public" and "protected".
-func updatePortsFromContract(deviceAddr util.Address, props map[string]string) (publicPorts, protectedPorts []string, err error) {
+// expects props to include "public", "private", and "protected". Each value corresponds
+// to the full argument string of the respective publish flag (e.g. the value passed to
+// `-private`), using the same comma-separated semantics as the publish command.
+func updatePortsFromContract(deviceAddr util.Address, props map[string]string) (publicPorts, privatePorts, protectedPorts []string, err error) {
 	if props == nil {
-		return nil, nil, fmt.Errorf("missing contract properties for ports")
+		return nil, nil, nil, fmt.Errorf("missing contract properties for ports")
 	}
-	publicPortsStr := props["public"]
-	protectedPortsStr := props["protected"]
+	publicPortsStr := strings.TrimSpace(props["public"])
+	privatePortsStr := strings.TrimSpace(props["private"])
+	protectedPortsStr := strings.TrimSpace(props["protected"])
 
-	// Split the comma-separated port lists
 	if publicPortsStr != "" {
-		publicPorts = strings.Split(publicPortsStr, ",")
+		publicPorts = []string{publicPortsStr}
+	}
+	if privatePortsStr != "" {
+		privatePorts = []string{privatePortsStr}
 	}
 	if protectedPortsStr != "" {
-		protectedPorts = strings.Split(protectedPortsStr, ",")
+		protectedPorts = []string{protectedPortsStr}
 	}
 
-	return publicPorts, protectedPorts, nil
+	return publicPorts, privatePorts, protectedPorts, nil
 }
 
 // normalizeList trims whitespace, drops empties, and keeps order
@@ -629,10 +634,23 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 		if key == "extra_config" {
 			continue
 		}
-		if strings.TrimSpace(val) == "" {
+		trimmed := strings.TrimSpace(val)
+
+		// Special handling for bind: an empty bind value in the control plane
+		// should clear all existing binds derived from the contract so that
+		// removed binds are reflected in the running client.
+		if key == "bind" && trimmed == "" {
+			if len(cfg.SBinds) > 0 || len(cfg.Binds) > 0 {
+				cfg.SBinds = config.StringValues{}
+				cfg.Binds = []config.Bind{}
+			}
 			continue
 		}
-		if err := applyConfigKey(cfg, key, val); err != nil {
+
+		if trimmed == "" {
+			continue
+		}
+		if err := applyConfigKey(cfg, key, trimmed); err != nil {
 			cfg.Logger.Warn("Ignoring %s from control plane: %v", key, err)
 		}
 	}
@@ -732,13 +750,22 @@ func startServicesFromConfig(cfg *config.Config) error {
 }
 
 func logBindSummary(cfg *config.Config, sig string) {
-	if sig == "" {
-		lastBindSignature = ""
-		return
-	}
+	// No change in bind configuration, nothing to report.
 	if sig == lastBindSignature {
 		return
 	}
+
+	// Binds have been cleared since the last update.
+	if sig == "" {
+		if lastBindSignature != "" {
+			cfg.PrintInfo("")
+			cfg.PrintInfo("All binds have been removed from contract")
+		}
+		lastBindSignature = ""
+		return
+	}
+
+	// New/updated binds detected, print a fresh summary.
 	lastBindSignature = sig
 	cfg.PrintInfo("")
 	cfg.PrintLabel("Bind      <name>", "<mode>     <remote>")
@@ -759,6 +786,7 @@ func bindSignature(binds config.StringValues) string {
 }
 
 var lastPublicPorts []string
+var lastPrivatePorts []string
 var lastProtectedPorts []string
 var lastWGConfigHash string
 var lastBindSignature string
@@ -1092,11 +1120,16 @@ func contractSync(cfg *config.Config) error {
 	}
 
 	props, err := fetchContractProps(cfg.ClientAddr)
-	if err != nil && len(props) == 0 {
-		return err
-	}
 	if err != nil {
-		cfg.Logger.Warn("Partial contract properties: %v", err)
+		if len(props) == 0 {
+			if strings.Contains(err.Error(), "execution reverted") {
+				cfg.Logger.Warn("No contract properties found yet; will retry later: %v", err)
+			} else {
+				return err
+			}
+		} else {
+			cfg.Logger.Warn("Partial contract properties: %v", err)
+		}
 	}
 
 	applyControlPlaneConfig(cfg, props)
@@ -1140,25 +1173,34 @@ func updatePublishedPorts(client *rpc.Client, props map[string]string) error {
 	cfg := config.AppConfig
 	deviceAddr := cfg.ClientAddr
 
-	publicPorts, protectedPorts, err := updatePortsFromContract(deviceAddr, props)
+	// Track whether there were any published ports before this update so we
+	// can notify the user when the configuration is cleared.
+	previousHadPorts := len(lastPublicPorts) > 0 || len(lastPrivatePorts) > 0 || len(lastProtectedPorts) > 0
+
+	publicPorts, privatePorts, protectedPorts, err := updatePortsFromContract(deviceAddr, props)
 	if err != nil {
 		cfg.Logger.Error("Failed to update ports from contract: %v", err)
 		return err
 	}
 
-	if reflect.DeepEqual(lastPublicPorts, publicPorts) && reflect.DeepEqual(lastProtectedPorts, protectedPorts) {
+	if reflect.DeepEqual(lastPublicPorts, publicPorts) &&
+		reflect.DeepEqual(lastPrivatePorts, privatePorts) &&
+		reflect.DeepEqual(lastProtectedPorts, protectedPorts) {
 		return nil
 	}
 
 	lastPublicPorts = publicPorts
+	lastPrivatePorts = privatePorts
 	lastProtectedPorts = protectedPorts
 
 	// Debug output for port configurations
-	cfg.PrintLabel("Public Ports", strings.Join(publicPorts, ","))
-	cfg.PrintLabel("Protected Ports", strings.Join(protectedPorts, ","))
+	cfg.Logger.Debug("Public Ports: %s", strings.Join(publicPorts, ","))
+	cfg.Logger.Debug("Private Ports: %s", strings.Join(privatePorts, ","))
+	cfg.Logger.Debug("Protected Ports: %s", strings.Join(protectedPorts, ","))
 
 	// Update the config with new port settings
 	cfg.PublicPublishedPorts = publicPorts
+	cfg.PrivatePublishedPorts = privatePorts
 	cfg.ProtectedPublishedPorts = protectedPorts
 
 	// Process the port configurations similar to publishHandler
@@ -1190,14 +1232,28 @@ func updatePublishedPorts(client *rpc.Client, props map[string]string) error {
 		portString[port.To] = port
 	}
 
+	// Process private ports
+	ports, err = parsePorts(cfg.PrivatePublishedPorts, config.PrivatePublishedMode)
+	if err != nil {
+		return err
+	}
+	for _, port := range ports {
+		if portString[port.To] != nil {
+			err = fmt.Errorf("port conflict with private port: %v", port.To)
+			return err
+		}
+		portString[port.To] = port
+	}
+
 	// Update the published ports
 	cfg.PublishedPorts = portString
 
-	// Set the published ports in the client manager
-	if len(cfg.PublishedPorts) > 0 {
-		app.clientManager.GetPool().SetPublishedPorts(cfg.PublishedPorts)
+	// Always push the latest published ports set (including empty) to the pool
+	// so removed ports are actually cleared.
+	app.clientManager.GetPool().SetPublishedPorts(cfg.PublishedPorts)
 
-		// Log the updated port configurations
+	// Log user-facing summary for changes.
+	if len(cfg.PublishedPorts) > 0 {
 		cfg.PrintInfo("Updated port configurations from contract")
 		name := cfg.ClientAddr.HexString()
 		if cfg.ClientName != "" {
@@ -1233,6 +1289,9 @@ func updatePublishedPorts(client *rpc.Client, props map[string]string) error {
 			host := net.JoinHostPort(port.SrcHost, strconv.Itoa(port.Src))
 			cfg.PrintLabel(fmt.Sprintf("Port %12s", host), fmt.Sprintf("%8d  %10s       %s        %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol), strings.Join(addrs, ",")))
 		}
+	} else if previousHadPorts {
+		// Transition from having published ports to none: inform the user.
+		cfg.PrintInfo("All published ports have been removed from contract")
 	}
 
 	return nil

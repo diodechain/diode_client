@@ -859,35 +859,46 @@ func (socksServer *Server) forwardUDP(pconn net.PacketConn, raddr net.Addr, devi
 }
 
 func (socksServer *Server) SetBinds(bindDefs []config.Bind) {
-	newBinds := make([]Bind, 0)
+	newBinds := make([]Bind, 0, len(bindDefs))
+
+	// Build the new bind set, reusing existing listeners for unchanged
+	// definitions (same config.Bind) where possible.
 	for _, def := range bindDefs {
-		newBind := &Bind{def: def}
-		for _, b := range socksServer.binds {
-			if b.def == def {
-				newBind.tcp = b.tcp
-				newBind.udp = b.udp
+		newBind := Bind{def: def}
+		for _, existing := range socksServer.binds {
+			if existing.def == def {
+				newBind.tcp = existing.tcp
+				newBind.udp = existing.udp
 				break
 			}
 		}
-		newBinds = append(newBinds, *newBind)
-		err := socksServer.startBind(newBind)
-		if err != nil {
+		newBinds = append(newBinds, newBind)
+	}
+
+	// Stop binds that are no longer present in the new configuration
+	// before starting new ones to avoid "address already in use" errors
+	// when reusing local ports for different remote targets.
+	for _, oldBind := range socksServer.binds {
+		keep := false
+		for _, newBind := range newBinds {
+			if newBind.def == oldBind.def {
+				keep = true
+				break
+			}
+		}
+		if !keep {
+			socksServer.stopBind(oldBind)
+		}
+	}
+
+	// Start all binds in the new set (reused listeners are skipped
+	// inside startBind because their tcp/udp fields are already set).
+	for i := range newBinds {
+		if err := socksServer.startBind(&newBinds[i]); err != nil {
 			socksServer.logger.Error(err.Error())
 		}
 	}
 
-	for _, bind := range socksServer.binds {
-		stop := true
-		for _, b := range newBinds {
-			if b == bind {
-				stop = false
-				break
-			}
-		}
-		if stop {
-			socksServer.stopBind(bind)
-		}
-	}
 	socksServer.binds = newBinds
 }
 
@@ -943,6 +954,11 @@ func (socksServer *Server) startBind(bind *Bind) error {
 				conn, err := bind.tcp.Accept()
 				if err != nil {
 					if socksServer.Closed() {
+						return
+					}
+					// Listener was intentionally closed (e.g. bind updated/removed).
+					// Treat as a normal shutdown without logging an error.
+					if errors.Is(err, net.ErrClosed) {
 						return
 					}
 					// Check whether error is temporary
