@@ -66,7 +66,6 @@ type Client struct {
 	latencyCount         int64
 	serverID             util.Address
 	onConnect            func(util.Address)
-	bqFailures           int
 	rebuildingBlockquick uint32
 	// close event
 	OnClose func()
@@ -1490,28 +1489,39 @@ func (client *Client) shouldRebuildBlockquick(blockNum uint64, hash string, err 
 
 func (client *Client) tryDowngradeBlockquick(err error) bool {
 	if err == nil || !client.config.BlockquickDowngrade {
-		client.bqFailures = 0
+		// Reset failure counter when error is nil or bqdowngrade is disabled
+		if client.clientMan != nil { // defensive check
+			client.clientMan.resetBQFailures()
+		}
 		return false
 	}
 	if !strings.Contains(err.Error(), blockquickValidationError) {
-		client.bqFailures = 0
+		// Reset failure counter for non-blockquick validation errors
+		if client.clientMan != nil { // defensive check
+			client.clientMan.resetBQFailures()
+		}
 		return false
 	}
 
-	client.bqFailures++
-	if client.bqFailures < blockquickDowngradeThreshold {
-		return false
-	}
+	// Use ClientManager's persistent counter to track failures across clients and across client recreations
+	if client.clientMan != nil { // defensive check
+		failures := client.clientMan.incrementBQFailures()
+		if failures < blockquickDowngradeThreshold {
+			return false
+		}
 
-	client.bqFailures = 0
-	client.Log().Warn("Reset blockquick window after %d consecutive validation failures", blockquickDowngradeThreshold)
-
-	if client.clientMan != nil {
+		// Threshold reached - reset the blockquick state
+		client.clientMan.resetBQFailures()
+		client.Log().Warn("Reset blockquick window after %d consecutive validation failures", blockquickDowngradeThreshold)
 		client.clientMan.resetBlockquickState(fmt.Sprintf("downgrade triggered by %s", client.host))
-	} else {
-		client.forceResetBlockquickState()
+		return true
 	}
 
+	// the only way we get here is if client.ClienMan is nil, which should never happen (startclient)
+	// only ever called by client manager. however, the original code did the check so we continue the
+	// tradition
+	client.Log().Warn("Reset blockquick window after %d consecutive validation failures", blockquickDowngradeThreshold)
+	client.forceResetBlockquickState()
 	return true
 }
 
@@ -1520,7 +1530,11 @@ func (client *Client) ensureBlockquickWindow() error {
 	for {
 		err := client.validateNetwork()
 		if err == nil {
-			client.bqFailures = 0
+			// Reset failure counter on successful validation
+			if client.clientMan != nil {
+				client.clientMan.resetBQFailures()
+			}
+
 			return nil
 		}
 
