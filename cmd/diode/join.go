@@ -329,9 +329,7 @@ func stringSliceFromValue(val interface{}) ([]string, error) {
 		fields := strings.Fields(s)
 		parts := make([]string, 0, len(fields))
 		for _, f := range fields {
-			for _, piece := range strings.Split(f, ",") {
-				parts = append(parts, piece)
-			}
+			parts = append(parts, strings.Split(f, ",")...)
 		}
 		return normalizeList(parts), nil
 	case []interface{}:
