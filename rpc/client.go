@@ -395,6 +395,13 @@ func (client *Client) validateNetwork() error {
 		return err
 	}
 
+	blockrange := []uint64{}
+	for _, block := range blocks {
+		// due to blocks order by block number, break loop here
+		blockrange = append(blockrange, block.Number())
+	}
+	client.Log().Debug("received blockrange: %v (%v)", blockrange, len(blockrange))
+
 	for _, block := range blocks {
 		// due to blocks order by block number, break loop here
 		if block.Number() > blockNumMax {
