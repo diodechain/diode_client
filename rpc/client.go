@@ -1446,6 +1446,11 @@ func (client *Client) isRebuildingBlockquick() bool {
 }
 
 func (client *Client) startBlockquickRebuild(reason string) {
+	if client.clientMan != nil {
+		client.clientMan.startGlobalBlockquickRebuild(reason)
+		return
+	}
+
 	if reason == "" {
 		reason = "blockquick window reset"
 	}
