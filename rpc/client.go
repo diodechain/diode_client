@@ -1538,8 +1538,19 @@ func (client *Client) ensureBlockquickWindow() error {
 			return nil
 		}
 
-		if strings.Contains(err.Error(), "sent reference block does not match") && !mismatchRetried {
+		msg := err.Error()
+
+		if strings.Contains(msg, "sent reference block does not match") && !mismatchRetried {
 			mismatchRetried = true
+			continue
+		}
+
+		// Always treat blockquick validation failures as transient:
+		// - without bqdowngrade, we simply retry until the network can be validated
+		// - with bqdowngrade, tryDowngradeBlockquick() eventually resets the window
+		//   after several consecutive failures, then we retry.
+		if strings.Contains(msg, blockquickValidationError) {
+			client.tryDowngradeBlockquick(err)
 			continue
 		}
 
