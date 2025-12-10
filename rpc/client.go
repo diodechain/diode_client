@@ -68,6 +68,8 @@ type Client struct {
 	onConnect            func(util.Address)
 	bqFailures           int
 	rebuildingBlockquick uint32
+	// validateNetworkFn allows tests to stub the validateNetwork logic
+	validateNetworkFn func() error
 	// close event
 	OnClose func()
 
@@ -108,6 +110,10 @@ func NewClient(host string, clientMan *ClientManager, cfg *config.Config, pool *
 
 	if !config.AppConfig.LogDateTime {
 		client.srv.DeadlockCallback = nil
+	}
+
+	if client.validateNetworkFn == nil {
+		client.validateNetworkFn = client.validateNetwork
 	}
 
 	return client
@@ -1523,7 +1529,11 @@ func (client *Client) tryDowngradeBlockquick(err error) bool {
 func (client *Client) ensureBlockquickWindow() error {
 	mismatchRetried := false
 	for {
-		err := client.validateNetwork()
+		fn := client.validateNetworkFn
+		if fn == nil {
+			fn = client.validateNetwork
+		}
+		err := fn()
 		if err == nil {
 			client.bqFailures = 0
 			return nil
