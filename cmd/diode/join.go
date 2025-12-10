@@ -257,15 +257,20 @@ func updatePortsFromContract(deviceAddr util.Address, props map[string]string) (
 	privatePortsStr := strings.TrimSpace(props["private"])
 	protectedPortsStr := strings.TrimSpace(props["protected"])
 
-	if publicPortsStr != "" {
-		publicPorts = []string{publicPortsStr}
+	splitPortList := func(raw string) []string {
+		raw = strings.TrimSpace(raw)
+		if raw == "" {
+			return nil
+		}
+		// Contract now concatenates multiple rules with a whitespace
+		// between them. Treat each whitespace-separated token as one
+		// full publish argument (which may still contain commas).
+		return strings.Fields(raw)
 	}
-	if privatePortsStr != "" {
-		privatePorts = []string{privatePortsStr}
-	}
-	if protectedPortsStr != "" {
-		protectedPorts = []string{protectedPortsStr}
-	}
+
+	publicPorts = splitPortList(publicPortsStr)
+	privatePorts = splitPortList(privatePortsStr)
+	protectedPorts = splitPortList(protectedPortsStr)
 
 	return publicPorts, privatePorts, protectedPorts, nil
 }
@@ -299,18 +304,18 @@ func stringSliceFromValue(val interface{}) ([]string, error) {
 	case nil:
 		return nil, nil
 	case string:
-		trimmed := strings.TrimSpace(v)
-		if trimmed == "" {
+		s := strings.TrimSpace(v)
+		if s == "" {
 			return nil, nil
 		}
 		// Allow JSON-style arrays, e.g. ["bind1","bind2"]
-		if strings.HasPrefix(trimmed, "[") {
+		if strings.HasPrefix(s, "[") {
 			var strItems []string
-			if err := json.Unmarshal([]byte(trimmed), &strItems); err == nil {
+			if err := json.Unmarshal([]byte(s), &strItems); err == nil {
 				return normalizeList(strItems), nil
 			}
 			var genericItems []interface{}
-			if err := json.Unmarshal([]byte(trimmed), &genericItems); err == nil {
+			if err := json.Unmarshal([]byte(s), &genericItems); err == nil {
 				items := make([]string, 0, len(genericItems))
 				for _, item := range genericItems {
 					items = append(items, fmt.Sprint(item))
@@ -318,7 +323,16 @@ func stringSliceFromValue(val interface{}) ([]string, error) {
 				return normalizeList(items), nil
 			}
 		}
-		parts := strings.FieldsFunc(trimmed, func(r rune) bool { return r == ',' || r == '\n' })
+		// Fallback format: split on any whitespace and commas so that
+		// contract-side concatenation using spaces produces multiple
+		// logical entries (e.g. "bind1 bind2", "addr1 addr2").
+		fields := strings.Fields(s)
+		parts := make([]string, 0, len(fields))
+		for _, f := range fields {
+			for _, piece := range strings.Split(f, ",") {
+				parts = append(parts, piece)
+			}
+		}
 		return normalizeList(parts), nil
 	case []interface{}:
 		items := make([]string, 0, len(v))
@@ -635,6 +649,17 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 			continue
 		}
 		trimmed := strings.TrimSpace(val)
+
+		// For non-combinable keys coming directly from the contract,
+		// discard anything after the first whitespace. Multi-value
+		// keys like bind/diodeaddrs are handled separately via
+		// stringSliceFromValue, and wireguard is processed elsewhere.
+		switch strings.ToLower(key) {
+		case "socksd", "debug", "fleet":
+			if idx := strings.IndexAny(trimmed, " \t\r\n"); idx >= 0 {
+				trimmed = trimmed[:idx]
+			}
+		}
 
 		// Special handling for bind: an empty bind value in the control plane
 		// should clear all existing binds derived from the contract so that
