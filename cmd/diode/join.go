@@ -408,7 +408,7 @@ func applyDiodeAddrs(cfg *config.Config, addrs []string) {
 		if !isValidRPCAddress(addr) {
 			adjusted := addr + ":41046"
 			if !isValidRPCAddress(adjusted) {
-				cfg.Logger.Warn("Invalid diode address %q", addr)
+				cfg.Logger.Warn("Invalid diode node address %q", addr)
 				continue
 			}
 			addr = adjusted
@@ -509,6 +509,7 @@ func applyConfigKey(cfg *config.Config, key string, value interface{}) error {
 	case "diodeaddrs":
 		items, err := stringSliceFromValue(value)
 		if err != nil {
+			cfg.Logger.Warn("Failed to parse diodeaddrs value %v: %v", value, err)
 			return err
 		}
 		applyDiodeAddrs(cfg, items)
@@ -1156,6 +1157,11 @@ func contractSync(cfg *config.Config) error {
 	}
 
 	applyControlPlaneConfig(cfg, props)
+
+	// After applying contract config, check for new diodeaddrs and add clients for them
+	if app.clientManager != nil {
+		app.clientManager.AddNewAddresses()
+	}
 
 	if err := startServicesFromConfig(cfg); err != nil {
 		return err
