@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -25,8 +26,8 @@ type ClientManager struct {
 	clients       []*Client
 	// rebuildingBlockquick guards a global blockquick rebuild loop
 	rebuildingBlockquick uint32
-	clientMap     map[util.Address]*Client
-	topClients    [2]*Client
+	clientMap            map[util.Address]*Client
+	topClients           [2]*Client
 
 	waitingAny  []*genserver.Reply
 	waitingNode map[util.Address]*nodeRequest
@@ -68,6 +69,83 @@ func (cm *ClientManager) Start() {
 		}
 	})
 	go cm.sortTopClients()
+}
+
+// AddNewAddresses checks if contract-specified addresses are in RemoteRPCAddrs.
+// If so, it closes all default seed nodes. The Terminate handlers will automatically
+// recreate clients using doSelectNextHost(), which will now only pick from the
+// contract addresses in RemoteRPCAddrs. This reuses the existing behavior where
+// command-line -diodeaddrs skips defaults.
+// Only acts if addresses have changed to avoid unnecessary client recreation on polls.
+func (cm *ClientManager) AddNewAddresses() {
+	cm.srv.Call(func() {
+		// Get addresses currently in use
+		addressesInUse := make(map[string]bool, len(cm.clients))
+		for _, c := range cm.clients {
+			addressesInUse[c.host] = true
+		}
+
+		// Check if we have any contract-specified addresses (non-default)
+		hasContractAddresses := false
+		contractAddresses := make(map[string]bool)
+		for _, addr := range cm.Config.RemoteRPCAddrs {
+			if !strings.Contains(addr, ".prenet.diode.io:41046") {
+				hasContractAddresses = true
+				contractAddresses[addr] = true
+			}
+		}
+
+		if !hasContractAddresses {
+			cm.Config.Logger.Debug("AddNewAddresses: no valid node addresses found, keeping defaults")
+			return
+		}
+
+		// Check if all contract addresses are already in use
+		allContractAddressesInUse := true
+		for addr := range contractAddresses {
+			if !addressesInUse[addr] {
+				allContractAddressesInUse = false
+				break
+			}
+		}
+
+		// Check if we have any default clients that should be removed
+		hasDefaultClients := false
+		for _, c := range cm.clients {
+			if strings.Contains(c.host, ".prenet.diode.io:41046") {
+				hasDefaultClients = true
+				break
+			}
+		}
+
+		// Only act if:
+		// 1. We have contract addresses that aren't all in use yet, OR
+		// 2. We still have default clients that should be removed
+		if allContractAddressesInUse && !hasDefaultClients {
+			return
+		}
+
+		// We have new addresses or changes to apply - log what we're doing
+		cm.Config.PrintInfo(fmt.Sprintf("Applying new node addresses (%d): %v", len(cm.Config.RemoteRPCAddrs), cm.Config.RemoteRPCAddrs))
+
+		// Contract addresses specified and changes needed - close all default seed nodes
+		// The Terminate handlers will recreate clients using doSelectNextHost(),
+		// which will now only select from contract addresses in RemoteRPCAddrs
+		var defaultClients []*Client
+		for _, c := range cm.clients {
+			if strings.Contains(c.host, ".prenet.diode.io:41046") {
+				defaultClients = append(defaultClients, c)
+			}
+		}
+
+		if len(defaultClients) > 0 {
+			cm.Config.PrintInfo(fmt.Sprintf("Closing %d default seed node clients", len(defaultClients)))
+			for _, c := range defaultClients {
+				cm.Config.Logger.Debug("Closing default node clients: %s", c.host)
+				go c.Close()
+			}
+		}
+	})
 }
 
 func (cm *ClientManager) Stop() {
