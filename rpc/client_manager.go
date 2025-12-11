@@ -30,10 +30,6 @@ type ClientManager struct {
 
 	pool   *DataPool
 	Config *config.Config
-
-	// bqFailures tracks blockquick validation failures across client recreations
-	// This persists even when clients are destroyed and recreated
-	bqFailures int
 }
 
 type nodeRequest struct {
@@ -266,25 +262,6 @@ func (cm *ClientManager) doResetBlockquickState(reason string) {
 			client.Log().Error("Blockquick downgrade failed to clear memory window: %v", err)
 		}
 	}
-}
-
-// incrementBQFailures increments and returns the blockquick failure counter
-// This counter persists across client recreations
-func (cm *ClientManager) incrementBQFailures() int {
-	var result int
-	cm.srv.Call(func() {
-		cm.bqFailures++
-		result = cm.bqFailures
-	})
-	return result
-}
-
-// resetBQFailures resets the blockquick failure counter
-// Called when validation succeeds or when reset is triggered
-func (cm *ClientManager) resetBQFailures() {
-	cm.srv.Call(func() {
-		cm.bqFailures = 0
-	})
 }
 
 func (cm *ClientManager) GetNearestClient() (client *Client) {
