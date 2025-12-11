@@ -1494,18 +1494,19 @@ func (client *Client) shouldRebuildBlockquick(blockNum uint64, hash string, err 
 }
 
 func (client *Client) tryDowngradeBlockquick(err error) bool {
-	if err == nil || !client.config.BlockquickDowngrade {
-		client.bqFailures = 0
-		return false
-	}
 	if !strings.Contains(err.Error(), blockquickValidationError) {
 		client.bqFailures = 0
 		return false
 	}
 
+	if !client.config.BlockquickDowngrade {
+		client.bqFailures = 0
+		return true
+	}
+
 	client.bqFailures++
 	if client.bqFailures < blockquickDowngradeThreshold {
-		return false
+		return true
 	}
 
 	client.bqFailures = 0
@@ -1533,15 +1534,6 @@ func (client *Client) ensureBlockquickWindow() error {
 
 		if strings.Contains(msg, "sent reference block does not match") && !mismatchRetried {
 			mismatchRetried = true
-			continue
-		}
-
-		// Always treat blockquick validation failures as transient:
-		// - without bqdowngrade, we simply retry until the network can be validated
-		// - with bqdowngrade, tryDowngradeBlockquick() eventually resets the window
-		//   after several consecutive failures, then we retry.
-		if strings.Contains(msg, blockquickValidationError) {
-			client.tryDowngradeBlockquick(err)
 			continue
 		}
 
