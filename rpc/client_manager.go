@@ -38,6 +38,8 @@ type ClientManager struct {
 	// bqFailures tracks blockquick validation failures across client recreations
 	// This persists even when clients are destroyed and recreated
 	bqFailures int
+	// savedDefaultAddresses stores the default addresses that were removed when contract addresses were first detected
+	savedDefaultAddresses config.StringValues
 }
 
 type nodeRequest struct {
@@ -71,135 +73,122 @@ func (cm *ClientManager) Start() {
 	go cm.sortTopClients()
 }
 
-// AddNewAddresses checks if contract-specified addresses are in RemoteRPCAddrs.
-// If so, it closes all default seed nodes. The Terminate handlers will automatically
-// recreate clients using doSelectNextHost(), which will now only pick from the
-// contract addresses in RemoteRPCAddrs. This reuses the existing behavior where
-// command-line -diodeaddrs skips defaults.
-// Only acts if addresses have changed to avoid unnecessary client recreation on polls.
+// AddNewAddresses manages client connections based on contract-specified addresses.
+// On first detection of contract addresses, saves current clients as defaults.
+// When contract addresses are removed, restores the saved defaults.
 func (cm *ClientManager) AddNewAddresses() {
 	cm.srv.Call(func() {
-		// Get addresses currently in use
-		addressesInUse := make(map[string]bool, len(cm.clients))
-		for _, c := range cm.clients {
-			addressesInUse[c.host] = true
-		}
-
-		// Check if we have any contract-specified addresses (non-default)
-		hasContractAddresses := false
+		// Build set of contract addresses (valid, non-empty)
 		contractAddresses := make(map[string]bool)
 		for _, addr := range cm.Config.RemoteRPCAddrs {
-			if !strings.Contains(addr, ".prenet.diode.io:41046") {
-				hasContractAddresses = true
+			addr = strings.TrimSpace(addr)
+			if addr != "" {
 				contractAddresses[addr] = true
 			}
 		}
 
+		// Build set of current client addresses
+		clientAddresses := make(map[string]bool)
+		for _, c := range cm.clients {
+			clientAddresses[c.host] = true
+		}
+
+		hasContractAddresses := len(contractAddresses) > 0
+
+		// Case 1: No contract addresses - restore defaults if we have contract clients
 		if !hasContractAddresses {
-			cm.Config.Logger.Debug("AddNewAddresses: no valid node addresses found, keeping defaults")
+			if len(cm.savedDefaultAddresses) == 0 {
+				// No saved defaults, nothing to restore
+				return
+			}
+
+			// Build set of saved default addresses
+			savedDefaultsMap := make(map[string]bool)
+			for _, addr := range cm.savedDefaultAddresses {
+				savedDefaultsMap[addr] = true
+			}
+
+			// Find contract clients (not in saved defaults)
+			var contractClients []*Client
+			for _, c := range cm.clients {
+				if !savedDefaultsMap[c.host] {
+					contractClients = append(contractClients, c)
+				}
+			}
+
+			if len(contractClients) == 0 {
+				// Already using defaults
+				return
+			}
+
+			// Restore defaults and close contract clients
+			cm.Config.PrintInfo("All node addresses removed from perimeter, restoring cached default nodes")
+			cm.Config.RemoteRPCAddrs = cm.savedDefaultAddresses
+			cm.Config.Logger.Debug("Restoring %d cached default nodes: %v", len(cm.savedDefaultAddresses), cm.savedDefaultAddresses)
+
+			cm.Config.PrintInfo(fmt.Sprintf("Closing %d nodes no longer in perimeter", len(contractClients)))
+			for _, c := range contractClients {
+				cm.Config.Logger.Debug("Closing contract node: %s", c.host)
+				go c.Close()
+			}
 			return
 		}
 
-		// Check if all contract addresses are already in use
-		allContractAddressesInUse := true
-		for addr := range contractAddresses {
-			if !addressesInUse[addr] {
-				allContractAddressesInUse = false
-				break
+		// Case 2: Contract addresses present
+		// Save current clients as defaults on first detection
+		if len(cm.savedDefaultAddresses) == 0 {
+			savedAddrs := make([]string, 0, len(cm.clients))
+			for _, c := range cm.clients {
+				savedAddrs = append(savedAddrs, c.host)
 			}
+			cm.savedDefaultAddresses = config.StringValues(savedAddrs)
+			cm.Config.Logger.Debug("Cached %d default addresses for later restoration: %v", len(cm.savedDefaultAddresses), cm.savedDefaultAddresses)
 		}
 
-		// Check if we have any default clients that should be removed
-		hasDefaultClients := false
-		for _, c := range cm.clients {
-			if strings.Contains(c.host, ".prenet.diode.io:41046") {
-				hasDefaultClients = true
-				break
-			}
-		}
-
-		// Build a set of allowed addresses (contract addresses + defaults if no contracts)
-		allowedAddresses := make(map[string]bool)
-		for _, addr := range cm.Config.RemoteRPCAddrs {
-			allowedAddresses[addr] = true
-		}
-
-		// Check if any clients are using addresses not in the allowed list (removed from contract)
-		hasRemovedAddresses := false
-		for _, c := range cm.clients {
-			if !allowedAddresses[c.host] {
-				hasRemovedAddresses = true
-				break
-			}
-		}
-
-		// Only act if:
-		// 1. We have contract addresses that aren't all in use yet, OR
-		// 2. We still have default clients that should be removed, OR
-		// 3. We have clients using addresses that were removed from the contract
-		if allContractAddressesInUse && !hasDefaultClients && !hasRemovedAddresses {
-			return
-		}
-
-		// We have new addresses or changes to apply - log what we're doing
-		cm.Config.PrintInfo(fmt.Sprintf("Applying new node addresses (%d): %v", len(cm.Config.RemoteRPCAddrs), cm.Config.RemoteRPCAddrs))
-
-		// Close clients that are using addresses no longer in the contract
+		// Find clients to close (not in contract addresses)
 		var clientsToClose []*Client
 		for _, c := range cm.clients {
-			shouldClose := false
-			// Close default seed nodes if we have contract addresses
-			if hasContractAddresses && strings.Contains(c.host, ".prenet.diode.io:41046") {
-				shouldClose = true
-			}
-			// Close clients using addresses not in the allowed list
-			if !allowedAddresses[c.host] {
-				shouldClose = true
-			}
-			if shouldClose {
+			if !contractAddresses[c.host] {
 				clientsToClose = append(clientsToClose, c)
 			}
 		}
 
+		// Find unused contract addresses to add
+		var unusedAddresses []string
+		for addr := range contractAddresses {
+			if !clientAddresses[addr] {
+				unusedAddresses = append(unusedAddresses, addr)
+			}
+		}
+
+		// Only act if there are changes needed
+		if len(clientsToClose) == 0 && len(unusedAddresses) == 0 {
+			return
+		}
+
+		cm.Config.PrintInfo(fmt.Sprintf("Adding new nodes (%d): %v", len(cm.Config.RemoteRPCAddrs), cm.Config.RemoteRPCAddrs))
+
+		// Close clients not in contract addresses
 		if len(clientsToClose) > 0 {
-			cm.Config.PrintInfo(fmt.Sprintf("Closing %d clients (removed from contract or default seed nodes)", len(clientsToClose)))
+			cm.Config.PrintInfo(fmt.Sprintf("Closing %d nodes no longer in perimeter", len(clientsToClose)))
 			for _, c := range clientsToClose {
-				cm.Config.Logger.Debug("Closing client: %s", c.host)
+				cm.Config.Logger.Debug("Closing node: %s", c.host)
 				go c.Close()
 			}
 		}
 
-		// If we have unused contract addresses and we're below targetClients, add them
-		// This handles the case where a new address is added but there are no defaults to close
-		if !allContractAddressesInUse {
-			currentClientCount := len(cm.clients)
-			if currentClientCount < cm.targetClients {
-				// Find unused contract addresses
-				unusedAddresses := make([]string, 0)
-				for addr := range contractAddresses {
-					if !addressesInUse[addr] {
-						unusedAddresses = append(unusedAddresses, addr)
-					}
-				}
-				// Add clients for unused addresses up to targetClients
-				toAdd := cm.targetClients - currentClientCount
+		// Add unused contract addresses up to targetClients
+		if len(unusedAddresses) > 0 {
+			currentCount := len(cm.clients)
+			toAdd := cm.targetClients - currentCount
+			if toAdd > 0 {
 				if toAdd > len(unusedAddresses) {
 					toAdd = len(unusedAddresses)
 				}
 				for i := 0; i < toAdd; i++ {
 					addr := unusedAddresses[i]
-					cm.Config.Logger.Debug("Adding new contract address: %s", addr)
-					// Check if we already have a client for this host (double-check inside the lock)
-					alreadyExists := false
-					for _, c := range cm.clients {
-						if c.host == addr {
-							alreadyExists = true
-							break
-						}
-					}
-					if !alreadyExists {
-						cm.startClient(addr)
-					}
+					cm.Config.Logger.Debug("Adding new node: %s", addr)
+					cm.startClient(addr)
 				}
 			}
 		}
