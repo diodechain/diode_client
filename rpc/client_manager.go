@@ -145,6 +145,41 @@ func (cm *ClientManager) AddNewAddresses() {
 				go c.Close()
 			}
 		}
+
+		// If we have unused contract addresses and we're below targetClients, add them
+		// This handles the case where a new address is added but there are no defaults to close
+		if !allContractAddressesInUse {
+			currentClientCount := len(cm.clients)
+			if currentClientCount < cm.targetClients {
+				// Find unused contract addresses
+				unusedAddresses := make([]string, 0)
+				for addr := range contractAddresses {
+					if !addressesInUse[addr] {
+						unusedAddresses = append(unusedAddresses, addr)
+					}
+				}
+				// Add clients for unused addresses up to targetClients
+				toAdd := cm.targetClients - currentClientCount
+				if toAdd > len(unusedAddresses) {
+					toAdd = len(unusedAddresses)
+				}
+				for i := 0; i < toAdd; i++ {
+					addr := unusedAddresses[i]
+					cm.Config.Logger.Debug("Adding new contract address: %s", addr)
+					// Check if we already have a client for this host (double-check inside the lock)
+					alreadyExists := false
+					for _, c := range cm.clients {
+						if c.host == addr {
+							alreadyExists = true
+							break
+						}
+					}
+					if !alreadyExists {
+						cm.startClient(addr)
+					}
+				}
+			}
+		}
 	})
 }
 
@@ -183,6 +218,22 @@ func (cm *ClientManager) Stop() {
 func (cm *ClientManager) doAddClient() {
 	host := cm.doSelectNextHost()
 	cm.startClient(host)
+}
+
+// doAddClientForAddress adds a client for a specific address
+func (cm *ClientManager) doAddClientForAddress(host string) {
+	if host == "" {
+		return
+	}
+	cm.srv.Call(func() {
+		// Check if we already have a client for this host
+		for _, c := range cm.clients {
+			if c.host == host {
+				return
+			}
+		}
+		cm.startClient(host)
+	})
 }
 
 func (cm *ClientManager) startClient(host string) *Client {
