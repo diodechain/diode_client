@@ -25,12 +25,8 @@ type ClientManager struct {
 	clients       []*Client
 	// rebuildingBlockquick guards a global blockquick rebuild loop
 	rebuildingBlockquick uint32
-	clientMap            map[util.Address]*Client
-	// rebuildClientWindow allows tests to stub the rebuild logic
-	rebuildClientWindow func(*Client) error
-	// sleepFunc allows tests to stub the backoff sleep
-	sleepFunc func(time.Duration)
-	topClients [2]*Client
+	clientMap     map[util.Address]*Client
+	topClients    [2]*Client
 
 	waitingAny  []*genserver.Reply
 	waitingNode map[util.Address]*nodeRequest
@@ -57,15 +53,6 @@ func NewClientManager(cfg *config.Config) *ClientManager {
 	}
 	if !config.AppConfig.LogDateTime {
 		cm.srv.DeadlockCallback = nil
-	}
-
-	if cm.rebuildClientWindow == nil {
-		cm.rebuildClientWindow = func(c *Client) error {
-			return c.ensureBlockquickWindow()
-		}
-	}
-	if cm.sleepFunc == nil {
-		cm.sleepFunc = time.Sleep
 	}
 	return cm
 }
@@ -283,7 +270,7 @@ func (cm *ClientManager) startGlobalBlockquickRebuild(reason string) {
 
 			success := false
 			for _, client := range clients {
-				if err := cm.rebuildClientWindow(client); err != nil {
+				if err := client.ensureBlockquickWindow(); err != nil {
 					client.Log().Error("Global blockquick rebuild failed (%s): %v", reason, err)
 					continue
 				}
@@ -298,7 +285,7 @@ func (cm *ClientManager) startGlobalBlockquickRebuild(reason string) {
 				return
 			}
 
-			cm.sleepFunc(backoff)
+			time.Sleep(backoff)
 			if backoff < time.Minute {
 				backoff *= 2
 			}
