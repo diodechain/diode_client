@@ -1447,6 +1447,11 @@ func (client *Client) isRebuildingBlockquick() bool {
 }
 
 func (client *Client) startBlockquickRebuild(reason string) {
+	if client.clientMan != nil {
+		client.clientMan.startGlobalBlockquickRebuild(reason)
+		return
+	}
+
 	if reason == "" {
 		reason = "blockquick window reset"
 	}
@@ -1489,18 +1494,19 @@ func (client *Client) shouldRebuildBlockquick(blockNum uint64, hash string, err 
 }
 
 func (client *Client) tryDowngradeBlockquick(err error) bool {
-	if err == nil || !client.config.BlockquickDowngrade {
-		client.bqFailures = 0
-		return false
-	}
 	if !strings.Contains(err.Error(), blockquickValidationError) {
 		client.bqFailures = 0
 		return false
 	}
 
+	if !client.config.BlockquickDowngrade {
+		client.bqFailures = 0
+		return true
+	}
+
 	client.bqFailures++
 	if client.bqFailures < blockquickDowngradeThreshold {
-		return false
+		return true
 	}
 
 	client.bqFailures = 0
@@ -1524,7 +1530,9 @@ func (client *Client) ensureBlockquickWindow() error {
 			return nil
 		}
 
-		if strings.Contains(err.Error(), "sent reference block does not match") && !mismatchRetried {
+		msg := err.Error()
+
+		if strings.Contains(msg, "sent reference block does not match") && !mismatchRetried {
 			mismatchRetried = true
 			continue
 		}
