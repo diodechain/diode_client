@@ -343,6 +343,13 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 			continue
 		}
 
+		// Rate limit: don't create more than 10 concurrent connection attempts to the same device
+		activePorts := socksServer.datapool.CountActivePortsForDevice(deviceID)
+		if activePorts >= 10 {
+			socksServer.logger.Debug("%d: Too many active ports (%d) for device %s, skipping", requestId, activePorts, deviceID.HexString())
+			continue
+		}
+
 		if nearestClient != nil {
 			candidates = append(candidates, candidate{deviceID, nearestClient.serverID})
 		}
@@ -422,6 +429,15 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 }
 
 func doCreatePort(client *Client, deviceID Address, port int, portName string, mode string, requestId int64) (conn *ConnectedPort, err error) {
+	// Rate limit: check if we're allowed to create another connection attempt
+	// This prevents connection storms when many attempts fail quickly
+	pool := client.pool
+	if !pool.IncrementConnectionAttempt(deviceID) {
+		err = fmt.Errorf("too many connection attempts to device %s", deviceID.HexString())
+		return
+	}
+	defer pool.DecrementConnectionAttempt(deviceID)
+
 	var portOpen *edge.PortOpen
 	portOpen, err = client.PortOpen(deviceID, port, portName, mode)
 	if err != nil {

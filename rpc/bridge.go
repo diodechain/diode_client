@@ -70,11 +70,20 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 				return
 			}
 
-			portOpen.SrcPortNumber = int(publishedPort.Src)
-			port := NewConnectedPort(0, portOpen.Ref, portOpen.DeviceID, client, portOpen.PortNumber)
-			defer port.Shutdown()
+			// Check if there's already an active port for this device/ref
+			deviceKey := client.GetDeviceKey(portOpen.Ref)
+			existingPort := client.pool.GetPort(deviceKey)
+			if existingPort != nil && !existingPort.Closed() {
+				// Port already exists and is active, reject the new request
+				err := fmt.Errorf("port already open for device %x ref %s", portOpen.DeviceID, portOpen.Ref)
+				client.ResponsePortOpen(portOpen, err)
+				client.Log().Debug("Rejecting duplicate port open request for device %x ref %s", portOpen.DeviceID, portOpen.Ref)
+				return
+			}
 
-			// connect to stream service
+			portOpen.SrcPortNumber = int(publishedPort.Src)
+
+			// connect to stream service first, before creating the port
 			host := net.JoinHostPort(publishedPort.SrcHost, strconv.Itoa(portOpen.SrcPortNumber))
 
 			network := "tcp"
@@ -88,6 +97,10 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 				client.Log().Error("Failed to connect local '%v': %v", host, err)
 				return
 			}
+
+			// Only create the port after local connection succeeds
+			port := NewConnectedPort(0, portOpen.Ref, portOpen.DeviceID, client, portOpen.PortNumber)
+			defer port.Shutdown()
 			if tcpConn, ok := remoteConn.(*net.TCPConn); ok {
 				configureTcpConn(tcpConn)
 				port.Conn = remoteConn
@@ -97,7 +110,6 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 				port.Conn = NewPacketConn(remoteConn)
 			}
 
-			deviceKey := client.GetDeviceKey(portOpen.Ref)
 			port.Protocol = portOpen.Protocol
 			port.PortNumber = portOpen.PortNumber
 			port.SrcPortNumber = portOpen.SrcPortNumber
