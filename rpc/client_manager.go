@@ -10,7 +10,6 @@ import (
 	"net"
 	"sort"
 	"strings"
-	"sync/atomic"
 	"time"
 
 	"github.com/diodechain/diode_client/config"
@@ -24,10 +23,8 @@ type ClientManager struct {
 
 	targetClients int
 	clients       []*Client
-	// rebuildingBlockquick guards a global blockquick rebuild loop
-	rebuildingBlockquick uint32
-	clientMap            map[util.Address]*Client
-	topClients           [2]*Client
+	clientMap     map[util.Address]*Client
+	topClients    [2]*Client
 
 	waitingAny  []*genserver.Reply
 	waitingNode map[util.Address]*nodeRequest
@@ -374,52 +371,6 @@ func (cm *ClientManager) resetBlockquickState(reason string) {
 	cm.srv.Call(func() {
 		cm.doResetBlockquickState(reason)
 	})
-}
-
-func (cm *ClientManager) startGlobalBlockquickRebuild(reason string) {
-	if reason == "" {
-		reason = "blockquick window reset"
-	}
-	if !atomic.CompareAndSwapUint32(&cm.rebuildingBlockquick, 0, 1) {
-		cm.Config.Logger.Debug("Global blockquick rebuild already running (%s)", reason)
-		return
-	}
-
-	go func() {
-		defer atomic.StoreUint32(&cm.rebuildingBlockquick, 0)
-
-		backoff := 5 * time.Second
-		for {
-			cm.resetBlockquickState(reason)
-
-			clients := cm.ClientsByLatency()
-			if len(clients) == 0 {
-				cm.Config.Logger.Warn("Global blockquick rebuild: no clients available (%s)", reason)
-			}
-
-			success := false
-			for _, client := range clients {
-				if err := client.ensureBlockquickWindow(); err != nil {
-					client.Log().Error("Global blockquick rebuild failed (%s): %v", reason, err)
-					continue
-				}
-
-				client.Log().Info("Global blockquick rebuild succeeded (%s)", reason)
-				client.SubmitNewTicket()
-				success = true
-				break
-			}
-
-			if success {
-				return
-			}
-
-			time.Sleep(backoff)
-			if backoff < time.Minute {
-				backoff *= 2
-			}
-		}
-	}()
 }
 
 func (cm *ClientManager) doResetBlockquickState(reason string) {
