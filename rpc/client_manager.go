@@ -232,22 +232,6 @@ func (cm *ClientManager) doAddClient() {
 	cm.startClient(host)
 }
 
-// doAddClientForAddress adds a client for a specific address
-func (cm *ClientManager) doAddClientForAddress(host string) {
-	if host == "" {
-		return
-	}
-	cm.srv.Call(func() {
-		// Check if we already have a client for this host
-		for _, c := range cm.clients {
-			if c.host == host {
-				return
-			}
-		}
-		cm.startClient(host)
-	})
-}
-
 func (cm *ClientManager) startClient(host string) *Client {
 	if host == "" {
 		return nil
