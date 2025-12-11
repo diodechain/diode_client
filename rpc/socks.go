@@ -454,7 +454,9 @@ func (socksServer *Server) connectDeviceFrom(deviceName string, port int, protoc
 	connPort, err := socksServer.doConnectDevice(requestID, deviceName, port, protocol, mode, 1)
 
 	if err != nil {
-		connPort.Shutdown()
+		if connPort != nil {
+			connPort.Shutdown()
+		}
 		return nil, err
 	}
 	connPort.TargetDeviceName = deviceName
