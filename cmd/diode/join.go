@@ -417,7 +417,11 @@ func applyDiodeAddrs(cfg *config.Config, addrs []string) {
 			normalized = append(normalized, addr)
 		}
 	}
+	// If normalized is empty, clear RemoteRPCAddrs to signal no contract addresses
+	// This allows AddNewAddresses to distinguish between "no contract addresses"
+	// and "contract addresses not yet processed"
 	if len(normalized) == 0 {
+		cfg.RemoteRPCAddrs = config.StringValues{}
 		return
 	}
 	mrand.Shuffle(len(normalized), func(i, j int) {
@@ -668,6 +672,14 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 				cfg.SBinds = config.StringValues{}
 				cfg.Binds = []config.Bind{}
 			}
+			continue
+		}
+
+		// Special handling for diodeaddrs: an empty diodeaddrs value in the control plane
+		// should clear all existing addresses derived from the contract so that
+		// removed addresses are reflected in the running client.
+		if key == "diodeaddrs" && trimmed == "" {
+			cfg.RemoteRPCAddrs = config.StringValues{}
 			continue
 		}
 
