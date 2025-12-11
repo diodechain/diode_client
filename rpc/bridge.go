@@ -70,6 +70,16 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 				return
 			}
 
+			// Rate limit: check if we're allowed to create another connection attempt for this device
+			// This prevents connection storms when many inbound requests arrive rapidly
+			if !client.pool.IncrementConnectionAttempt(portOpen.DeviceID) {
+				err := fmt.Errorf("too many connection attempts to device %x", portOpen.DeviceID)
+				client.ResponsePortOpen(portOpen, err)
+				client.Log().Debug("Rejecting port open request due to rate limit for device %x", portOpen.DeviceID)
+				return
+			}
+			defer client.pool.DecrementConnectionAttempt(portOpen.DeviceID)
+
 			// Check if there's already an active port for this device/ref
 			deviceKey := client.GetDeviceKey(portOpen.Ref)
 			existingPort := client.pool.GetPort(deviceKey)

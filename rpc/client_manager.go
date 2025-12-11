@@ -118,30 +118,53 @@ func (cm *ClientManager) AddNewAddresses() {
 			}
 		}
 
+		// Build a set of allowed addresses (contract addresses + defaults if no contracts)
+		allowedAddresses := make(map[string]bool)
+		for _, addr := range cm.Config.RemoteRPCAddrs {
+			allowedAddresses[addr] = true
+		}
+
+		// Check if any clients are using addresses not in the allowed list (removed from contract)
+		hasRemovedAddresses := false
+		for _, c := range cm.clients {
+			if !allowedAddresses[c.host] {
+				hasRemovedAddresses = true
+				break
+			}
+		}
+
 		// Only act if:
 		// 1. We have contract addresses that aren't all in use yet, OR
-		// 2. We still have default clients that should be removed
-		if allContractAddressesInUse && !hasDefaultClients {
+		// 2. We still have default clients that should be removed, OR
+		// 3. We have clients using addresses that were removed from the contract
+		if allContractAddressesInUse && !hasDefaultClients && !hasRemovedAddresses {
 			return
 		}
 
 		// We have new addresses or changes to apply - log what we're doing
 		cm.Config.PrintInfo(fmt.Sprintf("Applying new node addresses (%d): %v", len(cm.Config.RemoteRPCAddrs), cm.Config.RemoteRPCAddrs))
 
-		// Contract addresses specified and changes needed - close all default seed nodes
-		// The Terminate handlers will recreate clients using doSelectNextHost(),
-		// which will now only select from contract addresses in RemoteRPCAddrs
-		var defaultClients []*Client
+		// Close clients that are using addresses no longer in the contract
+		var clientsToClose []*Client
 		for _, c := range cm.clients {
-			if strings.Contains(c.host, ".prenet.diode.io:41046") {
-				defaultClients = append(defaultClients, c)
+			shouldClose := false
+			// Close default seed nodes if we have contract addresses
+			if hasContractAddresses && strings.Contains(c.host, ".prenet.diode.io:41046") {
+				shouldClose = true
+			}
+			// Close clients using addresses not in the allowed list
+			if !allowedAddresses[c.host] {
+				shouldClose = true
+			}
+			if shouldClose {
+				clientsToClose = append(clientsToClose, c)
 			}
 		}
 
-		if len(defaultClients) > 0 {
-			cm.Config.PrintInfo(fmt.Sprintf("Closing %d default seed node clients", len(defaultClients)))
-			for _, c := range defaultClients {
-				cm.Config.Logger.Debug("Closing default node clients: %s", c.host)
+		if len(clientsToClose) > 0 {
+			cm.Config.PrintInfo(fmt.Sprintf("Closing %d clients (removed from contract or default seed nodes)", len(clientsToClose)))
+			for _, c := range clientsToClose {
+				cm.Config.Logger.Debug("Closing client: %s", c.host)
 				go c.Close()
 			}
 		}
