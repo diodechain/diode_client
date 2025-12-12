@@ -125,3 +125,8 @@ jobs:
       with:
         name: "diode_linux_arm64.zip"
         path: ${{ github.workspace }}/.github/diode_linux_arm64.zip
+    - name: "Archive bullseye-amd64 artifacts"
+      uses: actions/upload-artifact@v4
+      with:
+        name: "diode_linux_amd64_bullseye.zip"
+        path: ${{ github.workspace }}/.github/diode_linux_amd64_bullseye.zip
