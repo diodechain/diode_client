@@ -10,6 +10,7 @@ import (
 	"net"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/diodechain/diode_client/config"
@@ -23,8 +24,10 @@ type ClientManager struct {
 
 	targetClients int
 	clients       []*Client
-	clientMap     map[util.Address]*Client
-	topClients    [2]*Client
+	// rebuildingBlockquick guards a global blockquick rebuild loop
+	rebuildingBlockquick uint32
+	clientMap            map[util.Address]*Client
+	topClients           [2]*Client
 
 	waitingAny  []*genserver.Reply
 	waitingNode map[util.Address]*nodeRequest
@@ -32,9 +35,6 @@ type ClientManager struct {
 	pool   *DataPool
 	Config *config.Config
 
-	// bqFailures tracks blockquick validation failures across client recreations
-	// This persists even when clients are destroyed and recreated
-	bqFailures int
 	// savedDefaultAddresses stores the default addresses that were removed when contract addresses were first detected
 	savedDefaultAddresses config.StringValues
 }
@@ -163,7 +163,7 @@ func (cm *ClientManager) AddNewAddresses() {
 			return
 		}
 
-cm.Config.PrintInfo(fmt.Sprintf("Perimeter configuration updated. New node list (%d): %v", len(cm.Config.RemoteRPCAddrs), cm.Config.RemoteRPCAddrs))
+		cm.Config.PrintInfo(fmt.Sprintf("Perimeter configuration updated. New node list (%d): %v", len(cm.Config.RemoteRPCAddrs), cm.Config.RemoteRPCAddrs))
 
 		// Close clients not in contract addresses
 		if len(clientsToClose) > 0 {
@@ -373,6 +373,52 @@ func (cm *ClientManager) resetBlockquickState(reason string) {
 	})
 }
 
+func (cm *ClientManager) startGlobalBlockquickRebuild(reason string) {
+	if reason == "" {
+		reason = "blockquick window reset"
+	}
+	if !atomic.CompareAndSwapUint32(&cm.rebuildingBlockquick, 0, 1) {
+		cm.Config.Logger.Debug("Global blockquick rebuild already running (%s)", reason)
+		return
+	}
+
+	go func() {
+		defer atomic.StoreUint32(&cm.rebuildingBlockquick, 0)
+
+		backoff := 5 * time.Second
+		for {
+			cm.resetBlockquickState(reason)
+
+			clients := cm.ClientsByLatency()
+			if len(clients) == 0 {
+				cm.Config.Logger.Warn("Global blockquick rebuild: no clients available (%s)", reason)
+			}
+
+			success := false
+			for _, client := range clients {
+				if err := client.ensureBlockquickWindow(); err != nil {
+					client.Log().Error("Global blockquick rebuild failed (%s): %v", reason, err)
+					continue
+				}
+
+				client.Log().Info("Global blockquick rebuild succeeded (%s)", reason)
+				client.SubmitNewTicket()
+				success = true
+				break
+			}
+
+			if success {
+				return
+			}
+
+			time.Sleep(backoff)
+			if backoff < time.Minute {
+				backoff *= 2
+			}
+		}
+	}()
+}
+
 func (cm *ClientManager) doResetBlockquickState(reason string) {
 
 	if err := resetLastValid(); err != nil {
@@ -391,25 +437,6 @@ func (cm *ClientManager) doResetBlockquickState(reason string) {
 			client.Log().Error("Blockquick downgrade failed to clear memory window: %v", err)
 		}
 	}
-}
-
-// incrementBQFailures increments and returns the blockquick failure counter
-// This counter persists across client recreations
-func (cm *ClientManager) incrementBQFailures() int {
-	var result int
-	cm.srv.Call(func() {
-		cm.bqFailures++
-		result = cm.bqFailures
-	})
-	return result
-}
-
-// resetBQFailures resets the blockquick failure counter
-// Called when validation succeeds or when reset is triggered
-func (cm *ClientManager) resetBQFailures() {
-	cm.srv.Call(func() {
-		cm.bqFailures = 0
-	})
 }
 
 func (cm *ClientManager) GetNearestClient() (client *Client) {
