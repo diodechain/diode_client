@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"net"
 	"sort"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -25,14 +26,17 @@ type ClientManager struct {
 	clients       []*Client
 	// rebuildingBlockquick guards a global blockquick rebuild loop
 	rebuildingBlockquick uint32
-	clientMap     map[util.Address]*Client
-	topClients    [2]*Client
+	clientMap            map[util.Address]*Client
+	topClients           [2]*Client
 
 	waitingAny  []*genserver.Reply
 	waitingNode map[util.Address]*nodeRequest
 
 	pool   *DataPool
 	Config *config.Config
+
+	// savedDefaultAddresses stores the default addresses that were removed when contract addresses were first detected
+	savedDefaultAddresses config.StringValues
 }
 
 type nodeRequest struct {
@@ -64,6 +68,128 @@ func (cm *ClientManager) Start() {
 		}
 	})
 	go cm.sortTopClients()
+}
+
+// AddNewAddresses manages client connections based on contract-specified addresses.
+// On first detection of contract addresses, saves current clients as defaults.
+// When contract addresses are removed, restores the saved defaults.
+func (cm *ClientManager) AddNewAddresses() {
+	cm.srv.Call(func() {
+		// Build set of contract addresses (valid, non-empty)
+		contractAddresses := make(map[string]bool)
+		for _, addr := range cm.Config.RemoteRPCAddrs {
+			addr = strings.TrimSpace(addr)
+			if addr != "" {
+				contractAddresses[addr] = true
+			}
+		}
+
+		// Build set of current client addresses
+		clientAddresses := make(map[string]bool)
+		for _, c := range cm.clients {
+			clientAddresses[c.host] = true
+		}
+
+		hasContractAddresses := len(contractAddresses) > 0
+
+		// Case 1: No contract addresses - restore defaults if we have contract clients
+		if !hasContractAddresses {
+			if len(cm.savedDefaultAddresses) == 0 {
+				// No saved defaults, nothing to restore
+				return
+			}
+
+			// Build set of saved default addresses
+			savedDefaultsMap := make(map[string]bool)
+			for _, addr := range cm.savedDefaultAddresses {
+				savedDefaultsMap[addr] = true
+			}
+
+			// Find contract clients (not in saved defaults)
+			var contractClients []*Client
+			for _, c := range cm.clients {
+				if !savedDefaultsMap[c.host] {
+					contractClients = append(contractClients, c)
+				}
+			}
+
+			if len(contractClients) == 0 {
+				// Already using defaults
+				return
+			}
+
+			// Restore defaults and close contract clients
+			cm.Config.PrintInfo("All node addresses removed from perimeter, restoring cached default nodes")
+			cm.Config.RemoteRPCAddrs = cm.savedDefaultAddresses
+			cm.Config.Logger.Debug("Restoring %d cached default nodes: %v", len(cm.savedDefaultAddresses), cm.savedDefaultAddresses)
+
+			cm.Config.PrintInfo(fmt.Sprintf("Closing %d nodes no longer in perimeter", len(contractClients)))
+			for _, c := range contractClients {
+				cm.Config.Logger.Debug("Closing contract node: %s", c.host)
+				go c.Close()
+			}
+			return
+		}
+
+		// Case 2: Contract addresses present
+		// Save current clients as defaults on first detection
+		if len(cm.savedDefaultAddresses) == 0 {
+			savedAddrs := make([]string, 0, len(cm.clients))
+			for _, c := range cm.clients {
+				savedAddrs = append(savedAddrs, c.host)
+			}
+			cm.savedDefaultAddresses = config.StringValues(savedAddrs)
+			cm.Config.Logger.Debug("Cached %d default addresses for later restoration: %v", len(cm.savedDefaultAddresses), cm.savedDefaultAddresses)
+		}
+
+		// Find clients to close (not in contract addresses)
+		var clientsToClose []*Client
+		for _, c := range cm.clients {
+			if !contractAddresses[c.host] {
+				clientsToClose = append(clientsToClose, c)
+			}
+		}
+
+		// Find unused contract addresses to add
+		var unusedAddresses []string
+		for addr := range contractAddresses {
+			if !clientAddresses[addr] {
+				unusedAddresses = append(unusedAddresses, addr)
+			}
+		}
+
+		// Only act if there are changes needed
+		if len(clientsToClose) == 0 && len(unusedAddresses) == 0 {
+			return
+		}
+
+		cm.Config.PrintInfo(fmt.Sprintf("Perimeter configuration updated. New node list (%d): %v", len(cm.Config.RemoteRPCAddrs), cm.Config.RemoteRPCAddrs))
+
+		// Close clients not in contract addresses
+		if len(clientsToClose) > 0 {
+			cm.Config.PrintInfo(fmt.Sprintf("Closing %d nodes no longer in perimeter", len(clientsToClose)))
+			for _, c := range clientsToClose {
+				cm.Config.Logger.Debug("Closing node: %s", c.host)
+				go c.Close()
+			}
+		}
+
+		// Add unused contract addresses up to targetClients
+		if len(unusedAddresses) > 0 {
+			currentCount := len(cm.clients)
+			toAdd := cm.targetClients - currentCount
+			if toAdd > 0 {
+				if toAdd > len(unusedAddresses) {
+					toAdd = len(unusedAddresses)
+				}
+				for i := 0; i < toAdd; i++ {
+					addr := unusedAddresses[i]
+					cm.Config.Logger.Debug("Adding new node: %s", addr)
+					cm.startClient(addr)
+				}
+			}
+		}
+	})
 }
 
 func (cm *ClientManager) Stop() {
