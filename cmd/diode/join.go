@@ -408,7 +408,7 @@ func applyDiodeAddrs(cfg *config.Config, addrs []string) {
 		if !isValidRPCAddress(addr) {
 			adjusted := addr + ":41046"
 			if !isValidRPCAddress(adjusted) {
-				cfg.Logger.Warn("Invalid diode address %q", addr)
+				cfg.Logger.Warn("Invalid diode node address %q", addr)
 				continue
 			}
 			addr = adjusted
@@ -417,7 +417,11 @@ func applyDiodeAddrs(cfg *config.Config, addrs []string) {
 			normalized = append(normalized, addr)
 		}
 	}
+	// If normalized is empty, clear RemoteRPCAddrs to signal no contract addresses
+	// This allows AddNewAddresses to distinguish between "no contract addresses"
+	// and "contract addresses not yet processed"
 	if len(normalized) == 0 {
+		cfg.RemoteRPCAddrs = config.StringValues{}
 		return
 	}
 	mrand.Shuffle(len(normalized), func(i, j int) {
@@ -509,6 +513,7 @@ func applyConfigKey(cfg *config.Config, key string, value interface{}) error {
 	case "diodeaddrs":
 		items, err := stringSliceFromValue(value)
 		if err != nil {
+			cfg.Logger.Warn("Failed to parse diodeaddrs value %v: %v", value, err)
 			return err
 		}
 		applyDiodeAddrs(cfg, items)
@@ -667,6 +672,14 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 				cfg.SBinds = config.StringValues{}
 				cfg.Binds = []config.Bind{}
 			}
+			continue
+		}
+
+		// Special handling for diodeaddrs: an empty diodeaddrs value in the control plane
+		// should clear all existing addresses derived from the contract so that
+		// removed addresses are reflected in the running client.
+		if key == "diodeaddrs" && trimmed == "" {
+			cfg.RemoteRPCAddrs = config.StringValues{}
 			continue
 		}
 
@@ -1156,6 +1169,11 @@ func contractSync(cfg *config.Config) error {
 	}
 
 	applyControlPlaneConfig(cfg, props)
+
+	// After applying contract config, check for new diodeaddrs and add clients for them
+	if app.clientManager != nil {
+		app.clientManager.AddNewAddresses()
+	}
 
 	if err := startServicesFromConfig(cfg); err != nil {
 		return err

@@ -588,6 +588,9 @@ func (client *Client) SubmitNewTicket() (err error) {
 		if client.bq == nil {
 			return
 		}
+		if client.isClosed || client.s == nil {
+			return
+		}
 
 		var ticket *edge.DeviceTicket
 		ticket, err = client.newTicket()
