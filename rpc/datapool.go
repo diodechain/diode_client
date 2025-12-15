@@ -412,7 +412,8 @@ func (p *DataPool) IncrementConnectionAttempt(deviceID Address) bool {
 		// Count in-progress attempts
 		inProgressAttempts := p.connectionAttempts[deviceID]
 		// Total should not exceed MaxPortsPerDevice (active + in-progress)
-		if activePorts+inProgressAttempts < maxPorts {
+		// If maxPorts is 0, it means unlimited
+		if maxPorts == 0 || activePorts+inProgressAttempts < maxPorts {
 			p.connectionAttempts[deviceID] = inProgressAttempts + 1
 			allowed = true
 		}

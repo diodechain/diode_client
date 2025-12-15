@@ -325,11 +325,9 @@ func ProtocolName(protocol int) string {
 	return "?"
 }
 
-// GetMaxPortsPerDevice returns the configured maximum ports per device with a fallback default
+// GetMaxPortsPerDevice returns the configured maximum ports per device
+// Returns 0 for unlimited, or the configured value
 func (cfg *Config) GetMaxPortsPerDevice() int {
-	if cfg.MaxPortsPerDevice == 0 {
-		return 10 // default fallback
-	}
 	return cfg.MaxPortsPerDevice
 }
 

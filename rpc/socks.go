@@ -347,10 +347,13 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 		}
 
 		// Rate limit: don't create more than MaxPortsPerDevice concurrent connection attempts to the same device
-		activePorts := socksServer.datapool.CountActivePortsForDevice(deviceID)
-		if activePorts >= maxPorts {
-			socksServer.logger.Debug("%d: Too many active ports (%d) for device %s, skipping", requestId, activePorts, deviceID.HexString())
-			continue
+		// If maxPorts is 0, it means unlimited
+		if maxPorts > 0 {
+			activePorts := socksServer.datapool.CountActivePortsForDevice(deviceID)
+			if activePorts >= maxPorts {
+				socksServer.logger.Debug("%d: Too many active ports (%d) for device %s, skipping", requestId, activePorts, deviceID.HexString())
+				continue
+			}
 		}
 
 		if nearestClient != nil {
