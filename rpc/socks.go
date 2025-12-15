@@ -344,10 +344,7 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 		}
 
 		// Rate limit: don't create more than MaxPortsPerDevice concurrent connection attempts to the same device
-		maxPorts := config.AppConfig.MaxPortsPerDevice
-		if maxPorts == 0 {
-			maxPorts = 10 // default fallback
-		}
+		maxPorts := config.AppConfig.GetMaxPortsPerDevice()
 		activePorts := socksServer.datapool.CountActivePortsForDevice(deviceID)
 		if activePorts >= maxPorts {
 			socksServer.logger.Debug("%d: Too many active ports (%d) for device %s, skipping", requestId, activePorts, deviceID.HexString())
