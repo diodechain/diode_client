@@ -110,6 +110,7 @@ type Config struct {
 	Experimental            bool             `yaml:"-" json:"-"`
 	LoadFromFile            bool             `yaml:"-" json:"-"`
 	QueryAddress            string           `yaml:"-" json:"-"`
+	MaxPortsPerDevice       int              `yaml:"-" json:"-"`
 }
 
 // LoadConfigFromFile returns bytes data of config

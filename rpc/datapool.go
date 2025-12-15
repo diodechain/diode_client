@@ -409,8 +409,12 @@ func (p *DataPool) IncrementConnectionAttempt(deviceID Address) bool {
 		}
 		// Count in-progress attempts
 		inProgressAttempts := p.connectionAttempts[deviceID]
-		// Total should not exceed 10 (active + in-progress)
-		if activePorts+inProgressAttempts < 10 {
+		// Total should not exceed MaxPortsPerDevice (active + in-progress)
+		maxPorts := config.AppConfig.MaxPortsPerDevice
+		if maxPorts == 0 {
+			maxPorts = 10 // default fallback
+		}
+		if activePorts+inProgressAttempts < maxPorts {
 			p.connectionAttempts[deviceID] = inProgressAttempts + 1
 			allowed = true
 		}
