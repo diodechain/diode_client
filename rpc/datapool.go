@@ -28,6 +28,9 @@ type DataPool struct {
 	bnsCacheExpire       time.Duration
 	bnsCacheUpdatingFlag map[string]bool
 
+	// Track connection attempts in progress per device to prevent storms
+	connectionAttempts map[Address]int
+
 	srv *genserver.GenServer
 }
 
@@ -46,6 +49,7 @@ func NewPool() *DataPool {
 		bnsCacheExpireItem:   make(map[string]time.Time),
 		bnsCacheExpire:       config.AppConfig.ResolveCacheTime,
 		bnsCacheUpdatingFlag: make(map[string]bool),
+		connectionAttempts:   make(map[Address]int),
 	}
 	if !config.AppConfig.LogDateTime {
 		pool.srv.DeadlockCallback = nil
@@ -375,6 +379,55 @@ func (p *DataPool) FindOpenPort(targetDevice string) (port *ConnectedPort) {
 		}
 	})
 	return port
+}
+
+// CountActivePortsForDevice counts how many active ports exist for a given device ID
+func (p *DataPool) CountActivePortsForDevice(deviceID Address) (count int) {
+	p.srv.Call(func() {
+		for _, v := range p.devices {
+			// Check if port is active: has a connection and is not closed
+			// We check v.Conn != nil directly instead of v.Closed() to avoid potential deadlock
+			if v.DeviceID == deviceID && v.Conn != nil {
+				count++
+			}
+		}
+	})
+	return
+}
+
+// IncrementConnectionAttempt increments the connection attempt counter for a device
+// It checks both active ports and in-progress attempts to prevent storms
+func (p *DataPool) IncrementConnectionAttempt(deviceID Address) bool {
+	// Get max ports before entering the synchronized call
+	maxPorts := config.AppConfig.GetMaxPortsPerDevice()
+	allowed := false
+	p.srv.Call(func() {
+		// Count active ports for this device
+		activePorts := 0
+		for _, v := range p.devices {
+			if v.DeviceID == deviceID && v.Conn != nil {
+				activePorts++
+			}
+		}
+		// Count in-progress attempts
+		inProgressAttempts := p.connectionAttempts[deviceID]
+		// Total should not exceed MaxPortsPerDevice (active + in-progress)
+		// If maxPorts is 0, it means unlimited
+		if maxPorts == 0 || activePorts+inProgressAttempts < maxPorts {
+			p.connectionAttempts[deviceID] = inProgressAttempts + 1
+			allowed = true
+		}
+	})
+	return allowed
+}
+
+// DecrementConnectionAttempt decrements the connection attempt counter for a device
+func (p *DataPool) DecrementConnectionAttempt(deviceID Address) {
+	p.srv.Call(func() {
+		if count := p.connectionAttempts[deviceID]; count > 0 {
+			p.connectionAttempts[deviceID] = count - 1
+		}
+	})
 }
 
 func (p *DataPool) SetPort(key string, dev *ConnectedPort) {

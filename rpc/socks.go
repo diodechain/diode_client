@@ -334,6 +334,9 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 
 	nearestClient, _ := socksServer.clientManager.PeekNearestClients()
 
+	// Get max ports once before the loop
+	maxPorts := config.AppConfig.GetMaxPortsPerDevice()
+
 	candidates := make([]candidate, 0)
 	for _, device := range devices {
 		var deviceID Address
@@ -341,6 +344,16 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 		if err != nil {
 			socksServer.logger.Error("%d: DeviceAddress() failed: %v", requestId, err)
 			continue
+		}
+
+		// Rate limit: don't create more than MaxPortsPerDevice concurrent connection attempts to the same device
+		// If maxPorts is 0, it means unlimited
+		if maxPorts > 0 {
+			activePorts := socksServer.datapool.CountActivePortsForDevice(deviceID)
+			if activePorts >= maxPorts {
+				socksServer.logger.Debug("%d: Too many active ports (%d) for device %s, skipping", requestId, activePorts, deviceID.HexString())
+				continue
+			}
 		}
 
 		if nearestClient != nil {
@@ -422,6 +435,15 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 }
 
 func doCreatePort(client *Client, deviceID Address, port int, portName string, mode string, requestId int64) (conn *ConnectedPort, err error) {
+	// Rate limit: check if we're allowed to create another connection attempt
+	// This prevents connection storms when many attempts fail quickly
+	pool := client.pool
+	if !pool.IncrementConnectionAttempt(deviceID) {
+		err = fmt.Errorf("too many connection attempts to device %s", deviceID.HexString())
+		return
+	}
+	defer pool.DecrementConnectionAttempt(deviceID)
+
 	var portOpen *edge.PortOpen
 	portOpen, err = client.PortOpen(deviceID, port, portName, mode)
 	if err != nil {
@@ -454,7 +476,9 @@ func (socksServer *Server) connectDeviceFrom(deviceName string, port int, protoc
 	connPort, err := socksServer.doConnectDevice(requestID, deviceName, port, protocol, mode, 1)
 
 	if err != nil {
-		connPort.Shutdown()
+		if connPort != nil {
+			connPort.Shutdown()
+		}
 		return nil, err
 	}
 	connPort.TargetDeviceName = deviceName
