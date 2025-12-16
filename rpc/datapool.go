@@ -398,6 +398,8 @@ func (p *DataPool) CountActivePortsForDevice(deviceID Address) (count int) {
 // IncrementConnectionAttempt increments the connection attempt counter for a device
 // It checks both active ports and in-progress attempts to prevent storms
 func (p *DataPool) IncrementConnectionAttempt(deviceID Address) bool {
+	// Get max ports before entering the synchronized call
+	maxPorts := config.AppConfig.GetMaxPortsPerDevice()
 	allowed := false
 	p.srv.Call(func() {
 		// Count active ports for this device
@@ -409,8 +411,9 @@ func (p *DataPool) IncrementConnectionAttempt(deviceID Address) bool {
 		}
 		// Count in-progress attempts
 		inProgressAttempts := p.connectionAttempts[deviceID]
-		// Total should not exceed 10 (active + in-progress)
-		if activePorts+inProgressAttempts < 10 {
+		// Total should not exceed MaxPortsPerDevice (active + in-progress)
+		// If maxPorts is 0, it means unlimited
+		if maxPorts == 0 || activePorts+inProgressAttempts < maxPorts {
 			p.connectionAttempts[deviceID] = inProgressAttempts + 1
 			allowed = true
 		}

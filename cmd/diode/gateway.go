@@ -43,6 +43,7 @@ func init() {
 	gatewayCmd.Flag.BoolVar(&edgeACME, "edge_acme", false, "allow to use ACME to generate certificates automatically")
 	gatewayCmd.Flag.StringVar(&edgeACMEEmail, "edge_acme_email", "", "ACME email configuration")
 	gatewayCmd.Flag.StringVar(&edgeACMEAddtlCerts, "edge_acme_addtl_certs", "", "comma separated list of additional directories containing fullchain.pem/privkey.pem pairs of private keys to import")
+	gatewayCmd.Flag.IntVar(&cfg.MaxPortsPerDevice, "maxports", 10, "maximum concurrent ports per device (0 = unlimited)")
 }
 
 func gatewayHandler() (err error) {

@@ -110,6 +110,7 @@ type Config struct {
 	Experimental            bool             `yaml:"-" json:"-"`
 	LoadFromFile            bool             `yaml:"-" json:"-"`
 	QueryAddress            string           `yaml:"-" json:"-"`
+	MaxPortsPerDevice       int              `yaml:"-" json:"-"`
 }
 
 // LoadConfigFromFile returns bytes data of config
@@ -322,6 +323,12 @@ func ProtocolName(protocol int) string {
 		return "tls"
 	}
 	return "?"
+}
+
+// GetMaxPortsPerDevice returns the configured maximum ports per device
+// Returns 0 for unlimited, or the configured value
+func (cfg *Config) GetMaxPortsPerDevice() int {
+	return cfg.MaxPortsPerDevice
 }
 
 type StringValues []string
