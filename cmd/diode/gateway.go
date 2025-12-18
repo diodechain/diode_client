@@ -43,6 +43,8 @@ func init() {
 	gatewayCmd.Flag.BoolVar(&edgeACME, "edge_acme", false, "allow to use ACME to generate certificates automatically")
 	gatewayCmd.Flag.StringVar(&edgeACMEEmail, "edge_acme_email", "", "ACME email configuration")
 	gatewayCmd.Flag.StringVar(&edgeACMEAddtlCerts, "edge_acme_addtl_certs", "", "comma separated list of additional directories containing fullchain.pem/privkey.pem pairs of private keys to import")
+	// DEPRECATED: maxports is now a global flag - use 'diode -maxports=<value> gateway' instead
+	gatewayCmd.Flag.IntVar(&cfg.MaxPortsPerDevice, "maxports", 0, "DEPRECATED: use global -maxports flag instead (maximum concurrent ports per device, 0 = unlimited)")
 }
 
 func gatewayHandler() (err error) {
