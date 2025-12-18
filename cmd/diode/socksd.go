@@ -28,7 +28,6 @@ func init() {
 	socksdCmd.Flag.StringVar(&cfg.SocksServerHost, "socksd_host", "127.0.0.1", "host of socks server listening to")
 	socksdCmd.Flag.IntVar(&cfg.SocksServerPort, "socksd_port", 1080, "port of socks server listening to")
 	socksdCmd.Flag.StringVar(&cfg.SocksFallback, "fallback", "localhost", "how to resolve web2 addresses")
-	socksdCmd.Flag.IntVar(&cfg.MaxPortsPerDevice, "maxports", 10, "maximum concurrent ports per device (0 = unlimited)")
 }
 
 func socksdHandler() (err error) {

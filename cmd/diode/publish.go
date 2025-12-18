@@ -51,7 +51,6 @@ func init() {
 	publishCmd.Flag.StringVar(&scfg.Host, "http_host", "127.0.0.1", "the host of http static file server")
 	publishCmd.Flag.IntVar(&scfg.Port, "http_port", 8080, "the port of http static file server")
 	publishCmd.Flag.BoolVar(&scfg.Indexed, "indexed", false, "enable directory indexing in http static file server")
-	publishCmd.Flag.IntVar(&cfg.MaxPortsPerDevice, "maxports", 10, "maximum concurrent ports per device (0 = unlimited)")
 }
 
 // Supporting ipv6 if sorrounded by [] otherwise assuming domain or ip4
