@@ -1236,7 +1236,7 @@ func contractSync(cfg *config.Config) error {
 	if proxyErr != nil && cfg.Logger != nil {
 		cfg.Logger.Debug("proxy_to resolution stopped early: %v", proxyErr)
 	}
-	if effectiveContractAddr != "" && (effectiveContractAddr != lastEffectiveContract || strings.Join(chain, " -> ") != lastProxyToChain) {
+	if effectiveContractAddr != "" && effectiveContractAddr != lastEffectiveContract {
 		lastEffectiveContract = effectiveContractAddr
 		lastProxyToChain = strings.Join(chain, " -> ")
 		if len(chain) > 1 {
