@@ -11,6 +11,7 @@ import (
 
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/edge"
+	"github.com/diodechain/diode_client/rlp"
 )
 
 var (
@@ -265,6 +266,16 @@ func (client *Client) isAllowlisted(port *config.Port, addr Address) bool {
 
 // handleInboundMessage handle inbound message
 func (client *Client) handleInboundMessage(msg edge.Message) {
+	// If message framing is broken, the payload will not be valid RLP.
+	// This is non-recoverable because we won't be able to find the beginning of
+	// the next frame again, so close the connection to prevent a loop.
+	if err := validateRLPMessage(msg.Buffer); err != nil {
+		client.Log().Error("Invalid RLP frame received, closing connection: %v", err)
+		client.Log().Debug("Invalid RLP data: %x", msg.Buffer)
+		client.Close()
+		return
+	}
+
 	if msg.IsResponse() {
 		defer client.timer.profile(time.Now(), "handleResponse")
 
@@ -318,6 +329,34 @@ func (client *Client) handleInboundMessage(msg edge.Message) {
 		return
 	}
 	client.handleInboundRequest(inboundRequest)
+}
+
+func validateRLPMessage(b []byte) error {
+	k, content, rest, err := rlp.Split(b)
+	if err != nil {
+		return err
+	}
+	if len(rest) != 0 {
+		return rlp.ErrMoreThanOneValue
+	}
+	return validateRLPValue(k, content)
+}
+
+func validateRLPValue(k rlp.Kind, content []byte) error {
+	if k != rlp.List {
+		return nil
+	}
+	for len(content) > 0 {
+		innerKind, innerContent, rest, err := rlp.Split(content)
+		if err != nil {
+			return err
+		}
+		if err := validateRLPValue(innerKind, innerContent); err != nil {
+			return err
+		}
+		content = rest
+	}
+	return nil
 }
 
 // recvMessageLoop infinite loop to read message from server
