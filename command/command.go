@@ -93,9 +93,91 @@ func (cmd *Command) SubCommand() *Command {
 	return subCmd
 }
 
+// printFlagHelp prints help information for a specific flag
+func (cmd *Command) printFlagHelp(flagName string) bool {
+	var foundFlag *flag.Flag
+	cmd.Flag.VisitAll(func(f *flag.Flag) {
+		if f.Name == flagName {
+			foundFlag = f
+		}
+	})
+	if foundFlag == nil {
+		return false
+	}
+
+	fmt.Printf("Flag: -%s\n", foundFlag.Name)
+	name, usage := flag.UnquoteUsage(foundFlag)
+	if len(name) > 0 {
+		// Use equals sign syntax for consistency with boolean flags
+		fmt.Printf("Usage: -%s=%s\n", foundFlag.Name, name)
+	} else if isBoolValue(foundFlag) {
+		// Boolean flags can be set with -flag=true or -flag=false
+		fmt.Printf("Usage: -%s=true|false\n", foundFlag.Name)
+	} else {
+		fmt.Printf("Usage: -%s\n", foundFlag.Name)
+	}
+	fmt.Printf("Description: %s\n", usage)
+	// Always show default value in flag-specific help, even if it's a zero value
+	if ok := isStringValue(foundFlag); ok {
+		fmt.Printf("Default: %q\n", foundFlag.DefValue)
+	} else {
+		fmt.Printf("Default: %v\n", foundFlag.DefValue)
+	}
+	return true
+}
+
+// checkFlagHelp checks if the user is requesting help for a specific flag
+// Returns true if flag help was printed, false otherwise
+func (cmd *Command) checkFlagHelp(args []string) bool {
+	for i, arg := range args {
+		// Check for patterns like: -flag --help, -flag -help, --flag --help, --flag -help
+		if strings.HasPrefix(arg, "-") {
+			var flagName string
+			if strings.HasPrefix(arg, "--") {
+				flagName = arg[2:]
+			} else {
+				flagName = arg[1:]
+			}
+			// Handle flags with values like -flag=value
+			if idx := strings.Index(flagName, "="); idx != -1 {
+				flagName = flagName[:idx]
+			}
+
+			// Check if next argument is help
+			if i+1 < len(args) {
+				nextArg := args[i+1]
+				if nextArg == "--help" || nextArg == "-help" || nextArg == "-h" {
+					if cmd.printFlagHelp(flagName) {
+						return true
+					}
+					// If it wasn't a flag, check subcommands in case they mistakenly typed it as a flag
+					if len(cmd.subCommands) > 0 {
+						subCmd := cmd.subCommands[flagName]
+						if subCmd != nil {
+							fmt.Printf("diode: '%s' is a command, not a flag. Here is help on the command '%s':\n\n", flagName, flagName)
+							subCmd.printUsage()
+							return true
+						}
+					}
+					// If it wasn't a flag or a subcommand, it's a syntax error - let them know
+					fmt.Printf("diode: unknown flag: '%s'\n", flagName)
+					return true
+				}
+			}
+		}
+	}
+	return false
+}
+
 // Execute will run the command
 func (cmd *Command) Execute() (err error) {
 	args := os.Args[1:]
+
+	// Check for flag-specific help before parsing
+	if cmd.checkFlagHelp(args) {
+		return nil
+	}
+
 	cmd.Flag.Usage = func() {
 		cmd.printUsage()
 	}
@@ -164,7 +246,11 @@ func (cmd *Command) printUsage() {
 		cmd.printSubCommandDefaults(0)
 	} else {
 		fmt.Printf("Name\n  diode %s -%s\n\n", cmd.Name, cmd.HelpText)
-		fmt.Printf("SYNOPSYS\n  diode %s <args>\n\n", cmd.Name)
+		if len(cmd.UsageText) > 0 {
+			fmt.Printf("SYNOPSYS\n  diode %s %s\n\n", cmd.Name, cmd.UsageText)
+		} else {
+			fmt.Printf("SYNOPSYS\n  diode %s <args>\n\n", cmd.Name)
+		}
 		cmd.printCommandDefaults(0)
 	}
 }
@@ -243,4 +329,12 @@ func isStringValue(f *flag.Flag) bool {
 
 	}
 	return typ.Elem().String() == "flag.stringValue"
+}
+
+func isBoolValue(f *flag.Flag) bool {
+	typ := reflect.TypeOf(f.Value)
+	if typ.Kind() != reflect.Ptr {
+		return false
+	}
+	return typ.Elem().String() == "flag.boolValue"
 }

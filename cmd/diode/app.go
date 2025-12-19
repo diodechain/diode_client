@@ -82,6 +82,7 @@ func init() {
 	diodeCmd.Flag.Var(&cfg.SBinds, "bind", "bind a remote port to a local port. -bind <local_port>:<to_address>:<to_port>:(udp|tcp)")
 	diodeCmd.Flag.DurationVar(&cfg.ResolveCacheTime, "resolvecachetime", 10*time.Minute, "time for member and bns resolvers cache. (default: 10 minutes)")
 	diodeCmd.Flag.DurationVar(&cfg.ResolveCacheTime, "bnscachetime", 10*time.Minute, "(Deprecated. Please use resolvecachetime) time for bns address resolve cache. (default: 10 minutes)")
+	diodeCmd.Flag.IntVar(&cfg.MaxPortsPerDevice, "maxports", 0, "maximum concurrent ports per device (0 = unlimited)")
 	config.AppConfig = cfg
 	// Add diode commands
 	diodeCmd.AddSubCommand(bnsCmd)

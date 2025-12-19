@@ -42,7 +42,8 @@ var (
 	joinCmd = &command.Command{
 		Name:             "join",
 		HelpText:         `  Join the Diode Network.`,
-		ExampleText:      `  diode join -config 0x0000000000000000000000000000000000000000000000000000000000000000`,
+		UsageText:        `  <args> [perimeter-address]`,
+		ExampleText:      `  diode join 0xB7A5bd0345EF1Cc5E66bf61BdeC17D2461fBd968`,
 		Type:             command.DaemonCommand,
 		SingleConnection: true,
 	}
