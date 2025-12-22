@@ -194,7 +194,7 @@ func getPropertyValuesAt(deviceAddr util.Address, contractAddr string, keys []st
 			errs = append(errs, fmt.Sprintf("%s: failed to unpack result: %v", key, err))
 			continue
 		}
-		results[key] = value
+		results[key] = strings.TrimSpace(value)
 	}
 
 	if len(errs) > 0 {
@@ -263,23 +263,20 @@ func buildProxyToChain(deviceAddr util.Address, startContractAddr string) (chain
 
 		proxyTo := ""
 		if props != nil {
-			proxyTo = strings.TrimSpace(props["proxy_to"])
+			proxyTo = props["proxy_to"]
 		}
 		if proxyTo == "" {
-			return chain, fetchErr
-		}
-		if idx := strings.IndexAny(proxyTo, " \t\r\n"); idx >= 0 {
-			proxyTo = proxyTo[:idx]
+			return chain, nil
 		}
 		if proxyTo == "" || strings.EqualFold(proxyTo, current) {
-			return chain, fetchErr
+			return chain, nil
 		}
 
 		if !util.IsAddress([]byte(proxyTo)) {
 			if cfg != nil && cfg.Logger != nil {
 				cfg.Logger.Warn("Ignoring invalid proxy_to address '%s' on contract %s", proxyTo, current)
 			}
-			return chain, fetchErr
+			return chain, nil
 		}
 
 		key := strings.ToLower(proxyTo)
@@ -287,7 +284,7 @@ func buildProxyToChain(deviceAddr util.Address, startContractAddr string) (chain
 			if cfg != nil && cfg.Logger != nil {
 				cfg.Logger.Warn("Detected proxy_to loop at %s; stopping resolution", proxyTo)
 			}
-			return chain, fetchErr
+			return chain, nil
 		}
 		seen[key] = true
 		chain = append(chain, proxyTo)
