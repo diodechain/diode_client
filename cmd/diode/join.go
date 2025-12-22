@@ -102,8 +102,8 @@ const jsondata = `
 ]
 `
 
-// getPropertyValues fetches multiple property values from the smart contract in one JSON-RPC batch
-func getPropertyValues(deviceAddr util.Address, keys []string) (map[string]string, error) {
+// getPropertyValuesAt fetches multiple property values from the given contract in one JSON-RPC batch
+func getPropertyValuesAt(deviceAddr util.Address, contractAddr string, keys []string) (map[string]string, error) {
 	abi, err := abi.JSON(strings.NewReader(jsondata))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse ABI: %v", err)
@@ -128,7 +128,7 @@ func getPropertyValues(deviceAddr util.Address, keys []string) (map[string]strin
 		}
 		callData := append(method.ID, packedData...)
 		callObject := map[string]interface{}{
-			"to":   contractAddress,
+			"to":   contractAddr,
 			"data": "0x" + hex.EncodeToString(callData),
 		}
 		reqID := idx + 1
@@ -195,7 +195,7 @@ func getPropertyValues(deviceAddr util.Address, keys []string) (map[string]strin
 			errs = append(errs, fmt.Sprintf("%s: failed to unpack result: %v", key, err))
 			continue
 		}
-		results[key] = value
+		results[key] = strings.TrimSpace(value)
 	}
 
 	if len(errs) > 0 {
@@ -205,30 +205,30 @@ func getPropertyValues(deviceAddr util.Address, keys []string) (map[string]strin
 	return results, nil
 }
 
-// fetchContractProps retrieves all contract-backed configuration in one batch call
-func fetchContractProps(deviceAddr util.Address) (map[string]string, error) {
+// fetchContractPropsFromContract retrieves all contract-backed configuration in one batch call
+func fetchContractPropsFromContract(deviceAddr util.Address, contractAddr string) (map[string]string, error) {
 	keys := []string{"public", "private", "protected", "wireguard", "socksd", "bind", "debug", "diodeaddrs", "fleet", "extra_config"}
-	logJoinContractFetch(deviceAddr, keys)
-	props, err := getPropertyValues(deviceAddr, keys)
-	logJoinContractFetchResult(deviceAddr, keys, props, err)
+	logJoinContractFetch(deviceAddr, contractAddr, keys)
+	props, err := getPropertyValuesAt(deviceAddr, contractAddr, keys)
+	logJoinContractFetchResult(deviceAddr, contractAddr, keys, props, err)
 	return props, err
 }
 
-func logJoinContractFetch(deviceAddr util.Address, keys []string) {
+func logJoinContractFetch(deviceAddr util.Address, contractAddr string, keys []string) {
 	cfg := config.AppConfig
 	if cfg == nil || cfg.Logger == nil {
 		return
 	}
-	cfg.Logger.Debug("Fetching join contract (device=%s, contract=%s, rpc=%s, keys=%v)", deviceAddr.HexString(), contractAddress, rpcURL, keys)
+	cfg.Logger.Debug("Fetching join contract (device=%s, contract=%s, rpc=%s, keys=%v)", deviceAddr.HexString(), contractAddr, rpcURL, keys)
 }
 
-func logJoinContractFetchResult(deviceAddr util.Address, keys []string, props map[string]string, err error) {
+func logJoinContractFetchResult(deviceAddr util.Address, contractAddr string, keys []string, props map[string]string, err error) {
 	cfg := config.AppConfig
 	if cfg == nil || cfg.Logger == nil {
 		return
 	}
 	if err != nil {
-		cfg.Logger.Debug("Join contract fetch failed (device=%s): %v", deviceAddr.HexString(), err)
+		cfg.Logger.Debug("Join contract fetch failed (device=%s, contract=%s): %v", deviceAddr.HexString(), contractAddr, err)
 		return
 	}
 	summary := make([]string, 0, len(keys))
@@ -243,7 +243,76 @@ func logJoinContractFetchResult(deviceAddr util.Address, keys []string, props ma
 		}
 		summary = append(summary, fmt.Sprintf("%s(%s)", key, state))
 	}
-	cfg.Logger.Debug("Join contract fetch success (device=%s): %s", deviceAddr.HexString(), strings.Join(summary, ", "))
+	cfg.Logger.Debug("Join contract fetch success (device=%s, contract=%s): %s", deviceAddr.HexString(), contractAddr, strings.Join(summary, ", "))
+}
+
+const maxProxyToDepth = 16
+
+func buildProxyToChain(deviceAddr util.Address, startContractAddr string) (chain []string, err error) {
+	cfg := config.AppConfig
+	chain = []string{startContractAddr}
+
+	seen := map[string]bool{strings.ToLower(startContractAddr): true}
+	current := startContractAddr
+
+	for depth := 0; depth < maxProxyToDepth; depth++ {
+		props, fetchErr := getPropertyValuesAt(deviceAddr, current, []string{"proxy_to"})
+		if fetchErr != nil && len(props) == 0 {
+			// Can't even read proxy_to; stop at the last known good contract.
+			return chain, fetchErr
+		}
+
+		proxyTo := ""
+		if props != nil {
+			proxyTo = props["proxy_to"]
+		}
+		if proxyTo == "" {
+			return chain, nil
+		}
+		if proxyTo == "" || strings.EqualFold(proxyTo, current) {
+			return chain, nil
+		}
+
+		if !util.IsAddress([]byte(proxyTo)) {
+			if cfg != nil && cfg.Logger != nil {
+				cfg.Logger.Warn("Ignoring invalid proxy_to address '%s' on contract %s", proxyTo, current)
+			}
+			return chain, nil
+		}
+
+		key := strings.ToLower(proxyTo)
+		if seen[key] {
+			if cfg != nil && cfg.Logger != nil {
+				cfg.Logger.Warn("Detected proxy_to loop at %s; stopping resolution", proxyTo)
+			}
+			return chain, nil
+		}
+		seen[key] = true
+		chain = append(chain, proxyTo)
+		current = proxyTo
+	}
+
+	if cfg != nil && cfg.Logger != nil {
+		cfg.Logger.Warn("proxy_to chain exceeded max depth (%d); stopping at %s", maxProxyToDepth, current)
+	}
+	return chain, err
+}
+
+func selectContractPropsWithFallback(deviceAddr util.Address, chain []string) (contractAddr string, props map[string]string, err error) {
+	if len(chain) == 0 {
+		return "", nil, fmt.Errorf("empty proxy_to chain")
+	}
+
+	var lastErr error
+	for i := len(chain) - 1; i >= 0; i-- {
+		addr := chain[i]
+		props, err = fetchContractPropsFromContract(deviceAddr, addr)
+		if err == nil || len(props) > 0 {
+			return addr, props, err
+		}
+		lastErr = err
+	}
+	return chain[0], nil, lastErr
 }
 
 // updatePortsFromContract uses the provided property map to extract port configurations,
@@ -829,6 +898,8 @@ var lastWGConfigHash string
 var lastBindSignature string
 var lastAppliedBindSignature string
 var socksServerStarted bool
+var lastEffectiveContract string
+var lastProxyToChain string
 
 // wgBasepoint is the X25519 basepoint per RFC 7748
 var wgBasepoint = [32]byte{9}
@@ -1156,7 +1227,22 @@ func contractSync(cfg *config.Config) error {
 		return fmt.Errorf("could not connect to network")
 	}
 
-	props, err := fetchContractProps(cfg.ClientAddr)
+	deviceAddr := cfg.ClientAddr
+
+	chain, proxyErr := buildProxyToChain(deviceAddr, contractAddress)
+	effectiveContractAddr, props, err := selectContractPropsWithFallback(deviceAddr, chain)
+	if proxyErr != nil && cfg.Logger != nil {
+		cfg.Logger.Debug("proxy_to resolution stopped early: %v", proxyErr)
+	}
+	if effectiveContractAddr != "" && effectiveContractAddr != lastEffectiveContract {
+		lastEffectiveContract = effectiveContractAddr
+		lastProxyToChain = strings.Join(chain, " -> ")
+		if len(chain) > 1 {
+			cfg.PrintLabel("Perimeter Proxy Chain", lastProxyToChain)
+		}
+		cfg.PrintLabel("Effective Perimeter", effectiveContractAddr)
+	}
+
 	if err != nil {
 		if len(props) == 0 {
 			if strings.Contains(err.Error(), "execution reverted") {
