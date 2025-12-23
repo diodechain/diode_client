@@ -256,16 +256,34 @@ func buildProxyToChain(deviceAddr util.Address, startContractAddr string) (chain
 	current := startContractAddr
 
 	for depth := 0; depth < maxProxyToDepth; depth++ {
-		props, fetchErr := getPropertyValuesAt(deviceAddr, current, []string{"proxy_to"})
+		// Try to fetch both proxy_to and extra_config
+		props, fetchErr := getPropertyValuesAt(deviceAddr, current, []string{"proxy_to", "extra_config"})
 		if fetchErr != nil && len(props) == 0 {
-			// Can't even read proxy_to; stop at the last known good contract.
+			// Can't even read properties; stop at the last known good contract.
 			return chain, fetchErr
 		}
 
 		proxyTo := ""
+		// First check direct proxy_to property
 		if props != nil {
 			proxyTo = props["proxy_to"]
 		}
+
+		// If not found, check extra_config
+		if proxyTo == "" && props != nil {
+			extraRaw := strings.TrimSpace(props["extra_config"])
+			if extraRaw != "" {
+				var extra map[string]interface{}
+				if err := json.Unmarshal([]byte(extraRaw), &extra); err == nil {
+					if val, ok := extra["proxy_to"]; ok && val != nil {
+						if str, ok := val.(string); ok {
+							proxyTo = strings.TrimSpace(str)
+						}
+					}
+				}
+			}
+		}
+
 		if proxyTo == "" {
 			return chain, nil
 		}
@@ -1230,10 +1248,10 @@ func contractSync(cfg *config.Config) error {
 	deviceAddr := cfg.ClientAddr
 
 	chain, proxyErr := buildProxyToChain(deviceAddr, contractAddress)
-	effectiveContractAddr, props, err := selectContractPropsWithFallback(deviceAddr, chain)
 	if proxyErr != nil && cfg.Logger != nil {
 		cfg.Logger.Debug("proxy_to resolution stopped early: %v", proxyErr)
 	}
+	effectiveContractAddr, props, err := selectContractPropsWithFallback(deviceAddr, chain)
 	if effectiveContractAddr != "" && effectiveContractAddr != lastEffectiveContract {
 		lastEffectiveContract = effectiveContractAddr
 		lastProxyToChain = strings.Join(chain, " -> ")
