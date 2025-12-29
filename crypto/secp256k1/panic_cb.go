@@ -2,6 +2,9 @@
 // Use of this source code is governed by a BSD-style license that can be found in
 // the LICENSE file.
 
+//go:build diode_local_secp256k1_cgo
+// +build diode_local_secp256k1_cgo
+
 package secp256k1
 
 import "C"
