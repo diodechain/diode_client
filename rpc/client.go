@@ -181,26 +181,42 @@ func (client *Client) GetDeviceKey(ref string) string {
 func (client *Client) waitResponse(call *Call) (res interface{}, err error) {
 	defer call.Clean(CLOSED)
 	defer client.srv.Cast(func() { client.cm.RemoveCallByID(call.id) })
-	resp, ok := <-call.response
-	if !ok {
-		host, _ := client.Host()
-		err = CancelledError{host}
+	timeout := client.config.RemoteRPCTimeout
+	if timeout <= 0 {
+		timeout = client.localTimeout
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case resp, ok := <-call.response:
+		if !ok {
+			host, _ := client.Host()
+			err = CancelledError{host}
+			if call.sender != nil {
+				call.sender.remoteErr = io.EOF
+				call.sender.Close()
+			}
+			return
+		}
+		if rpcError, ok := resp.(edge.Error); ok {
+			err = RPCError{rpcError}
+			if call.sender != nil {
+				call.sender.remoteErr = RPCError{rpcError}
+				call.sender.Close()
+			}
+			return
+		}
+		res = resp
+		return res, nil
+	case <-timer.C:
+		err = TimeoutError{Timeout: timeout}
 		if call.sender != nil {
-			call.sender.remoteErr = io.EOF
+			call.sender.remoteErr = err
 			call.sender.Close()
 		}
-		return
+		return nil, err
 	}
-	if rpcError, ok := resp.(edge.Error); ok {
-		err = RPCError{rpcError}
-		if call.sender != nil {
-			call.sender.remoteErr = RPCError{rpcError}
-			call.sender.Close()
-		}
-		return
-	}
-	res = resp
-	return res, nil
 }
 
 // RespondContext sends a message (a response) without expecting a response
@@ -1348,17 +1364,18 @@ func (client *Client) Start() {
 				client.Log().Warn("Client connect failed: %v", err)
 			}
 			client.srv.Shutdown(0)
+			return
 		}
-	})
 
-	go func() {
-		if err := client.initialize(); err != nil {
-			if !client.isClosed {
-				client.Log().Warn("Client start failed: %v", err)
-				client.Close()
+		go func() {
+			if err := client.initialize(); err != nil {
+				if !client.isClosed {
+					client.Log().Warn("Client start failed: %v", err)
+					client.Close()
+				}
 			}
-		}
-	}()
+		}()
+	})
 }
 
 func (client *Client) doStart() (err error) {
