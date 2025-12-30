@@ -45,6 +45,13 @@ type DeviceTicket struct {
 
 // ValidateValues checks length of byte[] arrays and returns an error message
 func (ct *DeviceTicket) ValidateValues() error {
+	if len(ct.TotalBytes.Bytes()) > 32 {
+		return fmt.Errorf("totalbytes is too big to be converted to 32 bytes")
+	}
+	if len(ct.TotalConnections.Bytes()) > 32 {
+		return fmt.Errorf("totalconnections is too big to be converted to 32 bytes")
+	}
+
 	if ct.Version == 1 {
 		if len(ct.BlockHash) != 32 {
 			return fmt.Errorf("blockhash must be 32 bytes")
@@ -212,10 +219,10 @@ func (ct *DeviceTicket) ValidateServerSig() bool {
 
 func to32Bytes(value *big.Int) []byte {
 	bytes := value.Bytes()
-	if len(bytes) > 32 {
-		panic("value is too big to be converted to 32 bytes")
-	}
 	blob := make([]byte, 32)
-	copy(blob[32-len(bytes):], bytes)
+	if len(bytes) <= 32 {
+		// panic("value is too big to be converted to 32 bytes")
+		copy(blob[32-len(bytes):], bytes)
+	}
 	return blob
 }
