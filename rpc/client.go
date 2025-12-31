@@ -211,6 +211,7 @@ func (client *Client) waitResponse(call *Call) (res interface{}, err error) {
 		return res, nil
 	case <-timer.C:
 		err = TimeoutError{Timeout: timeout}
+		client.Log().Debug("RPC timeout after %s (method=%s id=%d)", timeout, call.method, call.id)
 		if call.sender != nil {
 			call.sender.remoteErr = err
 			call.sender.Close()
@@ -639,12 +640,16 @@ func (client *Client) SignTransaction(tx *edge.Transaction) (err error) {
 
 // NewTicket returns ticket
 func (client *Client) newTicket() (*edge.DeviceTicket, error) {
-	serverID, err := client.s.GetServerID()
+	ssl := client.s
+	if ssl == nil || ssl.Closed() {
+		return nil, errClientClosed
+	}
+	serverID, err := ssl.GetServerID()
 	if err != nil {
 		return nil, err
 	}
-	total := client.s.TotalBytes()
-	client.s.UpdateCounter(total)
+	total := ssl.TotalBytes()
+	ssl.UpdateCounter(total)
 	lvbn, lvbh := client.LastValid()
 
 	ticket := &edge.DeviceTicket{
@@ -653,7 +658,7 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 		BlockNumber:      lvbn,
 		BlockHash:        lvbh[:],
 		FleetAddr:        client.config.FleetAddr,
-		TotalConnections: big.NewInt(int64(client.s.TotalConnections())),
+		TotalConnections: big.NewInt(int64(ssl.TotalConnections())),
 		TotalBytes:       big.NewInt(int64(total)),
 		LocalAddr:        []byte{},
 	}
@@ -673,7 +678,7 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 	if err := ticket.ValidateValues(); err != nil {
 		return nil, err
 	}
-	privKey, err := client.s.GetClientPrivateKey()
+	privKey, err := ssl.GetClientPrivateKey()
 	if err != nil {
 		return nil, err
 	}
