@@ -174,7 +174,8 @@ func getPropertyValuesAt(deviceAddr util.Address, contractAddr string, keys []st
 			continue
 		}
 		if resp.Error != nil {
-			errs = append(errs, fmt.Sprintf("%s: %s (code: %d)", key, resp.Error.Message, resp.Error.Code))
+			results[key] = ""
+			errs = append(errs, fmt.Sprintf("%s: are you a member of the perimeter? %s (code: %d)", key, resp.Error.Message, resp.Error.Code))
 			continue
 		}
 		if len(resp.Result) < 2 {
@@ -188,6 +189,8 @@ func getPropertyValuesAt(deviceAddr util.Address, contractAddr string, keys []st
 		}
 		if len(decoded) == 0 {
 			results[key] = ""
+			// Property decoded to empty (0 bytes) - this will only happen if the perimeter is invalid
+			errs = append(errs, fmt.Sprintf("%s: invalid perimeter - empty decoded result: %v", key, err))
 			continue
 		}
 		var value string
@@ -901,6 +904,16 @@ var socksServerStarted bool
 var lastEffectiveContract string
 var lastProxyToChain string
 
+// GetContractAddress returns the current contract/perimeter address
+func GetContractAddress() string {
+	return contractAddress
+}
+
+// GetEffectiveContractAddress returns the effective contract address
+func GetEffectiveContractAddress() string {
+	return lastEffectiveContract
+}
+
 // wgBasepoint is the X25519 basepoint per RFC 7748
 var wgBasepoint = [32]byte{9}
 
@@ -1245,11 +1258,8 @@ func contractSync(cfg *config.Config) error {
 
 	if err != nil {
 		if len(props) == 0 {
-			if strings.Contains(err.Error(), "execution reverted") {
-				cfg.Logger.Warn("No contract properties found yet; will retry later: %v", err)
-			} else {
-				return err
-			}
+			// The only way this can happen is if the perimeter is invalid or if we are not a member
+			return err
 		} else {
 			cfg.Logger.Warn("Partial contract properties: %v", err)
 		}
@@ -1289,7 +1299,7 @@ func runContractController(cfg *config.Config) error {
 		}
 
 		if err := contractSync(cfg); err != nil {
-			cfg.Logger.Warn("Contract sync failed: %v", err)
+			cfg.Logger.Warn("Perimeter contract sync failed: %v", err)
 		}
 
 		time.Sleep(30 * time.Second)
@@ -1490,7 +1500,7 @@ func joinHandler() (err error) {
 
 	// Initial contract sync to apply perimeter before starting services
 	if syncErr := runContractControllerOnce(cfg); syncErr != nil {
-		cfg.Logger.Warn("Initial contract sync failed: %v", syncErr)
+		cfg.Logger.Warn("Initial perimeter contract sync failed: %v", syncErr)
 	}
 
 	// Dry run mode - just check property values once and exit

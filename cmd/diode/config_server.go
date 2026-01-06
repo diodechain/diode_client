@@ -33,16 +33,23 @@ type apiResponse struct {
 }
 
 type configEntry struct {
-	Address              string `json:"client"`
-	Fleet                string `json:"fleet"`
-	Version              string `json:"version"`
-	LastValidBlockNumber uint64 `json:"lastValidBlockNumber"`
-	LastValidBlockHash   string `json:"lastValidBlockHash"`
-	Binds                []bind `json:"binds"`
-	Ports                []port `json:"ports"`
-	EnableSocks          bool   `json:"enableSocks"`
-	EnableProxy          bool   `json:"enableProxy"`
-	EnableSecureProxy    bool   `json:"enableSecureProxy"`
+	Address              string         `json:"client"`
+	Fleet                string         `json:"fleet"`
+	Version              string         `json:"version"`
+	LastValidBlockNumber uint64         `json:"lastValidBlockNumber"`
+	LastValidBlockHash   string         `json:"lastValidBlockHash"`
+	Binds                []bind         `json:"binds"`
+	Ports                []port         `json:"ports"`
+	EnableSocks          bool           `json:"enableSocks"`
+	EnableProxy          bool           `json:"enableProxy"`
+	EnableSecureProxy    bool           `json:"enableSecureProxy"`
+	Perimeter            *perimeterInfo `json:"perimeter,omitempty"`
+}
+
+type perimeterInfo struct {
+	Address          string      `json:"address"`
+	EffectiveAddress string      `json:"effective_address"`
+	Properties       interface{} `json:"properties"`
 }
 
 type bind struct {
@@ -210,6 +217,14 @@ func (configAPIServer *ConfigAPIServer) successResponse(w http.ResponseWriter, m
 
 func (configAPIServer *ConfigAPIServer) configResponse(w http.ResponseWriter, message string) {
 	cfg := configAPIServer.appConfig
+
+	// Get perimeter information if configured
+	var perimeter *perimeterInfo
+	contractAddr := GetContractAddress()
+	if contractAddr != "" {
+		perimeter = configAPIServer.getPerimeterInfo(contractAddr, cfg)
+	}
+
 	res, _ := json.Marshal(&apiResponse{
 		Success: true,
 		Message: message,
@@ -247,11 +262,61 @@ func (configAPIServer *ConfigAPIServer) configResponse(w http.ResponseWriter, me
 			EnableSocks:       cfg.EnableSocksServer,
 			EnableProxy:       cfg.EnableProxyServer,
 			EnableSecureProxy: cfg.EnableSProxyServer,
+			Perimeter:         perimeter,
 		},
 	})
 
 	w.WriteHeader(http.StatusOK)
 	w.Write(res)
+}
+
+func (configAPIServer *ConfigAPIServer) getPerimeterInfo(contractAddr string, cfg *config.Config) *perimeterInfo {
+	// Validate the contract address format
+	_, err := util.DecodeAddress(contractAddr)
+	if err != nil {
+		cfg.Logger.Debug("Invalid perimeter address: %v", err)
+		return &perimeterInfo{
+			Address:    contractAddr,
+			Properties: "unavailable",
+		}
+	}
+
+	// Get the effective contract address (after following proxy_to chain)
+	effectiveAddr := GetEffectiveContractAddress()
+
+	// Fetch contract properties (k/v elements)
+	props, propsErr := fetchContractPropsFromContract(cfg.ClientAddr, effectiveAddr)
+
+	// Check if we can read from the perimeter (valid vs invalid)
+	// Case A: Invalid perimeter - some error - probably contract is bogus, non-existent, or we aren't a member
+	if propsErr != nil {
+		cfg.Logger.Debug("Invalid perimeter: %v", propsErr)
+		return &perimeterInfo{
+			Address:          contractAddr,
+			EffectiveAddress: effectiveAddr,
+			Properties:       "unavailable",
+		}
+	}
+
+	// Case B: Valid perimeter - convert properties to array format (only non-empty values)
+	// Each property is an object with the key as the field name
+	properties := make([]map[string]interface{}, 0)
+	for key, value := range props {
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue != "" {
+			prop := make(map[string]interface{})
+			prop[key] = trimmedValue
+			properties = append(properties, prop)
+		}
+	}
+	// Even if properties is empty, it's still valid (just no contents)
+	// So we return an empty array []
+
+	return &perimeterInfo{
+		Address:          contractAddr,
+		EffectiveAddress: effectiveAddr,
+		Properties:       properties,
+	}
 }
 
 func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWriter, req *http.Request) {
