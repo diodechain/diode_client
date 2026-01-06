@@ -47,9 +47,10 @@ type configEntry struct {
 }
 
 type perimeterInfo struct {
-	Address          string      `json:"address"`
-	EffectiveAddress string      `json:"effective_address"`
-	Properties       interface{} `json:"properties"`
+	Address          string                   `json:"address"`
+	EffectiveAddress string                   `json:"effective_address,omitempty"`
+	Status           string                   `json:"status"`
+	Properties       []map[string]interface{} `json:"properties,omitempty"`
 }
 
 type bind struct {
@@ -276,8 +277,8 @@ func (configAPIServer *ConfigAPIServer) getPerimeterInfo(contractAddr string, cf
 	if err != nil {
 		cfg.Logger.Debug("Invalid perimeter address: %v", err)
 		return &perimeterInfo{
-			Address:    contractAddr,
-			Properties: "unavailable",
+			Address: contractAddr,
+			Status:  "invalid_address",
 		}
 	}
 
@@ -294,7 +295,7 @@ func (configAPIServer *ConfigAPIServer) getPerimeterInfo(contractAddr string, cf
 		return &perimeterInfo{
 			Address:          contractAddr,
 			EffectiveAddress: effectiveAddr,
-			Properties:       "unavailable",
+			Status:           "unavailable",
 		}
 	}
 
@@ -316,6 +317,7 @@ func (configAPIServer *ConfigAPIServer) getPerimeterInfo(contractAddr string, cf
 		Address:          contractAddr,
 		EffectiveAddress: effectiveAddr,
 		Properties:       properties,
+		Status:           "available",
 	}
 }
 
