@@ -190,7 +190,7 @@ func getPropertyValuesAt(deviceAddr util.Address, contractAddr string, keys []st
 		if len(decoded) == 0 {
 			results[key] = ""
 			// Property decoded to empty (0 bytes) - this will only happen if the perimeter is invalid
-			errs = append(errs, fmt.Sprintf("%s: invalid perimeter - empty decoded result: %v", key, err))
+			errs = append(errs, fmt.Sprintf("%s: invalid perimeter - empty decoded result", key))
 			continue
 		}
 		var value string
