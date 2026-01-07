@@ -414,5 +414,6 @@ func doInitSSLCtx(config *config.Config) (*openssl.Ctx, error) {
 	}
 	ctx.SetSessionCacheMode(openssl.SessionCacheBoth)
 	ctx.SetSessionId([]byte("diode_e2e"))
+	ctx.SetDialTimeout(15 * time.Second)
 	return ctx, nil
 }

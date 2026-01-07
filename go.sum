@@ -25,10 +25,14 @@ github.com/diodechain/gobert v1.0.5 h1:8wDdUgNsABXirxV1INoRzRvr8UWrImrdnfrfy7DHn
 github.com/diodechain/gobert v1.0.5/go.mod h1:X9tC96925Yf6P16ii8Uo4nGdqDH7mLfxD9FDpKxEyrU=
 github.com/diodechain/openssl v1.0.20 h1:UT+JlDSc1Vp5H/lkSRuybqSdXae/0g//Q5gjPW18OVo=
 github.com/diodechain/openssl v1.0.20/go.mod h1:kfVLFzTNC5K1KAszv8nPfqjxDMyONyYzuYYT+OaBtpM=
+github.com/diodechain/openssl v1.0.21 h1:DGU6KuCujApjagVYbnM+ED5Ngg19hU+5vVxp9ZerZ/4=
+github.com/diodechain/openssl v1.0.21/go.mod h1:kfVLFzTNC5K1KAszv8nPfqjxDMyONyYzuYYT+OaBtpM=
 github.com/diodechain/zap v0.0.0-20201117101851-06f3cd5f3263 h1:IzzrLj8ehGjdejK48kf+/qgLLVdyMaCkq6mskuDXAAM=
 github.com/diodechain/zap v0.0.0-20201117101851-06f3cd5f3263/go.mod h1:lOf21r6wUM2B9rkJhTIeMwU56gvI956/ESIC0jCi/yM=
 github.com/dominicletz/genserver v1.3.1 h1:eQTEUO1zPkVpjpkZ6KlkvzIK7eBxTtQQju3Ga54FKlM=
 github.com/dominicletz/genserver v1.3.1/go.mod h1:wiq8ISya4SWZvrBugCyNEEE4QtN1doEzpmhcSNJcoa0=
+github.com/dominicletz/genserver v1.3.2 h1:rxm2M6q+by4F2tidT8ljgTT9EneBV9EBlxqsthVMEPA=
+github.com/dominicletz/genserver v1.3.2/go.mod h1:wiq8ISya4SWZvrBugCyNEEE4QtN1doEzpmhcSNJcoa0=
 github.com/dsnet/compress v0.0.1 h1:PlZu0n3Tuv04TzpfPbrnI0HW/YwodEXDS+oPKahKF0Q=
 github.com/dsnet/compress v0.0.1/go.mod h1:Aw8dCMJ7RioblQeTqt88akK31OvO8Dhf5JflhBbQEHo=
 github.com/dsnet/golib v0.0.0-20171103203638-1ea166775780/go.mod h1:Lj+Z9rebOhdfkVLjJ8T6VcRQv3SXugXy999NBtR9aFY=

@@ -8,9 +8,9 @@ require (
 	github.com/diodechain/go-cache v2.1.0+incompatible
 	github.com/diodechain/go-update v2.2.11+incompatible
 	github.com/diodechain/gobert v1.0.5
-	github.com/diodechain/openssl v1.0.20
+	github.com/diodechain/openssl v1.0.21
 	github.com/diodechain/zap v0.0.0-20201117101851-06f3cd5f3263
-	github.com/dominicletz/genserver v1.3.1
+	github.com/dominicletz/genserver v1.3.2
 	github.com/ethereum/go-ethereum v1.13.15
 	github.com/gdamore/tcell/v2 v2.6.0
 	github.com/getlantern/systray v1.2.2
