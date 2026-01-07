@@ -22,16 +22,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// containsString checks if a slice of strings contains a specific string
-func containsString(slice []string, str string) bool {
-	for _, item := range slice {
-		if item == str {
-			return true
-		}
-	}
-	return false
-}
-
 // Config is Proxy Server configuration
 type ProxyConfig struct {
 	ProxyServerAddr    string
