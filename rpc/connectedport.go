@@ -105,12 +105,6 @@ func (port *ConnectedPort) bufferRunner() {
 		if port.client == nil {
 			break
 		}
-		// Check if connection is still valid before writing
-		// port.Conn can be set to nil in close(), so check it instead of the local conn variable
-		if port.Conn == nil {
-			port.localErr = fmt.Errorf("connection closed")
-			break
-		}
 		n, err := conn.Write(readBuffer[:r])
 
 		if err != nil {
