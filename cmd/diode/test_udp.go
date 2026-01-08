@@ -10,6 +10,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -109,15 +110,31 @@ func runTestUDPPublish(client *rpc.Client, port int) error {
 		}
 		cfg.Logger.Debug("dialPortOpen2 ok relay=%s local=%s remote=%s", relayAddr, conn.LocalAddr().String(), conn.RemoteAddr().String())
 		cfg.PrintLabel("Relay address", relayAddr)
-		if isUDPConn(conn) {
-			poke := []byte("diode test_udp poke")
-			if _, err := conn.Write(poke); err != nil {
-				cfg.Logger.Debug("udp poke write failed: %s", describeNetErr(err))
-			} else {
-				cfg.Logger.Debug("udp poke sent bytes=%d", len(poke))
+		go func() {
+			defer conn.Close()
+			payload := []byte(testUDPPayload)
+			sendCount := 0
+			sendBytes := 0
+			for !app.Closed() {
+				sendCount++
+				cfg.Logger.Debug("udp send attempt=%d bytes=%d", sendCount, len(payload))
+				_, err := conn.Write(payload)
+				if err != nil {
+					if isUDPConn(conn) && isConnRefused(err) {
+						cfg.Logger.Info("udp relay not ready yet, retrying: %s", describeNetErr(err))
+					} else {
+						cfg.Logger.Info("udp send stopped: %s", describeNetErr(err))
+						return
+					}
+				} else {
+					sendBytes += len(payload)
+					if sendCount%10 == 0 {
+						cfg.Logger.Debug("udp send stats count=%d bytes=%d", sendCount, sendBytes)
+					}
+				}
+				time.Sleep(testUDPInterval)
 			}
-		}
-		go readRelayLoop(conn, cfg.Logger)
+		}()
 		return nil
 	})
 
@@ -152,30 +169,9 @@ func runTestUDPBind(client *rpc.Client, spec string) error {
 	defer conn.Close()
 
 	cfg.Logger.Debug("dialPortOpen2 ok relay=%s local=%s remote=%s", relayAddr, conn.LocalAddr().String(), conn.RemoteAddr().String())
-	go readRelayLoop(conn, cfg.Logger)
 
 	cfg.PrintLabel("Relay address", relayAddr)
-	payload := []byte(testUDPPayload)
-	sendCount := 0
-	sendBytes := 0
-	for !app.Closed() {
-		sendCount++
-		cfg.Logger.Debug("udp send attempt=%d bytes=%d", sendCount, len(payload))
-		_, err := conn.Write(payload)
-		if err != nil {
-			if isUDPConn(conn) && isConnRefused(err) {
-				cfg.Logger.Info("udp relay not ready yet, retrying: %s", describeNetErr(err))
-			} else {
-				return err
-			}
-		} else {
-			sendBytes += len(payload)
-			if sendCount%10 == 0 {
-				cfg.Logger.Debug("udp send stats count=%d bytes=%d", sendCount, sendBytes)
-			}
-		}
-		time.Sleep(testUDPInterval)
-	}
+	readRelayLoop(conn, cfg.Logger)
 	return nil
 }
 
@@ -246,8 +242,22 @@ func relayAddress(client *rpc.Client, physicalPort int) (string, error) {
 func readRelayLoop(conn net.Conn, logger *config.Logger) {
 	logger.Debug("relay read loop start local=%s remote=%s", conn.LocalAddr().String(), conn.RemoteAddr().String())
 	buf := make([]byte, 2048)
-	readCount := 0
-	readBytes := 0
+	var readCount int64
+	var readBytes int64
+	done := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(10 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				logger.Debug("relay read stats count=%d bytes=%d", atomic.LoadInt64(&readCount), atomic.LoadInt64(&readBytes))
+			case <-done:
+				return
+			}
+		}
+	}()
+	defer close(done)
 	for {
 		n, err := conn.Read(buf)
 		if err != nil {
@@ -259,12 +269,9 @@ func readRelayLoop(conn net.Conn, logger *config.Logger) {
 			logger.Info("relay read ended: %s", describeNetErr(err))
 			return
 		}
-		readCount++
-		readBytes += n
+		atomic.AddInt64(&readCount, 1)
+		atomic.AddInt64(&readBytes, int64(n))
 		logger.Debug("relay read bytes=%d", n)
-		if readCount%10 == 0 {
-			logger.Debug("udp read stats count=%d bytes=%d", readCount, readBytes)
-		}
 		msg := strings.TrimSpace(string(buf[:n]))
 		if msg == "" {
 			logger.Info("received %d bytes", n)

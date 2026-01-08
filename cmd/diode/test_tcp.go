@@ -105,7 +105,26 @@ func runTestTCPPublish(client *rpc.Client, port int) error {
 		}
 		cfg.Logger.Debug("dialPortOpen2 ok relay=%s local=%s remote=%s", relayAddr, conn.LocalAddr().String(), conn.RemoteAddr().String())
 		cfg.PrintLabel("Relay address", relayAddr)
-		go readRelayLoop(conn, cfg.Logger)
+		go func() {
+			defer conn.Close()
+			payload := []byte(testTCPPayload)
+			sendCount := 0
+			sendBytes := 0
+			for !app.Closed() {
+				sendCount++
+				cfg.Logger.Debug("tcp send attempt=%d bytes=%d", sendCount, len(payload))
+				_, err := conn.Write(payload)
+				if err != nil {
+					cfg.Logger.Info("tcp send stopped: %v", err)
+					return
+				}
+				sendBytes += len(payload)
+				if sendCount%10 == 0 {
+					cfg.Logger.Debug("tcp send stats count=%d bytes=%d", sendCount, sendBytes)
+				}
+				time.Sleep(testTCPInterval)
+			}
+		}()
 		return nil
 	})
 
@@ -140,24 +159,8 @@ func runTestTCPBind(client *rpc.Client, spec string) error {
 	defer conn.Close()
 
 	cfg.Logger.Debug("dialPortOpen2 ok relay=%s local=%s remote=%s", relayAddr, conn.LocalAddr().String(), conn.RemoteAddr().String())
-	go readRelayLoop(conn, cfg.Logger)
 
 	cfg.PrintLabel("Relay address", relayAddr)
-	payload := []byte(testTCPPayload)
-	sendCount := 0
-	sendBytes := 0
-	for !app.Closed() {
-		sendCount++
-		cfg.Logger.Debug("tcp send attempt=%d bytes=%d", sendCount, len(payload))
-		_, err := conn.Write(payload)
-		if err != nil {
-			return err
-		}
-		sendBytes += len(payload)
-		if sendCount%10 == 0 {
-			cfg.Logger.Debug("tcp send stats count=%d bytes=%d", sendCount, sendBytes)
-		}
-		time.Sleep(testTCPInterval)
-	}
+	readRelayLoop(conn, cfg.Logger)
 	return nil
 }
