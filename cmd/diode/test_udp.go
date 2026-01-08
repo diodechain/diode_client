@@ -171,6 +171,12 @@ func runTestUDPBind(client *rpc.Client, spec string) error {
 	cfg.Logger.Debug("dialPortOpen2 ok relay=%s local=%s remote=%s", relayAddr, conn.LocalAddr().String(), conn.RemoteAddr().String())
 
 	cfg.PrintLabel("Relay address", relayAddr)
+	initPayload := []byte("diode test_udp init")
+	if _, err := conn.Write(initPayload); err != nil {
+		cfg.Logger.Info("udp init send failed: %s", describeNetErr(err))
+	} else {
+		cfg.Logger.Debug("udp init sent bytes=%d", len(initPayload))
+	}
 	readRelayLoop(conn, cfg.Logger)
 	return nil
 }
