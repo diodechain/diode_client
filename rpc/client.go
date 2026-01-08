@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -74,6 +75,8 @@ type Client struct {
 	isClosed bool
 	srv      *genserver.GenServer
 	timer    *Timer
+
+	portOpen2Handler atomic.Value
 }
 
 func getRequestID() uint64 {
@@ -101,6 +104,8 @@ func NewClient(host string, clientMan *ClientManager, cfg *config.Config, pool *
 		enableMetrics: cfg.EnableMetrics,
 		timer:         NewTimer(),
 	}
+	var handler func(*edge.PortOpen2) error
+	client.portOpen2Handler.Store(handler)
 
 	if client.enableMetrics {
 		client.metrics = NewMetrics()
@@ -158,11 +163,26 @@ func (client *Client) Log() *config.Logger {
 	return client.config.Logger.With(zap.String("server", client.host))
 }
 
+// SetPortOpen2Handler configures a handler for inbound portopen2 requests.
+func (client *Client) SetPortOpen2Handler(handler func(*edge.PortOpen2) error) {
+	client.portOpen2Handler.Store(handler)
+}
+
 // Host returns the non-resolved addr name of the host
 func (client *Client) Host() (host string, err error) {
 	err = client.callTimeout(func() {
 		if client.s != nil {
 			host = client.s.addr
+		}
+	})
+	return
+}
+
+// RemoteAddr returns the remote network address of the RPC connection.
+func (client *Client) RemoteAddr() (addr net.Addr, err error) {
+	err = client.callTimeout(func() {
+		if client.s != nil {
+			addr = client.s.RemoteAddr()
 		}
 	})
 	return
@@ -606,6 +626,68 @@ func (client *Client) SubmitNewTicket() (err error) {
 	return
 }
 
+// SubmitTicketForUsage submits a ticket covering at least minBytes.
+func (client *Client) SubmitTicketForUsage(minBytes *big.Int) (err error) {
+	client.srv.Cast(func() {
+		if client.bq == nil || client.isClosed || client.s == nil {
+			return
+		}
+		if minBytes == nil {
+			return
+		}
+		if minBytes.Sign() < 0 {
+			client.Log().Warn("ticket_request has negative usage: %s", minBytes.String())
+			return
+		}
+		if !minBytes.IsUint64() {
+			client.Log().Warn("ticket_request usage too large: %s", minBytes.String())
+			return
+		}
+		minUsage := minBytes.Uint64()
+		current := client.s.TotalBytes()
+		if minUsage > current {
+			client.Log().Debug("ticket_request updating total bytes current=%d requested=%d", current, minUsage)
+			client.s.setTotalBytes(minUsage)
+		}
+
+		var ticket *edge.DeviceTicket
+		ticket, err = client.newTicket()
+		if err != nil {
+			return
+		}
+		if ticket.TotalBytes.Uint64() < minUsage {
+			ticket.TotalBytes = new(big.Int).SetUint64(minUsage)
+		}
+		err = client.submitTicket(ticket)
+		if err == nil {
+			client.lastTicket = ticket
+		}
+	})
+	return
+}
+
+// HandleTicketRequest responds to a server ticket request.
+func (client *Client) HandleTicketRequest(req *edge.TicketRequest) {
+	if req == nil {
+		return
+	}
+	if req.Err != nil {
+		client.Log().Error("Failed to decode ticket_request: %v", req.Err.Error())
+		return
+	}
+	if req.Usage == nil {
+		client.Log().Warn("ticket_request missing usage")
+		return
+	}
+	client.Log().Info("ticket_request usage=%s", req.Usage.String())
+	if client.s != nil {
+		client.Log().Info("ticket_request current_total_bytes=%d", client.s.TotalBytes())
+	}
+	if err := client.SubmitTicketForUsage(req.Usage); err != nil {
+		client.Log().Error("failed to submit ticket for request: %v", err)
+	}
+}
+
 // SignTransaction return signed transaction
 func (client *Client) SignTransaction(tx *edge.Transaction) (err error) {
 	var privKey *ecdsa.PrivateKey
@@ -687,6 +769,7 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 		}
 
 		if lastTicket, ok := resp.(edge.DeviceTicket); ok {
+			client.Log().Info("ticket response version=%d total_bytes=%s total_conns=%s err=%v", lastTicket.Version, lastTicket.TotalBytes.String(), lastTicket.TotalConnections.String(), lastTicket.Err)
 			if lastTicket.Err == edge.ErrTicketTooLow {
 				ssl := client.s
 				sid, _ := ssl.GetServerID()
@@ -728,6 +811,21 @@ func (client *Client) PortOpen(deviceID [20]byte, port int, portName string, mod
 	return portOpen, err
 }
 
+// PortOpen2 call portopen2 RPC
+func (client *Client) PortOpen2(deviceID [20]byte, portName string, flags string) (*edge.PortOpen2, error) {
+	rawPortOpen, err := client.CallContext("portopen2", deviceID[:], portName, flags)
+	if err != nil {
+		if len(err.Error()) == 4 {
+			err = errPortOpenTimeout
+		}
+		return nil, err
+	}
+	if portOpen, ok := rawPortOpen.(*edge.PortOpen2); ok {
+		return portOpen, nil
+	}
+	return nil, nil
+}
+
 func (client *Client) doPortOpen(deviceID [20]byte, portName string, mode string) (*edge.PortOpen, error) {
 	rawPortOpen, err := client.CallContext("portopen", deviceID[:], portName, mode)
 	if err != nil {
@@ -749,6 +847,20 @@ func (client *Client) ResponsePortOpen(portOpen *edge.PortOpen, err error) error
 		_, err = client.RespondContext(portOpen.RequestID, "error", "portopen", portOpen.Ref, err.Error())
 	} else {
 		_, err = client.RespondContext(portOpen.RequestID, "response", "portopen", portOpen.Ref, "ok")
+	}
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// ResponsePortOpen2 response portopen2 request
+func (client *Client) ResponsePortOpen2(portOpen *edge.PortOpen2, err error) error {
+	physicalPort := uint64(portOpen.PhysicalPort)
+	if err != nil {
+		_, err = client.RespondContext(portOpen.RequestID, "error", "portopen2", physicalPort, err.Error())
+	} else {
+		_, err = client.RespondContext(portOpen.RequestID, "response", "portopen2", physicalPort, "ok")
 	}
 	if err != nil {
 		return err

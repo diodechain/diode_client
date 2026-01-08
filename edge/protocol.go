@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"strconv"
 
 	"github.com/diodechain/diode_client/blockquick"
 	"github.com/diodechain/diode_client/config"
@@ -20,15 +21,17 @@ import (
 )
 
 var (
-	responsePivot     = []byte("response")
-	errorPivot        = []byte("error")
-	ticketTooOldPivot = []byte("too_old")
-	ticketTooLowPivot = []byte("too_low")
-	ticketThanksPivot = []byte("thanks!")
-	portOpenPivot     = []byte("portopen")
-	portSendPivot     = []byte("portsend")
-	portClosePivot    = []byte("portclose")
-	goodbyePivot      = []byte("goodbye")
+	responsePivot      = []byte("response")
+	errorPivot         = []byte("error")
+	ticketTooOldPivot  = []byte("too_old")
+	ticketTooLowPivot  = []byte("too_low")
+	ticketThanksPivot  = []byte("thanks!")
+	portOpenPivot      = []byte("portopen")
+	portOpen2Pivot     = []byte("portopen2")
+	ticketRequestPivot = []byte("ticket_request")
+	portSendPivot      = []byte("portsend")
+	portClosePivot     = []byte("portclose")
+	goodbyePivot       = []byte("goodbye")
 	// Maybe remove parse callback and use parse response?
 	blockPivot                 = []byte("getblock")
 	block2Pivot                = []byte("getblock2")
@@ -53,7 +56,9 @@ var (
 
 // parse response
 func parseResponse(buffer []byte) (interface{}, error) {
-	if bytes.Contains(buffer, portOpenPivot) {
+	if bytes.Contains(buffer, portOpen2Pivot) {
+		return parsePortOpen2Response(buffer)
+	} else if bytes.Contains(buffer, portOpenPivot) {
 		return parsePortOpenResponse(buffer)
 	} else if bytes.Contains(buffer, portSendPivot) {
 		return parsePortSendResponse(buffer)
@@ -361,6 +366,62 @@ func parsePortOpenResponse(buffer []byte) (interface{}, error) {
 	return portOpen, nil
 }
 
+func parsePortOpen2Response(buffer []byte) (interface{}, error) {
+	var response generalRequest
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	if err := decodeStream.Decode(&response); err != nil {
+		return nil, err
+	}
+	portOpen := &PortOpen2{Ok: true}
+	payload := response.Payload
+	if len(payload) == 0 {
+		return nil, fmt.Errorf("portopen2 response missing payload")
+	}
+
+	start := 0
+	if method, ok := parseStringValue(payload[0]); ok {
+		if method == "response" || method == "error" {
+			start = 1
+		} else if method == "portopen2" {
+			start = 1
+		}
+	}
+	if start < len(payload) {
+		if method, ok := parseStringValue(payload[start]); ok && method == "portopen2" {
+			start++
+		}
+	}
+
+	if len(payload) <= start {
+		return nil, fmt.Errorf("portopen2 response missing result")
+	}
+
+	result, ok := parseStringValue(payload[start])
+	if ok {
+		portOpen.Ok = result == "ok"
+	}
+
+	if len(payload) > start+1 {
+		physicalPort, err := parseIntValue(payload[start+1])
+		if err == nil {
+			portOpen.PhysicalPort = physicalPort
+			return portOpen, nil
+		}
+		if ok {
+			physicalPort, err = parseIntValue(payload[start])
+			if err == nil {
+				portOpen.PhysicalPort = physicalPort
+				if result2, ok2 := parseStringValue(payload[start+1]); ok2 {
+					portOpen.Ok = result2 == "ok"
+				}
+				return portOpen, nil
+			}
+		}
+		return nil, err
+	}
+	return portOpen, nil
+}
+
 func parseServerObjResponse(buffer []byte) (interface{}, error) {
 	return doParseServerObjResponse(buffer)
 }
@@ -449,6 +510,90 @@ func parseUint(data []byte) (num uint64) {
 	return
 }
 
+func parseBigIntValue(val interface{}) (*big.Int, error) {
+	switch v := val.(type) {
+	case uint64:
+		return new(big.Int).SetUint64(v), nil
+	case uint:
+		return new(big.Int).SetUint64(uint64(v)), nil
+	case int:
+		if v < 0 {
+			return nil, fmt.Errorf("negative value %d", v)
+		}
+		return new(big.Int).SetUint64(uint64(v)), nil
+	case []byte:
+		return new(big.Int).SetBytes(v), nil
+	case string:
+		if v == "" {
+			return nil, fmt.Errorf("empty string value")
+		}
+		parsed, ok := new(big.Int).SetString(v, 10)
+		if !ok {
+			return nil, fmt.Errorf("invalid integer string %q", v)
+		}
+		return parsed, nil
+	default:
+		return nil, fmt.Errorf("unsupported integer type %T", val)
+	}
+}
+
+func parseIntValue(val interface{}) (int, error) {
+	switch v := val.(type) {
+	case uint64:
+		return int(v), nil
+	case uint:
+		return int(v), nil
+	case int:
+		return v, nil
+	case []byte:
+		return int(parseUint(v)), nil
+	case string:
+		parsed, err := strconv.Atoi(v)
+		if err != nil {
+			return 0, err
+		}
+		return parsed, nil
+	default:
+		return 0, fmt.Errorf("unsupported integer type %T", val)
+	}
+}
+
+func parseStringValue(val interface{}) (string, bool) {
+	switch v := val.(type) {
+	case []byte:
+		return string(v), true
+	case string:
+		return v, true
+	default:
+		return "", false
+	}
+}
+
+func parseAddressValue(val interface{}) (Address, error) {
+	var addr Address
+	switch v := val.(type) {
+	case []byte:
+		if len(v) == len(addr) {
+			copy(addr[:], v)
+			return addr, nil
+		}
+		if s, ok := parseStringValue(v); ok {
+			decoded, err := util.DecodeAddress(s)
+			if err != nil {
+				return addr, err
+			}
+			return decoded, nil
+		}
+	case string:
+		decoded, err := util.DecodeAddress(v)
+		if err != nil {
+			return addr, err
+		}
+		return decoded, nil
+	}
+	return addr, fmt.Errorf("unsupported address type %T", val)
+}
+
 func parseBigUint(data []byte) (num big.Int) {
 	for _, b := range data {
 		num = *num.Add(num.Mul(&num, big.NewInt(256)), big.NewInt(int64(b)))
@@ -533,6 +678,92 @@ func parseInboundPortOpenRequest(buffer []byte) (interface{}, error) {
 	return portOpen, nil
 }
 
+func parseInboundPortOpen2Request(buffer []byte) (interface{}, error) {
+	var inboundRequest generalRequest
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	if err := decodeStream.Decode(&inboundRequest); err != nil {
+		return nil, err
+	}
+	portOpen := &PortOpen2{
+		RequestID: inboundRequest.RequestID,
+		Ok:        true,
+	}
+	payload := inboundRequest.Payload
+	if len(payload) == 0 {
+		portOpen.Err = fmt.Errorf("invalid portopen2 payload length: 0")
+		return portOpen, nil
+	}
+	start := 0
+	if method, ok := parseStringValue(payload[0]); ok && method == "portopen2" {
+		start = 1
+	}
+	if len(payload) < start+4 {
+		portOpen.Err = fmt.Errorf("invalid portopen2 payload length: %d", len(payload))
+		return portOpen, nil
+	}
+
+	portName, ok := parseStringValue(payload[start])
+	if !ok {
+		portOpen.Err = fmt.Errorf("invalid portopen2 port name")
+		return portOpen, nil
+	}
+	portOpen.PortName = portName
+
+	physicalPort, err := parseIntValue(payload[start+1])
+	if err != nil {
+		portOpen.Err = err
+		return portOpen, nil
+	}
+	portOpen.PhysicalPort = physicalPort
+
+	addr, err := parseAddressValue(payload[start+2])
+	if err != nil {
+		portOpen.Err = err
+		return portOpen, nil
+	}
+	portOpen.SourceDeviceID = addr
+
+	flags, ok := parseStringValue(payload[start+3])
+	if !ok {
+		portOpen.Err = fmt.Errorf("invalid portopen2 flags")
+		return portOpen, nil
+	}
+	portOpen.Flags = flags
+
+	return portOpen, nil
+}
+
+func parseInboundTicketRequest(buffer []byte) (interface{}, error) {
+	var inboundRequest generalRequest
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	if err := decodeStream.Decode(&inboundRequest); err != nil {
+		return nil, err
+	}
+	req := &TicketRequest{
+		RequestID: inboundRequest.RequestID,
+	}
+	payload := inboundRequest.Payload
+	if len(payload) < 2 {
+		req.Err = fmt.Errorf("invalid ticket_request payload length: %d", len(payload))
+		return req, nil
+	}
+	start := 0
+	if method, ok := parseStringValue(payload[0]); ok && method == "ticket_request" {
+		start = 1
+	}
+	if len(payload) <= start {
+		req.Err = fmt.Errorf("invalid ticket_request payload length: %d", len(payload))
+		return req, nil
+	}
+	usage, err := parseBigIntValue(payload[start])
+	if err != nil {
+		req.Err = err
+		return req, nil
+	}
+	req.Usage = usage
+	return req, nil
+}
+
 func parseInboundPortSendRequest(buffer []byte) (interface{}, error) {
 	var inboundRequest portSendInboundRequest
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
@@ -580,7 +811,11 @@ func parseInboundGoodbyeRequest(buffer []byte) (interface{}, error) {
 }
 
 func parseInboundRequest(buffer []byte) (req interface{}, err error) {
-	if bytes.Contains(buffer, portOpenPivot) {
+	if bytes.Contains(buffer, ticketRequestPivot) {
+		return parseInboundTicketRequest(buffer)
+	} else if bytes.Contains(buffer, portOpen2Pivot) {
+		return parseInboundPortOpen2Request(buffer)
+	} else if bytes.Contains(buffer, portOpenPivot) {
 		return parseInboundPortOpenRequest(buffer)
 	} else if bytes.Contains(buffer, portSendPivot) {
 		return parseInboundPortSendRequest(buffer)
@@ -667,6 +902,8 @@ func NewMessage(writer io.Writer, requestID uint64, method string, args ...inter
 		return parseDeviceTicketResponse, nil
 	case "portopen":
 		return parsePortOpenResponse, nil
+	case "portopen2":
+		return parsePortOpen2Response, nil
 	case "portsend":
 		return parsePortSendResponse, nil
 	case "getobject":
@@ -693,6 +930,8 @@ func NewResponseMessage(writer io.Writer, requestID uint64, responseType string,
 
 	switch method {
 	case "portopen":
+		request.Payload[0] = responseType
+	case "portopen2":
 		request.Payload[0] = responseType
 	case "portsend":
 	case "portclose":

@@ -42,6 +42,22 @@ type PortOpen struct {
 	Err           error
 }
 
+type PortOpen2 struct {
+	RequestID      uint64
+	PortName       string
+	PhysicalPort   int
+	SourceDeviceID Address
+	Flags          string
+	Ok             bool
+	Err            error
+}
+
+type TicketRequest struct {
+	RequestID uint64
+	Usage     *big.Int
+	Err       error
+}
+
 type PortSend struct {
 	Ref  string
 	Data []byte
