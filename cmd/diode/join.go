@@ -1299,14 +1299,14 @@ func applyWireGuardPortOpenHandler(client *rpc.Client, iface string, peers []wgD
 			return fmt.Errorf("nil portopen2 request")
 		}
 		cfg.Logger.Info("wireguard portopen2 inbound source=%s portName=%s physicalPort=%d flags=%s", portOpen.SourceDeviceID.HexString(), portOpen.PortName, portOpen.PhysicalPort, portOpen.Flags)
-		peer, ok := peerByDevice[portOpen.SourceDeviceID]
+		peer, ok := resolveWireGuardPeerForPortOpen(portOpen, peerByDevice)
 		if !ok {
 			known := make([]string, 0, len(peerByDevice))
 			for addr := range peerByDevice {
 				known = append(known, addr.HexString())
 			}
 			sort.Strings(known)
-			cfg.Logger.Warn("wireguard portopen2 no peer mapping source=%s known=%s", portOpen.SourceDeviceID.HexString(), strings.Join(known, ","))
+			cfg.Logger.Warn("wireguard portopen2 no peer mapping source=%s local=%s portName=%s known=%s", portOpen.SourceDeviceID.HexString(), cfg.ClientAddr.HexString(), portOpen.PortName, strings.Join(known, ","))
 			return fmt.Errorf("no wireguard peer mapped for device %s", portOpen.SourceDeviceID.HexString())
 		}
 		if port, err := strconv.Atoi(portOpen.PortName); err == nil && port != peer.Port {
@@ -1329,6 +1329,34 @@ func applyWireGuardPortOpenHandler(client *rpc.Client, iface string, peers []wgD
 		}
 		return nil
 	})
+}
+
+func resolveWireGuardPeerForPortOpen(portOpen *edge.PortOpen2, peerByDevice map[util.Address]wgDiodePeer) (wgDiodePeer, bool) {
+	if peer, ok := peerByDevice[portOpen.SourceDeviceID]; ok {
+		return peer, true
+	}
+	port, err := strconv.Atoi(portOpen.PortName)
+	if err == nil && port > 0 {
+		var match *wgDiodePeer
+		for _, candidate := range peerByDevice {
+			if candidate.Port == port {
+				if match != nil {
+					return wgDiodePeer{}, false
+				}
+				c := candidate
+				match = &c
+			}
+		}
+		if match != nil {
+			return *match, true
+		}
+	}
+	if len(peerByDevice) == 1 {
+		for _, candidate := range peerByDevice {
+			return candidate, true
+		}
+	}
+	return wgDiodePeer{}, false
 }
 
 func applyWireGuardDiodePeers(client *rpc.Client, iface string, peers []wgDiodePeer) error {
