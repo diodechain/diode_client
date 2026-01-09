@@ -1292,13 +1292,21 @@ func applyWireGuardPortOpenHandler(client *rpc.Client, iface string, peers []wgD
 	for _, peer := range peers {
 		peerByDevice[peer.DeviceID] = peer
 	}
+	cfg.Logger.Info("wireguard portopen2 handler enabled peers=%d iface=%s", len(peers), iface)
 
 	client.SetPortOpen2Handler(func(portOpen *edge.PortOpen2) error {
 		if portOpen == nil {
 			return fmt.Errorf("nil portopen2 request")
 		}
+		cfg.Logger.Info("wireguard portopen2 inbound source=%s portName=%s physicalPort=%d flags=%s", portOpen.SourceDeviceID.HexString(), portOpen.PortName, portOpen.PhysicalPort, portOpen.Flags)
 		peer, ok := peerByDevice[portOpen.SourceDeviceID]
 		if !ok {
+			known := make([]string, 0, len(peerByDevice))
+			for addr := range peerByDevice {
+				known = append(known, addr.HexString())
+			}
+			sort.Strings(known)
+			cfg.Logger.Warn("wireguard portopen2 no peer mapping source=%s known=%s", portOpen.SourceDeviceID.HexString(), strings.Join(known, ","))
 			return fmt.Errorf("no wireguard peer mapped for device %s", portOpen.SourceDeviceID.HexString())
 		}
 		if port, err := strconv.Atoi(portOpen.PortName); err == nil && port != peer.Port {
@@ -1312,9 +1320,13 @@ func applyWireGuardPortOpenHandler(client *rpc.Client, iface string, peers []wgD
 			return err
 		}
 		if err := setWireGuardPeerEndpoint(iface, peer.PublicKey, relayHost, portOpen.PhysicalPort); err != nil {
+			cfg.Logger.Warn("wireguard endpoint update failed peer=%s endpoint=%s:%d err=%v", peer.PublicKey, relayHost, portOpen.PhysicalPort, err)
 			return err
 		}
 		cfg.Logger.Info("wireguard endpoint updated peer=%s endpoint=%s:%d", peer.PublicKey, relayHost, portOpen.PhysicalPort)
+		if err := pokeWireGuardPeer(peer); err != nil {
+			cfg.Logger.Warn("wireguard poke failed peer=%s err=%v", peer.PublicKey, err)
+		}
 		return nil
 	})
 }
@@ -1390,6 +1402,28 @@ func setWireGuardPeerEndpoint(iface string, publicKey string, host string, port 
 		return fmt.Errorf("wg set failed: %w", err)
 	}
 	return nil
+}
+
+func pokeWireGuardPeer(peer wgDiodePeer) error {
+	if peer.PeerIPv4 == nil {
+		return fmt.Errorf("missing peer allowed ip")
+	}
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	addr := net.JoinHostPort(peer.PeerIPv4.String(), "1")
+	dialer := net.Dialer{Timeout: 2 * time.Second}
+	conn, err := dialer.Dial("udp", addr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if err := conn.SetWriteDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		return err
+	}
+	payload := []byte("diode-wg-init")
+	_, err = conn.Write(payload)
+	return err
 }
 
 // updateWireGuardFromContract fetches wireguard config and applies it
