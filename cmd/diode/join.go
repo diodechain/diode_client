@@ -1276,6 +1276,10 @@ func applyWireGuardDiodePeers(client *rpc.Client, iface string, peers []wgDiodeP
 		return err
 	}
 	for _, peer := range peers {
+		if !shouldInitiateWireGuard(cfg.ClientAddr, peer.DeviceID) {
+			cfg.Logger.Info("wireguard portopen2 skipped (non-initiator) peer=%s device=%s", peer.PublicKey, peer.DeviceID.HexString())
+			continue
+		}
 		if peer.Port <= 0 {
 			cfg.Logger.Warn("wireguard peer %s missing endpoint port", peer.PublicKey)
 			continue
@@ -1298,6 +1302,10 @@ func applyWireGuardDiodePeers(client *rpc.Client, iface string, peers []wgDiodeP
 		cfg.Logger.Info("wireguard endpoint updated peer=%s endpoint=%s:%d", peer.PublicKey, relayHost, portOpen.PhysicalPort)
 	}
 	return nil
+}
+
+func shouldInitiateWireGuard(local util.Address, remote util.Address) bool {
+	return bytes.Compare(local[:], remote[:]) < 0
 }
 
 func relayHostFromClient(client *rpc.Client) (string, error) {
