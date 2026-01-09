@@ -1413,20 +1413,41 @@ func relayHostFromClient(client *rpc.Client) (string, error) {
 	return host, nil
 }
 
+// runCommandWithSudoFallback runs a command, and if it fails, retries with sudo
+// Uses CombinedOutput to capture both stdout and stderr
+func runCommandWithSudoFallback(name string, args ...string) ([]byte, error) {
+	cmd := exec.Command(name, args...)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		// If that fails, try with sudo
+		cmd = exec.Command("sudo", append([]string{name}, args...)...)
+		out, err = cmd.CombinedOutput()
+	}
+	return out, err
+}
+
 func findWireGuardInterfaceForPeer(publicKey string) string {
 	if runtime.GOOS != "darwin" {
 		return ""
 	}
 	// On macOS, wg-quick creates utun* interfaces, not the config name
-	// Find the utun interface (typically only one exists for this use case)
-	cmd := exec.Command("wg", "show", "interfaces")
-	out, err := cmd.Output()
+	// Find the utun interface that contains this peer's public key
+	out, err := runCommandWithSudoFallback("wg", "show", "interfaces")
 	if err != nil {
 		return ""
 	}
 	interfaces := strings.Fields(string(out))
 	for _, i := range interfaces {
-		if strings.HasPrefix(i, "utun") {
+		if !strings.HasPrefix(i, "utun") {
+			continue
+		}
+		// Check if this interface has the peer's public key
+		checkOut, checkErr := runCommandWithSudoFallback("wg", "show", i)
+		if checkErr != nil {
+			continue
+		}
+		// The peer public key should appear in the output
+		if strings.Contains(string(checkOut), publicKey) {
 			return i
 		}
 	}
@@ -1449,18 +1470,13 @@ func setWireGuardPeerEndpoint(iface string, publicKey string, host string, port 
 			if actualIface != iface {
 				cfg.Logger.Info("Using WireGuard interface %s (resolved from %s)", actualIface, iface)
 			}
+		} else {
+			cfg.Logger.Debug("Could not resolve WireGuard interface for peer %s, using config name %s", publicKey, iface)
 		}
 	}
 	endpoint := net.JoinHostPort(host, strconv.Itoa(port))
-	cmd := exec.Command("wg", "set", actualIface, "peer", publicKey, "endpoint", endpoint)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		// If permission denied, try with sudo
-		if strings.Contains(string(out), "Permission denied") || strings.Contains(err.Error(), "permission denied") {
-			cmd = exec.Command("sudo", "wg", "set", actualIface, "peer", publicKey, "endpoint", endpoint)
-			out, err = cmd.CombinedOutput()
-		}
-	}
+	// Try wg set, and if it fails, retry with sudo
+	out, err := runCommandWithSudoFallback("wg", "set", actualIface, "peer", publicKey, "endpoint", endpoint)
 	if len(out) > 0 {
 		cfg.Logger.Info("wg set output: %s", strings.TrimSpace(string(out)))
 	}
