@@ -140,6 +140,34 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 			_ = client.ResponsePortOpen(portOpen, nil)
 			port.Copy()
 		}()
+	} else if portOpen2, ok := inboundRequest.(*edge.PortOpen2); ok {
+		defer client.timer.profile(time.Now(), "handlePortOpen2")
+
+		go func() {
+			client.Log().Debug("portopen2 request portName=%s physicalPort=%d flags=%s source=%s ok=%v err=%v", portOpen2.PortName, portOpen2.PhysicalPort, portOpen2.Flags, portOpen2.SourceDeviceID.HexString(), portOpen2.Ok, portOpen2.Err)
+			if portOpen2.Err != nil {
+				_ = client.ResponsePortOpen2(portOpen2, portOpen2.Err)
+				client.Log().Error("Failed to decode portopen2 request: %v", portOpen2.Err.Error())
+				return
+			}
+
+			handlerVal := client.portOpen2Handler.Load()
+			if handlerVal != nil {
+				if handler, ok := handlerVal.(func(*edge.PortOpen2) error); ok && handler != nil {
+					if err := handler(portOpen2); err != nil {
+						client.Log().Debug("portopen2 handler error: %v", err)
+						_ = client.ResponsePortOpen2(portOpen2, err)
+						return
+					}
+					client.Log().Debug("portopen2 handler ok")
+					_ = client.ResponsePortOpen2(portOpen2, nil)
+					return
+				}
+			}
+
+			client.Log().Debug("portopen2 handler missing")
+			_ = client.ResponsePortOpen2(portOpen2, fmt.Errorf("no portopen2 handler configured"))
+		}()
 	} else if portSend, ok := inboundRequest.(*edge.PortSend); ok {
 		defer client.timer.profile(time.Now(), "handlePortSend")
 
@@ -169,6 +197,9 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 		//  else {
 		// client.Log().Error("Couldn't find the portclose connected device %x", portClose.Ref)
 		// }
+	} else if ticketReq, ok := inboundRequest.(*edge.TicketRequest); ok {
+		defer client.timer.profile(time.Now(), "handleTicketRequest")
+		go client.HandleTicketRequest(ticketReq)
 	} else if goodbye, ok := inboundRequest.(edge.Goodbye); ok {
 		defer client.timer.profile(time.Now(), "handleGoodbye")
 
