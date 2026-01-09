@@ -1135,6 +1135,8 @@ type wgDiodePeer struct {
 	PublicKey string
 	DeviceID  util.Address
 	Port      int
+	PeerIPv4  net.IP
+	Initiator bool
 }
 
 func parseWireGuardDiodePeers(cfg string) ([]wgDiodePeer, error) {
@@ -1143,7 +1145,9 @@ func parseWireGuardDiodePeers(cfg string) ([]wgDiodePeer, error) {
 	var peers []wgDiodePeer
 	var current wgDiodePeer
 	var endpointPort int
+	var localIPv4 net.IP
 	inPeer := false
+	inInterface := false
 
 	commit := func() {
 		if !inPeer {
@@ -1159,6 +1163,11 @@ func parseWireGuardDiodePeers(cfg string) ([]wgDiodePeer, error) {
 			return
 		}
 		current.Port = endpointPort
+		if localIPv4 != nil && current.PeerIPv4 != nil {
+			current.Initiator = bytes.Compare(localIPv4.To4(), current.PeerIPv4.To4()) < 0
+		} else {
+			current.Initiator = true
+		}
 		peers = append(peers, current)
 	}
 
@@ -1170,9 +1179,21 @@ func parseWireGuardDiodePeers(cfg string) ([]wgDiodePeer, error) {
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
 			commit()
 			inPeer = strings.EqualFold(trimmed, "[peer]")
+			inInterface = strings.EqualFold(trimmed, "[interface]")
 			current = wgDiodePeer{}
 			endpointPort = 0
-			endpointPort = 0
+			continue
+		}
+		if inInterface {
+			key, value, ok := parseWGKeyValue(trimmed)
+			if !ok {
+				continue
+			}
+			if strings.EqualFold(key, "address") {
+				if ip := firstIPv4FromList(value); ip != nil {
+					localIPv4 = ip
+				}
+			}
 			continue
 		}
 		if !inPeer {
@@ -1193,6 +1214,8 @@ func parseWireGuardDiodePeers(cfg string) ([]wgDiodePeer, error) {
 				return nil, err
 			}
 			current.DeviceID = addr
+		case "allowedips":
+			current.PeerIPv4 = firstIPv4FromList(value)
 		}
 	}
 	commit()
@@ -1236,6 +1259,33 @@ func parseWGEndpointPort(value string) int {
 	return 0
 }
 
+func firstIPv4FromList(value string) net.IP {
+	for _, item := range strings.Split(value, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if ip := parseIPv4FromCIDR(item); ip != nil {
+			return ip
+		}
+		if ip := net.ParseIP(item); ip != nil && ip.To4() != nil {
+			return ip.To4()
+		}
+	}
+	return nil
+}
+
+func parseIPv4FromCIDR(value string) net.IP {
+	ip, _, err := net.ParseCIDR(value)
+	if err != nil {
+		return nil
+	}
+	if ip == nil {
+		return nil
+	}
+	return ip.To4()
+}
+
 func applyWireGuardPortOpenHandler(client *rpc.Client, iface string, peers []wgDiodePeer) {
 	cfg := config.AppConfig
 	peerByDevice := make(map[util.Address]wgDiodePeer, len(peers))
@@ -1276,7 +1326,7 @@ func applyWireGuardDiodePeers(client *rpc.Client, iface string, peers []wgDiodeP
 		return err
 	}
 	for _, peer := range peers {
-		if !shouldInitiateWireGuard(cfg.ClientAddr, peer.DeviceID) {
+		if !peer.Initiator {
 			cfg.Logger.Info("wireguard portopen2 skipped (non-initiator) peer=%s device=%s", peer.PublicKey, peer.DeviceID.HexString())
 			continue
 		}
@@ -1303,11 +1353,6 @@ func applyWireGuardDiodePeers(client *rpc.Client, iface string, peers []wgDiodeP
 	}
 	return nil
 }
-
-func shouldInitiateWireGuard(local util.Address, remote util.Address) bool {
-	return bytes.Compare(local[:], remote[:]) < 0
-}
-
 func relayHostFromClient(client *rpc.Client) (string, error) {
 	if client == nil {
 		return "", fmt.Errorf("missing rpc client")
