@@ -144,10 +144,11 @@ func runTestTCPBind(client *rpc.Client, spec string) error {
 	if err != nil {
 		return err
 	}
-	cfg.Logger.Debug("portopen2 response ok=%v physicalPort=%d", portOpen != nil && portOpen.Ok, portOpen.PhysicalPort)
 	if portOpen == nil || !portOpen.Ok {
+		cfg.Logger.Debug("portopen2 response ok=%v physicalPort=%d", portOpen != nil && portOpen.Ok, 0)
 		return fmt.Errorf("portopen2 failed")
 	}
+	cfg.Logger.Debug("portopen2 response ok=%v physicalPort=%d", portOpen.Ok, portOpen.PhysicalPort)
 	if portOpen.PhysicalPort <= 0 {
 		return fmt.Errorf("invalid physical port: %d", portOpen.PhysicalPort)
 	}
