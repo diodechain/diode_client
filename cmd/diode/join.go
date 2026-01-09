@@ -1413,6 +1413,26 @@ func relayHostFromClient(client *rpc.Client) (string, error) {
 	return host, nil
 }
 
+func findWireGuardInterfaceForPeer(publicKey string) string {
+	if runtime.GOOS != "darwin" {
+		return ""
+	}
+	// On macOS, wg-quick creates utun* interfaces, not the config name
+	// Find the utun interface (typically only one exists for this use case)
+	cmd := exec.Command("wg", "show", "interfaces")
+	out, err := cmd.Output()
+	if err != nil {
+		return ""
+	}
+	interfaces := strings.Fields(string(out))
+	for _, i := range interfaces {
+		if strings.HasPrefix(i, "utun") {
+			return i
+		}
+	}
+	return ""
+}
+
 func setWireGuardPeerEndpoint(iface string, publicKey string, host string, port int) error {
 	if runtime.GOOS == "windows" {
 		return nil
@@ -1420,11 +1440,29 @@ func setWireGuardPeerEndpoint(iface string, publicKey string, host string, port 
 	if iface == "" || publicKey == "" || host == "" || port <= 0 {
 		return fmt.Errorf("invalid wireguard endpoint parameters")
 	}
+	cfg := config.AppConfig
+	// On macOS, wg-quick creates a utun* interface, not the config name
+	actualIface := iface
+	if runtime.GOOS == "darwin" {
+		if foundIface := findWireGuardInterfaceForPeer(publicKey); foundIface != "" {
+			actualIface = foundIface
+			if actualIface != iface {
+				cfg.Logger.Info("Using WireGuard interface %s (resolved from %s)", actualIface, iface)
+			}
+		}
+	}
 	endpoint := net.JoinHostPort(host, strconv.Itoa(port))
-	cmd := exec.Command("wg", "set", iface, "peer", publicKey, "endpoint", endpoint)
+	cmd := exec.Command("wg", "set", actualIface, "peer", publicKey, "endpoint", endpoint)
 	out, err := cmd.CombinedOutput()
+	if err != nil {
+		// If permission denied, try with sudo
+		if strings.Contains(string(out), "Permission denied") || strings.Contains(err.Error(), "permission denied") {
+			cmd = exec.Command("sudo", "wg", "set", actualIface, "peer", publicKey, "endpoint", endpoint)
+			out, err = cmd.CombinedOutput()
+		}
+	}
 	if len(out) > 0 {
-		config.AppConfig.Logger.Info("wg set output: %s", strings.TrimSpace(string(out)))
+		cfg.Logger.Info("wg set output: %s", strings.TrimSpace(string(out)))
 	}
 	if err != nil {
 		return fmt.Errorf("wg set failed: %w", err)
