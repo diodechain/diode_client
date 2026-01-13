@@ -340,7 +340,8 @@ func (cm *ClientManager) connect(nodeID util.Address, host string) (ret *Client,
 	if host == "" {
 		return nil, fmt.Errorf("connect() error: Host is nil")
 	}
-
+	// Track the reply object for this connection attempt so we can clean it up on timeout
+	var timeoutReply *genserver.Reply
 	err = cm.srv.Call2Timeout(func(r *genserver.Reply) bool {
 		if client, ok := cm.clientMap[nodeID]; ok {
 			ret = client
@@ -359,11 +360,56 @@ func (cm *ClientManager) connect(nodeID util.Address, host string) (ret *Client,
 			}
 		}
 		req.waiting = append(req.waiting, r)
+		timeoutReply = r // Save reference to remove on timeout
 		if req.client == nil {
 			req.client = cm.startClient(req.host)
 		}
 		return false
 	}, 15*time.Second)
+
+	// If timeout occurred, we need to remove the timed out waiting request from the list
+	//
+	// Problem: Without this cleanup, when connect() times out after 15 seconds, the Reply object
+	// remains in req.waiting. Later, when the connection attempt fails (e.g., with EOF), the
+	// Terminate callback calls ReRun() on all waiting replies. Calling ReRun() on a timed-out
+	// reply re-executes the Call2Timeout function. The function checks if the reply is already
+	// in req.waiting and returns true with an error. However, the original
+	// caller has already given up and returned from Call2Timeout, so:
+	//   1. Genserver tries to return a result to a caller that no longer exists, causing the
+	//      genserver's internal state to become inconsistent (the call is marked as "waiting"
+	//      but the caller has moved on)
+	//   2. More critically: The nodeRequest remains in waitingNode indefinitely. Future calls
+	//      to connect() for the same nodeID will find this stale nodeRequest with a failed
+	//      client. They'll add themselves to req.waiting and wait for a client that will never
+	//      succeed, causing all future connection attempts to hang indefinitely.
+	//   3. Memory leaks: timed-out replies accumulate in req.waiting indefinitely
+	//
+	// Solution: Remove timed-out replies from req.waiting immediately after timeout. This ensures
+	// Terminate only notifies active, valid waiting replies. If all waiters time out, we also
+	// delete the nodeRequest to allow future connection attempts to start fresh.
+	//
+	// Ref https://github.com/diodechain/diode_client/issues/218
+	if err != nil && timeoutReply != nil {
+		cm.srv.Cast(func() {
+			if req, ok := cm.waitingNode[nodeID]; ok {
+				// Remove this specific waiting request
+				for i, w := range req.waiting {
+					if w == timeoutReply {
+						req.waiting = append(req.waiting[:i], req.waiting[i+1:]...)
+						break
+					}
+				}
+				// If no one is waiting anymore, clean up the nodeRequest
+				// This allows future connection attempts to start fresh
+				if len(req.waiting) == 0 {
+					delete(cm.waitingNode, nodeID)
+					// Note: req.client may still be running, but if it succeeds later,
+					// it will be added to clientMap via onConnect. If it fails,
+					// Terminate will clean it up. We just don't track it in waitingNode anymore.
+				}
+			}
+		})
+	}
 	return
 }
 
