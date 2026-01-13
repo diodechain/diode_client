@@ -386,11 +386,7 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 			client, err = socksServer.GetServer(serverID)
 			if err != nil {
 				// Check if this is a timeout error - these are transient and should be retried
-				errMsg := err.Error()
-				isTimeout := strings.Contains(errMsg, "timeout") ||
-					strings.Contains(errMsg, "GenServer WARNING timeout") ||
-					strings.Contains(errMsg, "Call2Timeout")
-				if isTimeout {
+				if strings.Contains(err.Error(), "timeout") {
 					socksServer.logger.Debug("%d: GetServer() timed out for %s (will retry if needed)", requestId, serverID.HexString())
 				} else {
 					socksServer.logger.Error("%d: GetServer() failed: %v", requestId, err)
