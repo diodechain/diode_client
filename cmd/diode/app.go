@@ -99,8 +99,6 @@ func init() {
 	diodeCmd.AddSubCommand(sshCmd)
 	diodeCmd.AddSubCommand(versionCmd)
 	diodeCmd.AddSubCommand(updateCmd)
-	diodeCmd.AddSubCommand(testUDPCmd)
-	diodeCmd.AddSubCommand(testTCPCmd)
 }
 
 func prepareDiode() error {

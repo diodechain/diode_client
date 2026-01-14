@@ -1424,6 +1424,28 @@ func runCommandWithSudoFallback(name string, args ...string) ([]byte, error) {
 	if !isPermissionDenied(err, out) {
 		return out, err
 	}
+	if runtime.GOOS == "windows" {
+		return runCommandWithGsudoFallback(name, args, out, err)
+	}
+	return runCommandWithUnixSudoFallback(name, args, out, err)
+}
+
+func isPermissionDenied(err error, output []byte) bool {
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "permission denied") || strings.Contains(lower, "operation not permitted") {
+		return true
+	}
+	if strings.Contains(lower, "access is denied") || strings.Contains(lower, "requires elevation") {
+		return true
+	}
+	outLower := strings.ToLower(string(output))
+	if strings.Contains(outLower, "permission denied") || strings.Contains(outLower, "operation not permitted") {
+		return true
+	}
+	return strings.Contains(outLower, "access is denied") || strings.Contains(outLower, "requires elevation")
+}
+
+func runCommandWithUnixSudoFallback(name string, args []string, out []byte, err error) ([]byte, error) {
 	sudoArgs := append([]string{"-n", name}, args...)
 	sudoCmd := exec.Command("sudo", sudoArgs...)
 	sudoOut, sudoErr := sudoCmd.CombinedOutput()
@@ -1436,13 +1458,22 @@ func runCommandWithSudoFallback(name string, args ...string) ([]byte, error) {
 	return out, err
 }
 
-func isPermissionDenied(err error, output []byte) bool {
-	lower := strings.ToLower(err.Error())
-	if strings.Contains(lower, "permission denied") || strings.Contains(lower, "operation not permitted") {
-		return true
+func runCommandWithGsudoFallback(name string, args []string, out []byte, err error) ([]byte, error) {
+	gsudoPath, lookupErr := exec.LookPath("gsudo")
+	if lookupErr != nil {
+		config.AppConfig.Logger.Warn("gsudo not found; run diode as admin or install gsudo to allow WireGuard updates")
+		return out, err
 	}
-	outLower := strings.ToLower(string(output))
-	return strings.Contains(outLower, "permission denied") || strings.Contains(outLower, "operation not permitted")
+	gsudoArgs := append([]string{name}, args...)
+	gsudoCmd := exec.Command(gsudoPath, gsudoArgs...)
+	gsudoOut, gsudoErr := gsudoCmd.CombinedOutput()
+	if gsudoErr == nil {
+		return gsudoOut, nil
+	}
+	if len(gsudoOut) > 0 {
+		return gsudoOut, gsudoErr
+	}
+	return out, err
 }
 
 func findWireGuardInterfaceForPeer(peer wgDiodePeer) string {
@@ -1516,9 +1547,6 @@ func wgOutputHasAllowedIP(output string, publicKey string, allowedIP net.IP) boo
 }
 
 func setWireGuardPeerEndpoint(iface string, peer wgDiodePeer, host string, port int) error {
-	if runtime.GOOS == "windows" {
-		return nil
-	}
 	if iface == "" || peer.PublicKey == "" || host == "" || port <= 0 {
 		return fmt.Errorf("invalid wireguard endpoint parameters")
 	}

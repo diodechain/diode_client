@@ -769,7 +769,6 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 		}
 
 		if lastTicket, ok := resp.(edge.DeviceTicket); ok {
-			client.Log().Info("ticket response version=%d total_bytes=%s total_conns=%s err=%v", lastTicket.Version, lastTicket.TotalBytes.String(), lastTicket.TotalConnections.String(), lastTicket.Err)
 			if lastTicket.Err == edge.ErrTicketTooLow {
 				ssl := client.s
 				sid, _ := ssl.GetServerID()
