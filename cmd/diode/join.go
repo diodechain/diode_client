@@ -1319,7 +1319,7 @@ func applyWireGuardPortOpenHandler(client *rpc.Client, iface string, peers []wgD
 		if err != nil {
 			return err
 		}
-		if err := setWireGuardPeerEndpoint(iface, peer.PublicKey, relayHost, portOpen.PhysicalPort); err != nil {
+		if err := setWireGuardPeerEndpoint(iface, peer, relayHost, portOpen.PhysicalPort); err != nil {
 			cfg.Logger.Warn("wireguard endpoint update failed peer=%s endpoint=%s:%d err=%v", peer.PublicKey, relayHost, portOpen.PhysicalPort, err)
 			return err
 		}
@@ -1385,7 +1385,7 @@ func applyWireGuardDiodePeers(client *rpc.Client, iface string, peers []wgDiodeP
 			cfg.Logger.Warn("wireguard portopen2 unexpected response peer=%s ok=%v port=%d", peer.PublicKey, portOpen != nil && portOpen.Ok, portOpen.PhysicalPort)
 			continue
 		}
-		if err := setWireGuardPeerEndpoint(iface, peer.PublicKey, relayHost, portOpen.PhysicalPort); err != nil {
+		if err := setWireGuardPeerEndpoint(iface, peer, relayHost, portOpen.PhysicalPort); err != nil {
 			cfg.Logger.Warn("wireguard endpoint update failed peer=%s: %v", peer.PublicKey, err)
 			continue
 		}
@@ -1413,20 +1413,39 @@ func relayHostFromClient(client *rpc.Client) (string, error) {
 	return host, nil
 }
 
-// runCommandWithSudoFallback runs a command, and if it fails, retries with sudo
-// Uses CombinedOutput to capture both stdout and stderr
+// runCommandWithSudoFallback runs a command and, on permission failure, retries with sudo -n.
+// Uses CombinedOutput to capture both stdout and stderr.
 func runCommandWithSudoFallback(name string, args ...string) ([]byte, error) {
 	cmd := exec.Command(name, args...)
 	out, err := cmd.CombinedOutput()
-	if err != nil {
-		// If that fails, try with sudo
-		cmd = exec.Command("sudo", append([]string{name}, args...)...)
-		out, err = cmd.CombinedOutput()
+	if err == nil {
+		return out, nil
+	}
+	if !isPermissionDenied(err, out) {
+		return out, err
+	}
+	sudoArgs := append([]string{"-n", name}, args...)
+	sudoCmd := exec.Command("sudo", sudoArgs...)
+	sudoOut, sudoErr := sudoCmd.CombinedOutput()
+	if sudoErr == nil {
+		return sudoOut, nil
+	}
+	if len(sudoOut) > 0 {
+		return sudoOut, sudoErr
 	}
 	return out, err
 }
 
-func findWireGuardInterfaceForPeer(publicKey string) string {
+func isPermissionDenied(err error, output []byte) bool {
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "permission denied") || strings.Contains(lower, "operation not permitted") {
+		return true
+	}
+	outLower := strings.ToLower(string(output))
+	return strings.Contains(outLower, "permission denied") || strings.Contains(outLower, "operation not permitted")
+}
+
+func findWireGuardInterfaceForPeer(peer wgDiodePeer) string {
 	if runtime.GOOS != "darwin" {
 		return ""
 	}
@@ -1446,37 +1465,79 @@ func findWireGuardInterfaceForPeer(publicKey string) string {
 		if checkErr != nil {
 			continue
 		}
-		// The peer public key should appear in the output
-		if strings.Contains(string(checkOut), publicKey) {
-			return i
+		if !wgOutputHasPeer(string(checkOut), peer.PublicKey) {
+			continue
 		}
+		if peer.PeerIPv4 != nil && !wgOutputHasAllowedIP(string(checkOut), peer.PublicKey, peer.PeerIPv4) {
+			continue
+		}
+		return i
 	}
 	return ""
 }
 
-func setWireGuardPeerEndpoint(iface string, publicKey string, host string, port int) error {
+func wgOutputHasPeer(output string, publicKey string) bool {
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "peer:") {
+			if strings.Contains(line, publicKey) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func wgOutputHasAllowedIP(output string, publicKey string, allowedIP net.IP) bool {
+	ipStr := allowedIP.String()
+	lines := strings.Split(output, "\n")
+	inPeer := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "peer:") {
+			inPeer = strings.Contains(line, publicKey)
+			continue
+		}
+		if !inPeer {
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(line), "allowed ips:") {
+			allowed := strings.TrimSpace(strings.TrimPrefix(strings.ToLower(line), "allowed ips:"))
+			for _, item := range strings.Split(allowed, ",") {
+				if strings.Contains(strings.TrimSpace(item), ipStr) {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	return false
+}
+
+func setWireGuardPeerEndpoint(iface string, peer wgDiodePeer, host string, port int) error {
 	if runtime.GOOS == "windows" {
 		return nil
 	}
-	if iface == "" || publicKey == "" || host == "" || port <= 0 {
+	if iface == "" || peer.PublicKey == "" || host == "" || port <= 0 {
 		return fmt.Errorf("invalid wireguard endpoint parameters")
 	}
 	cfg := config.AppConfig
 	// On macOS, wg-quick creates a utun* interface, not the config name
 	actualIface := iface
 	if runtime.GOOS == "darwin" {
-		if foundIface := findWireGuardInterfaceForPeer(publicKey); foundIface != "" {
+		if foundIface := findWireGuardInterfaceForPeer(peer); foundIface != "" {
 			actualIface = foundIface
 			if actualIface != iface {
 				cfg.Logger.Info("Using WireGuard interface %s (resolved from %s)", actualIface, iface)
 			}
 		} else {
-			cfg.Logger.Debug("Could not resolve WireGuard interface for peer %s, using config name %s", publicKey, iface)
+			cfg.Logger.Debug("Could not resolve WireGuard interface for peer %s, using config name %s", peer.PublicKey, iface)
 		}
 	}
 	endpoint := net.JoinHostPort(host, strconv.Itoa(port))
 	// Try wg set, and if it fails, retry with sudo
-	out, err := runCommandWithSudoFallback("wg", "set", actualIface, "peer", publicKey, "endpoint", endpoint)
+	out, err := runCommandWithSudoFallback("wg", "set", actualIface, "peer", peer.PublicKey, "endpoint", endpoint)
 	if len(out) > 0 {
 		cfg.Logger.Info("wg set output: %s", strings.TrimSpace(string(out)))
 	}
