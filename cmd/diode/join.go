@@ -961,6 +961,56 @@ func wgConfigDirectory() (string, error) {
 	}
 }
 
+// wgUserConfigDirectory returns a per-user WireGuard config directory.
+func wgUserConfigDirectory() (string, error) {
+	base, err := os.UserConfigDir()
+	if err != nil {
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			return "", err
+		}
+		return filepath.Join(home, ".config", "diode", "wireguard"), nil
+	}
+	return filepath.Join(base, "diode", "wireguard"), nil
+}
+
+func canWriteDir(dir string) bool {
+	f, err := os.CreateTemp(dir, "diode-wg-*")
+	if err != nil {
+		return false
+	}
+	name := f.Name()
+	_ = f.Close()
+	_ = os.Remove(name)
+	return true
+}
+
+func resolveWGDirectory() (string, bool, error) {
+	defaultDir, err := wgConfigDirectory()
+	if err == nil {
+		if err := ensureDir(defaultDir); err == nil && canWriteDir(defaultDir) {
+			return defaultDir, false, nil
+		}
+	}
+	userDir, userErr := wgUserConfigDirectory()
+	if userErr != nil {
+		if err != nil {
+			return "", false, err
+		}
+		return "", false, userErr
+	}
+	if err := ensureDir(userDir); err != nil {
+		return "", false, err
+	}
+	if !canWriteDir(userDir) {
+		if err != nil {
+			return "", false, err
+		}
+		return "", false, fmt.Errorf("wireguard config directory not writable: %s", userDir)
+	}
+	return userDir, true, nil
+}
+
 // networkSuffix maps our network flag to a suffix
 func networkSuffix(n string) string {
 	switch strings.ToLower(n) {
@@ -1618,12 +1668,12 @@ func updateWireGuardFromContract(client *rpc.Client, deviceAddr util.Address, pr
 		return nil
 	}
 
-	dir, err := wgConfigDirectory()
+	dir, usedFallback, err := resolveWGDirectory()
 	if err != nil {
 		return err
 	}
-	if err := ensureDir(dir); err != nil {
-		return err
+	if usedFallback {
+		cfg.Logger.Info("WireGuard config directory fallback to %s", dir)
 	}
 
 	suffix, err := effectiveWGSuffix()
@@ -1688,12 +1738,12 @@ func updateWireGuardFromContract(client *rpc.Client, deviceAddr util.Address, pr
 func prepareWireGuardKeyOnly() error {
 	cfg := config.AppConfig
 
-	dir, err := wgConfigDirectory()
+	dir, usedFallback, err := resolveWGDirectory()
 	if err != nil {
 		return err
 	}
-	if err := ensureDir(dir); err != nil {
-		return err
+	if usedFallback {
+		cfg.Logger.Info("WireGuard config directory fallback to %s", dir)
 	}
 
 	suffix, err := effectiveWGSuffix()
