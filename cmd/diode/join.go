@@ -28,6 +28,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/diodechain/diode_client/accounts/abi"
@@ -903,6 +904,8 @@ var lastAppliedBindSignature string
 var socksServerStarted bool
 var lastEffectiveContract string
 var lastProxyToChain string
+var lastContractProps map[string]string // Cache for last fetched contract properties (used by API server)
+var lastContractPropsMutex sync.RWMutex // Protects lastContractProps
 
 // GetContractAddress returns the current contract/perimeter address
 func GetContractAddress() string {
@@ -1254,6 +1257,16 @@ func contractSync(cfg *config.Config) error {
 			cfg.PrintLabel("Perimeter Proxy Chain", lastProxyToChain)
 		}
 		cfg.PrintLabel("Effective Perimeter", effectiveContractAddr)
+	}
+
+	// Cache the fetched properties for use by the API server
+	if props != nil {
+		lastContractPropsMutex.Lock()
+		lastContractProps = make(map[string]string)
+		for k, v := range props {
+			lastContractProps[k] = v
+		}
+		lastContractPropsMutex.Unlock()
 	}
 
 	if err != nil {

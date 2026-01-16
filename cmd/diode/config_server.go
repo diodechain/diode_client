@@ -284,9 +284,34 @@ func (configAPIServer *ConfigAPIServer) getPerimeterInfo(contractAddr string, cf
 
 	// Get the effective contract address (after following proxy_to chain)
 	effectiveAddr := GetEffectiveContractAddress()
+	if effectiveAddr == "" {
+		// No effective contract address means no perimeter is configured
+		return &perimeterInfo{
+			Address: contractAddr,
+			Status:  "not_configured",
+		}
+	}
 
-	// Fetch contract properties (k/v elements)
-	props, propsErr := fetchContractPropsFromContract(cfg.ClientAddr, effectiveAddr)
+	// Try to use cached properties from the last contract sync to avoid unnecessary RPC calls
+	var props map[string]string
+	var propsErr error
+
+	lastContractPropsMutex.RLock()
+	cachedProps := lastContractProps
+	lastContractPropsMutex.RUnlock()
+
+	if cachedProps != nil {
+		// Use cached properties
+		props = make(map[string]string)
+		for k, v := range cachedProps {
+			props[k] = v
+		}
+		propsErr = nil
+		cfg.Logger.Debug("Using cached contract properties for API response")
+	} else {
+		// Cache miss - fetch fresh properties (should be rare, only on first API call before first sync)
+		props, propsErr = fetchContractPropsFromContract(cfg.ClientAddr, effectiveAddr)
+	}
 
 	// Check if we can read from the perimeter (valid vs invalid)
 	// Case A: Invalid perimeter - some error - probably contract is bogus, non-existent, or we aren't a member
