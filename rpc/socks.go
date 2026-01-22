@@ -435,6 +435,14 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 }
 
 func doCreatePort(client *Client, deviceID Address, port int, portName string, mode string, requestId int64) (conn *ConnectedPort, err error) {
+	if client == nil {
+		err = fmt.Errorf("doCreatePort(): nil client for device %s", deviceID.HexString())
+		return
+	}
+	if client.pool == nil {
+		err = fmt.Errorf("doCreatePort(): nil datapool for device %s", deviceID.HexString())
+		return
+	}
 	// Rate limit: check if we're allowed to create another connection attempt
 	// This prevents connection storms when many attempts fail quickly
 	pool := client.pool
@@ -447,6 +455,10 @@ func doCreatePort(client *Client, deviceID Address, port int, portName string, m
 	var portOpen *edge.PortOpen
 	portOpen, err = client.PortOpen(deviceID, port, portName, mode)
 	if err != nil {
+		return
+	}
+	if portOpen == nil {
+		err = fmt.Errorf("portopen returned nil for device %s", deviceID.HexString())
 		return
 	}
 	if portOpen != nil && portOpen.Err != nil {
