@@ -4,7 +4,6 @@
 package staticserver
 
 import (
-	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
@@ -64,14 +63,10 @@ func BasicAuthMiddleware(handler http.Handler, auth AuthConfig) http.Handler {
 
 // checkCredentials performs constant-time comparison of credentials
 func checkCredentials(username, password, expectedUsername, expectedPassword string) bool {
-	// Hash the inputs to ensure constant-time comparison
-	usernameHash := sha256.Sum256([]byte(username))
-	expectedUsernameHash := sha256.Sum256([]byte(expectedUsername))
-	passwordHash := sha256.Sum256([]byte(password))
-	expectedPasswordHash := sha256.Sum256([]byte(expectedPassword))
-
-	usernameMatch := subtle.ConstantTimeCompare(usernameHash[:], expectedUsernameHash[:]) == 1
-	passwordMatch := subtle.ConstantTimeCompare(passwordHash[:], expectedPasswordHash[:]) == 1
+	// Use constant-time comparison directly on the strings
+	// Converting to bytes for subtle.ConstantTimeCompare
+	usernameMatch := subtle.ConstantTimeCompare([]byte(username), []byte(expectedUsername)) == 1
+	passwordMatch := subtle.ConstantTimeCompare([]byte(password), []byte(expectedPassword)) == 1
 
 	return usernameMatch && passwordMatch
 }

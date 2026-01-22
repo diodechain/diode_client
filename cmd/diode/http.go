@@ -19,7 +19,8 @@ import (
 )
 
 const (
-	httpPort = 80
+	httpPort         = 80
+	defaultUsername  = "diode"
 )
 
 var (
@@ -43,6 +44,7 @@ func init() {
 
 	httpCmd.Flag.StringVar(&httpPassword, "password", "", "password for HTTP basic authentication")
 	httpCmd.Flag.StringVar(&httpMetamaskAddr, "metamask", "", "ethereum address for metamask authentication (not yet implemented)")
+	httpCmd.Flag.BoolVar(&httpNoAuth, "no-auth", false, "explicitly allow publishing without authentication (not recommended)")
 	httpCmd.Flag.StringVar(&httpServerConfig.Host, "host", "127.0.0.1", "the host of the local HTTP server to proxy")
 }
 
@@ -66,10 +68,19 @@ func httpHandler() error {
 
 	// Check for authentication options
 	if httpPassword == "" && httpMetamaskAddr == "" {
+		if !httpNoAuth {
+			fmt.Println()
+			fmt.Println("ERROR: No authentication configured!")
+			fmt.Println(" Publishing without authentication exposes your local service to the public internet.")
+			fmt.Println(" HINT: Use -password flag to add password protection")
+			fmt.Println(" HINT: Use -metamask flag to add metamask authentication (not yet implemented)")
+			fmt.Println(" HINT: Use -no-auth flag to explicitly allow unauthenticated access (not recommended)")
+			fmt.Println()
+			os.Exit(2)
+		}
 		fmt.Println()
-		fmt.Println("WARNING: No authentication configured!")
-		fmt.Println(" HINT: Use -password flag to add password protection")
-		fmt.Println(" HINT: Use -metamask flag to add metamask authentication (not yet implemented)")
+		fmt.Println("WARNING: Publishing without authentication!")
+		fmt.Println(" Your service will be publicly accessible without any protection.")
 		fmt.Println()
 	}
 
@@ -81,7 +92,7 @@ func httpHandler() error {
 	httpServerConfig.Port = localPort
 	if httpPassword != "" {
 		httpServerConfig.Auth = &staticserver.AuthConfig{
-			Username: "diode",
+			Username: defaultUsername,
 			Password: httpPassword,
 		}
 	}
@@ -135,9 +146,10 @@ func httpHandler() error {
 
 	if httpPassword != "" {
 		cfg.PrintLabel("HTTP Gateway with Password", fmt.Sprintf("http://%s.diode.link/", name))
-		cfg.PrintLabel("Authentication", "HTTP Basic Auth (username: diode)")
+		cfg.PrintLabel("Authentication", fmt.Sprintf("HTTP Basic Auth (username: %s)", defaultUsername))
 	} else {
 		cfg.PrintLabel("HTTP Gateway", fmt.Sprintf("http://%s.diode.link/", name))
+		cfg.PrintLabel("WARNING", "No authentication - publicly accessible!")
 	}
 
 	cfg.PrintLabel("Local Port", fmt.Sprintf("%s:%d", httpServerConfig.Host, localPort))
