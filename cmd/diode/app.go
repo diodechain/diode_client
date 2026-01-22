@@ -90,6 +90,7 @@ func init() {
 	diodeCmd.AddSubCommand(configCmd)
 	diodeCmd.AddSubCommand(fetchCmd)
 	diodeCmd.AddSubCommand(gatewayCmd)
+	diodeCmd.AddSubCommand(httpCmd)
 	diodeCmd.AddSubCommand(publishCmd)
 	diodeCmd.AddSubCommand(joinCmd)
 	diodeCmd.AddSubCommand(resetCmd)

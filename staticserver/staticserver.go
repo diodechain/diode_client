@@ -76,6 +76,7 @@ type Config struct {
 	Port          int
 	Indexed       bool
 	TLSConfig     *tls.Config
+	Auth          *AuthConfig
 }
 
 // StaticHTTPServer represents static file server
@@ -110,6 +111,12 @@ func NewStaticHTTPServer(config Config) (sv StaticHTTPServer) {
 func (sv *StaticHTTPServer) Handler() (handler http.Handler) {
 	fs := staticFileSystem{http.Dir(sv.Config.RootDirectory), sv.Config.Indexed}
 	handler = http.FileServer(fs)
+	
+	// Wrap with authentication if configured
+	if sv.Config.Auth != nil && sv.Config.Auth.Password != "" {
+		handler = BasicAuthMiddleware(handler, *sv.Config.Auth)
+	}
+	
 	return
 }
 

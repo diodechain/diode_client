@@ -1,0 +1,3 @@
+--2026-01-22 14:18:31--  https://www.openssl.org/source/openssl-1.1.1k.tar.gz
+Resolving www.openssl.org (www.openssl.org)... failed: No address associated with hostname.
+wget: unable to resolve host address ‘www.openssl.org’
