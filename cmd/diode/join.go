@@ -104,6 +104,33 @@ const jsondata = `
 ]
 `
 
+const wgKeyABI = `
+[
+	{
+		"type": "function",
+		"name" : "getDevicePublicKey",
+		"stateMutability": "view",
+		"inputs": [
+			{"name": "_deviceId", "type": "address"}
+		],
+		"outputs": [
+			{"name": "publicKey", "type": "bytes32"}
+		]
+	},
+	{
+		"type": "function",
+		"name" : "getDevicePrivateKey",
+		"stateMutability": "view",
+		"inputs": [
+			{"name": "_deviceId", "type": "address"}
+		],
+		"outputs": [
+			{"name": "privateKey", "type": "bytes32"}
+		]
+	}
+]
+`
+
 // getPropertyValuesAt fetches multiple property values from the given contract in one JSON-RPC batch
 func getPropertyValuesAt(deviceAddr util.Address, contractAddr string, keys []string) (map[string]string, error) {
 	abi, err := abi.JSON(strings.NewReader(jsondata))
@@ -208,6 +235,85 @@ func getPropertyValuesAt(deviceAddr util.Address, contractAddr string, keys []st
 	}
 
 	return results, nil
+}
+
+func getDevicePublicKeyAt(deviceAddr util.Address, contractAddr string) (string, error) {
+	return getDeviceKeyAt(deviceAddr, contractAddr, "getDevicePublicKey", nil)
+}
+
+func getDevicePrivateKeyAt(deviceAddr util.Address, contractAddr string) (string, error) {
+	return getDeviceKeyAt(deviceAddr, contractAddr, "getDevicePrivateKey", &deviceAddr)
+}
+
+func getDeviceKeyAt(deviceAddr util.Address, contractAddr string, methodName string, from *util.Address) (string, error) {
+	parsedABI, err := abi.JSON(strings.NewReader(wgKeyABI))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse device key ABI: %v", err)
+	}
+	method, ok := parsedABI.Methods[methodName]
+	if !ok {
+		return "", fmt.Errorf("device key method not found: %s", methodName)
+	}
+	packedData, err := method.Inputs.Pack(deviceAddr)
+	if err != nil {
+		return "", fmt.Errorf("failed to pack inputs for %s: %v", methodName, err)
+	}
+	callData := append(method.ID, packedData...)
+	callObject := map[string]interface{}{
+		"to":   contractAddr,
+		"data": "0x" + hex.EncodeToString(callData),
+	}
+	if from != nil {
+		callObject["from"] = from.HexString()
+	}
+
+	req := jsonRPCRequest{
+		JSONRPC: "2.0",
+		Method:  "eth_call",
+		Params:  []interface{}{callObject, "latest"},
+		ID:      1,
+	}
+	requestJSON, err := json.Marshal(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal device key request: %v", err)
+	}
+	resp, err := http.Post(rpcURL, "application/json", bytes.NewBuffer(requestJSON))
+	if err != nil {
+		return "", fmt.Errorf("failed to call device key method: %v", err)
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read device key response: %v", err)
+	}
+	var response jsonRPCResponse
+	if err := json.Unmarshal(body, &response); err != nil {
+		return "", fmt.Errorf("failed to unmarshal device key response: %v", err)
+	}
+	if response.Error != nil {
+		return "", fmt.Errorf("device key call failed: %s (code: %d)", response.Error.Message, response.Error.Code)
+	}
+	if len(response.Result) < 2 {
+		return "", fmt.Errorf("device key call returned empty result")
+	}
+	decoded, err := hex.DecodeString(response.Result[2:])
+	if err != nil {
+		return "", fmt.Errorf("failed to decode device key response: %v", err)
+	}
+	if len(decoded) != 32 {
+		return "", fmt.Errorf("unexpected device key length: %d", len(decoded))
+	}
+	empty := true
+	for _, b := range decoded {
+		if b != 0 {
+			empty = false
+			break
+		}
+	}
+	if empty {
+		return "", fmt.Errorf("device key missing for %s", deviceAddr.HexString())
+	}
+	return base64.StdEncoding.EncodeToString(decoded), nil
 }
 
 // fetchContractPropsFromContract retrieves all contract-backed configuration in one batch call
@@ -1122,46 +1228,256 @@ func normalizeWireGuardConfig(cfg string) string {
 	return strings.TrimSpace(s)
 }
 
-// injectPrivateKeyIntoConfig ensures the [Interface] section contains PrivateKey
-func injectPrivateKeyIntoConfig(cfg string, privB64 string) (string, error) {
-	// Normalize config first to handle single-line or minified inputs
+func isWGAutoValue(value string) bool {
+	return strings.EqualFold(strings.TrimSpace(value), "auto")
+}
+
+type wgPeerState struct {
+	publicKeyLineIdx int
+	publicKey        string
+	publicKeyAuto    bool
+	endpointLineIdx  int
+	endpoint         string
+	endpointIsDiode  bool
+	endpointPort     int
+	deviceID         util.Address
+	deviceIDSet      bool
+	peerIPv4         net.IP
+}
+
+func parseDiodeEndpoint(client *rpc.Client, value string) (util.Address, int, bool, error) {
+	var addr util.Address
+	trimmed := strings.TrimSpace(value)
+	if !strings.HasPrefix(strings.ToLower(trimmed), "diode://") {
+		return addr, 0, false, nil
+	}
+	rest := strings.TrimSpace(trimmed[len("diode://"):])
+	if rest == "" {
+		return addr, 0, true, fmt.Errorf("empty diode endpoint")
+	}
+	host := rest
+	port := 0
+	if idx := strings.LastIndex(rest, ":"); idx != -1 {
+		host = strings.TrimSpace(rest[:idx])
+		portStr := strings.TrimSpace(rest[idx+1:])
+		if portStr != "" {
+			p, err := strconv.Atoi(portStr)
+			if err != nil || !util.IsPort(p) {
+				return addr, 0, true, fmt.Errorf("invalid diode endpoint port: %s", portStr)
+			}
+			port = p
+		}
+	}
+	if host == "" {
+		return addr, 0, true, fmt.Errorf("missing diode endpoint address")
+	}
+	decoded, err := util.DecodeAddress(host)
+	if err == nil {
+		return decoded, port, true, nil
+	}
+	if client == nil {
+		return addr, 0, true, fmt.Errorf("invalid diode endpoint address: %s", host)
+	}
+	addrs, resolveErr := client.ResolveBNS(host)
+	if resolveErr != nil || len(addrs) == 0 {
+		if resolveErr != nil {
+			return addr, 0, true, fmt.Errorf("failed to resolve diode endpoint: %v", resolveErr)
+		}
+		return addr, 0, true, fmt.Errorf("failed to resolve diode endpoint: %s", host)
+	}
+	return addrs[0], port, true, nil
+}
+
+func processWireGuardConfig(client *rpc.Client, deviceAddr util.Address, contractAddr string, cfg string, keyPath string) (string, []wgDiodePeer, string, error) {
 	cfg = normalizeWireGuardConfig(cfg)
 	lines := strings.Split(cfg, "\n")
 	var out []string
-	inInterface := false
-	inserted := false
-	for i := 0; i < len(lines); i++ {
-		line := lines[i]
+	var peers []wgDiodePeer
+	var listenPort int
+	var privLineIdx = -1
+	var privValue string
+	var privAuto bool
+	var interfaceSeen bool
+	var interfaceInsertIdx = -1
+	var currentPeer *wgPeerState
+	publicKeyCache := make(map[util.Address]string)
+
+	resolvePeerPublicKey := func(peer wgPeerState) (string, error) {
+		if cached, ok := publicKeyCache[peer.deviceID]; ok {
+			return cached, nil
+		}
+		pub, err := getDevicePublicKeyAt(peer.deviceID, contractAddr)
+		if err != nil {
+			return "", err
+		}
+		publicKeyCache[peer.deviceID] = pub
+		return pub, nil
+	}
+
+	finalizePeer := func(peer *wgPeerState) error {
+		if peer == nil {
+			return nil
+		}
+		if peer.publicKeyAuto {
+			if !peer.deviceIDSet {
+				return fmt.Errorf("peer public key set to auto but device id missing")
+			}
+			pub, err := resolvePeerPublicKey(*peer)
+			if err != nil {
+				return fmt.Errorf("failed to resolve peer public key: %w", err)
+			}
+			peer.publicKey = pub
+			if peer.publicKeyLineIdx >= 0 {
+				out[peer.publicKeyLineIdx] = fmt.Sprintf("PublicKey = %s", pub)
+			}
+		}
+
+		port := peer.endpointPort
+		if peer.endpointIsDiode && port == 0 {
+			port = listenPort
+		}
+		if peer.endpointIsDiode && port > 0 && peer.endpointLineIdx >= 0 {
+			out[peer.endpointLineIdx] = fmt.Sprintf("Endpoint = %s", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		}
+		if peer.deviceIDSet && peer.publicKey != "" && port > 0 {
+			peers = append(peers, wgDiodePeer{
+				PublicKey: peer.publicKey,
+				DeviceID:  peer.deviceID,
+				Port:      port,
+				PeerIPv4:  peer.peerIPv4,
+			})
+		}
+		return nil
+	}
+
+	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-			// entering a new section
-			if inInterface && !inserted {
-				out = append(out, fmt.Sprintf("PrivateKey = %s", privB64))
-				inserted = true
+			if currentPeer != nil {
+				if err := finalizePeer(currentPeer); err != nil {
+					return "", nil, "", err
+				}
+				currentPeer = nil
 			}
-			inInterface = strings.EqualFold(trimmed, "[interface]")
+			if interfaceSeen && privLineIdx == -1 && strings.EqualFold(trimmed, "[peer]") {
+				interfaceInsertIdx = len(out)
+			}
+			if strings.EqualFold(trimmed, "[interface]") {
+				interfaceSeen = true
+			}
+			out = append(out, line)
+			if strings.EqualFold(trimmed, "[peer]") {
+				currentPeer = &wgPeerState{publicKeyLineIdx: -1, endpointLineIdx: -1}
+			}
+			continue
+		}
+
+		if currentPeer == nil && interfaceSeen {
+			key, value, ok := parseWGKeyValue(trimmed)
+			if ok && strings.EqualFold(key, "listenport") {
+				if port, err := strconv.Atoi(value); err == nil && util.IsPort(port) {
+					listenPort = port
+				}
+			}
+			if ok && strings.EqualFold(key, "privatekey") {
+				privLineIdx = len(out)
+				privValue = value
+				privAuto = isWGAutoValue(value)
+			}
 			out = append(out, line)
 			continue
 		}
 
-		if inInterface && strings.HasPrefix(strings.ToLower(trimmed), "privatekey") {
-			// override any provided key with ours
-			out = append(out, fmt.Sprintf("PrivateKey = %s", privB64))
-			inserted = true
-			// skip to next line
+		if currentPeer != nil {
+			key, value, ok := parseWGKeyValue(trimmed)
+			if !ok {
+				out = append(out, line)
+				continue
+			}
+			switch strings.ToLower(key) {
+			case "publickey":
+				currentPeer.publicKeyLineIdx = len(out)
+				currentPeer.publicKey = value
+				currentPeer.publicKeyAuto = isWGAutoValue(value)
+				out = append(out, line)
+			case "endpoint":
+				currentPeer.endpointLineIdx = len(out)
+				currentPeer.endpoint = value
+				addr, port, isDiode, err := parseDiodeEndpoint(client, value)
+				if err != nil {
+					return "", nil, "", err
+				}
+				if isDiode {
+					currentPeer.endpointIsDiode = true
+					currentPeer.endpointPort = port
+					currentPeer.deviceID = addr
+					currentPeer.deviceIDSet = true
+				} else {
+					currentPeer.endpointPort = parseWGEndpointPort(value)
+				}
+				out = append(out, line)
+			case "diodedevice":
+				addr, err := util.DecodeAddress(value)
+				if err != nil {
+					return "", nil, "", err
+				}
+				currentPeer.deviceID = addr
+				currentPeer.deviceIDSet = true
+				out = append(out, line)
+			case "allowedips":
+				currentPeer.peerIPv4 = firstIPv4FromList(value)
+				out = append(out, line)
+			default:
+				out = append(out, line)
+			}
 			continue
 		}
 
 		out = append(out, line)
 	}
-	if inInterface && !inserted {
-		out = append(out, fmt.Sprintf("PrivateKey = %s", privB64))
-		inserted = true
+
+	if currentPeer != nil {
+		if err := finalizePeer(currentPeer); err != nil {
+			return "", nil, "", err
+		}
 	}
-	if !inserted {
-		return "", errors.New("wireguard config missing [Interface] section")
+	if interfaceSeen && privLineIdx == -1 {
+		interfaceInsertIdx = len(out)
 	}
-	return strings.Join(out, "\n"), nil
+	if !interfaceSeen {
+		return "", nil, "", errors.New("wireguard config missing [Interface] section")
+	}
+
+	var privB64 string
+	var pubB64 string
+	var err error
+	switch {
+	case privLineIdx >= 0 && privAuto:
+		// TODO: Fetch device private key from contract when device-only access is enabled.
+		privB64, pubB64, err = readOrCreateWGPrivateKey(keyPath)
+		if err != nil {
+			return "", nil, "", err
+		}
+		out[privLineIdx] = fmt.Sprintf("PrivateKey = %s", privB64)
+	case privLineIdx >= 0 && !privAuto && strings.TrimSpace(privValue) != "":
+		privB64 = strings.TrimSpace(privValue)
+		var err error
+		pubB64, err = deriveWGPublicKey(privB64)
+		if err != nil {
+			return "", nil, "", err
+		}
+		out[privLineIdx] = fmt.Sprintf("PrivateKey = %s", privB64)
+	default:
+		privB64, pubB64, err = readOrCreateWGPrivateKey(keyPath)
+		if err != nil {
+			return "", nil, "", err
+		}
+		if interfaceInsertIdx >= 0 {
+			out = append(out[:interfaceInsertIdx], append([]string{fmt.Sprintf("PrivateKey = %s", privB64)}, out[interfaceInsertIdx:]...)...)
+		}
+	}
+
+	return strings.Join(out, "\n"), peers, pubB64, nil
 }
 
 func enableWGInterface(cfgPath, ifaceName string, logger *config.Logger) error {
@@ -1734,23 +2050,13 @@ func pokeWireGuardPeer(peer wgDiodePeer) error {
 }
 
 // updateWireGuardFromContract fetches wireguard config and applies it
-func updateWireGuardFromContract(client *rpc.Client, deviceAddr util.Address, props map[string]string) error {
+func updateWireGuardFromContract(client *rpc.Client, deviceAddr util.Address, contractAddr string, props map[string]string) error {
 	cfg := config.AppConfig
 	if props == nil {
 		return fmt.Errorf("missing contract properties for wireguard")
 	}
 	wgConf := strings.TrimSpace(props["wireguard"])
 	if wgConf == "" {
-		return nil
-	}
-
-	// Info output wgConf
-	// cfg.Logger.Info("Fetched WireGuard config: %s", wgConf)
-
-	// Avoid repeated work if config unchanged
-	h := sha256.Sum256([]byte(wgConf))
-	hashStr := fmt.Sprintf("%x", h[:])
-	if hashStr == lastWGConfigHash {
 		return nil
 	}
 
@@ -1769,25 +2075,18 @@ func updateWireGuardFromContract(client *rpc.Client, deviceAddr util.Address, pr
 	iface := fmt.Sprintf("wg-diode-%s", suffix)
 	confPath := filepath.Join(dir, fmt.Sprintf("%s.conf", iface))
 	keyPath := filepath.Join(dir, fmt.Sprintf("%s.key", iface))
-
-	// Ensure private key exists and derive pubkey
-	privB64, pubB64, err := readOrCreateWGPrivateKey(keyPath)
-	if err != nil {
-		return fmt.Errorf("failed to prepare private key: %w", err)
-	}
-
-	// Print the WireGuard public key for user information
-	cfg.PrintLabel("WireGuard Public Key", pubB64)
-
-	// Merge config with private key
-	finalConf, err := injectPrivateKeyIntoConfig(wgConf, privB64)
+	finalConf, diodePeers, pubB64, err := processWireGuardConfig(client, deviceAddr, contractAddr, wgConf, keyPath)
 	if err != nil {
 		return err
 	}
+	if pubB64 != "" {
+		cfg.PrintLabel("WireGuard Public Key", pubB64)
+	}
 
-	diodePeers, err := parseWireGuardDiodePeers(finalConf)
-	if err != nil {
-		cfg.Logger.Warn("Failed to parse WireGuard Diode peers: %v", err)
+	h := sha256.Sum256([]byte(finalConf))
+	hashStr := fmt.Sprintf("%x", h[:])
+	if hashStr == lastWGConfigHash {
+		return nil
 	}
 
 	// Write config file with secure permissions
@@ -1896,7 +2195,7 @@ func contractSync(cfg *config.Config) error {
 		return err
 	}
 
-	if err := updateWireGuardFromContract(client, cfg.ClientAddr, props); err != nil {
+	if err := updateWireGuardFromContract(client, cfg.ClientAddr, effectiveContractAddr, props); err != nil {
 		return err
 	}
 
