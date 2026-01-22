@@ -18,6 +18,10 @@ import (
 	"github.com/diodechain/diode_client/util"
 )
 
+const (
+	httpPort = 80
+)
+
 var (
 	httpCmd = &command.Command{
 		Name:             "http",
@@ -28,10 +32,10 @@ var (
 		Type:             command.DaemonCommand,
 		SingleConnection: true,
 	}
-	httpPassword      string
-	httpMetamaskAddr  string
-	httpProxyServer   staticserver.ProxyAuthServer
-	httpServerConfig  staticserver.Config
+	httpPassword     string
+	httpMetamaskAddr string
+	httpProxyServer  staticserver.ProxyAuthServer
+	httpServerConfig staticserver.Config
 )
 
 func init() {

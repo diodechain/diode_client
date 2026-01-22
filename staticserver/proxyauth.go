@@ -9,7 +9,29 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
+	"time"
+)
+
+var (
+	// Shared HTTP client for proxying requests
+	proxyHTTPClient = &http.Client{
+		Timeout: 30 * time.Second,
+	}
+	
+	// Headers to filter out when proxying
+	hopByHopHeaders = []string{
+		"Connection",
+		"Keep-Alive",
+		"Proxy-Authenticate",
+		"Proxy-Authorization",
+		"Te",
+		"Trailers",
+		"Transfer-Encoding",
+		"Upgrade",
+		"Authorization", // Don't forward auth to target
+	}
 )
 
 // ProxyAuthServer represents an HTTP proxy server with authentication
@@ -32,7 +54,7 @@ func NewProxyAuthServer(config Config) (sv ProxyAuthServer) {
 // Handler returns http handler that proxies requests to the target host
 func (sv *ProxyAuthServer) Handler() (handler http.Handler) {
 	targetHost := net.JoinHostPort(sv.Config.Host, strconv.Itoa(sv.Config.Port))
-	
+
 	// Create proxy handler
 	proxyHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Forward the request to the target server
@@ -40,50 +62,67 @@ func (sv *ProxyAuthServer) Handler() (handler http.Handler) {
 		if r.URL.RawQuery != "" {
 			targetURL += "?" + r.URL.RawQuery
 		}
-		
+
 		// Create new request
 		proxyReq, err := http.NewRequest(r.Method, targetURL, r.Body)
 		if err != nil {
 			http.Error(w, "Error creating proxy request", http.StatusInternalServerError)
 			return
 		}
-		
-		// Copy headers
+
+		// Copy headers, filtering out sensitive and hop-by-hop headers
 		for key, values := range r.Header {
+			// Skip hop-by-hop and sensitive headers
+			if shouldFilterHeader(key) {
+				continue
+			}
 			for _, value := range values {
 				proxyReq.Header.Add(key, value)
 			}
 		}
-		
-		// Execute request
-		client := &http.Client{}
-		resp, err := client.Do(proxyReq)
+
+		// Execute request using shared client
+		resp, err := proxyHTTPClient.Do(proxyReq)
 		if err != nil {
 			http.Error(w, "Error forwarding request", http.StatusBadGateway)
 			return
 		}
 		defer resp.Body.Close()
-		
-		// Copy response headers
+
+		// Copy response headers, filtering hop-by-hop headers
 		for key, values := range resp.Header {
+			if shouldFilterHeader(key) {
+				continue
+			}
 			for _, value := range values {
 				w.Header().Add(key, value)
 			}
 		}
-		
+
 		// Write status code and body
 		w.WriteHeader(resp.StatusCode)
 		io.Copy(w, resp.Body)
 	})
-	
+
 	handler = proxyHandler
-	
+
 	// Wrap with authentication if configured
 	if sv.Config.Auth != nil && sv.Config.Auth.Password != "" {
 		handler = BasicAuthMiddleware(handler, *sv.Config.Auth)
 	}
-	
+
 	return
+}
+
+// shouldFilterHeader checks if a header should be filtered out when proxying
+func shouldFilterHeader(headerName string) bool {
+	headerLower := strings.ToLower(headerName)
+	for _, h := range hopByHopHeaders {
+		if strings.ToLower(h) == headerLower {
+			return true
+		}
+	}
+	return false
 }
 
 func (sv *ProxyAuthServer) server() *http.Server {

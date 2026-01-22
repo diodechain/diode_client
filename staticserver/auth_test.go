@@ -117,12 +117,12 @@ func TestBasicAuthMiddleware(t *testing.T) {
 
 func TestCheckCredentials(t *testing.T) {
 	tests := []struct {
-		name              string
-		username          string
-		password          string
-		expectedUsername  string
-		expectedPassword  string
-		expectedResult    bool
+		name             string
+		username         string
+		password         string
+		expectedUsername string
+		expectedPassword string
+		expectedResult   bool
 	}{
 		{
 			name:             "Correct credentials",
