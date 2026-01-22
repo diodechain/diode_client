@@ -31,3 +31,4 @@ client.sh
 server.sh
 wpad.dat
 rpc/testdata/
+wget-log
