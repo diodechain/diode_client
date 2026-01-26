@@ -19,29 +19,28 @@ import (
 )
 
 const (
-	httpPort         = 80
-	defaultUsername  = "diode"
+	defaultUsername = "diode"
 )
 
 var (
-	httpCmd = &command.Command{
+	httpPassword     string
+	httpMetamaskAddr string
+	httpNoAuth       bool
+	httpProxyServer  staticserver.ProxyAuthServer
+	httpServerConfig staticserver.Config
+	httpCmd          = &command.Command{
 		Name:             "http",
 		HelpText:         `  Publish an HTTP service with optional password protection to the Diode Network.`,
 		ExampleText:      `  diode http -password "secret" 8080`,
 		UsageText:        `[-password <password>] [-metamask <address>] <local_port>`,
-		Run:              httpHandler,
+		Run:              nil, // Set in init()
 		Type:             command.DaemonCommand,
 		SingleConnection: true,
 	}
-	httpPassword     string
-	httpMetamaskAddr string
-	httpProxyServer  staticserver.ProxyAuthServer
-	httpServerConfig staticserver.Config
 )
 
 func init() {
-	cfg := config.AppConfig
-
+	httpCmd.Run = httpHandler
 	httpCmd.Flag.StringVar(&httpPassword, "password", "", "password for HTTP basic authentication")
 	httpCmd.Flag.StringVar(&httpMetamaskAddr, "metamask", "", "ethereum address for metamask authentication (not yet implemented)")
 	httpCmd.Flag.BoolVar(&httpNoAuth, "no-auth", false, "explicitly allow publishing without authentication (not recommended)")

@@ -19,7 +19,7 @@ var (
 	proxyHTTPClient = &http.Client{
 		Timeout: 30 * time.Second,
 	}
-	
+
 	// Hop-by-hop headers that should not be forwarded
 	// These are connection-specific and should not be forwarded by proxies
 	hopByHopHeaders = []string{
@@ -32,7 +32,7 @@ var (
 		"Transfer-Encoding",
 		"Upgrade",
 	}
-	
+
 	// Sensitive headers that should be filtered for security
 	// These contain authentication or sensitive information
 	sensitiveHeaders = []string{
@@ -123,21 +123,21 @@ func (sv *ProxyAuthServer) Handler() (handler http.Handler) {
 // shouldFilterHeader checks if a header should be filtered out when proxying
 func shouldFilterHeader(headerName string) bool {
 	headerLower := strings.ToLower(headerName)
-	
+
 	// Check hop-by-hop headers
 	for _, h := range hopByHopHeaders {
 		if strings.ToLower(h) == headerLower {
 			return true
 		}
 	}
-	
+
 	// Check sensitive headers
 	for _, h := range sensitiveHeaders {
 		if strings.ToLower(h) == headerLower {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
