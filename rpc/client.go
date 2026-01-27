@@ -596,7 +596,7 @@ func (client *Client) GetNode(nodeID [20]byte) (*edge.ServerObj, error) {
 // Greet Initiates the connection
 // TODO: test compression flag
 func (client *Client) greet() error {
-	_, err := client.CastContext(nil, "hello", uint64(1000))
+	_, err := client.CastContext(nil, "hello", uint64(1001))
 	if err != nil {
 		return err
 	}

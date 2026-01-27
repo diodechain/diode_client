@@ -9,7 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
-	"strconv"
+	"strings"
 
 	"github.com/diodechain/diode_client/blockquick"
 	"github.com/diodechain/diode_client/config"
@@ -367,59 +367,45 @@ func parsePortOpenResponse(buffer []byte) (interface{}, error) {
 }
 
 func parsePortOpen2Response(buffer []byte) (interface{}, error) {
-	var response generalRequest
-	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
-	if err := decodeStream.Decode(&response); err != nil {
-		return nil, err
-	}
-	portOpen := &PortOpen2{Ok: true}
-	payload := response.Payload
-	if len(payload) == 0 {
-		return nil, fmt.Errorf("portopen2 response missing payload")
-	}
-
-	start := 0
-	if method, ok := parseStringValue(payload[0]); ok {
-		if method == "response" || method == "error" {
-			start = 1
-		} else if method == "portopen2" {
-			start = 1
+	makePortOpen := func(typeStr string, physicalPort uint64, result string) (*PortOpen2, error) {
+		typeLower := strings.ToLower(strings.TrimSpace(typeStr))
+		resultLower := strings.ToLower(strings.TrimSpace(result))
+		if typeLower == "" {
+			return nil, fmt.Errorf("portopen2 response missing type")
 		}
-	}
-	if start < len(payload) {
-		if method, ok := parseStringValue(payload[start]); ok && method == "portopen2" {
-			start++
-		}
-	}
-
-	if len(payload) <= start {
-		return nil, fmt.Errorf("portopen2 response missing result")
-	}
-
-	result, ok := parseStringValue(payload[start])
-	if ok {
-		portOpen.Ok = result == "ok"
-	}
-
-	if len(payload) > start+1 {
-		physicalPort, err := parseIntValue(payload[start+1])
-		if err == nil {
-			portOpen.PhysicalPort = physicalPort
-			return portOpen, nil
-		}
-		if ok {
-			physicalPort, err = parseIntValue(payload[start])
-			if err == nil {
-				portOpen.PhysicalPort = physicalPort
-				if result2, ok2 := parseStringValue(payload[start+1]); ok2 {
-					portOpen.Ok = result2 == "ok"
-				}
-				return portOpen, nil
+		ok := false
+		switch typeLower {
+		case "ok":
+			ok = true
+		case "response":
+			ok = resultLower == "ok"
+		case "error":
+			ok = false
+		default:
+			if resultLower == "ok" {
+				ok = true
 			}
 		}
+		return &PortOpen2{
+			Ok:           ok,
+			PhysicalPort: int(physicalPort),
+		}, nil
+	}
+
+	var responseShort portOpen2Response
+	if err := rlp.DecodeBytes(buffer, &responseShort); err == nil {
+		return makePortOpen(responseShort.Payload.Type, responseShort.Payload.PhysicalPort, "")
+	} else {
+		var responseFull portOpen2ResponseWithResult
+		if errFull := rlp.DecodeBytes(buffer, &responseFull); errFull == nil {
+			return makePortOpen(responseFull.Payload.Type, responseFull.Payload.PhysicalPort, responseFull.Payload.Result)
+		}
+		var responseMethod portOpen2ResponseWithMethod
+		if errMethod := rlp.DecodeBytes(buffer, &responseMethod); errMethod == nil {
+			return makePortOpen(responseMethod.Payload.Type, responseMethod.Payload.PhysicalPort, responseMethod.Payload.Result)
+		}
 		return nil, err
 	}
-	return portOpen, nil
 }
 
 func parseServerObjResponse(buffer []byte) (interface{}, error) {
@@ -510,90 +496,6 @@ func parseUint(data []byte) (num uint64) {
 	return
 }
 
-func parseBigIntValue(val interface{}) (*big.Int, error) {
-	switch v := val.(type) {
-	case uint64:
-		return new(big.Int).SetUint64(v), nil
-	case uint:
-		return new(big.Int).SetUint64(uint64(v)), nil
-	case int:
-		if v < 0 {
-			return nil, fmt.Errorf("negative value %d", v)
-		}
-		return new(big.Int).SetUint64(uint64(v)), nil
-	case []byte:
-		return new(big.Int).SetBytes(v), nil
-	case string:
-		if v == "" {
-			return nil, fmt.Errorf("empty string value")
-		}
-		parsed, ok := new(big.Int).SetString(v, 10)
-		if !ok {
-			return nil, fmt.Errorf("invalid integer string %q", v)
-		}
-		return parsed, nil
-	default:
-		return nil, fmt.Errorf("unsupported integer type %T", val)
-	}
-}
-
-func parseIntValue(val interface{}) (int, error) {
-	switch v := val.(type) {
-	case uint64:
-		return int(v), nil
-	case uint:
-		return int(v), nil
-	case int:
-		return v, nil
-	case []byte:
-		return int(parseUint(v)), nil
-	case string:
-		parsed, err := strconv.Atoi(v)
-		if err != nil {
-			return 0, err
-		}
-		return parsed, nil
-	default:
-		return 0, fmt.Errorf("unsupported integer type %T", val)
-	}
-}
-
-func parseStringValue(val interface{}) (string, bool) {
-	switch v := val.(type) {
-	case []byte:
-		return string(v), true
-	case string:
-		return v, true
-	default:
-		return "", false
-	}
-}
-
-func parseAddressValue(val interface{}) (Address, error) {
-	var addr Address
-	switch v := val.(type) {
-	case []byte:
-		if len(v) == len(addr) {
-			copy(addr[:], v)
-			return addr, nil
-		}
-		if s, ok := parseStringValue(v); ok {
-			decoded, err := util.DecodeAddress(s)
-			if err != nil {
-				return addr, err
-			}
-			return decoded, nil
-		}
-	case string:
-		decoded, err := util.DecodeAddress(v)
-		if err != nil {
-			return addr, err
-		}
-		return decoded, nil
-	}
-	return addr, fmt.Errorf("unsupported address type %T", val)
-}
-
 func parseBigUint(data []byte) (num big.Int) {
 	for _, b := range data {
 		num = *num.Add(num.Mul(&num, big.NewInt(256)), big.NewInt(int64(b)))
@@ -679,62 +581,37 @@ func parseInboundPortOpenRequest(buffer []byte) (interface{}, error) {
 }
 
 func parseInboundPortOpen2Request(buffer []byte) (interface{}, error) {
-	var inboundRequest generalRequest
+	var inboundRequest portOpen2InboundRequest
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	if err := decodeStream.Decode(&inboundRequest); err != nil {
 		return nil, err
 	}
+
 	portOpen := &PortOpen2{
 		RequestID: inboundRequest.RequestID,
 		Ok:        true,
 	}
-	payload := inboundRequest.Payload
-	if len(payload) == 0 {
-		portOpen.Err = fmt.Errorf("invalid portopen2 payload length: 0")
+	if strings.ToLower(strings.TrimSpace(inboundRequest.Payload.Method)) != "portopen2" {
+		portOpen.Err = fmt.Errorf("invalid portopen2 method: %s", inboundRequest.Payload.Method)
 		return portOpen, nil
 	}
-	start := 0
-	if method, ok := parseStringValue(payload[0]); ok && method == "portopen2" {
-		start = 1
-	}
-	if len(payload) < start+4 {
-		portOpen.Err = fmt.Errorf("invalid portopen2 payload length: %d", len(payload))
+	portOpen.PortName = inboundRequest.Payload.PortName
+	portOpen.PhysicalPort = int(inboundRequest.Payload.PhysicalPort)
+	if portOpen.PhysicalPort <= 0 {
+		portOpen.Err = fmt.Errorf("invalid portopen2 physical port: %d", portOpen.PhysicalPort)
 		return portOpen, nil
 	}
-
-	portName, ok := parseStringValue(payload[start])
-	if !ok {
-		portOpen.Err = fmt.Errorf("invalid portopen2 port name")
+	if len(inboundRequest.Payload.SourceDeviceID) != len(portOpen.SourceDeviceID) {
+		portOpen.Err = fmt.Errorf("invalid portopen2 source device id length: %d", len(inboundRequest.Payload.SourceDeviceID))
 		return portOpen, nil
 	}
-	portOpen.PortName = portName
-
-	physicalPort, err := parseIntValue(payload[start+1])
-	if err != nil {
-		portOpen.Err = err
-		return portOpen, nil
-	}
-	portOpen.PhysicalPort = physicalPort
-
-	addr, err := parseAddressValue(payload[start+2])
-	if err != nil {
-		portOpen.Err = err
-		return portOpen, nil
-	}
-	portOpen.SourceDeviceID = addr
-
-	flags, ok := parseStringValue(payload[start+3])
-	if !ok {
-		portOpen.Err = fmt.Errorf("invalid portopen2 flags")
-		return portOpen, nil
-	}
-	portOpen.Flags = flags
-
+	copy(portOpen.SourceDeviceID[:], inboundRequest.Payload.SourceDeviceID)
+	portOpen.Flags = inboundRequest.Payload.Flags
 	return portOpen, nil
 }
 
 func parseInboundTicketRequest(buffer []byte) (interface{}, error) {
-	var inboundRequest generalRequest
+	var inboundRequest ticketRequestInboundRequest
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	if err := decodeStream.Decode(&inboundRequest); err != nil {
 		return nil, err
@@ -742,25 +619,15 @@ func parseInboundTicketRequest(buffer []byte) (interface{}, error) {
 	req := &TicketRequest{
 		RequestID: inboundRequest.RequestID,
 	}
-	payload := inboundRequest.Payload
-	if len(payload) < 2 {
-		req.Err = fmt.Errorf("invalid ticket_request payload length: %d", len(payload))
+	if strings.ToLower(strings.TrimSpace(inboundRequest.Payload.Method)) != "ticket_request" {
+		req.Err = fmt.Errorf("invalid ticket_request method: %s", inboundRequest.Payload.Method)
 		return req, nil
 	}
-	start := 0
-	if method, ok := parseStringValue(payload[0]); ok && method == "ticket_request" {
-		start = 1
-	}
-	if len(payload) <= start {
-		req.Err = fmt.Errorf("invalid ticket_request payload length: %d", len(payload))
+	if inboundRequest.Payload.Usage == nil {
+		req.Err = fmt.Errorf("invalid ticket_request usage")
 		return req, nil
 	}
-	usage, err := parseBigIntValue(payload[start])
-	if err != nil {
-		req.Err = err
-		return req, nil
-	}
-	req.Usage = usage
+	req.Usage = inboundRequest.Payload.Usage
 	return req, nil
 }
 
