@@ -241,10 +241,6 @@ func getDevicePublicKeyAt(deviceAddr util.Address, contractAddr string) (string,
 	return getDeviceKeyAt(deviceAddr, contractAddr, "getDevicePublicKey", nil)
 }
 
-func getDevicePrivateKeyAt(deviceAddr util.Address, contractAddr string) (string, error) {
-	return getDeviceKeyAt(deviceAddr, contractAddr, "getDevicePrivateKey", &deviceAddr)
-}
-
 func getDeviceKeyAt(deviceAddr util.Address, contractAddr string, methodName string, from *util.Address) (string, error) {
 	parsedABI, err := abi.JSON(strings.NewReader(wgKeyABI))
 	if err != nil {
@@ -1503,69 +1499,6 @@ type wgDiodePeer struct {
 	DeviceID  util.Address
 	Port      int
 	PeerIPv4  net.IP
-}
-
-func parseWireGuardDiodePeers(cfg string) ([]wgDiodePeer, error) {
-	cfg = normalizeWireGuardConfig(cfg)
-	lines := strings.Split(cfg, "\n")
-	var peers []wgDiodePeer
-	var current wgDiodePeer
-	var endpointPort int
-	inPeer := false
-
-	commit := func() {
-		if !inPeer {
-			return
-		}
-		if current.PublicKey == "" {
-			return
-		}
-		if current.DeviceID == (util.Address{}) {
-			return
-		}
-		if endpointPort == 0 {
-			return
-		}
-		current.Port = endpointPort
-		peers = append(peers, current)
-	}
-
-	for _, line := range lines {
-		trimmed := strings.TrimSpace(line)
-		if trimmed == "" {
-			continue
-		}
-		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-			commit()
-			inPeer = strings.EqualFold(trimmed, "[peer]")
-			current = wgDiodePeer{}
-			endpointPort = 0
-			continue
-		}
-		if !inPeer {
-			continue
-		}
-		key, value, ok := parseWGKeyValue(trimmed)
-		if !ok {
-			continue
-		}
-		switch strings.ToLower(key) {
-		case "publickey":
-			current.PublicKey = value
-		case "endpoint":
-			endpointPort = parseWGEndpointPort(value)
-		case "diodedevice":
-			addr, err := util.DecodeAddress(value)
-			if err != nil {
-				return nil, err
-			}
-			current.DeviceID = addr
-		case "allowedips":
-			current.PeerIPv4 = firstIPv4FromList(value)
-		}
-	}
-	commit()
-	return peers, nil
 }
 
 func parseWGKeyValue(line string) (key, value string, ok bool) {
