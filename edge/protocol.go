@@ -367,9 +367,9 @@ func parsePortOpenResponse(buffer []byte) (interface{}, error) {
 }
 
 func parsePortOpen2Response(buffer []byte) (interface{}, error) {
-	makePortOpen := func(typeStr string, physicalPort uint64, result string) (*PortOpen2, error) {
+	makePortOpen := func(typeStr string, physicalPort uint64, result []byte) (*PortOpen2, error) {
 		typeLower := strings.ToLower(strings.TrimSpace(typeStr))
-		resultLower := strings.ToLower(strings.TrimSpace(result))
+		resultLower := strings.ToLower(strings.TrimSpace(string(result)))
 		if typeLower == "" {
 			return nil, fmt.Errorf("portopen2 response missing type")
 		}
@@ -377,8 +377,10 @@ func parsePortOpen2Response(buffer []byte) (interface{}, error) {
 		switch typeLower {
 		case "ok":
 			ok = true
-		case "response":
+		case "portopen2":
 			ok = resultLower == "" || resultLower == "ok"
+		case "response":
+			ok = true
 		case "error":
 			ok = false
 		default:
@@ -387,14 +389,16 @@ func parsePortOpen2Response(buffer []byte) (interface{}, error) {
 			}
 		}
 		return &PortOpen2{
-			Ok:           ok,
-			PhysicalPort: int(physicalPort),
+			ResponseType:   typeStr,
+			ResponseResult: result,
+			Ok:             ok,
+			PhysicalPort:   int(physicalPort),
 		}, nil
 	}
 
 	var responseShort portOpen2Response
 	if err := rlp.DecodeBytes(buffer, &responseShort); err == nil {
-		return makePortOpen(responseShort.Payload.Type, responseShort.Payload.PhysicalPort, "")
+		return makePortOpen(responseShort.Payload.Type, responseShort.Payload.PhysicalPort, nil)
 	} else {
 		var responseFull portOpen2ResponseWithResult
 		if errFull := rlp.DecodeBytes(buffer, &responseFull); errFull == nil {

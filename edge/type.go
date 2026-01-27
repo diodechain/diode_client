@@ -48,6 +48,8 @@ type PortOpen2 struct {
 	PhysicalPort   int
 	SourceDeviceID Address
 	Flags          string
+	ResponseType   string
+	ResponseResult []byte
 	Ok             bool
 	Err            error
 }

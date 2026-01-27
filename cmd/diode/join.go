@@ -1759,7 +1759,17 @@ func applyWireGuardDiodePeers(client *rpc.Client, iface string, peers []wgDiodeP
 			continue
 		}
 		if portOpen == nil || !portOpen.Ok || portOpen.PhysicalPort <= 0 {
-			cfg.Logger.Warn("wireguard portopen2 unexpected response peer=%s ok=%v port=%d", peer.PublicKey, portOpen != nil && portOpen.Ok, portOpen.PhysicalPort)
+			responseType := ""
+			var responseResult []byte
+			physicalPort := 0
+			ok := false
+			if portOpen != nil {
+				responseType = portOpen.ResponseType
+				responseResult = portOpen.ResponseResult
+				physicalPort = portOpen.PhysicalPort
+				ok = portOpen.Ok
+			}
+			cfg.Logger.Warn("wireguard portopen2 unexpected response peer=%s ok=%v port=%d type=%q result=%q result_hex=%x", peer.PublicKey, ok, physicalPort, responseType, responseResult, responseResult)
 			continue
 		}
 		selectedPort, changed, reason := tracker.recordOutbound(peer, portOpen.PhysicalPort)

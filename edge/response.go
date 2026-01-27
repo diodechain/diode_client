@@ -172,7 +172,7 @@ type portOpen2ResponseWithResult struct {
 	Payload   struct {
 		Type         string
 		PhysicalPort uint64
-		Result       string
+		Result       []byte
 	}
 }
 
@@ -182,7 +182,7 @@ type portOpen2ResponseWithMethod struct {
 		Type         string
 		Method       string
 		PhysicalPort uint64
-		Result       string
+		Result       []byte
 	}
 }
 
