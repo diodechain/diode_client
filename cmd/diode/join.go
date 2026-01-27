@@ -1002,6 +1002,7 @@ var lastPublicPorts []string
 var lastPrivatePorts []string
 var lastProtectedPorts []string
 var lastWGConfigHash string
+var lastWGPublicKey string
 var lastBindSignature string
 var lastAppliedBindSignature string
 var socksServerStarted bool
@@ -2012,9 +2013,6 @@ func updateWireGuardFromContract(client *rpc.Client, deviceAddr util.Address, co
 	if err != nil {
 		return err
 	}
-	if pubB64 != "" {
-		cfg.PrintLabel("WireGuard Public Key", pubB64)
-	}
 
 	h := sha256.Sum256([]byte(finalConf))
 	hashStr := fmt.Sprintf("%x", h[:])
@@ -2025,6 +2023,10 @@ func updateWireGuardFromContract(client *rpc.Client, deviceAddr util.Address, co
 	// Write config file with secure permissions
 	if err := os.WriteFile(confPath, []byte(finalConf+"\n"), 0o600); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
+	}
+
+	if pubB64 != "" && pubB64 != lastWGPublicKey {
+		cfg.PrintLabel("WireGuard Public Key", pubB64)
 	}
 
 	// Attempt to enable interface (best-effort)
@@ -2048,6 +2050,9 @@ func updateWireGuardFromContract(client *rpc.Client, deviceAddr util.Address, co
 	}
 
 	lastWGConfigHash = hashStr
+	if pubB64 != "" {
+		lastWGPublicKey = pubB64
+	}
 	return nil
 }
 
