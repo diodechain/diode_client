@@ -378,7 +378,7 @@ func parsePortOpen2Response(buffer []byte) (interface{}, error) {
 		case "ok":
 			ok = true
 		case "response":
-			ok = resultLower == "ok"
+			ok = resultLower == "" || resultLower == "ok"
 		case "error":
 			ok = false
 		default:
