@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"strconv"
 	"strings"
 
 	"github.com/diodechain/diode_client/blockquick"
@@ -369,25 +370,11 @@ func parsePortOpenResponse(buffer []byte) (interface{}, error) {
 func parsePortOpen2Response(buffer []byte) (interface{}, error) {
 	makePortOpen := func(typeStr string, physicalPort uint64, result []byte) (*PortOpen2, error) {
 		typeLower := strings.ToLower(strings.TrimSpace(typeStr))
-		resultLower := strings.ToLower(strings.TrimSpace(string(result)))
 		if typeLower == "" {
 			return nil, fmt.Errorf("portopen2 response missing type")
 		}
-		ok := false
-		switch typeLower {
-		case "ok":
-			ok = true
-		case "portopen2":
-			ok = resultLower == "" || resultLower == "ok"
-		case "response":
-			ok = true
-		case "error":
-			ok = false
-		default:
-			if resultLower == "ok" {
-				ok = true
-			}
-		}
+		resultToken := strings.ToLower(strings.TrimSpace(string(result)))
+		ok := physicalPort > 0 && typeLower != "error" && resultToken != "error"
 		return &PortOpen2{
 			ResponseType:   typeStr,
 			ResponseResult: result,
@@ -396,20 +383,119 @@ func parsePortOpen2Response(buffer []byte) (interface{}, error) {
 		}, nil
 	}
 
-	var responseShort portOpen2Response
-	if err := rlp.DecodeBytes(buffer, &responseShort); err == nil {
-		return makePortOpen(responseShort.Payload.Type, responseShort.Payload.PhysicalPort, nil)
-	} else {
-		var responseFull portOpen2ResponseWithResult
-		if errFull := rlp.DecodeBytes(buffer, &responseFull); errFull == nil {
-			return makePortOpen(responseFull.Payload.Type, responseFull.Payload.PhysicalPort, responseFull.Payload.Result)
-		}
-		var responseMethod portOpen2ResponseWithMethod
-		if errMethod := rlp.DecodeBytes(buffer, &responseMethod); errMethod == nil {
-			return makePortOpen(responseMethod.Payload.Type, responseMethod.Payload.PhysicalPort, responseMethod.Payload.Result)
-		}
+	var response portOpen2ResponseAny
+	if err := rlp.DecodeBytes(buffer, &response); err != nil {
 		return nil, err
 	}
+
+	if len(response.Payload) < 2 {
+		return nil, fmt.Errorf("portopen2 response missing payload")
+	}
+
+	typeStr, ok := decodePortOpen2Token(response.Payload[0])
+	if !ok {
+		return nil, fmt.Errorf("portopen2 response invalid type")
+	}
+
+	start := 1
+	if start < len(response.Payload) {
+		if token, ok := decodePortOpen2Token(response.Payload[start]); ok && token == "portopen2" {
+			start++
+		}
+	}
+
+	var port uint64
+	var result []byte
+	if start < len(response.Payload) {
+		if p, ok := decodePortOpen2Port(response.Payload[start]); ok {
+			port = p
+			if start+1 < len(response.Payload) {
+				result, _ = decodePortOpen2Bytes(response.Payload[start+1])
+			}
+		} else {
+			result, _ = decodePortOpen2Bytes(response.Payload[start])
+			if start+1 < len(response.Payload) {
+				if p, ok := decodePortOpen2Port(response.Payload[start+1]); ok {
+					port = p
+				}
+			}
+		}
+	}
+	if port == 0 {
+		for i := start; i < len(response.Payload); i++ {
+			if p, ok := decodePortOpen2Port(response.Payload[i]); ok {
+				port = p
+				break
+			}
+		}
+	}
+
+	return makePortOpen(typeStr, port, result)
+}
+
+type portOpen2ResponseAny struct {
+	RequestID uint64
+	Payload   []interface{}
+}
+
+func decodePortOpen2Token(val interface{}) (string, bool) {
+	b, ok := decodePortOpen2Bytes(val)
+	if !ok || !isPortOpen2TokenBytes(b) {
+		return "", false
+	}
+	return strings.ToLower(string(b)), true
+}
+
+func decodePortOpen2Bytes(val interface{}) ([]byte, bool) {
+	switch v := val.(type) {
+	case []byte:
+		return v, true
+	case string:
+		return []byte(v), true
+	default:
+		return nil, false
+	}
+}
+
+func decodePortOpen2Port(val interface{}) (uint64, bool) {
+	b, ok := decodePortOpen2Bytes(val)
+	if !ok || len(b) == 0 {
+		return 0, false
+	}
+	if isPortOpen2Digits(b) {
+		p, err := strconv.ParseUint(string(b), 10, 16)
+		return p, err == nil && p > 0
+	}
+	if isPortOpen2TokenBytes(b) {
+		return 0, false
+	}
+	p := parseUint(b)
+	if p == 0 || p > 65535 {
+		return 0, false
+	}
+	return p, true
+}
+
+func isPortOpen2Digits(b []byte) bool {
+	for _, c := range b {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return len(b) > 0
+}
+
+func isPortOpen2TokenBytes(b []byte) bool {
+	if len(b) == 0 {
+		return false
+	}
+	for _, c := range b {
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == ':' || c == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func parseServerObjResponse(buffer []byte) (interface{}, error) {

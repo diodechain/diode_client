@@ -1705,6 +1705,7 @@ func applyWireGuardPortOpenHandler(client *rpc.Client, iface string, peers []wgD
 			return err
 		}
 		cfg.Logger.Info("wireguard endpoint updated peer=%s endpoint=%s:%d reason=%s", peer.PublicKey, relayHost, selectedPort, reason)
+		logWireGuardPeerState(iface, peer, "inbound")
 		if err := pokeWireGuardPeer(peer); err != nil {
 			cfg.Logger.Warn("wireguard poke failed peer=%s err=%v", peer.PublicKey, err)
 		}
@@ -1753,9 +1754,21 @@ func applyWireGuardDiodePeers(client *rpc.Client, iface string, peers []wgDiodeP
 		}
 		portName := strconv.Itoa(peer.Port)
 		cfg.Logger.Info("wireguard portopen2 peer=%s device=%s port=%d", peer.PublicKey, peer.DeviceID.HexString(), peer.Port)
-		portOpen, err := client.PortOpen2(peer.DeviceID, portName, "rwu")
+		var portOpen *edge.PortOpen2
+		const maxAttempts = 3
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			portOpen, err = client.PortOpen2(peer.DeviceID, portName, "rwu")
+			if err == nil {
+				break
+			}
+			if !isRetryablePortOpen2Error(err) || attempt == maxAttempts {
+				cfg.Logger.Warn("wireguard portopen2 failed peer=%s: %v", peer.PublicKey, err)
+				break
+			}
+			cfg.Logger.Warn("wireguard portopen2 retrying peer=%s attempt=%d err=%v", peer.PublicKey, attempt, err)
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
 		if err != nil {
-			cfg.Logger.Warn("wireguard portopen2 failed peer=%s: %v", peer.PublicKey, err)
 			continue
 		}
 		if portOpen == nil || !portOpen.Ok || portOpen.PhysicalPort <= 0 {
@@ -1786,8 +1799,23 @@ func applyWireGuardDiodePeers(client *rpc.Client, iface string, peers []wgDiodeP
 			continue
 		}
 		cfg.Logger.Info("wireguard endpoint updated peer=%s endpoint=%s:%d reason=%s", peer.PublicKey, relayHost, selectedPort, reason)
+		logWireGuardPeerState(iface, peer, "outbound")
 	}
 	return nil
+}
+
+func isRetryablePortOpen2Error(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "no listener found") {
+		return true
+	}
+	if strings.Contains(msg, "timeout") {
+		return true
+	}
+	return false
 }
 func relayHostFromClient(client *rpc.Client) (string, error) {
 	if client == nil {
@@ -1942,22 +1970,33 @@ func wgOutputHasAllowedIP(output string, publicKey string, allowedIP net.IP) boo
 	return false
 }
 
+func resolveWireGuardInterfaceName(iface string, peer wgDiodePeer) string {
+	if iface == "" {
+		return ""
+	}
+	actualIface := iface
+	if runtime.GOOS == "darwin" {
+		if foundIface := findWireGuardInterfaceForPeer(peer); foundIface != "" {
+			actualIface = foundIface
+		}
+	}
+	return actualIface
+}
+
 func setWireGuardPeerEndpoint(iface string, peer wgDiodePeer, host string, port int) error {
 	if iface == "" || peer.PublicKey == "" || host == "" || port <= 0 {
 		return fmt.Errorf("invalid wireguard endpoint parameters")
 	}
 	cfg := config.AppConfig
 	// On macOS, wg-quick creates a utun* interface, not the config name
-	actualIface := iface
-	if runtime.GOOS == "darwin" {
-		if foundIface := findWireGuardInterfaceForPeer(peer); foundIface != "" {
-			actualIface = foundIface
-			if actualIface != iface {
-				cfg.Logger.Info("Using WireGuard interface %s (resolved from %s)", actualIface, iface)
-			}
-		} else {
-			cfg.Logger.Debug("Could not resolve WireGuard interface for peer %s, using config name %s", peer.PublicKey, iface)
-		}
+	actualIface := resolveWireGuardInterfaceName(iface, peer)
+	if actualIface == "" {
+		return fmt.Errorf("could not resolve wireguard interface")
+	}
+	if runtime.GOOS == "darwin" && actualIface != iface {
+		cfg.Logger.Info("Using WireGuard interface %s (resolved from %s)", actualIface, iface)
+	} else if runtime.GOOS == "darwin" && actualIface == iface {
+		cfg.Logger.Debug("Could not resolve WireGuard interface for peer %s, using config name %s", peer.PublicKey, iface)
 	}
 	endpoint := net.JoinHostPort(host, strconv.Itoa(port))
 	// Try wg set, and if it fails, retry with sudo
@@ -1968,7 +2007,56 @@ func setWireGuardPeerEndpoint(iface string, peer wgDiodePeer, host string, port 
 	if err != nil {
 		return fmt.Errorf("wg set failed: %w", err)
 	}
+	// Keepalive helps NATed peers establish handshake over the relay.
+	if _, err := runCommandWithSudoFallback("wg", "set", actualIface, "peer", peer.PublicKey, "persistent-keepalive", "25"); err != nil {
+		cfg.Logger.Debug("wg keepalive set failed peer=%s iface=%s err=%v", peer.PublicKey, actualIface, err)
+	}
 	return nil
+}
+
+func logWireGuardPeerState(iface string, peer wgDiodePeer, context string) {
+	if iface == "" || peer.PublicKey == "" {
+		return
+	}
+	actualIface := resolveWireGuardInterfaceName(iface, peer)
+	if actualIface == "" {
+		return
+	}
+	cfg := config.AppConfig
+	out, err := runCommandWithSudoFallback("wg", "show", actualIface)
+	if err != nil {
+		cfg.Logger.Debug("wg show failed peer=%s iface=%s context=%s err=%v", peer.PublicKey, actualIface, context, err)
+		return
+	}
+	lines := strings.Split(string(out), "\n")
+	inPeer := false
+	var endpoint, allowed, handshake, transfer string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "peer:") {
+			inPeer = strings.Contains(line, peer.PublicKey)
+			continue
+		}
+		if !inPeer {
+			continue
+		}
+		lower := strings.ToLower(line)
+		switch {
+		case strings.HasPrefix(lower, "endpoint:"):
+			endpoint = strings.TrimSpace(line[len("endpoint:"):])
+		case strings.HasPrefix(lower, "allowed ips:"):
+			allowed = strings.TrimSpace(line[len("allowed ips:"):])
+		case strings.HasPrefix(lower, "latest handshake:"):
+			handshake = strings.TrimSpace(line[len("latest handshake:"):])
+		case strings.HasPrefix(lower, "transfer:"):
+			transfer = strings.TrimSpace(line[len("transfer:"):])
+		}
+	}
+	if endpoint == "" && allowed == "" && handshake == "" && transfer == "" {
+		cfg.Logger.Debug("wg peer state not found peer=%s iface=%s context=%s", peer.PublicKey, actualIface, context)
+		return
+	}
+	cfg.Logger.Debug("wg peer state peer=%s iface=%s context=%s endpoint=%q allowed=%q handshake=%q transfer=%q", peer.PublicKey, actualIface, context, endpoint, allowed, handshake, transfer)
 }
 
 func pokeWireGuardPeer(peer wgDiodePeer) error {

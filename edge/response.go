@@ -159,33 +159,6 @@ type portOpenResponse struct {
 	}
 }
 
-type portOpen2Response struct {
-	RequestID uint64
-	Payload   struct {
-		Type         string
-		PhysicalPort uint64
-	}
-}
-
-type portOpen2ResponseWithResult struct {
-	RequestID uint64
-	Payload   struct {
-		Type         string
-		PhysicalPort uint64
-		Result       []byte
-	}
-}
-
-type portOpen2ResponseWithMethod struct {
-	RequestID uint64
-	Payload   struct {
-		Type         string
-		Method       string
-		PhysicalPort uint64
-		Result       []byte
-	}
-}
-
 type emptyResponse struct {
 	RequestID uint64
 	Payload   struct {
