@@ -161,7 +161,21 @@ func (cm *ClientManager) GetClientByHostOrConnect(host string) (*Client, error) 
 	if found != nil {
 		return found, nil
 	}
-	client := cm.startClient(host)
+	var client *Client
+	cm.srv.Call(func() {
+		// Re-check inside the manager goroutine to avoid races with new clients.
+		norm := normalizeHostPort(host)
+		for _, c := range cm.clients {
+			if c == nil {
+				continue
+			}
+			if normalizeHostPort(c.host) == norm {
+				client = c
+				return
+			}
+		}
+		client = cm.startClient(host)
+	})
 	if client == nil {
 		return nil, fmt.Errorf("failed to connect to relay %s", host)
 	}
