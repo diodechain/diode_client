@@ -1571,6 +1571,8 @@ const wgPortOpenTieWindow = 2 * time.Second
 type wgPortOpenTracker struct {
 	mu    sync.Mutex
 	peers map[string]*wgPortOpenPeerState
+
+	relayAddr map[util.Address]string
 }
 
 type wgPortOpenPeerState struct {
@@ -1583,12 +1585,29 @@ type wgPortOpenPeerState struct {
 
 func newWGPortOpenTracker(peers []wgDiodePeer) *wgPortOpenTracker {
 	tracker := &wgPortOpenTracker{
-		peers: make(map[string]*wgPortOpenPeerState, len(peers)),
+		peers:     make(map[string]*wgPortOpenPeerState, len(peers)),
+		relayAddr: make(map[util.Address]string, len(peers)),
 	}
 	for _, peer := range peers {
 		tracker.peers[peer.PublicKey] = &wgPortOpenPeerState{}
 	}
 	return tracker
+}
+
+func (tracker *wgPortOpenTracker) rememberRelayAddr(device util.Address, addr string) {
+	if addr == "" {
+		return
+	}
+	tracker.mu.Lock()
+	tracker.relayAddr[device] = addr
+	tracker.mu.Unlock()
+}
+
+func (tracker *wgPortOpenTracker) relayAddrFor(device util.Address) string {
+	tracker.mu.Lock()
+	addr := tracker.relayAddr[device]
+	tracker.mu.Unlock()
+	return addr
 }
 
 func (tracker *wgPortOpenTracker) recordInbound(peer wgDiodePeer, port int) (int, bool, string) {
@@ -1691,7 +1710,17 @@ func applyWireGuardPortOpenHandler(cm *rpc.ClientManager, iface string, peers []
 		if portOpen.PhysicalPort <= 0 {
 			return fmt.Errorf("invalid physical port %d", portOpen.PhysicalPort)
 		}
+		relayAddr := portOpen.RelayAddr
+		if relayAddr == "" {
+			return fmt.Errorf("missing relay address for portopen2")
+		}
+		tracker.rememberRelayAddr(peer.DeviceID, relayAddr)
 		relayHost := portOpen.RelayHost
+		if relayHost == "" {
+			if host, _, err := net.SplitHostPort(relayAddr); err == nil {
+				relayHost = host
+			}
+		}
 		if relayHost == "" {
 			return fmt.Errorf("missing relay host for portopen2")
 		}
@@ -1752,11 +1781,10 @@ func resolveWireGuardPeerForPortOpen(portOpen *edge.PortOpen2, peerByDevice map[
 	return wgDiodePeer{}, false
 }
 
-func applyWireGuardDiodePeers(client *rpc.Client, iface string, peers []wgDiodePeer, tracker *wgPortOpenTracker) error {
+func applyWireGuardDiodePeers(cm *rpc.ClientManager, iface string, peers []wgDiodePeer, tracker *wgPortOpenTracker) error {
 	cfg := config.AppConfig
-	relayHost, err := relayHostFromClient(client)
-	if err != nil {
-		return err
+	if cm == nil {
+		return fmt.Errorf("missing client manager")
 	}
 	for _, peer := range peers {
 		if peer.Port <= 0 {
@@ -1765,10 +1793,29 @@ func applyWireGuardDiodePeers(client *rpc.Client, iface string, peers []wgDiodeP
 		}
 		portName := strconv.Itoa(peer.Port)
 		cfg.Logger.Info("wireguard portopen2 peer=%s device=%s port=%d", peer.PublicKey, peer.DeviceID.HexString(), peer.Port)
+		relayAddr := tracker.relayAddrFor(peer.DeviceID)
+		if relayAddr == "" {
+			resolved, err := cm.ResolveRelayAddrForDevice(peer.DeviceID)
+			if err != nil {
+				cfg.Logger.Warn("wireguard portopen2 resolve relay failed peer=%s: %v", peer.PublicKey, err)
+				continue
+			}
+			relayAddr = resolved
+			tracker.rememberRelayAddr(peer.DeviceID, relayAddr)
+		}
+		relayHost := relayAddr
+		if host, _, err := net.SplitHostPort(relayAddr); err == nil {
+			relayHost = host
+		}
+		relayClient, err := cm.GetClientByHostOrConnect(relayAddr)
+		if err != nil {
+			cfg.Logger.Warn("wireguard portopen2 connect relay failed peer=%s relay=%s err=%v", peer.PublicKey, relayAddr, err)
+			continue
+		}
 		var portOpen *edge.PortOpen2
 		const maxAttempts = 3
 		for attempt := 1; attempt <= maxAttempts; attempt++ {
-			portOpen, err = client.PortOpen2(peer.DeviceID, portName, "rwu")
+			portOpen, err = relayClient.PortOpen2(peer.DeviceID, portName, "rwu")
 			if err == nil {
 				break
 			}
@@ -1827,25 +1874,6 @@ func isRetryablePortOpen2Error(err error) bool {
 		return true
 	}
 	return false
-}
-func relayHostFromClient(client *rpc.Client) (string, error) {
-	if client == nil {
-		return "", fmt.Errorf("missing rpc client")
-	}
-	if remoteAddr, err := client.RemoteAddr(); err == nil && remoteAddr != nil {
-		if host, _, err := net.SplitHostPort(remoteAddr.String()); err == nil {
-			return host, nil
-		}
-	}
-	hostPort, err := client.Host()
-	if err != nil {
-		return "", err
-	}
-	host, _, err := net.SplitHostPort(hostPort)
-	if err != nil {
-		return "", err
-	}
-	return host, nil
 }
 
 // runCommandWithSudoFallback runs a command and, on permission failure, retries with sudo -n.
@@ -2153,7 +2181,7 @@ func updateWireGuardFromContract(client *rpc.Client, deviceAddr util.Address, co
 	if client != nil && len(diodePeers) > 0 {
 		tracker := newWGPortOpenTracker(diodePeers)
 		applyWireGuardPortOpenHandler(app.clientManager, iface, diodePeers, tracker)
-		if err := applyWireGuardDiodePeers(client, iface, diodePeers, tracker); err != nil {
+		if err := applyWireGuardDiodePeers(app.clientManager, iface, diodePeers, tracker); err != nil {
 			cfg.Logger.Warn("Failed to apply WireGuard Diode peers: %v", err)
 		}
 	}

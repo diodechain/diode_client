@@ -49,6 +49,7 @@ type PortOpen2 struct {
 	SourceDeviceID Address
 	Flags          string
 	RelayHost      string
+	RelayAddr      string
 	ResponseType   string
 	ResponseResult []byte
 	Ok             bool

@@ -108,7 +108,9 @@ func (cm *ClientManager) attachPortOpen2HandlerToClient(client *Client) {
 		return
 	}
 	client.SetPortOpen2Handler(func(portOpen *edge.PortOpen2) error {
-		portOpen.RelayHost = resolveRelayHostFromClient(client)
+		hostPort, host := resolveRelayAddrFromClient(client)
+		portOpen.RelayAddr = hostPort
+		portOpen.RelayHost = host
 		return cm.dispatchPortOpen2(portOpen)
 	})
 }
@@ -138,22 +140,94 @@ func (cm *ClientManager) dispatchPortOpen2(portOpen *edge.PortOpen2) error {
 	return handler(portOpen)
 }
 
-func resolveRelayHostFromClient(client *Client) string {
+// GetClientByHostOrConnect returns an existing client for host, or creates one.
+func (cm *ClientManager) GetClientByHostOrConnect(host string) (*Client, error) {
+	if host == "" {
+		return nil, fmt.Errorf("empty host")
+	}
+	var found *Client
+	cm.srv.Call(func() {
+		norm := normalizeHostPort(host)
+		for _, c := range cm.clients {
+			if c == nil {
+				continue
+			}
+			if normalizeHostPort(c.host) == norm {
+				found = c
+				return
+			}
+		}
+	})
+	if found != nil {
+		return found, nil
+	}
+	client := cm.startClient(host)
 	if client == nil {
+		return nil, fmt.Errorf("failed to connect to relay %s", host)
+	}
+	return client, nil
+}
+
+// ResolveRelayAddrForDevice returns the relay address for a device by querying the network object.
+func (cm *ClientManager) ResolveRelayAddrForDevice(deviceID util.Address) (string, error) {
+	client := cm.GetNearestClient()
+	if client == nil {
+		return "", fmt.Errorf("no connected relay")
+	}
+	device, err := client.GetObject(deviceID)
+	if err != nil {
+		return "", err
+	}
+	var zero util.Address
+	if device.ServerID == zero {
+		return "", fmt.Errorf("device server id missing")
+	}
+	node, err := client.GetNode(device.ServerID)
+	if err != nil {
+		return "", err
+	}
+	host := strings.TrimSpace(string(node.Host))
+	if host == "" {
+		return "", fmt.Errorf("relay host missing")
+	}
+	port := int(node.EdgePort)
+	if port <= 0 {
+		port = int(node.ServerPort)
+	}
+	if port <= 0 {
+		return "", fmt.Errorf("relay port missing")
+	}
+	return net.JoinHostPort(host, strconv.Itoa(port)), nil
+}
+
+func normalizeHostPort(host string) string {
+	host = strings.TrimSpace(strings.ToLower(host))
+	if host == "" {
 		return ""
 	}
+	if h, p, err := net.SplitHostPort(host); err == nil {
+		return net.JoinHostPort(strings.TrimSpace(strings.ToLower(h)), p)
+	}
+	return host
+}
+
+func resolveRelayAddrFromClient(client *Client) (string, string) {
+	if client == nil {
+		return "", ""
+	}
 	if remoteAddr, err := client.RemoteAddr(); err == nil && remoteAddr != nil {
-		if host, _, err := net.SplitHostPort(remoteAddr.String()); err == nil {
-			return host
+		if host, port, err := net.SplitHostPort(remoteAddr.String()); err == nil {
+			return net.JoinHostPort(host, port), host
 		}
+		return remoteAddr.String(), remoteAddr.String()
 	}
 	if hostPort, err := client.Host(); err == nil {
-		if host, _, err := net.SplitHostPort(hostPort); err == nil {
-			return host
+		if host, port, err := net.SplitHostPort(hostPort); err == nil {
+			return net.JoinHostPort(host, port), host
 		}
-		return hostPort
+		return hostPort, hostPort
 	}
-	return ""
+	return "", ""
 }
 
 // AddNewAddresses manages client connections based on contract-specified addresses.
