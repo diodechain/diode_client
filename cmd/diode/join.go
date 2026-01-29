@@ -1793,24 +1793,37 @@ func applyWireGuardDiodePeers(cm *rpc.ClientManager, iface string, peers []wgDio
 		}
 		portName := strconv.Itoa(peer.Port)
 		cfg.Logger.Info("wireguard portopen2 peer=%s device=%s port=%d", peer.PublicKey, peer.DeviceID.HexString(), peer.Port)
+		var relayClient *rpc.Client
+		relayHost := ""
+		var err error
 		relayAddr := tracker.relayAddrFor(peer.DeviceID)
 		if relayAddr == "" {
-			resolved, err := cm.ResolveRelayAddrForDevice(peer.DeviceID)
+			nodeID, resolvedAddr, resolvedHost, err := cm.ResolveRelayForDevice(peer.DeviceID)
 			if err != nil {
 				cfg.Logger.Warn("wireguard portopen2 resolve relay failed peer=%s: %v", peer.PublicKey, err)
 				continue
 			}
-			relayAddr = resolved
+			relayAddr = resolvedAddr
+			relayHost = resolvedHost
 			tracker.rememberRelayAddr(peer.DeviceID, relayAddr)
+			relayClient, err = cm.GetClientOrConnect(nodeID)
+			if err != nil {
+				cfg.Logger.Warn("wireguard portopen2 connect relay failed peer=%s relay=%s err=%v", peer.PublicKey, relayAddr, err)
+				continue
+			}
 		}
-		relayHost := relayAddr
-		if host, _, err := net.SplitHostPort(relayAddr); err == nil {
-			relayHost = host
+		if relayHost == "" {
+			relayHost = relayAddr
+			if host, _, err := net.SplitHostPort(relayAddr); err == nil {
+				relayHost = host
+			}
 		}
-		relayClient, err := cm.GetClientByHostOrConnect(relayAddr)
-		if err != nil {
-			cfg.Logger.Warn("wireguard portopen2 connect relay failed peer=%s relay=%s err=%v", peer.PublicKey, relayAddr, err)
-			continue
+		if relayClient == nil {
+			relayClient = cm.GetClientByHost(relayAddr)
+			if relayClient == nil {
+				cfg.Logger.Warn("wireguard portopen2 missing relay client peer=%s relay=%s", peer.PublicKey, relayAddr)
+				continue
+			}
 		}
 		var portOpen *edge.PortOpen2
 		const maxAttempts = 3
@@ -1915,10 +1928,48 @@ func runCommandWithUnixSudoFallback(name string, args []string, out []byte, err 
 	if sudoErr == nil {
 		return sudoOut, nil
 	}
+	if isSudoPasswordRequired(sudoOut, sudoErr) && isInteractiveTerminal() {
+		return runInteractiveSudo(name, args)
+	}
 	if len(sudoOut) > 0 {
 		return sudoOut, sudoErr
 	}
 	return out, err
+}
+
+func isSudoPasswordRequired(output []byte, err error) bool {
+	msg := strings.ToLower(string(output))
+	if strings.Contains(msg, "password is required") {
+		return true
+	}
+	if err != nil {
+		lower := strings.ToLower(err.Error())
+		if strings.Contains(lower, "password is required") {
+			return true
+		}
+	}
+	return false
+}
+
+func isInteractiveTerminal() bool {
+	stat, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (stat.Mode() & os.ModeCharDevice) != 0
+}
+
+func runInteractiveSudo(name string, args []string) ([]byte, error) {
+	sudoArgs := append([]string{name}, args...)
+	cmd := exec.Command("sudo", sudoArgs...)
+	cmd.Stdin = os.Stdin
+	var out bytes.Buffer
+	cmd.Stdout = io.MultiWriter(&out, os.Stdout)
+	cmd.Stderr = io.MultiWriter(&out, os.Stderr)
+	if err := cmd.Run(); err != nil {
+		return out.Bytes(), err
+	}
+	return out.Bytes(), nil
 }
 
 func runCommandWithGsudoFallback(name string, args []string, out []byte, err error) ([]byte, error) {

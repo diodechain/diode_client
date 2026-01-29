@@ -1673,6 +1673,7 @@ func (client *Client) initialize() (err error) {
 	if err != nil {
 		return fmt.Errorf("failed to submitTicket to server: %v", err)
 	}
+	fmt.Println("Connected to server and said hello:", util.EncodeToString(client.serverID[:]))
 	if client.onConnect != nil {
 		client.onConnect(client.serverID)
 		go client.watchLatestBlock()

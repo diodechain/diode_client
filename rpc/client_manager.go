@@ -140,10 +140,10 @@ func (cm *ClientManager) dispatchPortOpen2(portOpen *edge.PortOpen2) error {
 	return handler(portOpen)
 }
 
-// GetClientByHostOrConnect returns an existing client for host, or creates one.
-func (cm *ClientManager) GetClientByHostOrConnect(host string) (*Client, error) {
+// GetClientByHost returns an existing client for host without connecting.
+func (cm *ClientManager) GetClientByHost(host string) *Client {
 	if host == "" {
-		return nil, fmt.Errorf("empty host")
+		return nil
 	}
 	var found *Client
 	cm.srv.Call(func() {
@@ -158,60 +158,39 @@ func (cm *ClientManager) GetClientByHostOrConnect(host string) (*Client, error) 
 			}
 		}
 	})
-	if found != nil {
-		return found, nil
-	}
-	var client *Client
-	cm.srv.Call(func() {
-		// Re-check inside the manager goroutine to avoid races with new clients.
-		norm := normalizeHostPort(host)
-		for _, c := range cm.clients {
-			if c == nil {
-				continue
-			}
-			if normalizeHostPort(c.host) == norm {
-				client = c
-				return
-			}
-		}
-		client = cm.startClient(host)
-	})
-	if client == nil {
-		return nil, fmt.Errorf("failed to connect to relay %s", host)
-	}
-	return client, nil
+	return found
 }
 
-// ResolveRelayAddrForDevice returns the relay address for a device by querying the network object.
-func (cm *ClientManager) ResolveRelayAddrForDevice(deviceID util.Address) (string, error) {
+// ResolveRelayForDevice returns the relay node ID and address for a device by querying the network object.
+func (cm *ClientManager) ResolveRelayForDevice(deviceID util.Address) (util.Address, string, string, error) {
 	client := cm.GetNearestClient()
 	if client == nil {
-		return "", fmt.Errorf("no connected relay")
+		return util.Address{}, "", "", fmt.Errorf("no connected relay")
 	}
 	device, err := client.GetObject(deviceID)
 	if err != nil {
-		return "", err
+		return util.Address{}, "", "", err
 	}
 	var zero util.Address
 	if device.ServerID == zero {
-		return "", fmt.Errorf("device server id missing")
+		return util.Address{}, "", "", fmt.Errorf("device server id missing")
 	}
 	node, err := client.GetNode(device.ServerID)
 	if err != nil {
-		return "", err
+		return util.Address{}, "", "", err
 	}
 	host := strings.TrimSpace(string(node.Host))
 	if host == "" {
-		return "", fmt.Errorf("relay host missing")
+		return util.Address{}, "", "", fmt.Errorf("relay host missing")
 	}
 	port := int(node.EdgePort)
 	if port <= 0 {
 		port = int(node.ServerPort)
 	}
 	if port <= 0 {
-		return "", fmt.Errorf("relay port missing")
+		return util.Address{}, "", "", fmt.Errorf("relay port missing")
 	}
-	return net.JoinHostPort(host, strconv.Itoa(port)), nil
+	return device.ServerID, net.JoinHostPort(host, strconv.Itoa(port)), host, nil
 }
 
 func normalizeHostPort(host string) string {
