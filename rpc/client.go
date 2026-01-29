@@ -308,32 +308,6 @@ func (client *Client) CallContext(method string, args ...interface{}) (res inter
 	return
 }
 
-// CheckTicket should client send traffic ticket to server
-func (client *Client) CheckTicket() {
-	defer client.timer.profile(time.Now(), "CheckTicket")
-
-	client.srv.Cast(func() {
-		if client.s == nil || client.bq == nil {
-			return
-		}
-
-		if client.s.TotalBytes() < client.s.Counter()+ticketBound &&
-			client.lastTicket != nil && client.isRecentTicket(client.lastTicket) {
-			return
-		}
-
-		ticket, err := client.newTicket()
-		if err != nil {
-			return
-		}
-
-		err = client.submitTicket(ticket)
-		if err == nil {
-			client.lastTicket = ticket
-		}
-	})
-}
-
 func (client *Client) isRecentTicket(tck *edge.DeviceTicket) bool {
 	lvbn, _ := client.LastValid()
 
@@ -600,30 +574,15 @@ func (client *Client) greet() error {
 	if err != nil {
 		return err
 	}
-	return client.SubmitNewTicket()
-}
-
-func (client *Client) SubmitNewTicket() (err error) {
-	client.srv.Cast(func() {
-		if client.bq == nil {
-			return
+	// In case the server does not request a ticket, we will submit one after 10 seconds
+	go func() {
+		time.Sleep(10 * time.Second)
+		s := client.s
+		if s != nil && client.lastTicket == nil {
+			client.SubmitTicketForUsage(big.NewInt(int64(s.TotalBytes())))
 		}
-		if client.isClosed || client.s == nil {
-			return
-		}
-
-		var ticket *edge.DeviceTicket
-		ticket, err = client.newTicket()
-		if err != nil {
-			return
-		}
-
-		err = client.submitTicket(ticket)
-		if err == nil {
-			client.lastTicket = ticket
-		}
-	})
-	return
+	}()
+	return nil
 }
 
 // SubmitTicketForUsage submits a ticket covering at least minBytes.
@@ -643,7 +602,7 @@ func (client *Client) SubmitTicketForUsage(minBytes *big.Int) (err error) {
 			client.Log().Warn("ticket_request usage too large: %s", minBytes.String())
 			return
 		}
-		minUsage := minBytes.Uint64()
+		minUsage := minBytes.Uint64() + ticketBound
 		current := client.s.TotalBytes()
 		if minUsage > current {
 			client.Log().Debug("ticket_request updating total bytes current=%d requested=%d", current, minUsage)
@@ -779,9 +738,9 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 					lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)
 					client.Log().Warn("received fake ticket.. last_ticket=%v", lastTicket)
 				} else {
-					ssl.setTotalBytes(lastTicket.TotalBytes.Uint64() + 1024)
+					client.Log().Warn("insufficient ticket, resending... last_ticket=%v", lastTicket)
 					ssl.totalConnections = lastTicket.TotalConnections.Uint64() + 1
-					err = client.SubmitNewTicket()
+					err = client.SubmitTicketForUsage(lastTicket.TotalBytes)
 					if err != nil {
 						client.Log().Error("failed to re-submit ticket: %v", err)
 					}
@@ -1588,7 +1547,6 @@ func (client *Client) startBlockquickRebuild(reason string) {
 		}
 
 		client.Log().Info("Blockquick window rebuilt (%s)", reason)
-		client.SubmitNewTicket()
 	}()
 }
 
@@ -1671,7 +1629,7 @@ func (client *Client) initialize() (err error) {
 	}
 	err = client.greet()
 	if err != nil {
-		return fmt.Errorf("failed to submitTicket to server: %v", err)
+		return fmt.Errorf("failed to greet the server: %v", err)
 	}
 	if client.onConnect != nil {
 		client.onConnect(client.serverID)

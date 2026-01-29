@@ -556,7 +556,6 @@ func (cm *ClientManager) startGlobalBlockquickRebuild(reason string) {
 				}
 
 				client.Log().Info("Global blockquick rebuild succeeded (%s)", reason)
-				client.SubmitNewTicket()
 				success = true
 				break
 			}
@@ -685,10 +684,6 @@ func (cm *ClientManager) doSortTopClients() {
 		}
 	} else {
 		cm.topClients[0] = nil
-	}
-
-	if cm.topClients != before && cm.topClients[0] != nil {
-		go cm.topClients[0].SubmitNewTicket()
 	}
 }
 
