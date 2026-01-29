@@ -1658,7 +1658,7 @@ func selectWireGuardPort(state *wgPortOpenPeerState) (int, string) {
 	return state.outboundPort, "outbound-latest"
 }
 
-func applyWireGuardPortOpenHandler(client *rpc.Client, iface string, peers []wgDiodePeer, tracker *wgPortOpenTracker) {
+func applyWireGuardPortOpenHandler(cm *rpc.ClientManager, iface string, peers []wgDiodePeer, tracker *wgPortOpenTracker) {
 	cfg := config.AppConfig
 	peerByDevice := make(map[util.Address]wgDiodePeer, len(peers))
 	for _, peer := range peers {
@@ -1666,7 +1666,11 @@ func applyWireGuardPortOpenHandler(client *rpc.Client, iface string, peers []wgD
 	}
 	cfg.Logger.Info("wireguard portopen2 handler enabled peers=%d iface=%s", len(peers), iface)
 
-	client.SetPortOpen2Handler(func(portOpen *edge.PortOpen2) error {
+	if cm == nil {
+		return
+	}
+
+	handler := func(portOpen *edge.PortOpen2) error {
 		if portOpen == nil {
 			return fmt.Errorf("nil portopen2 request")
 		}
@@ -1687,9 +1691,9 @@ func applyWireGuardPortOpenHandler(client *rpc.Client, iface string, peers []wgD
 		if portOpen.PhysicalPort <= 0 {
 			return fmt.Errorf("invalid physical port %d", portOpen.PhysicalPort)
 		}
-		relayHost, err := relayHostFromClient(client)
-		if err != nil {
-			return err
+		relayHost := portOpen.RelayHost
+		if relayHost == "" {
+			return fmt.Errorf("missing relay host for portopen2")
 		}
 		selectedPort, changed, reason := tracker.recordInbound(peer, portOpen.PhysicalPort)
 		if selectedPort == 0 {
@@ -1710,7 +1714,14 @@ func applyWireGuardPortOpenHandler(client *rpc.Client, iface string, peers []wgD
 			cfg.Logger.Warn("wireguard poke failed peer=%s err=%v", peer.PublicKey, err)
 		}
 		return nil
-	})
+	}
+
+	for _, peer := range peers {
+		if peer.Port <= 0 {
+			continue
+		}
+		cm.SetPortOpen2Handler(peer.Port, handler)
+	}
 }
 
 func resolveWireGuardPeerForPortOpen(portOpen *edge.PortOpen2, peerByDevice map[util.Address]wgDiodePeer) (wgDiodePeer, bool) {
@@ -2141,7 +2152,7 @@ func updateWireGuardFromContract(client *rpc.Client, deviceAddr util.Address, co
 
 	if client != nil && len(diodePeers) > 0 {
 		tracker := newWGPortOpenTracker(diodePeers)
-		applyWireGuardPortOpenHandler(client, iface, diodePeers, tracker)
+		applyWireGuardPortOpenHandler(app.clientManager, iface, diodePeers, tracker)
 		if err := applyWireGuardDiodePeers(client, iface, diodePeers, tracker); err != nil {
 			cfg.Logger.Warn("Failed to apply WireGuard Diode peers: %v", err)
 		}

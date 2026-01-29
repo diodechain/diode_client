@@ -9,11 +9,14 @@ import (
 	"math/rand"
 	"net"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/diodechain/diode_client/config"
+	"github.com/diodechain/diode_client/edge"
 	"github.com/diodechain/diode_client/util"
 	"github.com/dominicletz/genserver"
 )
@@ -37,6 +40,10 @@ type ClientManager struct {
 
 	// savedDefaultAddresses stores the default addresses that were removed when contract addresses were first detected
 	savedDefaultAddresses config.StringValues
+
+	portOpen2Mu             sync.RWMutex
+	portOpen2Handlers       map[string]func(*edge.PortOpen2) error
+	defaultPortOpen2Handler func(*edge.PortOpen2) error
 }
 
 type nodeRequest struct {
@@ -48,12 +55,13 @@ type nodeRequest struct {
 // NewClientManager returns a new manager rpc client
 func NewClientManager(cfg *config.Config) *ClientManager {
 	cm := &ClientManager{
-		srv:           genserver.New("ClientManager"),
-		clientMap:     make(map[util.Address]*Client),
-		waitingNode:   make(map[util.Address]*nodeRequest),
-		pool:          NewPool(),
-		Config:        cfg,
-		targetClients: 5,
+		srv:               genserver.New("ClientManager"),
+		clientMap:         make(map[util.Address]*Client),
+		waitingNode:       make(map[util.Address]*nodeRequest),
+		pool:              NewPool(),
+		Config:            cfg,
+		targetClients:     5,
+		portOpen2Handlers: make(map[string]func(*edge.PortOpen2) error),
 	}
 	if !config.AppConfig.LogDateTime {
 		cm.srv.DeadlockCallback = nil
@@ -68,6 +76,84 @@ func (cm *ClientManager) Start() {
 		}
 	})
 	go cm.sortTopClients()
+}
+
+// SetPortOpen2Handler registers a portopen2 handler for a given port number.
+// If port <= 0, the handler is treated as the default for any port.
+func (cm *ClientManager) SetPortOpen2Handler(port int, handler func(*edge.PortOpen2) error) {
+	key := ""
+	if port > 0 {
+		key = strconv.Itoa(port)
+	}
+	cm.portOpen2Mu.Lock()
+	if key == "" {
+		cm.defaultPortOpen2Handler = handler
+	} else {
+		cm.portOpen2Handlers[key] = handler
+	}
+	cm.portOpen2Mu.Unlock()
+	cm.attachPortOpen2HandlerToClients()
+}
+
+func (cm *ClientManager) attachPortOpen2HandlerToClients() {
+	cm.srv.Call(func() {
+		for _, c := range cm.clients {
+			cm.attachPortOpen2HandlerToClient(c)
+		}
+	})
+}
+
+func (cm *ClientManager) attachPortOpen2HandlerToClient(client *Client) {
+	if client == nil {
+		return
+	}
+	client.SetPortOpen2Handler(func(portOpen *edge.PortOpen2) error {
+		portOpen.RelayHost = resolveRelayHostFromClient(client)
+		return cm.dispatchPortOpen2(portOpen)
+	})
+}
+
+func (cm *ClientManager) dispatchPortOpen2(portOpen *edge.PortOpen2) error {
+	if portOpen == nil {
+		return fmt.Errorf("nil portopen2 request")
+	}
+	key := strings.TrimSpace(portOpen.PortName)
+	var handler func(*edge.PortOpen2) error
+	cm.portOpen2Mu.RLock()
+	if key != "" {
+		handler = cm.portOpen2Handlers[key]
+		if handler == nil {
+			if port, err := strconv.Atoi(key); err == nil {
+				handler = cm.portOpen2Handlers[strconv.Itoa(port)]
+			}
+		}
+	}
+	if handler == nil {
+		handler = cm.defaultPortOpen2Handler
+	}
+	cm.portOpen2Mu.RUnlock()
+	if handler == nil {
+		return fmt.Errorf("no portopen2 handler configured")
+	}
+	return handler(portOpen)
+}
+
+func resolveRelayHostFromClient(client *Client) string {
+	if client == nil {
+		return ""
+	}
+	if remoteAddr, err := client.RemoteAddr(); err == nil && remoteAddr != nil {
+		if host, _, err := net.SplitHostPort(remoteAddr.String()); err == nil {
+			return host
+		}
+	}
+	if hostPort, err := client.Host(); err == nil {
+		if host, _, err := net.SplitHostPort(hostPort); err == nil {
+			return host
+		}
+		return hostPort
+	}
+	return ""
 }
 
 // AddNewAddresses manages client connections based on contract-specified addresses.
@@ -237,6 +323,7 @@ func (cm *ClientManager) startClient(host string) *Client {
 	n := len(cm.clientMap)
 	cm.Config.Logger.Debug("Adding relay#%d [] @ %s", n, host)
 	client := NewClient(host, cm, cm.Config, cm.pool)
+	cm.attachPortOpen2HandlerToClient(client)
 	client.onConnect = func(nodeID util.Address) {
 		cm.Config.Logger.Debug("Added relay#%d [%s] @ %s", n, nodeID.HexString(), host)
 		cm.srv.Cast(func() {

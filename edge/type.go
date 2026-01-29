@@ -48,6 +48,7 @@ type PortOpen2 struct {
 	PhysicalPort   int
 	SourceDeviceID Address
 	Flags          string
+	RelayHost      string
 	ResponseType   string
 	ResponseResult []byte
 	Ok             bool
