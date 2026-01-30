@@ -282,14 +282,37 @@ func (p *DataPool) Unlock(name string) {
 	})
 }
 
-// ClosePorts closes all ports belonging to the given client
+// ClosePorts closes all ports belonging to the given client.
+//
+// DEBUG trace: If the suspected deadlock is happening, we expect to see
+// "ClosePorts: DataPool callback entered" then "ClosePorts: blocking in port.Close()"
+// for a port, but never "ClosePorts: port.Close() returned" — because the port's
+// close() does pool.SetPort() (a Call to this same DataPool), and the DataPool
+// cannot process it while stuck in this callback. We may see "port close(): about to
+// Call DataPool.SetPort" from the port's GenServer but never "port close(): SetPort
+// returned" until Shutdown(10s) times out.
 func (p *DataPool) ClosePorts(client *Client) {
+	if client != nil && client.config != nil && client.config.Logger != nil {
+		client.Log().Debug("ClosePorts: sending Call to DataPool (recv goroutine will block until callback returns)")
+	}
 	p.srv.Call(func() {
+		if client != nil && client.config != nil && client.config.Logger != nil {
+			client.Log().Debug("ClosePorts: DataPool callback entered, iterating devices for client")
+		}
 		for k, v := range p.devices {
 			if v.client == client {
+				if client != nil && client.config != nil && client.config.Logger != nil {
+					client.Log().Debug("ClosePorts: DEADLOCK — blocking in port.Close() for device key %s (we never return; port's close() is blocked in SetPort->DataPool.Call)", k)
+				}
 				v.Close()
+				if client != nil && client.config != nil && client.config.Logger != nil {
+					client.Log().Debug("ClosePorts: port.Close() returned for key %s", k)
+				}
 				delete(p.devices, k)
 			}
+		}
+		if client != nil && client.config != nil && client.config.Logger != nil {
+			client.Log().Debug("ClosePorts: DataPool callback done")
 		}
 	})
 }

@@ -165,12 +165,20 @@ func (port *ConnectedPort) Shutdown() {
 }
 
 // Same as Shutdown() but issues the close async
+//
+// DEBUG trace: Caller (DataPool callback) blocks in Shutdown(10*time.Second) until
+// the port's GenServer exits. If the suspected deadlock is happening, we see
+// "port Close(): before Shutdown(10s)" but the port's close() is blocked in
+// SetPort (Call to DataPool), so the port's GenServer never exits and Shutdown(10s)
+// will block until timeout.
 func (port *ConnectedPort) Close() error {
 	if port == nil {
 		return nil
 	}
+	port.Log().Debug("port Close(): DEADLOCK — sending Cast(close) then blocking in Shutdown(10s); DataPool callback is stuck here until port GenServer exits or 10s timeout")
 	port.srv.Cast(func() { port.close() })
 	port.srv.Shutdown(10 * time.Second)
+	port.Log().Debug("port Close(): Shutdown(10s) returned")
 	return nil
 }
 
@@ -183,7 +191,13 @@ func (port *ConnectedPort) close() {
 	}
 	if port.client != nil {
 		deviceKey := port.client.GetDeviceKey(port.Ref)
+		// DEBUG: If deadlock, DataPool is blocked in our Close() waiting for us to exit,
+		// but SetPort is a Call to the DataPool — so we block here and never return.
+		// Expect to see "port close(): about to Call DataPool.SetPort" but not
+		// "port close(): SetPort returned" until DataPool's Shutdown(10s) times out.
+		port.Log().Debug("port close(): DEADLOCK — about to Call DataPool.SetPort (we block here; DataPool cannot process this Call while stuck in ClosePorts)")
 		port.client.pool.SetPort(deviceKey, nil)
+		port.Log().Debug("port close(): SetPort returned")
 	}
 	// send portclose request and channel
 	port.client.CastPortClose(port.Ref)

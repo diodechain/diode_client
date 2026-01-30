@@ -1315,8 +1315,18 @@ func (client *Client) Closed() bool {
 }
 
 // Close rpc client
+//
+// DEBUG trace for suspected "lost Terminate" / no refill: we expect to see
+// "Close: before callTimeout" then either (a) "Close: callTimeout returned (timeout)"
+// after 30s — then we never call ClosePorts or Shutdown(0), so Terminate never runs;
+// or (b) "Close: callTimeout returned (ok)" then "Close: before ClosePorts" then
+// if deadlock in ClosePorts we never see "Close: ClosePorts returned" or
+// "Close: before Shutdown(0)". So Shutdown(0) and Terminate never run.
 func (client *Client) Close() {
 	doCleanup := true
+	if client.config != nil && client.config.Logger != nil {
+		client.Log().Debug("Close: before callTimeout (recv goroutine blocks until Client GenServer runs callback or 30s timeout)")
+	}
 	timeout := client.callTimeout(func() {
 		if client.isClosed {
 			doCleanup = false
@@ -1333,9 +1343,25 @@ func (client *Client) Close() {
 			client.s = nil
 		}
 	})
+	if client.config != nil && client.config.Logger != nil {
+		if timeout != nil {
+			client.Log().Debug("Close: DEADLOCK — callTimeout returned (timeout %v); will NOT call ClosePorts or Shutdown(0); Terminate will never run", timeout)
+		} else {
+			client.Log().Debug("Close: callTimeout returned (ok)")
+		}
+	}
 	if timeout == nil && doCleanup {
+		if client.config != nil && client.config.Logger != nil {
+			client.Log().Debug("Close: before ClosePorts (recv goroutine blocks until DataPool callback returns; DEADLOCK if we never see next line)")
+		}
 		// remove open ports
 		client.pool.ClosePorts(client)
+		if client.config != nil && client.config.Logger != nil {
+			client.Log().Debug("Close: ClosePorts returned")
+		}
+		if client.config != nil && client.config.Logger != nil {
+			client.Log().Debug("Close: before Shutdown(0) — after this Terminate runs and refill Cast is sent")
+		}
 		client.srv.Shutdown(0)
 	}
 }

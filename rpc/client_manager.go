@@ -253,7 +253,12 @@ func (cm *ClientManager) startClient(host string) *Client {
 			delete(cm.waitingNode, nodeID)
 		})
 	}
+	// Terminate runs when the Client's GenServer processes Shutdown(0), which is
+	// only called from Close() after ClosePorts returns. If callTimeout times out
+	// or ClosePorts deadlocks, we never get to Shutdown(0), so Terminate never runs
+	// and no refill Cast is sent.
 	client.srv.Terminate = func() {
+		cm.Config.Logger.Debug("Terminate: client %s — sending refill Cast (DEADLOCK if we never see this: Shutdown(0) was never called, callTimeout timed out or ClosePorts deadlocked)", host)
 		cm.srv.Cast(func() {
 			for key, c := range cm.clientMap {
 				if c == client {
