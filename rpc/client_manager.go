@@ -600,6 +600,14 @@ func (cm *ClientManager) GetNearestClient() (client *Client) {
 		}
 
 		client = cm.topClient(0)
+		// If for some reason topclient returned nil (which it could do because it checks for closed
+		// clients), we should wait for a new client to be added.  This is a blocking behavior
+		// but it is much preferable to the behavior of returning a closed/closing client
+		// and every caller then has to go through a timeout process to get a new client.
+		if client == nil {
+			cm.waitingAny = append(cm.waitingAny, r)
+			return false
+		}
 		return true
 	})
 	return
@@ -652,7 +660,10 @@ func (cm *ClientManager) topClient(n int) *Client {
 	if n >= len(cm.topClients) {
 		return nil
 	}
-	if cm.topClients[n] == nil && len(cm.clientMap) >= n {
+	// If the top client is nil or if it is closed, we need to refresh the top clients.
+	needRefresh := (cm.topClients[n] == nil && len(cm.clientMap) >= n) ||
+		(cm.topClients[n] != nil && cm.topClients[n].Closed())
+	if needRefresh {
 		cm.doSortTopClients()
 	}
 	return cm.topClients[n]
@@ -668,6 +679,9 @@ func (cm *ClientManager) sortTopClients() {
 func (cm *ClientManager) doSortTopClients() {
 	onlineClients := make(ByLatency, 0, len(cm.clientMap))
 	for _, client := range cm.clientMap {
+		if client.Closed() {
+			continue
+		}
 		onlineClients = append(onlineClients, client)
 	}
 
