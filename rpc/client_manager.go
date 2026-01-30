@@ -660,9 +660,9 @@ func (cm *ClientManager) topClient(n int) *Client {
 	if n >= len(cm.topClients) {
 		return nil
 	}
-	// If the top client is nil or if it is closed, we need to refresh the top clients.
+	// If the top client is nil or if it is closed/closing, we need to refresh the top clients.
 	needRefresh := (cm.topClients[n] == nil && len(cm.clientMap) >= n) ||
-		(cm.topClients[n] != nil && cm.topClients[n].Closed())
+		(cm.topClients[n] != nil && cm.topClients[n].Closing())
 	if needRefresh {
 		cm.doSortTopClients()
 	}
@@ -679,7 +679,7 @@ func (cm *ClientManager) sortTopClients() {
 func (cm *ClientManager) doSortTopClients() {
 	onlineClients := make(ByLatency, 0, len(cm.clientMap))
 	for _, client := range cm.clientMap {
-		if client.Closed() {
+		if client.Closing() {
 			continue
 		}
 		onlineClients = append(onlineClients, client)

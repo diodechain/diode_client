@@ -73,6 +73,7 @@ type Client struct {
 	OnClose func()
 
 	isClosed bool
+	closing  uint32 // set before Close() callback runs; allows GetNearestClient to exclude client earlier
 	srv      *genserver.GenServer
 	timer    *Timer
 
@@ -1384,8 +1385,15 @@ func (client *Client) Closed() bool {
 	return client.isClosed
 }
 
+// Closing returns true if the client is closed or in the process of closing (flag set before Close callback runs).
+// Used by ClientManager to avoid returning a client that is about to be closed.
+func (client *Client) Closing() bool {
+	return atomic.LoadUint32(&client.closing) == 1 || client.isClosed
+}
+
 // Close rpc client
 func (client *Client) Close() {
+	atomic.StoreUint32(&client.closing, 1)
 	doCleanup := true
 	timeout := client.callTimeout(func() {
 		if client.isClosed {
