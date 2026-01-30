@@ -225,6 +225,9 @@ func (client *Client) callTimeout(fun func()) error {
 	if client == nil {
 		return fmt.Errorf("Client disconnected")
 	}
+	if client.isClosed && client.config != nil && client.config.Logger != nil {
+		client.Log().Debug("DEADCLIENTINMAP: callTimeout invoked on closed client %s — caller was handed this client while it is still in clientMap (Terminate never ran); caller will block until timeout", client.host)
+	}
 	return client.srv.CallTimeout(fun, 30*time.Second)
 }
 
