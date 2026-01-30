@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"strconv"
+	"strings"
 
 	"github.com/diodechain/diode_client/blockquick"
 	"github.com/diodechain/diode_client/config"
@@ -20,15 +22,17 @@ import (
 )
 
 var (
-	responsePivot     = []byte("response")
-	errorPivot        = []byte("error")
-	ticketTooOldPivot = []byte("too_old")
-	ticketTooLowPivot = []byte("too_low")
-	ticketThanksPivot = []byte("thanks!")
-	portOpenPivot     = []byte("portopen")
-	portSendPivot     = []byte("portsend")
-	portClosePivot    = []byte("portclose")
-	goodbyePivot      = []byte("goodbye")
+	responsePivot      = []byte("response")
+	errorPivot         = []byte("error")
+	ticketTooOldPivot  = []byte("too_old")
+	ticketTooLowPivot  = []byte("too_low")
+	ticketThanksPivot  = []byte("thanks!")
+	portOpenPivot      = []byte("portopen")
+	portOpen2Pivot     = []byte("portopen2")
+	ticketRequestPivot = []byte("ticket_request")
+	portSendPivot      = []byte("portsend")
+	portClosePivot     = []byte("portclose")
+	goodbyePivot       = []byte("goodbye")
 	// Maybe remove parse callback and use parse response?
 	blockPivot                 = []byte("getblock")
 	block2Pivot                = []byte("getblock2")
@@ -53,7 +57,9 @@ var (
 
 // parse response
 func parseResponse(buffer []byte) (interface{}, error) {
-	if bytes.Contains(buffer, portOpenPivot) {
+	if bytes.Contains(buffer, portOpen2Pivot) {
+		return parsePortOpen2Response(buffer)
+	} else if bytes.Contains(buffer, portOpenPivot) {
 		return parsePortOpenResponse(buffer)
 	} else if bytes.Contains(buffer, portSendPivot) {
 		return parsePortSendResponse(buffer)
@@ -361,6 +367,137 @@ func parsePortOpenResponse(buffer []byte) (interface{}, error) {
 	return portOpen, nil
 }
 
+func parsePortOpen2Response(buffer []byte) (interface{}, error) {
+	makePortOpen := func(typeStr string, physicalPort uint64, result []byte) (*PortOpen2, error) {
+		typeLower := strings.ToLower(strings.TrimSpace(typeStr))
+		if typeLower == "" {
+			return nil, fmt.Errorf("portopen2 response missing type")
+		}
+		resultToken := strings.ToLower(strings.TrimSpace(string(result)))
+		ok := physicalPort > 0 && typeLower != "error" && resultToken != "error"
+		return &PortOpen2{
+			ResponseType:   typeStr,
+			ResponseResult: result,
+			Ok:             ok,
+			PhysicalPort:   int(physicalPort),
+		}, nil
+	}
+
+	var response portOpen2ResponseAny
+	if err := rlp.DecodeBytes(buffer, &response); err != nil {
+		return nil, err
+	}
+
+	if len(response.Payload) < 2 {
+		return nil, fmt.Errorf("portopen2 response missing payload")
+	}
+
+	typeStr, ok := decodePortOpen2Token(response.Payload[0])
+	if !ok {
+		return nil, fmt.Errorf("portopen2 response invalid type")
+	}
+
+	start := 1
+	if start < len(response.Payload) {
+		if token, ok := decodePortOpen2Token(response.Payload[start]); ok && token == "portopen2" {
+			start++
+		}
+	}
+
+	var port uint64
+	var result []byte
+	if start < len(response.Payload) {
+		if p, ok := decodePortOpen2Port(response.Payload[start]); ok {
+			port = p
+			if start+1 < len(response.Payload) {
+				result, _ = decodePortOpen2Bytes(response.Payload[start+1])
+			}
+		} else {
+			result, _ = decodePortOpen2Bytes(response.Payload[start])
+			if start+1 < len(response.Payload) {
+				if p, ok := decodePortOpen2Port(response.Payload[start+1]); ok {
+					port = p
+				}
+			}
+		}
+	}
+	if port == 0 {
+		for i := start; i < len(response.Payload); i++ {
+			if p, ok := decodePortOpen2Port(response.Payload[i]); ok {
+				port = p
+				break
+			}
+		}
+	}
+
+	return makePortOpen(typeStr, port, result)
+}
+
+type portOpen2ResponseAny struct {
+	RequestID uint64
+	Payload   []interface{}
+}
+
+func decodePortOpen2Token(val interface{}) (string, bool) {
+	b, ok := decodePortOpen2Bytes(val)
+	if !ok || !isPortOpen2TokenBytes(b) {
+		return "", false
+	}
+	return strings.ToLower(string(b)), true
+}
+
+func decodePortOpen2Bytes(val interface{}) ([]byte, bool) {
+	switch v := val.(type) {
+	case []byte:
+		return v, true
+	case string:
+		return []byte(v), true
+	default:
+		return nil, false
+	}
+}
+
+func decodePortOpen2Port(val interface{}) (uint64, bool) {
+	b, ok := decodePortOpen2Bytes(val)
+	if !ok || len(b) == 0 {
+		return 0, false
+	}
+	if isPortOpen2Digits(b) {
+		p, err := strconv.ParseUint(string(b), 10, 16)
+		return p, err == nil && p > 0
+	}
+	if isPortOpen2TokenBytes(b) {
+		return 0, false
+	}
+	p := parseUint(b)
+	if p == 0 || p > 65535 {
+		return 0, false
+	}
+	return p, true
+}
+
+func isPortOpen2Digits(b []byte) bool {
+	for _, c := range b {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return len(b) > 0
+}
+
+func isPortOpen2TokenBytes(b []byte) bool {
+	if len(b) == 0 {
+		return false
+	}
+	for _, c := range b {
+		if (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_' || c == ':' || c == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
 func parseServerObjResponse(buffer []byte) (interface{}, error) {
 	return doParseServerObjResponse(buffer)
 }
@@ -533,6 +670,57 @@ func parseInboundPortOpenRequest(buffer []byte) (interface{}, error) {
 	return portOpen, nil
 }
 
+func parseInboundPortOpen2Request(buffer []byte) (interface{}, error) {
+	var inboundRequest portOpen2InboundRequest
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	if err := decodeStream.Decode(&inboundRequest); err != nil {
+		return nil, err
+	}
+
+	portOpen := &PortOpen2{
+		RequestID: inboundRequest.RequestID,
+		Ok:        true,
+	}
+	if strings.ToLower(strings.TrimSpace(inboundRequest.Payload.Method)) != "portopen2" {
+		portOpen.Err = fmt.Errorf("invalid portopen2 method: %s", inboundRequest.Payload.Method)
+		return portOpen, nil
+	}
+	portOpen.PortName = inboundRequest.Payload.PortName
+	portOpen.PhysicalPort = int(inboundRequest.Payload.PhysicalPort)
+	if portOpen.PhysicalPort <= 0 {
+		portOpen.Err = fmt.Errorf("invalid portopen2 physical port: %d", portOpen.PhysicalPort)
+		return portOpen, nil
+	}
+	if len(inboundRequest.Payload.SourceDeviceID) != len(portOpen.SourceDeviceID) {
+		portOpen.Err = fmt.Errorf("invalid portopen2 source device id length: %d", len(inboundRequest.Payload.SourceDeviceID))
+		return portOpen, nil
+	}
+	copy(portOpen.SourceDeviceID[:], inboundRequest.Payload.SourceDeviceID)
+	portOpen.Flags = inboundRequest.Payload.Flags
+	return portOpen, nil
+}
+
+func parseInboundTicketRequest(buffer []byte) (interface{}, error) {
+	var inboundRequest ticketRequestInboundRequest
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	if err := decodeStream.Decode(&inboundRequest); err != nil {
+		return nil, err
+	}
+	req := &TicketRequest{
+		RequestID: inboundRequest.RequestID,
+	}
+	if strings.ToLower(strings.TrimSpace(inboundRequest.Payload.Method)) != "ticket_request" {
+		req.Err = fmt.Errorf("invalid ticket_request method: %s", inboundRequest.Payload.Method)
+		return req, nil
+	}
+	if inboundRequest.Payload.Usage == nil {
+		req.Err = fmt.Errorf("invalid ticket_request usage")
+		return req, nil
+	}
+	req.Usage = inboundRequest.Payload.Usage
+	return req, nil
+}
+
 func parseInboundPortSendRequest(buffer []byte) (interface{}, error) {
 	var inboundRequest portSendInboundRequest
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
@@ -580,7 +768,11 @@ func parseInboundGoodbyeRequest(buffer []byte) (interface{}, error) {
 }
 
 func parseInboundRequest(buffer []byte) (req interface{}, err error) {
-	if bytes.Contains(buffer, portOpenPivot) {
+	if bytes.Contains(buffer, ticketRequestPivot) {
+		return parseInboundTicketRequest(buffer)
+	} else if bytes.Contains(buffer, portOpen2Pivot) {
+		return parseInboundPortOpen2Request(buffer)
+	} else if bytes.Contains(buffer, portOpenPivot) {
 		return parseInboundPortOpenRequest(buffer)
 	} else if bytes.Contains(buffer, portSendPivot) {
 		return parseInboundPortSendRequest(buffer)
@@ -667,6 +859,8 @@ func NewMessage(writer io.Writer, requestID uint64, method string, args ...inter
 		return parseDeviceTicketResponse, nil
 	case "portopen":
 		return parsePortOpenResponse, nil
+	case "portopen2":
+		return parsePortOpen2Response, nil
 	case "portsend":
 		return parsePortSendResponse, nil
 	case "getobject":
@@ -693,6 +887,8 @@ func NewResponseMessage(writer io.Writer, requestID uint64, responseType string,
 
 	switch method {
 	case "portopen":
+		request.Payload[0] = responseType
+	case "portopen2":
 		request.Payload[0] = responseType
 	case "portsend":
 	case "portclose":
