@@ -421,7 +421,7 @@ func (dio *Diode) Start() error {
 // WaitForFirstClient returns first client that is validated.
 // Optional timeout: if the second argument is omitted or <= 0, blocks until a client is available;
 // if timeout > 0, returns nil after that duration.
-func (dio *Diode) WaitForFirstClient(onlyNeedOne bool, timeout ...time.Duration) (client *rpc.Client) {
+func (dio *Diode) WaitForFirstClient(_ bool, timeout ...time.Duration) (client *rpc.Client) {
 	var d time.Duration
 	if len(timeout) > 0 {
 		d = timeout[0]
