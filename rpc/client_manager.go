@@ -226,6 +226,9 @@ func (cm *ClientManager) Stop() {
 
 func (cm *ClientManager) doAddClient() {
 	host := cm.doSelectNextHost()
+	if host == "" && cm.Config != nil && cm.Config.Logger != nil {
+		cm.Config.Logger.Debug("Refill: doSelectNextHost returned empty — no new client started (pool will shrink)")
+	}
 	cm.startClient(host)
 }
 
@@ -260,15 +263,19 @@ func (cm *ClientManager) startClient(host string) *Client {
 	client.srv.Terminate = func() {
 		cm.Config.Logger.Debug("Terminate: client %s — sending refill Cast (DEADLOCK if we never see this: Shutdown(0) was never called, callTimeout timed out or ClosePorts deadlocked)", host)
 		cm.srv.Cast(func() {
+			foundInMap := false
 			for key, c := range cm.clientMap {
 				if c == client {
 					delete(cm.clientMap, key)
+					foundInMap = true
 					break
 				}
 			}
+			foundInList := false
 			for idx, c := range cm.clients {
 				if c == client {
 					cm.clients = append(cm.clients[:idx], cm.clients[idx+1:]...)
+					foundInList = true
 					break
 				}
 			}
@@ -282,7 +289,15 @@ func (cm *ClientManager) startClient(host string) *Client {
 				}
 			}
 
-			for x := len(cm.clients); x < cm.targetClients; x++ {
+			after := len(cm.clients)
+			toAdd := cm.targetClients - after
+			if cm.Config != nil && cm.Config.Logger != nil {
+				cm.Config.Logger.Debug("Refill: Cast processed — removed client %s, len(clients)=%d, target=%d, will call doAddClient() %d time(s)", host, after, cm.targetClients, toAdd)
+				if !foundInList {
+					cm.Config.Logger.Debug("Refill: client %s was NOT found in cm.clients (foundInMap=%v) — refill loop skipped (toAdd=0), pool did not add replacement", host, foundInMap)
+				}
+			}
+			for x := after; x < cm.targetClients; x++ {
 				cm.doAddClient()
 			}
 
@@ -558,6 +573,13 @@ func (cm *ClientManager) doSelectNextHost() string {
 
 	if len(candidates) > 0 {
 		return candidates[rand.Intn(len(candidates))]
+	}
+	if cm.Config != nil && cm.Config.Logger != nil {
+		currentHosts := make([]string, 0, len(cm.clients))
+		for _, c := range cm.clients {
+			currentHosts = append(currentHosts, c.host)
+		}
+		cm.Config.Logger.Debug("Refill: doSelectNextHost — no candidates (all %d relay addrs already in clients?), len(clients)=%d, current hosts: %v", len(cm.Config.RemoteRPCAddrs), len(cm.clients), currentHosts)
 	}
 	return ""
 }

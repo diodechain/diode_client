@@ -495,6 +495,9 @@ func applyDiodeAddrs(cfg *config.Config, addrs []string) {
 	// This allows AddNewAddresses to distinguish between "no contract addresses"
 	// and "contract addresses not yet processed"
 	if len(normalized) == 0 {
+		if cfg.Logger != nil {
+			cfg.Logger.Debug("RPCADDRESSSESEMPTY: diodeaddrs normalized to empty (no valid addrs) — clearing RemoteRPCAddrs; refill will have 0 candidates until next non-empty contract sync")
+		}
 		cfg.RemoteRPCAddrs = config.StringValues{}
 		return
 	}
@@ -753,6 +756,9 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 		// should clear all existing addresses derived from the contract so that
 		// removed addresses are reflected in the running client.
 		if key == "diodeaddrs" && trimmed == "" {
+			if cfg.Logger != nil {
+				cfg.Logger.Debug("RPCADDRESSSESEMPTY: contract diodeaddrs is empty — clearing RemoteRPCAddrs; refill will have 0 candidates until next non-empty contract sync")
+			}
 			cfg.RemoteRPCAddrs = config.StringValues{}
 			continue
 		}
