@@ -472,6 +472,13 @@ func intFromValue(val interface{}) (int, error) {
 	}
 }
 
+// getDefaultRemoteRPCAddrs returns the default relay list
+func getDefaultRemoteRPCAddrs() config.StringValues {
+	defaultAddrs := make([]string, len(bootDiodeAddrs))
+	copy(defaultAddrs, bootDiodeAddrs[:])
+	return config.StringValues(defaultAddrs)
+}
+
 func applyDiodeAddrs(cfg *config.Config, addrs []string) {
 	normalized := make([]string, 0, len(addrs))
 	for _, addr := range addrs {
@@ -491,11 +498,13 @@ func applyDiodeAddrs(cfg *config.Config, addrs []string) {
 			normalized = append(normalized, addr)
 		}
 	}
-	// If normalized is empty, clear RemoteRPCAddrs to signal no contract addresses
-	// This allows AddNewAddresses to distinguish between "no contract addresses"
-	// and "contract addresses not yet processed"
+	// If normalized is empty (as it could be if a "" or " " value is provided),
+	// we need to use defaults so we don't drain the connection pool.
+	// NOTE: there may be some esoteric use case where the perimeter wants to clear the list
+	// and this will not allow that to happen.  But, we will have to specify that the right
+	// path for that is to set bogus values, not empty/malformed values.
 	if len(normalized) == 0 {
-		cfg.RemoteRPCAddrs = config.StringValues{}
+		cfg.RemoteRPCAddrs = getDefaultRemoteRPCAddrs()
 		return
 	}
 	mrand.Shuffle(len(normalized), func(i, j int) {
@@ -721,6 +730,12 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 	oldLogDatetime := cfg.LogDateTime
 	oldLogFilePath := cfg.LogFilePath
 
+	// If diodeaddrs is not in the perimeter at all, re-apply default RPCs so refill has candidates.
+	// Note: this shouldn't really happen in practice but we may change how the keys are seeded in the future.
+	if _, hasDiodeAddrs := props["diodeaddrs"]; !hasDiodeAddrs {
+		cfg.RemoteRPCAddrs = getDefaultRemoteRPCAddrs()
+	}
+
 	for key, val := range props {
 		if key == "extra_config" {
 			continue
@@ -750,10 +765,12 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 		}
 
 		// Special handling for diodeaddrs: an empty diodeaddrs value in the control plane
-		// should clear all existing addresses derived from the contract so that
-		// removed addresses are reflected in the running client.
+		// should set defaults so we don't drain the connection pool.  Instead of just ignoring
+		// the empty value, we need to proactively set defaults because this commonly happens
+		// if a perimeter diodeaddrs value was initially set, and then the value was cleared/unset.
+		// The intent of an unset diodeaddrs is to return to using defaults.
 		if key == "diodeaddrs" && trimmed == "" {
-			cfg.RemoteRPCAddrs = config.StringValues{}
+			cfg.RemoteRPCAddrs = getDefaultRemoteRPCAddrs()
 			continue
 		}
 
