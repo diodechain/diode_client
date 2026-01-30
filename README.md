@@ -176,6 +176,7 @@ Overview
 - The `diode join` command can read a WireGuard configuration from the device’s on-chain `wireguard` property and configure a local WireGuard interface for the selected Diode network.
 - The on-chain WireGuard config must NOT include a `PrivateKey`. The client generates and stores a private key locally and injects it into the final config file.
 - One interface per Diode network: interface name and config path derive from the network, e.g. `wg-diode-prod` for mainnet and `wg-diode-dev` for testnet.
+- WireGuard peers can be mapped to Diode devices for dynamic UDP relay via `portopen2`. The client will update peer endpoints at runtime using `wg set`.
 
 First Run Key Generation
 - Generate your local WireGuard keypair and print the public key. You can run this with or without a contract address:
@@ -197,6 +198,13 @@ Config file locations by OS
 - Linux: `/etc/wireguard/wg-diode-<net>.conf`
 - macOS: `/usr/local/etc/wireguard/wg-diode-<net>.conf`
 - Windows: `C:\\Program Files\\WireGuard\\Data\\Configurations\\wg-diode-<net>.conf` (or user-local fallback)
+
+Diode Peer Mapping (WireGuard UDP Relay)
+- In each `[Peer]` section, add a Diode device mapping comment:
+  - `# DiodeDevice = 0x<diode_device_address>`
+- The client uses the `Endpoint` port as the Diode port name (no extra port field is required).
+- On startup, the client opens a `portopen2` relay to each mapped peer and updates the WireGuard endpoint to `<relay_ip>:<physical_port>`.
+- On the receiving side, inbound `portopen2` requests update the mapped peer’s endpoint to the relay.
 
 Private Key Handling
 - The client creates a private key on first use and stores it next to the config as `/etc/wireguard/wg-diode-<net>.key` (or the platform’s directory) with `0600` permissions.
