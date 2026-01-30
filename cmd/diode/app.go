@@ -418,9 +418,25 @@ func (dio *Diode) Start() error {
 	return nil
 }
 
-// WaitForFirstClient returns first client that is validated
-func (dio *Diode) WaitForFirstClient(onlyNeedOne bool) (client *rpc.Client) {
-	return dio.clientManager.GetNearestClient()
+// WaitForFirstClient returns first client that is validated.
+// Optional timeout: if the second argument is omitted or <= 0, blocks until a client is available;
+// if timeout > 0, returns nil after that duration.
+func (dio *Diode) WaitForFirstClient(onlyNeedOne bool, timeout ...time.Duration) (client *rpc.Client) {
+	var d time.Duration
+	if len(timeout) > 0 {
+		d = timeout[0]
+	}
+	if d <= 0 {
+		return dio.clientManager.GetNearestClient()
+	}
+	clientChan := make(chan *rpc.Client, 1)
+	go func() { clientChan <- dio.clientManager.GetNearestClient() }()
+	select {
+	case client = <-clientChan:
+	case <-time.After(d):
+		client = nil
+	}
+	return
 }
 
 // SetSocksServer set socks server of diode application
