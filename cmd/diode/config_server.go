@@ -392,17 +392,11 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 				return
 			}
 
+			// If valid diodeAddrs entries are provided, replace RemoteRPCAddrs with exactly that list.
+			// Note: if all entries are empty/blank (e.g. "" or " ") applyDiodeAddrs will apply RPC defaults.
 			if len(c.DiodeAddrs) > 0 {
-				remoteRPCAddrs := []string{}
-				for _, RPCAddr := range c.DiodeAddrs {
-					if !util.StringsContain(remoteRPCAddrs, RPCAddr) && !util.StringsContain(configAPIServer.appConfig.RemoteRPCAddrs, RPCAddr) {
-						remoteRPCAddrs = append(remoteRPCAddrs, RPCAddr)
-					}
-				}
-				if len(remoteRPCAddrs) > 0 {
-					isDirty = true
-					configAPIServer.appConfig.RemoteRPCAddrs = append(configAPIServer.appConfig.RemoteRPCAddrs, remoteRPCAddrs...)
-				}
+				applyDiodeAddrs(configAPIServer.appConfig, c.DiodeAddrs)
+				isDirty = true
 			}
 			if len(c.Blocklists) >= 0 {
 				blocklists := []string{}
