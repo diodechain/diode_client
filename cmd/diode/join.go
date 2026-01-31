@@ -2295,9 +2295,10 @@ func prepareWireGuardKeyOnly() error {
 
 // contractSync fetches contract properties once and applies them to config, ports, and wireguard
 func contractSync(cfg *config.Config) error {
-	client := app.WaitForFirstClient(true)
-	if client == nil {
-		return fmt.Errorf("could not connect to network")
+	const clientWaitTimeout = 30 * time.Second
+	client := app.WaitForFirstClientTimeout(clientWaitTimeout)
+	if client == nil && cfg.Logger != nil {
+		cfg.Logger.Info("No relay connection after %v; continuing contract sync to allow config recovery", clientWaitTimeout)
 	}
 
 	deviceAddr := cfg.ClientAddr
