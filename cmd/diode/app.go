@@ -382,7 +382,7 @@ func (dio *Diode) Start() error {
 	}
 
 	isOneOffCommand := dio.cmd.Type == command.OneOffCommand
-	onlyNeedOne := dio.cmd.SingleConnection || isOneOffCommand
+	//onlyNeedOne := dio.cmd.SingleConnection || isOneOffCommand
 
 	if len(dio.config.RemoteRPCAddrs) < 1 {
 		return fmt.Errorf("should use at least one rpc address")
@@ -393,7 +393,7 @@ func (dio *Diode) Start() error {
 
 	// waiting for first client
 	for {
-		client = dio.WaitForFirstClient(onlyNeedOne)
+		client = dio.WaitForFirstClient()
 
 		if client != nil || isOneOffCommand {
 			break
@@ -421,22 +421,22 @@ func (dio *Diode) Start() error {
 // WaitForFirstClient returns first client that is validated.
 // Optional timeout: if the second argument is omitted or <= 0, blocks until a client is available;
 // if timeout > 0, returns nil after that duration.
-func (dio *Diode) WaitForFirstClient(_ bool, timeout ...time.Duration) (client *rpc.Client) {
-	var d time.Duration
-	if len(timeout) > 0 {
-		d = timeout[0]
-	}
-	if d <= 0 {
+func (dio *Diode) WaitForFirstClientTimeout(timeout time.Duration) (client *rpc.Client) {
+	if timeout <= 0 {
 		return dio.clientManager.GetNearestClient()
 	}
 	clientChan := make(chan *rpc.Client, 1)
 	go func() { clientChan <- dio.clientManager.GetNearestClient() }()
 	select {
 	case client = <-clientChan:
-	case <-time.After(d):
+	case <-time.After(timeout):
 		client = nil
 	}
 	return
+}
+
+func (dio *Diode) WaitForFirstClient() (client *rpc.Client) {
+	return dio.WaitForFirstClientTimeout(0)
 }
 
 // SetSocksServer set socks server of diode application
