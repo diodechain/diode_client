@@ -639,9 +639,9 @@ func (client *Client) HandleTicketRequest(req *edge.TicketRequest) {
 		client.Log().Warn("ticket_request missing usage")
 		return
 	}
-	client.Log().Info("ticket_request usage=%s", req.Usage.String())
+	client.Log().Debug("ticket_request usage=%s", req.Usage.String())
 	if client.s != nil {
-		client.Log().Info("ticket_request current_total_bytes=%d", client.s.TotalBytes())
+		client.Log().Debug("ticket_request current_total_bytes=%d", client.s.TotalBytes())
 	}
 	if err := client.SubmitTicketForUsage(req.Usage); err != nil {
 		client.Log().Error("failed to submit ticket for request: %v", err)
@@ -739,7 +739,7 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 					lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)
 					client.Log().Warn("received fake ticket.. last_ticket=%v", lastTicket)
 				} else {
-					client.Log().Warn("insufficient ticket, resending... last_ticket=%v", lastTicket)
+					client.Log().Debug("insufficient ticket, resending... last_ticket=%v", lastTicket)
 					ssl.totalConnections = lastTicket.TotalConnections.Uint64() + 1
 					err = client.SubmitTicketForUsage(lastTicket.TotalBytes)
 					if err != nil {
