@@ -42,7 +42,7 @@ all: $(BINS)
 .PHONY: openssl
 openssl:
 	go mod download
-	bash "$(GOMODCACHE)/github.com/diodechain/openssl@v1.0.21/install_openssl.sh"
+	bash "$(GOMODCACHE)/github.com/diodechain/openssl@v1.0.22/install_openssl.sh"
 
 .PHONY: test
 test: runtime
