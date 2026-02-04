@@ -74,7 +74,6 @@ type Client struct {
 
 	isClosed bool
 	closing  uint32 // set before Close() callback runs; allows GetNearestClient to exclude client earlier
-	detached uint32 // set once removed from ClientManager to avoid double-refill
 	srv      *genserver.GenServer
 	timer    *Timer
 
@@ -1390,11 +1389,6 @@ func (client *Client) Closed() bool {
 // Used by ClientManager to avoid returning a client that is about to be closed.
 func (client *Client) Closing() bool {
 	return atomic.LoadUint32(&client.closing) == 1 || client.isClosed
-}
-
-// Detached returns true if the client has been removed from the ClientManager.
-func (client *Client) Detached() bool {
-	return atomic.LoadUint32(&client.detached) == 1
 }
 
 // Close rpc client

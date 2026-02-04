@@ -149,7 +149,7 @@ func (cm *ClientManager) GetClientByHost(host string) *Client {
 	cm.srv.Call(func() {
 		norm := normalizeHostPort(host)
 		for _, c := range cm.clients {
-			if c == nil || c.Closing() || c.Detached() {
+			if c == nil || c.Closing() {
 				continue
 			}
 			if normalizeHostPort(c.host) == norm {
@@ -392,7 +392,7 @@ func (cm *ClientManager) startClient(host string) *Client {
 	client := NewClient(host, cm, cm.Config, cm.pool)
 	cm.attachPortOpen2HandlerToClient(client)
 	client.onConnect = func(nodeID util.Address) {
-		if client.Closing() || client.Detached() {
+		if client.Closing() {
 			return
 		}
 		cm.Config.Logger.Debug("Added relay#%d [%s] @ %s", n, nodeID.HexString(), host)
@@ -420,9 +420,6 @@ func (cm *ClientManager) startClient(host string) *Client {
 
 func (cm *ClientManager) detachClient(client *Client) {
 	if client == nil {
-		return
-	}
-	if !atomic.CompareAndSwapUint32(&client.detached, 0, 1) {
 		return
 	}
 	cm.srv.Cast(func() {
@@ -466,7 +463,7 @@ func (cm *ClientManager) GetPool() (datapool *DataPool) {
 
 func (cm *ClientManager) GetClient(nodeID util.Address) (client *Client) {
 	cm.srv.Call(func() {
-		if c := cm.clientMap[nodeID]; c != nil && !c.Closing() && !c.Detached() {
+		if c := cm.clientMap[nodeID]; c != nil && !c.Closing() {
 			client = c
 		}
 	})
@@ -513,7 +510,7 @@ func (cm *ClientManager) connect(nodeID util.Address, host string) (ret *Client,
 	}
 
 	err = cm.srv.Call2Timeout(func(r *genserver.Reply) bool {
-		if client, ok := cm.clientMap[nodeID]; ok && client != nil && !client.Closing() && !client.Detached() {
+		if client, ok := cm.clientMap[nodeID]; ok && client != nil && !client.Closing() {
 			ret = client
 			return true
 		}
@@ -530,7 +527,7 @@ func (cm *ClientManager) connect(nodeID util.Address, host string) (ret *Client,
 			}
 		}
 		req.waiting = append(req.waiting, r)
-		if req.client == nil || req.client.Closing() || req.client.Detached() {
+		if req.client == nil || req.client.Closing() {
 			req.client = cm.startClient(req.host)
 		}
 		return false
@@ -660,7 +657,7 @@ func (cm *ClientManager) ClientsByLatency() (clients []*Client) {
 	cm.srv.Call(func() {
 		clients = make([]*Client, 0, len(cm.clientMap))
 		for _, client := range cm.clientMap {
-			if client == nil || client.Closing() || client.Detached() {
+			if client == nil || client.Closing() {
 				continue
 			}
 			clients = append(clients, client)
@@ -699,7 +696,7 @@ func (cm *ClientManager) sortTopClients() {
 func (cm *ClientManager) doSortTopClients() {
 	onlineClients := make(ByLatency, 0, len(cm.clientMap))
 	for _, client := range cm.clientMap {
-		if client.Closing() || client.Detached() {
+		if client.Closing() {
 			continue
 		}
 		onlineClients = append(onlineClients, client)
