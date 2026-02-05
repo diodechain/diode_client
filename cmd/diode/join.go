@@ -1400,9 +1400,7 @@ func processWireGuardConfig(client *rpc.Client, deviceAddr util.Address, contrac
 			}
 			if ok && strings.EqualFold(key, "postup") {
 				postUpSeen = true
-				if strings.TrimSpace(value) != "" {
-					postUpValue = strings.TrimSpace(value)
-				}
+				postUpValue = value
 			}
 			if ok && strings.EqualFold(key, "privatekey") {
 				privValue = value
