@@ -1491,7 +1491,7 @@ func processWireGuardConfig(client *rpc.Client, deviceAddr util.Address, contrac
 	switch {
 	case privLineIdx >= 0 && privAuto:
 		// TODO: Fetch device private key from contract when device-only access is enabled.
-		privB64, pubB64, err = readOrCreateWGPrivateKey(keyPath)
+		_, pubB64, err = readOrCreateWGPrivateKey(keyPath)
 		if err != nil {
 			return "", nil, "", err
 		}
