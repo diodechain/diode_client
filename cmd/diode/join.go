@@ -1495,7 +1495,7 @@ func processWireGuardConfig(client *rpc.Client, deviceAddr util.Address, contrac
 		if err != nil {
 			return "", nil, "", err
 		}
-		out[privLineIdx] = fmt.Sprintf("PrivateKey = %s", privB64)
+		out[privLineIdx] = fmt.Sprintf("PostUp = wg set %%i private-key %s", keyPath)
 	case privLineIdx >= 0 && !privAuto && strings.TrimSpace(privValue) != "":
 		privB64 = strings.TrimSpace(privValue)
 		var err error
