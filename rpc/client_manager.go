@@ -149,7 +149,7 @@ func (cm *ClientManager) GetClientByHost(host string) *Client {
 	cm.srv.Call(func() {
 		norm := normalizeHostPort(host)
 		for _, c := range cm.clients {
-			if c == nil {
+			if c == nil || c.Closing() {
 				continue
 			}
 			if normalizeHostPort(c.host) == norm {
@@ -392,6 +392,9 @@ func (cm *ClientManager) startClient(host string) *Client {
 	client := NewClient(host, cm, cm.Config, cm.pool)
 	cm.attachPortOpen2HandlerToClient(client)
 	client.onConnect = func(nodeID util.Address) {
+		if client.Closing() {
+			return
+		}
 		cm.Config.Logger.Debug("Added relay#%d [%s] @ %s", n, nodeID.HexString(), host)
 		cm.srv.Cast(func() {
 			cm.clientMap[nodeID] = client
@@ -408,43 +411,50 @@ func (cm *ClientManager) startClient(host string) *Client {
 		})
 	}
 	client.srv.Terminate = func() {
-		cm.srv.Cast(func() {
-			for key, c := range cm.clientMap {
-				if c == client {
-					delete(cm.clientMap, key)
-					break
-				}
-			}
-			for idx, c := range cm.clients {
-				if c == client {
-					cm.clients = append(cm.clients[:idx], cm.clients[idx+1:]...)
-					break
-				}
-			}
-			for key, req := range cm.waitingNode {
-				if req.client == client {
-					for _, w := range req.waiting {
-						w.ReRun()
-					}
-					delete(cm.waitingNode, key)
-					break
-				}
-			}
-
-			for x := len(cm.clients); x < cm.targetClients; x++ {
-				cm.doAddClient()
-			}
-
-			if cm.targetClients == 0 {
-				cm.srv.Shutdown(0)
-			} else {
-				cm.doSortTopClients()
-			}
-		})
+		cm.detachClient(client)
 	}
 	client.Start()
 	cm.clients = append(cm.clients, client)
 	return client
+}
+
+func (cm *ClientManager) detachClient(client *Client) {
+	if client == nil {
+		return
+	}
+	cm.srv.Cast(func() {
+		for key, c := range cm.clientMap {
+			if c == client {
+				delete(cm.clientMap, key)
+				break
+			}
+		}
+		for idx, c := range cm.clients {
+			if c == client {
+				cm.clients = append(cm.clients[:idx], cm.clients[idx+1:]...)
+				break
+			}
+		}
+		for key, req := range cm.waitingNode {
+			if req.client == client {
+				for _, w := range req.waiting {
+					w.ReRun()
+				}
+				delete(cm.waitingNode, key)
+				break
+			}
+		}
+
+		for x := len(cm.clients); x < cm.targetClients; x++ {
+			cm.doAddClient()
+		}
+
+		if cm.targetClients == 0 {
+			cm.srv.Shutdown(0)
+		} else {
+			cm.doSortTopClients()
+		}
+	})
 }
 
 func (cm *ClientManager) GetPool() (datapool *DataPool) {
@@ -452,7 +462,11 @@ func (cm *ClientManager) GetPool() (datapool *DataPool) {
 }
 
 func (cm *ClientManager) GetClient(nodeID util.Address) (client *Client) {
-	cm.srv.Call(func() { client = cm.clientMap[nodeID] })
+	cm.srv.Call(func() {
+		if c := cm.clientMap[nodeID]; c != nil && !c.Closing() {
+			client = c
+		}
+	})
 	return client
 }
 
@@ -496,7 +510,7 @@ func (cm *ClientManager) connect(nodeID util.Address, host string) (ret *Client,
 	}
 
 	err = cm.srv.Call2Timeout(func(r *genserver.Reply) bool {
-		if client, ok := cm.clientMap[nodeID]; ok {
+		if client, ok := cm.clientMap[nodeID]; ok && client != nil && !client.Closing() {
 			ret = client
 			return true
 		}
@@ -513,7 +527,7 @@ func (cm *ClientManager) connect(nodeID util.Address, host string) (ret *Client,
 			}
 		}
 		req.waiting = append(req.waiting, r)
-		if req.client == nil {
+		if req.client == nil || req.client.Closing() {
 			req.client = cm.startClient(req.host)
 		}
 		return false
@@ -643,6 +657,9 @@ func (cm *ClientManager) ClientsByLatency() (clients []*Client) {
 	cm.srv.Call(func() {
 		clients = make([]*Client, 0, len(cm.clientMap))
 		for _, client := range cm.clientMap {
+			if client == nil || client.Closing() {
+				continue
+			}
 			clients = append(clients, client)
 		}
 	})

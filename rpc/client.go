@@ -1394,6 +1394,9 @@ func (client *Client) Closing() bool {
 // Close rpc client
 func (client *Client) Close() {
 	atomic.StoreUint32(&client.closing, 1)
+	if client.clientMan != nil {
+		client.clientMan.detachClient(client)
+	}
 	doCleanup := true
 	timeout := client.callTimeout(func() {
 		if client.isClosed {
@@ -1411,11 +1414,15 @@ func (client *Client) Close() {
 			client.s = nil
 		}
 	})
-	if timeout == nil && doCleanup {
-		// remove open ports
-		client.pool.ClosePorts(client)
+	if timeout == nil && !doCleanup {
 		client.srv.Shutdown(0)
+		return
 	}
+	// remove open ports (best-effort even if callTimeout failed)
+	if client.pool != nil {
+		client.pool.ClosePorts(client)
+	}
+	client.srv.Shutdown(0)
 }
 
 // Start process rpc inbound message and outbound message
