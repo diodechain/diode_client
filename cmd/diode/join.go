@@ -1313,10 +1313,13 @@ func processWireGuardConfig(client *rpc.Client, deviceAddr util.Address, contrac
 	var privLineIdx = -1
 	var privValue string
 	var privAuto bool
+	var privPostUp bool
 	var interfaceSeen bool
 	var interfaceInsertIdx = -1
 	var currentPeer *wgPeerState
 	publicKeyCache := make(map[util.Address]string)
+	var postUpSeen bool
+	var postUpValue string
 
 	resolvePeerPublicKey := func(peer wgPeerState) (string, error) {
 		if cached, ok := publicKeyCache[peer.deviceID]; ok {
@@ -1395,9 +1398,21 @@ func processWireGuardConfig(client *rpc.Client, deviceAddr util.Address, contrac
 					listenPort = port
 				}
 			}
+			if ok && strings.EqualFold(key, "postup") {
+				postUpSeen = true
+				postUpValue = value
+			}
 			if ok && strings.EqualFold(key, "privatekey") {
-				privLineIdx = len(out)
 				privValue = value
+				if strings.EqualFold(strings.TrimSpace(value), "postup") {
+					privPostUp = true
+					if privLineIdx >= 0 {
+						out[privLineIdx] = ""
+						privLineIdx = -1
+					}
+					continue
+				}
+				privLineIdx = len(out)
 				privAuto = isWGAutoValue(value)
 			}
 			out = append(out, line)
@@ -1457,11 +1472,17 @@ func processWireGuardConfig(client *rpc.Client, deviceAddr util.Address, contrac
 			return "", nil, "", err
 		}
 	}
-	if interfaceSeen && privLineIdx == -1 {
+	if interfaceSeen && privLineIdx == -1 && !privPostUp {
 		interfaceInsertIdx = len(out)
 	}
 	if !interfaceSeen {
 		return "", nil, "", errors.New("wireguard config missing [Interface] section")
+	}
+	if privPostUp {
+		if !postUpSeen || strings.TrimSpace(postUpValue) == "" {
+			return "", nil, "", errors.New("wireguard config sets PrivateKey=PostUp but no PostUp command provided")
+		}
+		return strings.Join(out, "\n"), peers, "", nil
 	}
 
 	var privB64 string
@@ -1470,11 +1491,11 @@ func processWireGuardConfig(client *rpc.Client, deviceAddr util.Address, contrac
 	switch {
 	case privLineIdx >= 0 && privAuto:
 		// TODO: Fetch device private key from contract when device-only access is enabled.
-		privB64, pubB64, err = readOrCreateWGPrivateKey(keyPath)
+		_, pubB64, err = readOrCreateWGPrivateKey(keyPath)
 		if err != nil {
 			return "", nil, "", err
 		}
-		out[privLineIdx] = fmt.Sprintf("PrivateKey = %s", privB64)
+		out[privLineIdx] = fmt.Sprintf("PostUp = wg set %%i private-key %s", keyPath)
 	case privLineIdx >= 0 && !privAuto && strings.TrimSpace(privValue) != "":
 		privB64 = strings.TrimSpace(privValue)
 		var err error
