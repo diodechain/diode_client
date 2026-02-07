@@ -1495,7 +1495,8 @@ func processWireGuardConfig(client *rpc.Client, deviceAddr util.Address, contrac
 		if err != nil {
 			return "", nil, "", err
 		}
-		out[privLineIdx] = fmt.Sprintf("PostUp = wg set %%i private-key %s", keyPath)
+		// Quote path for PostUp shell so paths with spaces (e.g. "Application Support") work
+		out[privLineIdx] = fmt.Sprintf("PostUp = wg set %%i private-key %s", fixupOSPath(keyPath))
 	case privLineIdx >= 0 && !privAuto && strings.TrimSpace(privValue) != "":
 		privB64 = strings.TrimSpace(privValue)
 		var err error
@@ -1515,6 +1516,17 @@ func processWireGuardConfig(client *rpc.Client, deviceAddr util.Address, contrac
 	}
 
 	return strings.Join(out, "\n"), peers, pubB64, nil
+}
+
+// fixupOSPath makes paths with spaces safe for use on the various OSes
+// On Unix use single quotes (sh); on Windows use double quotes (cmd.exe).
+func fixupOSPath(path string) string {
+	if runtime.GOOS == "windows" {
+		// cmd.exe: only double quotes quote; escape " as ""
+		return `"` + strings.ReplaceAll(path, `"`, `""`) + `"`
+	}
+	// sh/bash: single quotes; escape ' as '\''
+	return "'" + strings.ReplaceAll(path, "'", "'\\''") + "'"
 }
 
 func enableWGInterface(cfgPath, ifaceName string, logger *config.Logger) error {
@@ -2227,7 +2239,7 @@ func updateWireGuardFromContract(client *rpc.Client, deviceAddr util.Address, co
 		return err
 	}
 	if usedFallback {
-		cfg.Logger.Info("WireGuard config directory fallback to %s", dir)
+		cfg.Logger.Debug("WireGuard config directory fallback to %s", dir)
 	}
 
 	suffix, err := effectiveWGSuffix()

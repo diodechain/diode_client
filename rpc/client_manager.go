@@ -316,8 +316,6 @@ func (cm *ClientManager) AddNewAddresses() {
 			return
 		}
 
-		cm.Config.PrintInfo(fmt.Sprintf("Perimeter configuration updated. New node list (%d): %v", len(cm.Config.RemoteRPCAddrs), cm.Config.RemoteRPCAddrs))
-
 		// Close clients not in contract addresses
 		if len(clientsToClose) > 0 {
 			cm.Config.PrintInfo(fmt.Sprintf("Closing %d nodes no longer in perimeter", len(clientsToClose)))
@@ -335,6 +333,7 @@ func (cm *ClientManager) AddNewAddresses() {
 				if toAdd > len(unusedAddresses) {
 					toAdd = len(unusedAddresses)
 				}
+				cm.Config.PrintInfo(fmt.Sprintf("Adding %d nodes from perimeter", toAdd))
 				for i := 0; i < toAdd; i++ {
 					addr := unusedAddresses[i]
 					cm.Config.Logger.Debug("Adding new node: %s", addr)
