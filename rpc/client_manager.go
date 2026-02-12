@@ -161,6 +161,28 @@ func (cm *ClientManager) GetClientByHost(host string) *Client {
 	return found
 }
 
+// GetClientByHost returns an existing client for host without connecting.
+func (cm *ClientManager) GetDefaultClients() []*Client {
+	hosts := config.AppConfig.RemoteRPCAddrs
+	normalizedHosts := make([]string, 0, len(hosts))
+	for _, host := range hosts {
+		normalizedHosts = append(normalizedHosts, normalizeHostPort(host))
+	}
+
+	found := make([]*Client, 0, len(normalizedHosts))
+	cm.srv.Call(func() {
+		for _, c := range cm.clients {
+			if c == nil || c.Closing() {
+				continue
+			}
+			if util.StringsContain(normalizedHosts, normalizeHostPort(c.host)) {
+				found = append(found, c)
+			}
+		}
+	})
+	return found
+}
+
 // ResolveRelayForDevice returns the relay node ID and address for a device by querying the network object.
 func (cm *ClientManager) ResolveRelayForDevice(deviceID util.Address) (util.Address, string, string, error) {
 	client := cm.GetNearestClient()
