@@ -610,13 +610,6 @@ func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
 }
 
 func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, deviceID string, port int, mode string) {
-	defer func() {
-		if err := recover(); err != nil {
-			buf := make([]byte, stackBufferSize)
-			buf = buf[:runtime.Stack(buf, false)]
-			socksServer.logger.Error("panic pipeSocksThenClose %s: %v\n%s", conn.RemoteAddr().String(), err, buf)
-		}
-	}()
 	connPort, err := socksServer.connectDeviceFrom(deviceID, port, config.TLSProtocol, mode, conn.RemoteAddr().String(), func(connPort *ConnectedPort) (net.Conn, error) {
 		writeSocksReturn(conn, ver, connPort.ClientLocalAddr(), port)
 		return conn, nil

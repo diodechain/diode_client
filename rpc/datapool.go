@@ -330,7 +330,7 @@ func (p *DataPool) GetCache(key string) (deviceCache *DeviceCache) {
 }
 
 func (p *DataPool) SetCacheDevice(key Address, deviceCache *DeviceCache) {
-	if deviceCache.deviceTicket != nil {
+	if deviceCache != nil && deviceCache.deviceTicket != nil {
 		deviceCache.deviceTicket.CacheTime = time.Now()
 	}
 	p.SetCache(string(key[:]), deviceCache)
