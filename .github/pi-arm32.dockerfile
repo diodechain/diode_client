@@ -36,6 +36,7 @@ RUN mkdir /go
 ENV GOPATH "/go"
 ENV PATH="$GOPATH/bin:$GOROOT/bin:$PATH"
 ENV EXTRA_TAGS=no_tray
+ENV EXTRA_LD_FLAGS=-extldflags=-lpthread
 
 RUN mkdir build
 WORKDIR /build

@@ -5,9 +5,10 @@ GOMODCACHE= $(or $(shell go env GOMODCACHE), $(GOPATH)/pkg/mod)
 COMMIT= $(shell git describe --tags --dirty)
 BUILDTIME= $(shell date +"%d %b %Y")
 TAGS := $(strip patch_runtime $(EXTRA_TAGS))
-GOBUILD=go build -ldflags '-s -r ./ -X "main.version=${COMMIT}${VARIANT}" -X "main.buildTime=${BUILDTIME}"' -tags "$(TAGS)"
+EXTRA_LD_FLAGS ?=
+GOBUILD=go build -ldflags '-s -r ./ -X "main.version=${COMMIT}${VARIANT}" -X "main.buildTime=${BUILDTIME}" $(EXTRA_LD_FLAGS)' -tags "$(TAGS)"
 # Variant without RPATH for CGO GUI/tray builds to avoid odd loader paths
-GOBUILD_NORPATH=go build -ldflags '-s -X "main.version=${COMMIT}${VARIANT}" -X "main.buildTime=${BUILDTIME}"' -tags "$(TAGS)"
+GOBUILD_NORPATH=go build -ldflags '-s -X "main.version=${COMMIT}${VARIANT}" -X "main.buildTime=${BUILDTIME}" $(EXTRA_LD_FLAGS)' -tags "$(TAGS)"
 ARCHIVE= $(shell ./deployment/zipname.sh)
 
 UNAME_S := $(shell uname -s)
