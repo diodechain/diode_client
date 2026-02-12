@@ -162,3 +162,4 @@ require (
 )
 
 replace github.com/getlantern/systray => ./third_party/systray
+replace github.com/dominicletz/genserver => ./third_party/genserver

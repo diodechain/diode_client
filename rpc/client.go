@@ -35,6 +35,7 @@ const (
 	packetLimit                  = 65000
 	ticketBound                  = 4194304
 	callQueueSize                = 1024
+	blockHeaderFetchWorkerCount  = 8
 	blockquickDowngradeThreshold = 5
 	blockquickValidationError    = "couldn't validate any new blocks"
 )
@@ -71,9 +72,10 @@ type Client struct {
 	// close event
 	OnClose func()
 
-	isClosed bool
-	srv      *genserver.GenServer
-	timer    *Timer
+	closed  uint32
+	stateMu sync.RWMutex
+	srv     *genserver.GenServer
+	timer   *Timer
 }
 
 func getRequestID() uint64 {
@@ -114,12 +116,67 @@ func NewClient(host string, clientMan *ClientManager, cfg *config.Config, pool *
 }
 
 func (client *Client) averageLatency() int64 {
-	return client.latencySum / client.latencyCount
+	latencyCount := atomic.LoadInt64(&client.latencyCount)
+	if latencyCount <= 0 {
+		return 0
+	}
+	latencySum := atomic.LoadInt64(&client.latencySum)
+	return latencySum / latencyCount
 }
 
 func (client *Client) addLatencyMeasurement(latency time.Duration) {
-	client.latencySum += latency.Milliseconds()
-	client.latencyCount++
+	atomic.AddInt64(&client.latencySum, latency.Milliseconds())
+	atomic.AddInt64(&client.latencyCount, 1)
+}
+
+func (client *Client) isClientClosed() bool {
+	return atomic.LoadUint32(&client.closed) == 1
+}
+
+func (client *Client) setClientClosed() {
+	atomic.StoreUint32(&client.closed, 1)
+}
+
+func (client *Client) getBlockquickWindow() *blockquick.Window {
+	client.stateMu.RLock()
+	defer client.stateMu.RUnlock()
+	return client.bq
+}
+
+func (client *Client) setBlockquickWindow(win *blockquick.Window) {
+	client.stateMu.Lock()
+	client.bq = win
+	client.stateMu.Unlock()
+}
+
+func (client *Client) getLastTicket() *edge.DeviceTicket {
+	client.stateMu.RLock()
+	defer client.stateMu.RUnlock()
+	return client.lastTicket
+}
+
+func (client *Client) setLastTicket(ticket *edge.DeviceTicket) {
+	client.stateMu.Lock()
+	client.lastTicket = ticket
+	client.stateMu.Unlock()
+}
+
+func (client *Client) clearStateTicketsAndWindow() {
+	client.stateMu.Lock()
+	client.bq = nil
+	client.lastTicket = nil
+	client.stateMu.Unlock()
+}
+
+func isClientClosedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if err == errClientClosed {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "dead genserver") || strings.Contains(msg, errClientClosed.Error())
 }
 
 func (client *Client) doConnect() (err error) {
@@ -240,9 +297,13 @@ func (client *Client) RespondContext(requestID uint64, responseType string, meth
 func (client *Client) callTimeout(fun func()) error {
 	// Long enough timeout to at least survive initial reconnect attempts
 	if client == nil {
-		return fmt.Errorf("Client disconnected")
+		return errClientClosed
 	}
-	return client.srv.CallTimeout(fun, 30*time.Second)
+	err := client.srv.CallTimeout(fun, 30*time.Second)
+	if err != nil && strings.Contains(err.Error(), "dead genserver") {
+		return errClientClosed
+	}
+	return err
 }
 
 // CastContext returns a response future after calling the rpc
@@ -267,17 +328,10 @@ func (client *Client) CastContext(sender *ConnectedPort, method string, args ...
 }
 
 func (client *Client) insertCall(call *Call) (err error) {
-	timeout := client.callTimeout(func() {
-		if client.isClosed {
-			err = errClientClosed
-			return
-		}
-		err = client.cm.Insert(call)
-	})
-	if err == nil {
-		err = timeout
+	if client.isClientClosed() {
+		return errClientClosed
 	}
-	return
+	return client.cm.Insert(call)
 }
 
 // CallContext returns the response after calling the rpc
@@ -310,12 +364,13 @@ func (client *Client) CheckTicket() {
 	defer client.timer.profile(time.Now(), "CheckTicket")
 
 	client.srv.Cast(func() {
-		if client.s == nil || client.bq == nil {
+		if client.s == nil || client.getBlockquickWindow() == nil {
 			return
 		}
 
+		lastTicket := client.getLastTicket()
 		if client.s.TotalBytes() < client.s.Counter()+ticketBound &&
-			client.lastTicket != nil && client.isRecentTicket(client.lastTicket) {
+			lastTicket != nil && client.isRecentTicket(lastTicket) {
 			return
 		}
 
@@ -326,7 +381,7 @@ func (client *Client) CheckTicket() {
 
 		err = client.submitTicket(ticket)
 		if err == nil {
-			client.lastTicket = ticket
+			client.setLastTicket(ticket)
 		}
 	})
 }
@@ -363,7 +418,11 @@ func (client *Client) validateNetwork() error {
 	// Fetching at least window size blocks -- this should be cached on disk instead.
 	blockHeaders, err := client.GetBlockHeadersUnsafe(blockNumMin, lvbn)
 	if err != nil {
-		client.Log().Error("Cannot fetch blocks %v-%v error: %v", blockNumMin, lvbn, err)
+		if isClientClosedError(err) {
+			client.Log().Debug("Cannot fetch blocks %v-%v: client is closed", blockNumMin, lvbn)
+		} else {
+			client.Log().Error("Cannot fetch blocks %v-%v error: %v", blockNumMin, lvbn, err)
+		}
 		return err
 	}
 	if len(blockHeaders) != windowSize {
@@ -436,9 +495,7 @@ func (client *Client) validateNetwork() error {
 		}
 	}
 
-	if err = client.callTimeout(func() { client.bq = win }); err != nil {
-		return err
-	}
+	client.setBlockquickWindow(win)
 	client.storeLastValid()
 	return nil
 }
@@ -489,37 +546,67 @@ func (client *Client) GetBlockHeaderUnsafe(blockNum uint64) (bh blockquick.Block
 // TODO: use copy instead reference of BlockHeader
 func (client *Client) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]blockquick.BlockHeader, error) {
 	count := len(blockNumbers)
-	headersCount := 0
+	if count == 0 {
+		return []blockquick.BlockHeader{}, nil
+	}
+
+	workerCount := blockHeaderFetchWorkerCount
+	if workerCount > count {
+		workerCount = count
+	}
+
 	responses := make(map[uint64]blockquick.BlockHeader, count)
+	errorMessages := []string{}
+	var stop uint32
+	jobs := make(chan uint64, count)
 	mx := sync.Mutex{}
 	wg := sync.WaitGroup{}
-	wg.Add(count)
-	errorMessages := []string{}
 
-	for _, i := range blockNumbers {
-		go func(bn uint64) {
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
 			defer wg.Done()
-			header, err := client.GetBlockHeaderUnsafe(bn)
-			if err != nil {
+			for bn := range jobs {
+				if atomic.LoadUint32(&stop) == 1 {
+					return
+				}
+
+				header, err := client.GetBlockHeaderUnsafe(bn)
+				if err != nil {
+					mx.Lock()
+					errorMessages = append(errorMessages, fmt.Sprintf("block %v: %v", bn, err))
+					mx.Unlock()
+					if isClientClosedError(err) {
+						atomic.StoreUint32(&stop, 1)
+					}
+					continue
+				}
+
 				mx.Lock()
-				errorMessages = append(errorMessages, fmt.Sprintf("block %v: %v", bn, err.Error()))
+				responses[bn] = header
 				mx.Unlock()
-				return
 			}
-			mx.Lock()
-			headersCount++
-			responses[bn] = header
-			mx.Unlock()
-		}(i)
+		}()
 	}
+
+	for _, blockNumber := range blockNumbers {
+		if atomic.LoadUint32(&stop) == 1 {
+			break
+		}
+		jobs <- blockNumber
+	}
+	close(jobs)
 	wg.Wait()
 
-	if headersCount != count {
+	if len(responses) != count {
+		if len(errorMessages) == 0 {
+			return []blockquick.BlockHeader{}, fmt.Errorf("failed fetching some blocks: missing block headers")
+		}
 		return []blockquick.BlockHeader{}, fmt.Errorf("failed fetching some blocks: %v", strings.Join(errorMessages, ", "))
 	}
 
 	// copy responses to headers
-	headers := make([]blockquick.BlockHeader, headersCount)
+	headers := make([]blockquick.BlockHeader, count)
 	for i, bn := range blockNumbers {
 		if bh, ok := responses[bn]; ok {
 			headers[i] = bh
@@ -531,8 +618,7 @@ func (client *Client) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]blockquic
 // GetBlockHeaderValid returns a validated recent block header
 // (only available for the last windowsSize blocks)
 func (client *Client) GetBlockHeaderValid(blockNum uint64) blockquick.BlockHeader {
-	var bq *blockquick.Window
-	client.callTimeout(func() { bq = client.bq })
+	bq := client.getBlockquickWindow()
 	if bq != nil {
 		return bq.GetBlockHeader(blockNum)
 	}
@@ -600,27 +686,24 @@ func (client *Client) greet() error {
 	return client.SubmitNewTicket()
 }
 
-func (client *Client) SubmitNewTicket() (err error) {
-	client.srv.Cast(func() {
-		if client.bq == nil {
+func (client *Client) SubmitNewTicket() error {
+	return client.srv.Cast(func() {
+		if client.getBlockquickWindow() == nil {
 			return
 		}
-		if client.isClosed || client.s == nil {
+		if client.isClientClosed() || client.s == nil {
 			return
 		}
 
-		var ticket *edge.DeviceTicket
-		ticket, err = client.newTicket()
+		ticket, err := client.newTicket()
 		if err != nil {
 			return
 		}
 
-		err = client.submitTicket(ticket)
-		if err == nil {
-			client.lastTicket = ticket
+		if err = client.submitTicket(ticket); err == nil {
+			client.setLastTicket(ticket)
 		}
 	})
-	return
 }
 
 // SignTransaction return signed transaction
@@ -710,6 +793,9 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 		if lastTicket, ok := resp.(edge.DeviceTicket); ok {
 			if lastTicket.Err == edge.ErrTicketTooLow {
 				ssl := client.s
+				if ssl == nil || ssl.Closed() {
+					return
+				}
 				sid, _ := ssl.GetServerID()
 				lastTicket.ServerID = sid
 				lastTicket.FleetAddr = client.config.FleetAddr
@@ -719,10 +805,10 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 					client.Log().Warn("received fake ticket.. last_ticket=%v", lastTicket)
 				} else {
 					ssl.setTotalBytes(lastTicket.TotalBytes.Uint64() + 1024)
-					ssl.totalConnections = lastTicket.TotalConnections.Uint64() + 1
-					err = client.SubmitNewTicket()
-					if err != nil {
-						client.Log().Error("failed to re-submit ticket: %v", err)
+					ssl.setTotalConnections(lastTicket.TotalConnections.Uint64() + 1)
+					retryErr := client.SubmitNewTicket()
+					if retryErr != nil {
+						client.Log().Error("failed to re-submit ticket: %v", retryErr)
 					}
 				}
 			} else if lastTicket.Err == edge.ErrTicketTooOld {
@@ -1169,7 +1255,7 @@ func (client *Client) ResolveBlockHash(blockNumber uint64) (blockHash []byte, er
 		return
 	}
 	var bq *blockquick.Window
-	client.callTimeout(func() { bq = client.bq })
+	bq = client.getBlockquickWindow()
 	var blockHeader blockquick.BlockHeader
 	if bq != nil {
 		blockHeader = bq.GetBlockHeader(blockNumber)
@@ -1332,18 +1418,18 @@ func (client *Client) IsDeviceAllowlisted(fleetAddr Address, clientAddr Address)
 
 // Closed returns whether client had closed
 func (client *Client) Closed() bool {
-	return client.isClosed
+	return client.isClientClosed()
 }
 
 // Close rpc client
 func (client *Client) Close() {
 	doCleanup := true
 	timeout := client.callTimeout(func() {
-		if client.isClosed {
+		if client.isClientClosed() {
 			doCleanup = false
 			return
 		}
-		client.isClosed = true
+		client.setClientClosed()
 		// remove existing calls
 		client.cm.RemoveCalls()
 		if client.OnClose != nil {
@@ -1351,11 +1437,21 @@ func (client *Client) Close() {
 		}
 		if client.s != nil {
 			client.s.Close()
-			client.s = nil
 		}
 	})
-	if timeout == nil && doCleanup {
-		// remove open ports
+	if timeout == errClientClosed && doCleanup {
+		// Genserver is already down; finish best-effort cleanup so callers
+		// don't block waiting for this client to terminate.
+		client.setClientClosed()
+		client.cm.RemoveCalls()
+		if client.OnClose != nil {
+			client.OnClose()
+		}
+		if client.s != nil {
+			client.s.Close()
+		}
+	}
+	if doCleanup {
 		client.pool.ClosePorts(client)
 		client.srv.Shutdown(0)
 	}
@@ -1365,7 +1461,7 @@ func (client *Client) Close() {
 func (client *Client) Start() {
 	client.srv.Cast(func() {
 		if err := client.doStart(); err != nil {
-			if !client.isClosed {
+			if !client.isClientClosed() {
 				client.Log().Warn("Client connect failed: %v", err)
 			}
 			client.srv.Shutdown(0)
@@ -1374,7 +1470,7 @@ func (client *Client) Start() {
 
 		go func() {
 			if err := client.initialize(); err != nil {
-				if !client.isClosed {
+				if !client.isClientClosed() {
 					client.Log().Warn("Client start failed: %v", err)
 					client.Close()
 				}
@@ -1387,7 +1483,8 @@ func (client *Client) doStart() (err error) {
 	if err = client.doConnect(); err != nil {
 		return
 	}
-	go client.recvMessageLoop()
+	ssl := client.s
+	go client.recvMessageLoop(ssl)
 	client.cm.SendCallPtr = client.sendCall
 	return
 }
@@ -1406,7 +1503,7 @@ func (client *Client) doWatchLatestBlock() {
 		return
 	}
 	var bq *blockquick.Window
-	client.callTimeout(func() { bq = client.bq })
+	bq = client.getBlockquickWindow()
 	if bq == nil {
 		return
 	}
@@ -1418,6 +1515,9 @@ func (client *Client) doWatchLatestBlock() {
 	client.srv.Cast(func() { client.addLatencyMeasurement(elapsed) })
 
 	if err != nil {
+		if isClientClosedError(err) {
+			return
+		}
 		client.Log().Error("Couldn't getblockpeak: %v", err)
 		return
 	}
@@ -1431,6 +1531,9 @@ func (client *Client) doWatchLatestBlock() {
 	for num := lastblock + 1; num <= blockPeak; num++ {
 		blockHeader, err := client.GetBlockHeaderUnsafe(uint64(num))
 		if err != nil {
+			if isClientClosedError(err) {
+				return
+			}
 			client.Log().Error("Couldn't download block header %v", err)
 			return
 		}
@@ -1451,10 +1554,8 @@ func (client *Client) doWatchLatestBlock() {
 }
 
 func (client *Client) clearBlockquickWindow() error {
-	return client.callTimeout(func() {
-		client.bq = nil
-		client.lastTicket = nil
-	})
+	client.clearStateTicketsAndWindow()
+	return nil
 }
 
 func (client *Client) forceResetBlockquickState() {

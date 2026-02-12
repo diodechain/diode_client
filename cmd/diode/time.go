@@ -30,15 +30,29 @@ func timeHandler() (err error) {
 		return
 	}
 	cfg := config.AppConfig
-	client := app.clientManager.GetNearestClient()
-	blocknr, _ := client.LastValid()
-	header := client.GetBlockHeaderValid(blocknr)
-	if header.Number() == 0 {
-		err = ErrFailedToFetchHeader
-		return
+	var headerTimestamp uint64
+	found := false
+	for attempt := 0; attempt < 5; attempt++ {
+		client := app.clientManager.GetNearestClient()
+		blocknr, _ := client.LastValid()
+		header := client.GetBlockHeaderValid(blocknr)
+		if header.Number() == 0 {
+			if unsafeHeader, unsafeErr := client.GetBlockHeaderUnsafe(blocknr); unsafeErr == nil {
+				header = unsafeHeader
+			}
+		}
+		if header.Number() != 0 {
+			headerTimestamp = header.Timestamp()
+			found = true
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+	if !found {
+		return ErrFailedToFetchHeader
 	}
 
-	t0 := int(header.Timestamp())
+	t0 := int(headerTimestamp)
 	t1 := t0 + (rpc.WindowSize() * averageBlockTime)
 
 	tm0 := time.Unix(int64(t0), 0)

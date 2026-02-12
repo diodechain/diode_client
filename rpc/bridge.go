@@ -359,8 +359,10 @@ func validateRLPValue(k rlp.Kind, content []byte) error {
 	return nil
 }
 
-// recvMessageLoop infinite loop to read message from server
-func (client *Client) recvMessageLoop() {
+// recvMessageLoop infinite loop to read message from server.
+// It uses the connection captured at start so Close() can safely
+// close the connection without racing on client.s pointer updates.
+func (client *Client) recvMessageLoop(ssl *SSL) {
 	msgBuffer := make(chan edge.Message, 20)
 	defer close(msgBuffer)
 
@@ -371,16 +373,16 @@ func (client *Client) recvMessageLoop() {
 	}()
 
 	for {
-		if client.s == nil {
-			if !client.isClosed {
+		if ssl == nil {
+			if !client.isClientClosed() {
 				client.Log().Info("Client connection closed prematurely.")
 				client.Close()
 			}
 			return
 		}
-		msg, err := client.s.readMessage()
+		msg, err := ssl.readMessage()
 		if err != nil {
-			if !client.isClosed {
+			if !client.isClientClosed() {
 				client.Log().Info("Client connection closed unexpectedly: %v", err)
 				client.Close()
 			}
