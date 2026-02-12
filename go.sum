@@ -143,8 +143,6 @@ github.com/diodechain/zap v0.0.0-20201117101851-06f3cd5f3263 h1:IzzrLj8ehGjdejK4
 github.com/diodechain/zap v0.0.0-20201117101851-06f3cd5f3263/go.mod h1:lOf21r6wUM2B9rkJhTIeMwU56gvI956/ESIC0jCi/yM=
 github.com/docker/go-units v0.5.0 h1:69rxXcBk27SvSaaxTtLh/8llcHD8vYHT7WSdRZ/jvr4=
 github.com/docker/go-units v0.5.0/go.mod h1:fgPhTUdO+D/Jk86RDLlptpiXQzgHJF7gydDDbaIK4Dk=
-github.com/dominicletz/genserver v1.3.1 h1:eQTEUO1zPkVpjpkZ6KlkvzIK7eBxTtQQju3Ga54FKlM=
-github.com/dominicletz/genserver v1.3.1/go.mod h1:wiq8ISya4SWZvrBugCyNEEE4QtN1doEzpmhcSNJcoa0=
 github.com/dominicletz/genserver v1.3.3 h1:6s0i8U2itv+oyDk1sakuQln2j7CnTun7eEb7LPa2xPs=
 github.com/dominicletz/genserver v1.3.3/go.mod h1:wiq8ISya4SWZvrBugCyNEEE4QtN1doEzpmhcSNJcoa0=
 github.com/dsnet/compress v0.0.1 h1:PlZu0n3Tuv04TzpfPbrnI0HW/YwodEXDS+oPKahKF0Q=
