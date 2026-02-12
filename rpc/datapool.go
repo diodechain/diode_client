@@ -10,6 +10,7 @@ import (
 
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/edge"
+	"github.com/diodechain/diode_client/util"
 	"github.com/diodechain/go-cache"
 	"github.com/diodechain/openssl"
 	"github.com/dominicletz/genserver"
@@ -32,6 +33,11 @@ type DataPool struct {
 	connectionAttempts map[Address]int
 
 	srv *genserver.GenServer
+}
+
+type DeviceCache struct {
+	deviceTicket *edge.DeviceTicket
+	serverIDs    []util.Address
 }
 
 type SessionCache struct {
@@ -309,33 +315,33 @@ func (p *DataPool) DeleteCacheBNS(key string) {
 	})
 }
 
-func (p *DataPool) GetCacheDevice(key Address) (ticket *edge.DeviceTicket) {
+func (p *DataPool) GetCacheDevice(key Address) (deviceCache *DeviceCache) {
 	return p.GetCache(string(key[:]))
 }
 
-func (p *DataPool) GetCache(key string) (ticket *edge.DeviceTicket) {
+func (p *DataPool) GetCache(key string) (deviceCache *DeviceCache) {
 	p.srv.Call(func() {
 		cacheObj, hit := p.memoryCache.Get(key)
 		if hit {
-			ticket = cacheObj.(*edge.DeviceTicket)
+			deviceCache = cacheObj.(*DeviceCache)
 		}
 	})
-	return ticket
+	return deviceCache
 }
 
-func (p *DataPool) SetCacheDevice(key Address, tck *edge.DeviceTicket) {
-	if tck != nil {
-		tck.CacheTime = time.Now()
+func (p *DataPool) SetCacheDevice(key Address, deviceCache *DeviceCache) {
+	if deviceCache != nil && deviceCache.deviceTicket != nil {
+		deviceCache.deviceTicket.CacheTime = time.Now()
 	}
-	p.SetCache(string(key[:]), tck)
+	p.SetCache(string(key[:]), deviceCache)
 }
 
-func (p *DataPool) SetCache(key string, tck *edge.DeviceTicket) {
+func (p *DataPool) SetCache(key string, deviceCache *DeviceCache) {
 	p.srv.Cast(func() {
-		if tck == nil {
+		if deviceCache == nil {
 			p.memoryCache.Delete(key)
 		} else {
-			p.memoryCache.Set(key, tck, cache.DefaultExpiration)
+			p.memoryCache.Set(key, deviceCache, cache.DefaultExpiration)
 		}
 	})
 }

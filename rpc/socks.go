@@ -328,11 +328,16 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 	}
 
 	type candidate struct {
-		deviceID util.Address
-		serverID util.Address
+		deviceID  util.Address
+		serverIDs []util.Address
 	}
 
-	nearestClient, _ := socksServer.clientManager.PeekNearestClients()
+	defaultClients := socksServer.clientManager.GetDefaultClients()
+	socksServer.logger.Debug("%d: Found %d default clients", requestId, len(defaultClients))
+	defaultIds := make([]util.Address, 0, len(defaultClients))
+	for _, client := range defaultClients {
+		defaultIds = append(defaultIds, client.serverID)
+	}
 
 	// Get max ports once before the loop
 	maxPorts := config.AppConfig.GetMaxPortsPerDevice()
@@ -356,17 +361,24 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 			}
 		}
 
-		if nearestClient != nil {
-			candidates = append(candidates, candidate{deviceID, nearestClient.serverID})
+		serverIDs := make([]util.Address, 0)
+		cache := socksServer.datapool.GetCacheDevice(deviceID)
+		if cache != nil {
+			for _, serverID := range cache.serverIDs {
+				serverIDs = appendAddressIfNotExists(serverIDs, serverID)
+			}
 		}
 
 		for _, serverID := range device.GetServerIDs() {
 			socksServer.logger.Debug("Found device %s on server %s", deviceID.HexString(), serverID.HexString())
-			if nearestClient != nil && serverID == nearestClient.serverID {
-				continue
-			}
-			candidates = append(candidates, candidate{deviceID, serverID})
+			serverIDs = appendAddressIfNotExists(serverIDs, serverID)
 		}
+
+		for _, defaultID := range defaultIds {
+			serverIDs = appendAddressIfNotExists(serverIDs, defaultID)
+		}
+
+		candidates = append(candidates, candidate{deviceID, serverIDs})
 	}
 
 	ports := make(chan *ConnectedPort, 1)
@@ -375,34 +387,44 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 
 	for _, candidate := range candidates {
 		wg.Add(1)
-		go func(deviceID Address, serverID Address) {
+		go func(deviceID Address, serverIDs []util.Address) {
 			defer func() {
 				wg.Done()
 				<-maxConcurrency
 			}()
 			maxConcurrency <- struct{}{}
 
-			var client *Client
-			client, err = socksServer.GetServer(serverID)
-			if err != nil {
-				socksServer.logger.Error("%d: GetServer() failed: %v", requestId, err)
-				return
-			}
+			for _, serverID := range serverIDs {
+				client, err := socksServer.GetServer(serverID)
+				if err != nil {
+					socksServer.logger.Error("%d: GetServer() failed: %v", requestId, err)
+					continue
+				}
 
-			var conn *ConnectedPort
-			conn, err = doCreatePort(client, deviceID, port, portName, mode, requestId)
-			if err != nil {
-				url, _ := client.Host()
-				socksServer.logger.Error("%d: doCreatePort() failed: %v via %v", requestId, err, url)
-				return
-			}
+				var conn *ConnectedPort
+				conn, err = doCreatePort(client, deviceID, port, portName, mode, requestId)
+				if err != nil {
+					url, _ := client.Host()
+					socksServer.logger.Error("%d: doCreatePort() failed: %v via %v", requestId, err, url)
+					continue
+				}
 
-			select {
-			case ports <- conn:
-			default:
-				conn.Shutdown()
+				select {
+				case ports <- conn:
+					cache := socksServer.datapool.GetCacheDevice(deviceID)
+					if cache != nil {
+						cache.serverIDs = appendAddressIfNotExists(cache.serverIDs, serverID)
+					} else {
+						cache = &DeviceCache{deviceTicket: nil, serverIDs: appendAddressIfNotExists(make([]util.Address, 0), serverID)}
+					}
+					socksServer.datapool.SetCacheDevice(deviceID, cache)
+					return
+				default:
+					conn.Shutdown()
+					return
+				}
 			}
-		}(candidate.deviceID, candidate.serverID)
+		}(candidate.deviceID, candidate.serverIDs)
 	}
 
 	go func() {
@@ -432,6 +454,15 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 		return nil, HttpError{404, DeviceError{err}}
 	}
 	return nil, HttpError{500, errors.New(msg)}
+}
+
+func appendAddressIfNotExists(slice []util.Address, address util.Address) []util.Address {
+	for _, a := range slice {
+		if a == address {
+			return slice
+		}
+	}
+	return append(slice, address)
 }
 
 func doCreatePort(client *Client, deviceID Address, port int, portName string, mode string, requestId int64) (conn *ConnectedPort, err error) {
@@ -579,13 +610,6 @@ func (socksServer *Server) pipeFallback(conn net.Conn, ver int, host string) {
 }
 
 func (socksServer *Server) pipeSocksThenClose(conn net.Conn, ver int, deviceID string, port int, mode string) {
-	defer func() {
-		if err := recover(); err != nil {
-			buf := make([]byte, stackBufferSize)
-			buf = buf[:runtime.Stack(buf, false)]
-			socksServer.logger.Error("panic pipeSocksThenClose %s: %v\n%s", conn.RemoteAddr().String(), err, buf)
-		}
-	}()
 	connPort, err := socksServer.connectDeviceFrom(deviceID, port, config.TLSProtocol, mode, conn.RemoteAddr().String(), func(connPort *ConnectedPort) (net.Conn, error) {
 		writeSocksReturn(conn, ver, connPort.ClientLocalAddr(), port)
 		return conn, nil

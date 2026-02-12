@@ -73,11 +73,14 @@ func (resolver *Resolver) ResolveDevice(deviceName string, validate bool) (ret [
 func (resolver *Resolver) resolveDeviceID(primary *Client, deviceID Address) (*edge.DeviceTicket, error) {
 	var preferredServer Address
 	cachedDevice := resolver.datapool.GetCacheDevice(deviceID)
-	if cachedDevice != nil && cachedDevice.Version != 0 {
-		if primary.isRecentTicket(cachedDevice) {
-			return cachedDevice, nil
+	if cachedDevice != nil && cachedDevice.deviceTicket != nil {
+		tck := cachedDevice.deviceTicket
+		if tck.Version != 0 {
+			if primary.isRecentTicket(tck) {
+				return tck, nil
+			}
+			preferredServer = tck.ServerID
 		}
-		preferredServer = cachedDevice.ServerID
 	}
 
 	return resolver.fetchDeviceTicket(primary, deviceID, preferredServer)
@@ -185,7 +188,14 @@ func (resolver *Resolver) fetchAndValidate(client *Client, deviceID Address) (*e
 		return device, err
 	}
 
-	resolver.datapool.SetCacheDevice(deviceID, device)
+	cache := resolver.datapool.GetCacheDevice(deviceID)
+	if cache != nil {
+		cache.deviceTicket = device
+	} else {
+		cache = &DeviceCache{deviceTicket: device, serverIDs: []util.Address{client.serverID}}
+	}
+
+	resolver.datapool.SetCacheDevice(deviceID, cache)
 	return device, nil
 }
 
