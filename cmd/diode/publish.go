@@ -407,7 +407,7 @@ func publishHandler() (err error) {
 			// Restart to publish utill user send sigint to client
 			var client *rpc.Client
 			for {
-				client = app.WaitForFirstClient(true)
+				client = app.WaitForFirstClient()
 				if client != nil {
 					break
 				}

@@ -33,16 +33,24 @@ type apiResponse struct {
 }
 
 type configEntry struct {
-	Address              string `json:"client"`
-	Fleet                string `json:"fleet"`
-	Version              string `json:"version"`
-	LastValidBlockNumber uint64 `json:"lastValidBlockNumber"`
-	LastValidBlockHash   string `json:"lastValidBlockHash"`
-	Binds                []bind `json:"binds"`
-	Ports                []port `json:"ports"`
-	EnableSocks          bool   `json:"enableSocks"`
-	EnableProxy          bool   `json:"enableProxy"`
-	EnableSecureProxy    bool   `json:"enableSecureProxy"`
+	Address              string         `json:"client"`
+	Fleet                string         `json:"fleet"`
+	Version              string         `json:"version"`
+	LastValidBlockNumber uint64         `json:"lastValidBlockNumber"`
+	LastValidBlockHash   string         `json:"lastValidBlockHash"`
+	Binds                []bind         `json:"binds"`
+	Ports                []port         `json:"ports"`
+	EnableSocks          bool           `json:"enableSocks"`
+	EnableProxy          bool           `json:"enableProxy"`
+	EnableSecureProxy    bool           `json:"enableSecureProxy"`
+	Perimeter            *perimeterInfo `json:"perimeter,omitempty"`
+}
+
+type perimeterInfo struct {
+	Address          string                   `json:"address"`
+	EffectiveAddress string                   `json:"effective_address,omitempty"`
+	Status           string                   `json:"status"`
+	Properties       []map[string]interface{} `json:"properties,omitempty"`
 }
 
 type bind struct {
@@ -210,6 +218,14 @@ func (configAPIServer *ConfigAPIServer) successResponse(w http.ResponseWriter, m
 
 func (configAPIServer *ConfigAPIServer) configResponse(w http.ResponseWriter, message string) {
 	cfg := configAPIServer.appConfig
+
+	// Get perimeter information if configured
+	var perimeter *perimeterInfo
+	contractAddr := GetContractAddress()
+	if contractAddr != "" {
+		perimeter = configAPIServer.getPerimeterInfo(contractAddr, cfg)
+	}
+
 	res, _ := json.Marshal(&apiResponse{
 		Success: true,
 		Message: message,
@@ -247,11 +263,87 @@ func (configAPIServer *ConfigAPIServer) configResponse(w http.ResponseWriter, me
 			EnableSocks:       cfg.EnableSocksServer,
 			EnableProxy:       cfg.EnableProxyServer,
 			EnableSecureProxy: cfg.EnableSProxyServer,
+			Perimeter:         perimeter,
 		},
 	})
 
 	w.WriteHeader(http.StatusOK)
 	w.Write(res)
+}
+
+func (configAPIServer *ConfigAPIServer) getPerimeterInfo(contractAddr string, cfg *config.Config) *perimeterInfo {
+	// Validate the contract address format
+	_, err := util.DecodeAddress(contractAddr)
+	if err != nil {
+		cfg.Logger.Debug("Invalid perimeter address: %v", err)
+		return &perimeterInfo{
+			Address: contractAddr,
+			Status:  "invalid_address",
+		}
+	}
+
+	// Get the effective contract address (after following proxy_to chain)
+	effectiveAddr := GetEffectiveContractAddress()
+	if effectiveAddr == "" {
+		// No effective contract address means no perimeter is configured
+		return &perimeterInfo{
+			Address: contractAddr,
+			Status:  "not_configured",
+		}
+	}
+
+	// Try to use cached properties from the last contract sync to avoid unnecessary RPC calls
+	var props map[string]string
+	var propsErr error
+
+	lastContractPropsMutex.RLock()
+	cachedProps := lastContractProps
+	lastContractPropsMutex.RUnlock()
+
+	if cachedProps != nil {
+		// Use cached properties
+		props = make(map[string]string)
+		for k, v := range cachedProps {
+			props[k] = v
+		}
+		propsErr = nil
+		cfg.Logger.Debug("Using cached contract properties for API response")
+	} else {
+		// Cache miss - fetch fresh properties (should be rare, only on first API call before first sync)
+		props, propsErr = fetchContractPropsFromContract(cfg.ClientAddr, effectiveAddr)
+	}
+
+	// Check if we can read from the perimeter (valid vs invalid)
+	// Case A: Invalid perimeter - some error - probably contract is bogus, non-existent, or we aren't a member
+	if propsErr != nil {
+		cfg.Logger.Debug("Invalid perimeter: %v", propsErr)
+		return &perimeterInfo{
+			Address:          contractAddr,
+			EffectiveAddress: effectiveAddr,
+			Status:           "unavailable",
+		}
+	}
+
+	// Case B: Valid perimeter - convert properties to array format (only non-empty values)
+	// Each property is an object with the key as the field name
+	properties := make([]map[string]interface{}, 0)
+	for key, value := range props {
+		trimmedValue := strings.TrimSpace(value)
+		if trimmedValue != "" {
+			prop := make(map[string]interface{})
+			prop[key] = trimmedValue
+			properties = append(properties, prop)
+		}
+	}
+	// Even if properties is empty, it's still valid (just no contents)
+	// So we return an empty array []
+
+	return &perimeterInfo{
+		Address:          contractAddr,
+		EffectiveAddress: effectiveAddr,
+		Properties:       properties,
+		Status:           "available",
+	}
 }
 
 func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWriter, req *http.Request) {
@@ -300,17 +392,11 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 				return
 			}
 
+			// If valid diodeAddrs entries are provided, replace RemoteRPCAddrs with exactly that list.
+			// Note: if all entries are empty/blank (e.g. "" or " ") applyDiodeAddrs will apply RPC defaults.
 			if len(c.DiodeAddrs) > 0 {
-				remoteRPCAddrs := []string{}
-				for _, RPCAddr := range c.DiodeAddrs {
-					if !util.StringsContain(remoteRPCAddrs, RPCAddr) && !util.StringsContain(configAPIServer.appConfig.RemoteRPCAddrs, RPCAddr) {
-						remoteRPCAddrs = append(remoteRPCAddrs, RPCAddr)
-					}
-				}
-				if len(remoteRPCAddrs) > 0 {
-					isDirty = true
-					configAPIServer.appConfig.RemoteRPCAddrs = append(configAPIServer.appConfig.RemoteRPCAddrs, remoteRPCAddrs...)
-				}
+				applyDiodeAddrs(configAPIServer.appConfig, c.DiodeAddrs)
+				isDirty = true
 			}
 			if len(c.Blocklists) >= 0 {
 				blocklists := []string{}

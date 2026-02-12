@@ -130,6 +130,9 @@ func (s *SSL) Close() {
 
 // GetServerID returns server address
 func (s *SSL) GetServerID() ([20]byte, error) {
+	if s == nil {
+		return util.EmptyAddress, fmt.Errorf("ssl connection is nil")
+	}
 	if s.serverID != util.EmptyAddress {
 		return s.serverID, nil
 	}
@@ -417,5 +420,6 @@ func doInitSSLCtx(config *config.Config) (*openssl.Ctx, error) {
 	}
 	ctx.SetSessionCacheMode(openssl.SessionCacheBoth)
 	ctx.SetSessionId([]byte("diode_e2e"))
+	ctx.SetDialTimeout(15 * time.Second)
 	return ctx, nil
 }

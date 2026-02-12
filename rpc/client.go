@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"net"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -72,10 +73,12 @@ type Client struct {
 	// close event
 	OnClose func()
 
-	closed  uint32
-	stateMu sync.RWMutex
-	srv     *genserver.GenServer
-	timer   *Timer
+	closed           uint32
+	closing          uint32 // set before Close() callback runs; allows GetNearestClient to exclude client earlier
+	stateMu          sync.RWMutex
+	srv              *genserver.GenServer
+	timer            *Timer
+	portOpen2Handler atomic.Value
 }
 
 func getRequestID() uint64 {
@@ -103,6 +106,8 @@ func NewClient(host string, clientMan *ClientManager, cfg *config.Config, pool *
 		enableMetrics: cfg.EnableMetrics,
 		timer:         NewTimer(),
 	}
+	var handler func(*edge.PortOpen2) error
+	client.portOpen2Handler.Store(handler)
 
 	if client.enableMetrics {
 		client.metrics = NewMetrics()
@@ -215,11 +220,26 @@ func (client *Client) Log() *config.Logger {
 	return client.config.Logger.With(zap.String("server", client.host))
 }
 
+// SetPortOpen2Handler configures a handler for inbound portopen2 requests.
+func (client *Client) SetPortOpen2Handler(handler func(*edge.PortOpen2) error) {
+	client.portOpen2Handler.Store(handler)
+}
+
 // Host returns the non-resolved addr name of the host
 func (client *Client) Host() (host string, err error) {
 	err = client.callTimeout(func() {
 		if client.s != nil {
 			host = client.s.addr
+		}
+	})
+	return
+}
+
+// RemoteAddr returns the remote network address of the RPC connection.
+func (client *Client) RemoteAddr() (addr net.Addr, err error) {
+	err = client.callTimeout(func() {
+		if client.s != nil {
+			addr = client.s.RemoteAddr()
 		}
 	})
 	return
@@ -679,31 +699,88 @@ func (client *Client) GetNode(nodeID [20]byte) (*edge.ServerObj, error) {
 // Greet Initiates the connection
 // TODO: test compression flag
 func (client *Client) greet() error {
-	_, err := client.CastContext(nil, "hello", uint64(1000))
+	_, err := client.CastContext(nil, "hello", uint64(1001))
 	if err != nil {
 		return err
 	}
-	return client.SubmitNewTicket()
+	// In case the server does not request a ticket, we will submit one after 10 seconds
+	go func() {
+		time.Sleep(10 * time.Second)
+		s := client.s
+		if s != nil && client.getLastTicket() == nil {
+			client.SubmitTicketForUsage(big.NewInt(int64(s.TotalBytes())))
+		}
+	}()
+	return nil
 }
 
-func (client *Client) SubmitNewTicket() error {
-	return client.srv.Cast(func() {
-		if client.getBlockquickWindow() == nil {
+// SubmitTicketForUsage submits a ticket covering at least minBytes.
+func (client *Client) SubmitTicketForUsage(minBytes *big.Int) (err error) {
+	client.srv.Cast(func() {
+		if client.getBlockquickWindow() == nil || client.isClientClosed() || client.s == nil {
 			return
 		}
-		if client.isClientClosed() || client.s == nil {
+		if minBytes == nil {
 			return
+		}
+		if minBytes.Sign() < 0 {
+			client.Log().Warn("ticket_request has negative usage: %s", minBytes.String())
+			return
+		}
+		if !minBytes.IsUint64() {
+			client.Log().Warn("ticket_request usage too large: %s", minBytes.String())
+			return
+		}
+		minUsage := minBytes.Uint64() + ticketBound
+		current := client.s.TotalBytes()
+		if minUsage > current {
+			client.Log().Debug("ticket_request updating total bytes current=%d requested=%d", current, minUsage)
+			client.s.setTotalBytes(minUsage)
 		}
 
 		ticket, err := client.newTicket()
 		if err != nil {
 			return
 		}
-
-		if err = client.submitTicket(ticket); err == nil {
+		if ticket.TotalBytes.Uint64() < minUsage {
+			ticket.TotalBytes = new(big.Int).SetUint64(minUsage)
+		}
+		err = client.submitTicket(ticket)
+		if err == nil {
 			client.setLastTicket(ticket)
 		}
 	})
+	return nil
+}
+
+func (client *Client) SubmitNewTicket() error {
+	current := uint64(0)
+	if client.s != nil {
+		current = client.s.TotalBytes()
+	}
+	return client.SubmitTicketForUsage(new(big.Int).SetUint64(current))
+}
+
+// HandleTicketRequest responds to a server ticket request.
+func (client *Client) HandleTicketRequest(req *edge.TicketRequest) {
+	if req == nil {
+		return
+	}
+	if req.Err != nil {
+		client.Log().Error("Failed to decode ticket_request: %v", req.Err.Error())
+		return
+	}
+	if req.Usage == nil {
+		client.Log().Warn("ticket_request missing usage")
+		return
+	}
+	client.Log().Debug("ticket_request usage=%s", req.Usage.String())
+	if client.s != nil {
+		client.Log().Debug("ticket_request current_total_bytes=%d", client.s.TotalBytes())
+	}
+	if err := client.SubmitTicketForUsage(req.Usage); err != nil {
+		client.Log().Error("failed to submit ticket for request: %v", err)
+	}
 }
 
 // SignTransaction return signed transaction
@@ -804,9 +881,10 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 					lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)
 					client.Log().Warn("received fake ticket.. last_ticket=%v", lastTicket)
 				} else {
+					client.Log().Debug("insufficient ticket, resending... last_ticket=%v", lastTicket)
 					ssl.setTotalBytes(lastTicket.TotalBytes.Uint64() + 1024)
 					ssl.setTotalConnections(lastTicket.TotalConnections.Uint64() + 1)
-					retryErr := client.SubmitNewTicket()
+					retryErr := client.SubmitTicketForUsage(lastTicket.TotalBytes)
 					if retryErr != nil {
 						client.Log().Error("failed to re-submit ticket: %v", retryErr)
 					}
@@ -835,6 +913,21 @@ func (client *Client) PortOpen(deviceID [20]byte, port int, portName string, mod
 	return portOpen, err
 }
 
+// PortOpen2 call portopen2 RPC
+func (client *Client) PortOpen2(deviceID [20]byte, portName string, flags string) (*edge.PortOpen2, error) {
+	rawPortOpen, err := client.CallContext("portopen2", deviceID[:], portName, flags)
+	if err != nil {
+		if len(err.Error()) == 4 {
+			err = errPortOpenTimeout
+		}
+		return nil, err
+	}
+	if portOpen, ok := rawPortOpen.(*edge.PortOpen2); ok {
+		return portOpen, nil
+	}
+	return nil, nil
+}
+
 func (client *Client) doPortOpen(deviceID [20]byte, portName string, mode string) (*edge.PortOpen, error) {
 	rawPortOpen, err := client.CallContext("portopen", deviceID[:], portName, mode)
 	if err != nil {
@@ -856,6 +949,20 @@ func (client *Client) ResponsePortOpen(portOpen *edge.PortOpen, err error) error
 		_, err = client.RespondContext(portOpen.RequestID, "error", "portopen", portOpen.Ref, err.Error())
 	} else {
 		_, err = client.RespondContext(portOpen.RequestID, "response", "portopen", portOpen.Ref, "ok")
+	}
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+// ResponsePortOpen2 response portopen2 request
+func (client *Client) ResponsePortOpen2(portOpen *edge.PortOpen2, err error) error {
+	physicalPort := uint64(portOpen.PhysicalPort)
+	if err != nil {
+		_, err = client.RespondContext(portOpen.RequestID, "error", "portopen2", physicalPort, err.Error())
+	} else {
+		_, err = client.RespondContext(portOpen.RequestID, "response", "portopen2", physicalPort, "ok")
 	}
 	if err != nil {
 		return err
@@ -1421,8 +1528,18 @@ func (client *Client) Closed() bool {
 	return client.isClientClosed()
 }
 
+// Closing returns true if the client is closed or in the process of closing (flag set before Close callback runs).
+// Used by ClientManager to avoid returning a client that is about to be closed.
+func (client *Client) Closing() bool {
+	return atomic.LoadUint32(&client.closing) == 1 || client.isClientClosed()
+}
+
 // Close rpc client
 func (client *Client) Close() {
+	atomic.StoreUint32(&client.closing, 1)
+	if client.clientMan != nil {
+		client.clientMan.detachClient(client)
+	}
 	doCleanup := true
 	timeout := client.callTimeout(func() {
 		if client.isClientClosed() {
@@ -1439,6 +1556,10 @@ func (client *Client) Close() {
 			client.s.Close()
 		}
 	})
+	if timeout == nil && !doCleanup {
+		client.srv.Shutdown(0)
+		return
+	}
 	if timeout == errClientClosed && doCleanup {
 		// Genserver is already down; finish best-effort cleanup so callers
 		// don't block waiting for this client to terminate.
@@ -1451,10 +1572,11 @@ func (client *Client) Close() {
 			client.s.Close()
 		}
 	}
-	if doCleanup {
+	// remove open ports (best-effort even if callTimeout failed)
+	if client.pool != nil {
 		client.pool.ClosePorts(client)
-		client.srv.Shutdown(0)
 	}
+	client.srv.Shutdown(0)
 }
 
 // Start process rpc inbound message and outbound message
@@ -1600,7 +1722,6 @@ func (client *Client) startBlockquickRebuild(reason string) {
 		}
 
 		client.Log().Info("Blockquick window rebuilt (%s)", reason)
-		client.SubmitNewTicket()
 	}()
 }
 
@@ -1683,7 +1804,7 @@ func (client *Client) initialize() (err error) {
 	}
 	err = client.greet()
 	if err != nil {
-		return fmt.Errorf("failed to submitTicket to server: %v", err)
+		return fmt.Errorf("failed to greet the server: %v", err)
 	}
 	if client.onConnect != nil {
 		client.onConnect(client.serverID)

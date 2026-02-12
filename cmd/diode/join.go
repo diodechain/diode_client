@@ -7,6 +7,7 @@ package main
 // ./diode join -config 0xB7A5bd0345EF1Cc5E66bf61BdeC17D2461fBd968
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -27,11 +28,13 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/diodechain/diode_client/accounts/abi"
 	"github.com/diodechain/diode_client/command"
 	"github.com/diodechain/diode_client/config"
+	"github.com/diodechain/diode_client/edge"
 	"github.com/diodechain/diode_client/rpc"
 	"github.com/diodechain/diode_client/util"
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/client"
@@ -50,13 +53,12 @@ var (
 		Type:             command.DaemonCommand,
 		SingleConnection: true,
 	}
-	dryRun            = false
-	network           = "mainnet"
-	contractAddress   = ""
-	contractAddrBytes []byte
-	oasisClient       *OasisClient
-	wantWireGuard     = false
-	wgSuffix          = ""
+	dryRun          = false
+	network         = "mainnet"
+	contractAddress = ""
+	oasisClient     *OasisClient
+	wantWireGuard   = false
+	wgSuffix        = ""
 )
 
 func init() {
@@ -208,12 +210,46 @@ const jsondata = `
 ]
 `
 
-// getPropertyValues fetches multiple property values from the smart contract using Oasis SDK.
+const wgKeyABI = `
+[
+	{
+		"type": "function",
+		"name" : "getDevicePublicKey",
+		"stateMutability": "view",
+		"inputs": [
+			{"name": "_deviceId", "type": "address"}
+		],
+		"outputs": [
+			{"name": "publicKey", "type": "bytes32"}
+		]
+	},
+	{
+		"type": "function",
+		"name" : "getDevicePrivateKey",
+		"stateMutability": "view",
+		"inputs": [
+			{"name": "_deviceId", "type": "address"}
+		],
+		"outputs": [
+			{"name": "privateKey", "type": "bytes32"}
+		]
+		}
+	]
+`
+
 func getPropertyValues(deviceAddr util.Address, keys []string) (map[string]string, error) {
 	if oasisClient == nil {
 		return nil, fmt.Errorf("oasis client not initialized")
 	}
 	return oasisClient.GetPropertyValues(deviceAddr, keys)
+}
+
+func contractAddressToBytes(contractAddr string) ([]byte, error) {
+	decoded, err := hex.DecodeString(strings.TrimPrefix(strings.TrimSpace(contractAddr), "0x"))
+	if err != nil || len(decoded) != 20 {
+		return nil, fmt.Errorf("invalid contract address: %s", contractAddr)
+	}
+	return decoded, nil
 }
 
 // ConfidentialEVMSimulateCall performs a confidential read-only EVM call on Sapphire.
@@ -224,8 +260,20 @@ func (c *OasisClient) ConfidentialEVMSimulateCall(ctx context.Context, contractA
 	return c.evm.SimulateCall(ctx, client.RoundLatest, evmZeroGasPrice, oasisSimulateGasLimit, caller, contractAddr, evmZeroValue, callData)
 }
 
-// GetPropertyValues fetches property values using the Oasis SDK.
+func getPropertyValuesAt(deviceAddr util.Address, contractAddr string, keys []string) (map[string]string, error) {
+	if oasisClient == nil {
+		return nil, fmt.Errorf("oasis client not initialized")
+	}
+	return oasisClient.GetPropertyValuesAt(deviceAddr, contractAddr, keys)
+}
+
+// GetPropertyValues fetches property values using the Oasis SDK for the active contract.
 func (c *OasisClient) GetPropertyValues(deviceAddr util.Address, keys []string) (map[string]string, error) {
+	return c.GetPropertyValuesAt(deviceAddr, contractAddress, keys)
+}
+
+// GetPropertyValuesAt fetches property values using the Oasis SDK for a specific contract.
+func (c *OasisClient) GetPropertyValuesAt(deviceAddr util.Address, contractAddr string, keys []string) (map[string]string, error) {
 	abi, err := abi.JSON(strings.NewReader(jsondata))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse ABI: %v", err)
@@ -238,6 +286,11 @@ func (c *OasisClient) GetPropertyValues(deviceAddr util.Address, keys []string) 
 
 	if len(keys) == 0 {
 		return map[string]string{}, nil
+	}
+
+	contractAddrBytes, err := contractAddressToBytes(contractAddr)
+	if err != nil {
+		return nil, err
 	}
 
 	results := make(map[string]string, len(keys))
@@ -255,6 +308,8 @@ func (c *OasisClient) GetPropertyValues(deviceAddr util.Address, keys []string) 
 		}
 		if len(result) == 0 {
 			results[key] = ""
+			// Property decoded to empty (0 bytes) - this will only happen if the perimeter is invalid
+			errs = append(errs, fmt.Sprintf("%s: invalid perimeter - empty decoded result", key))
 			continue
 		}
 		var value string
@@ -262,7 +317,7 @@ func (c *OasisClient) GetPropertyValues(deviceAddr util.Address, keys []string) 
 			errs = append(errs, fmt.Sprintf("%s: failed to unpack result: %v", key, err))
 			continue
 		}
-		results[key] = value
+		results[key] = strings.TrimSpace(value)
 	}
 
 	if len(errs) > 0 {
@@ -272,16 +327,72 @@ func (c *OasisClient) GetPropertyValues(deviceAddr util.Address, keys []string) 
 	return results, nil
 }
 
-// fetchContractProps retrieves all contract-backed configuration in one batch call
-func fetchContractProps(deviceAddr util.Address) (map[string]string, error) {
+func getDevicePublicKeyAt(deviceAddr util.Address, contractAddr string) (string, error) {
+	return getDeviceKeyAt(deviceAddr, contractAddr, "getDevicePublicKey", nil)
+}
+
+func getDeviceKeyAt(deviceAddr util.Address, contractAddr string, methodName string, from *util.Address) (string, error) {
+	if oasisClient == nil {
+		return "", fmt.Errorf("oasis client not initialized")
+	}
+
+	parsedABI, err := abi.JSON(strings.NewReader(wgKeyABI))
+	if err != nil {
+		return "", fmt.Errorf("failed to parse device key ABI: %v", err)
+	}
+	method, ok := parsedABI.Methods[methodName]
+	if !ok {
+		return "", fmt.Errorf("device key method not found: %s", methodName)
+	}
+	packedData, err := method.Inputs.Pack(deviceAddr)
+	if err != nil {
+		return "", fmt.Errorf("failed to pack inputs for %s: %v", methodName, err)
+	}
+	callData := append(method.ID, packedData...)
+
+	contractAddrBytes, err := contractAddressToBytes(contractAddr)
+	if err != nil {
+		return "", err
+	}
+
+	caller := evmZeroAddress
+	if from != nil {
+		caller = from[:]
+	}
+
+	result, err := oasisClient.ConfidentialEVMSimulateCall(oasisClient.ctx, contractAddrBytes, caller, callData)
+	if err != nil {
+		return "", fmt.Errorf("failed to call device key method: %v", err)
+	}
+
+	var decoded [32]byte
+	if err := method.Outputs.Unpack(&decoded, result); err != nil {
+		return "", fmt.Errorf("failed to unpack device key response: %v", err)
+	}
+
+	empty := true
+	for _, b := range decoded {
+		if b != 0 {
+			empty = false
+			break
+		}
+	}
+	if empty {
+		return "", fmt.Errorf("device key missing for %s", deviceAddr.HexString())
+	}
+	return base64.StdEncoding.EncodeToString(decoded[:]), nil
+}
+
+// fetchContractPropsFromContract retrieves all contract-backed configuration in one batch call
+func fetchContractPropsFromContract(deviceAddr util.Address, contractAddr string) (map[string]string, error) {
 	keys := []string{"public", "private", "protected", "wireguard", "socksd", "bind", "debug", "diodeaddrs", "fleet", "extra_config"}
-	logJoinContractFetch(deviceAddr, keys)
-	props, err := getPropertyValues(deviceAddr, keys)
-	logJoinContractFetchResult(deviceAddr, keys, props, err)
+	logJoinContractFetch(deviceAddr, contractAddr, keys)
+	props, err := getPropertyValuesAt(deviceAddr, contractAddr, keys)
+	logJoinContractFetchResult(deviceAddr, contractAddr, keys, props, err)
 	return props, err
 }
 
-func logJoinContractFetch(deviceAddr util.Address, keys []string) {
+func logJoinContractFetch(deviceAddr util.Address, contractAddr string, keys []string) {
 	cfg := config.AppConfig
 	if cfg == nil || cfg.Logger == nil {
 		return
@@ -292,16 +403,16 @@ func logJoinContractFetch(deviceAddr util.Address, keys []string) {
 		networkName = oasisClient.networkName
 		rpcEndpoint = oasisClient.rpcEndpoint
 	}
-	cfg.Logger.Debug("Fetching join contract (device=%s, contract=%s, network=%s, rpc=%s, keys=%v)", deviceAddr.HexString(), contractAddress, networkName, rpcEndpoint, keys)
+	cfg.Logger.Debug("Fetching join contract (device=%s, contract=%s, network=%s, rpc=%s, keys=%v)", deviceAddr.HexString(), contractAddr, networkName, rpcEndpoint, keys)
 }
 
-func logJoinContractFetchResult(deviceAddr util.Address, keys []string, props map[string]string, err error) {
+func logJoinContractFetchResult(deviceAddr util.Address, contractAddr string, keys []string, props map[string]string, err error) {
 	cfg := config.AppConfig
 	if cfg == nil || cfg.Logger == nil {
 		return
 	}
 	if err != nil {
-		cfg.Logger.Debug("Join contract fetch failed (device=%s): %v", deviceAddr.HexString(), err)
+		cfg.Logger.Debug("Join contract fetch failed (device=%s, contract=%s): %v", deviceAddr.HexString(), contractAddr, err)
 		return
 	}
 	summary := make([]string, 0, len(keys))
@@ -316,7 +427,76 @@ func logJoinContractFetchResult(deviceAddr util.Address, keys []string, props ma
 		}
 		summary = append(summary, fmt.Sprintf("%s(%s)", key, state))
 	}
-	cfg.Logger.Debug("Join contract fetch success (device=%s): %s", deviceAddr.HexString(), strings.Join(summary, ", "))
+	cfg.Logger.Debug("Join contract fetch success (device=%s, contract=%s): %s", deviceAddr.HexString(), contractAddr, strings.Join(summary, ", "))
+}
+
+const maxProxyToDepth = 16
+
+func buildProxyToChain(deviceAddr util.Address, startContractAddr string) (chain []string, err error) {
+	cfg := config.AppConfig
+	chain = []string{startContractAddr}
+
+	seen := map[string]bool{strings.ToLower(startContractAddr): true}
+	current := startContractAddr
+
+	for depth := 0; depth < maxProxyToDepth; depth++ {
+		props, fetchErr := getPropertyValuesAt(deviceAddr, current, []string{"proxy_to"})
+		if fetchErr != nil && len(props) == 0 {
+			// Can't even read proxy_to; stop at the last known good contract.
+			return chain, fetchErr
+		}
+
+		proxyTo := ""
+		if props != nil {
+			proxyTo = props["proxy_to"]
+		}
+		if proxyTo == "" {
+			return chain, nil
+		}
+		if proxyTo == "" || strings.EqualFold(proxyTo, current) {
+			return chain, nil
+		}
+
+		if !util.IsAddress([]byte(proxyTo)) {
+			if cfg != nil && cfg.Logger != nil {
+				cfg.Logger.Warn("Ignoring invalid proxy_to address '%s' on contract %s", proxyTo, current)
+			}
+			return chain, nil
+		}
+
+		key := strings.ToLower(proxyTo)
+		if seen[key] {
+			if cfg != nil && cfg.Logger != nil {
+				cfg.Logger.Warn("Detected proxy_to loop at %s; stopping resolution", proxyTo)
+			}
+			return chain, nil
+		}
+		seen[key] = true
+		chain = append(chain, proxyTo)
+		current = proxyTo
+	}
+
+	if cfg != nil && cfg.Logger != nil {
+		cfg.Logger.Warn("proxy_to chain exceeded max depth (%d); stopping at %s", maxProxyToDepth, current)
+	}
+	return chain, err
+}
+
+func selectContractPropsWithFallback(deviceAddr util.Address, chain []string) (contractAddr string, props map[string]string, err error) {
+	if len(chain) == 0 {
+		return "", nil, fmt.Errorf("empty proxy_to chain")
+	}
+
+	var lastErr error
+	for i := len(chain) - 1; i >= 0; i-- {
+		addr := chain[i]
+		props, err = fetchContractPropsFromContract(deviceAddr, addr)
+		if err == nil || len(props) > 0 {
+			return addr, props, err
+		}
+		lastErr = err
+	}
+	return chain[0], nil, lastErr
 }
 
 // updatePortsFromContract uses the provided property map to extract port configurations,
@@ -472,6 +652,13 @@ func intFromValue(val interface{}) (int, error) {
 	}
 }
 
+// getDefaultRemoteRPCAddrs returns the default relay list
+func getDefaultRemoteRPCAddrs() config.StringValues {
+	defaultAddrs := make([]string, len(bootDiodeAddrs))
+	copy(defaultAddrs, bootDiodeAddrs[:])
+	return config.StringValues(defaultAddrs)
+}
+
 func applyDiodeAddrs(cfg *config.Config, addrs []string) {
 	normalized := make([]string, 0, len(addrs))
 	for _, addr := range addrs {
@@ -491,11 +678,13 @@ func applyDiodeAddrs(cfg *config.Config, addrs []string) {
 			normalized = append(normalized, addr)
 		}
 	}
-	// If normalized is empty, clear RemoteRPCAddrs to signal no contract addresses
-	// This allows AddNewAddresses to distinguish between "no contract addresses"
-	// and "contract addresses not yet processed"
+	// If normalized is empty (as it could be if a "" or " " value is provided),
+	// we need to use defaults so we don't drain the connection pool.
+	// NOTE: there may be some esoteric use case where the perimeter wants to clear the list
+	// and this will not allow that to happen.  But, we will have to specify that the right
+	// path for that is to set bogus values, not empty/malformed values.
 	if len(normalized) == 0 {
-		cfg.RemoteRPCAddrs = config.StringValues{}
+		cfg.RemoteRPCAddrs = getDefaultRemoteRPCAddrs()
 		return
 	}
 	mrand.Shuffle(len(normalized), func(i, j int) {
@@ -721,6 +910,12 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 	oldLogDatetime := cfg.LogDateTime
 	oldLogFilePath := cfg.LogFilePath
 
+	// If diodeaddrs is not in the perimeter at all, re-apply default RPCs so refill has candidates.
+	// Note: this shouldn't really happen in practice but we may change how the keys are seeded in the future.
+	if _, hasDiodeAddrs := props["diodeaddrs"]; !hasDiodeAddrs {
+		cfg.RemoteRPCAddrs = getDefaultRemoteRPCAddrs()
+	}
+
 	for key, val := range props {
 		if key == "extra_config" {
 			continue
@@ -750,10 +945,12 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 		}
 
 		// Special handling for diodeaddrs: an empty diodeaddrs value in the control plane
-		// should clear all existing addresses derived from the contract so that
-		// removed addresses are reflected in the running client.
+		// should set defaults so we don't drain the connection pool.  Instead of just ignoring
+		// the empty value, we need to proactively set defaults because this commonly happens
+		// if a perimeter diodeaddrs value was initially set, and then the value was cleared/unset.
+		// The intent of an unset diodeaddrs is to return to using defaults.
 		if key == "diodeaddrs" && trimmed == "" {
-			cfg.RemoteRPCAddrs = config.StringValues{}
+			cfg.RemoteRPCAddrs = getDefaultRemoteRPCAddrs()
 			continue
 		}
 
@@ -899,9 +1096,24 @@ var lastPublicPorts []string
 var lastPrivatePorts []string
 var lastProtectedPorts []string
 var lastWGConfigHash string
+var lastWGPublicKey string
 var lastBindSignature string
 var lastAppliedBindSignature string
 var socksServerStarted bool
+var lastEffectiveContract string
+var lastProxyToChain string
+var lastContractProps map[string]string // Cache for last fetched contract properties (used by API server)
+var lastContractPropsMutex sync.RWMutex // Protects lastContractProps
+
+// GetContractAddress returns the current contract/perimeter address
+func GetContractAddress() string {
+	return contractAddress
+}
+
+// GetEffectiveContractAddress returns the effective contract address
+func GetEffectiveContractAddress() string {
+	return lastEffectiveContract
+}
 
 // wgBasepoint is the X25519 basepoint per RFC 7748
 var wgBasepoint = [32]byte{9}
@@ -947,6 +1159,56 @@ func wgConfigDirectory() (string, error) {
 		// Fallback to current directory
 		return ".", nil
 	}
+}
+
+// wgUserConfigDirectory returns a per-user WireGuard config directory.
+func wgUserConfigDirectory() (string, error) {
+	base, err := os.UserConfigDir()
+	if err != nil {
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			return "", err
+		}
+		return filepath.Join(home, ".config", "diode", "wireguard"), nil
+	}
+	return filepath.Join(base, "diode", "wireguard"), nil
+}
+
+func canWriteDir(dir string) bool {
+	f, err := os.CreateTemp(dir, "diode-wg-*")
+	if err != nil {
+		return false
+	}
+	name := f.Name()
+	_ = f.Close()
+	_ = os.Remove(name)
+	return true
+}
+
+func resolveWGDirectory() (string, bool, error) {
+	defaultDir, err := wgConfigDirectory()
+	if err == nil {
+		if err := ensureDir(defaultDir); err == nil && canWriteDir(defaultDir) {
+			return defaultDir, false, nil
+		}
+	}
+	userDir, userErr := wgUserConfigDirectory()
+	if userErr != nil {
+		if err != nil {
+			return "", false, err
+		}
+		return "", false, userErr
+	}
+	if err := ensureDir(userDir); err != nil {
+		return "", false, err
+	}
+	if !canWriteDir(userDir) {
+		if err != nil {
+			return "", false, err
+		}
+		return "", false, fmt.Errorf("wireguard config directory not writable: %s", userDir)
+	}
+	return userDir, true, nil
 }
 
 // networkSuffix maps our network flag to a suffix
@@ -1059,46 +1321,289 @@ func normalizeWireGuardConfig(cfg string) string {
 	return strings.TrimSpace(s)
 }
 
-// injectPrivateKeyIntoConfig ensures the [Interface] section contains PrivateKey
-func injectPrivateKeyIntoConfig(cfg string, privB64 string) (string, error) {
-	// Normalize config first to handle single-line or minified inputs
+func isWGAutoValue(value string) bool {
+	return strings.EqualFold(strings.TrimSpace(value), "auto")
+}
+
+type wgPeerState struct {
+	publicKeyLineIdx int
+	publicKey        string
+	publicKeyAuto    bool
+	endpointLineIdx  int
+	endpoint         string
+	endpointIsDiode  bool
+	endpointPort     int
+	deviceID         util.Address
+	deviceIDSet      bool
+	peerIPv4         net.IP
+}
+
+func parseDiodeEndpoint(client *rpc.Client, value string) (util.Address, int, bool, error) {
+	var addr util.Address
+	trimmed := strings.TrimSpace(value)
+	if !strings.HasPrefix(strings.ToLower(trimmed), "diode://") {
+		return addr, 0, false, nil
+	}
+	rest := strings.TrimSpace(trimmed[len("diode://"):])
+	if rest == "" {
+		return addr, 0, true, fmt.Errorf("empty diode endpoint")
+	}
+	host := rest
+	port := 0
+	if idx := strings.LastIndex(rest, ":"); idx != -1 {
+		host = strings.TrimSpace(rest[:idx])
+		portStr := strings.TrimSpace(rest[idx+1:])
+		if portStr != "" {
+			p, err := strconv.Atoi(portStr)
+			if err != nil || !util.IsPort(p) {
+				return addr, 0, true, fmt.Errorf("invalid diode endpoint port: %s", portStr)
+			}
+			port = p
+		}
+	}
+	if host == "" {
+		return addr, 0, true, fmt.Errorf("missing diode endpoint address")
+	}
+	decoded, err := util.DecodeAddress(host)
+	if err == nil {
+		return decoded, port, true, nil
+	}
+	if client == nil {
+		return addr, 0, true, fmt.Errorf("invalid diode endpoint address: %s", host)
+	}
+	addrs, resolveErr := client.ResolveBNS(host)
+	if resolveErr != nil || len(addrs) == 0 {
+		if resolveErr != nil {
+			return addr, 0, true, fmt.Errorf("failed to resolve diode endpoint: %v", resolveErr)
+		}
+		return addr, 0, true, fmt.Errorf("failed to resolve diode endpoint: %s", host)
+	}
+	return addrs[0], port, true, nil
+}
+
+func processWireGuardConfig(client *rpc.Client, deviceAddr util.Address, contractAddr string, cfg string, keyPath string) (string, []wgDiodePeer, string, error) {
 	cfg = normalizeWireGuardConfig(cfg)
 	lines := strings.Split(cfg, "\n")
 	var out []string
-	inInterface := false
-	inserted := false
-	for i := 0; i < len(lines); i++ {
-		line := lines[i]
+	var peers []wgDiodePeer
+	var listenPort int
+	var privLineIdx = -1
+	var privValue string
+	var privAuto bool
+	var privPostUp bool
+	var interfaceSeen bool
+	var interfaceInsertIdx = -1
+	var currentPeer *wgPeerState
+	publicKeyCache := make(map[util.Address]string)
+	var postUpSeen bool
+	var postUpValue string
+
+	resolvePeerPublicKey := func(peer wgPeerState) (string, error) {
+		if cached, ok := publicKeyCache[peer.deviceID]; ok {
+			return cached, nil
+		}
+		pub, err := getDevicePublicKeyAt(peer.deviceID, contractAddr)
+		if err != nil {
+			return "", err
+		}
+		publicKeyCache[peer.deviceID] = pub
+		return pub, nil
+	}
+
+	finalizePeer := func(peer *wgPeerState) error {
+		if peer == nil {
+			return nil
+		}
+		if peer.publicKeyAuto {
+			if !peer.deviceIDSet {
+				return fmt.Errorf("peer public key set to auto but device id missing")
+			}
+			pub, err := resolvePeerPublicKey(*peer)
+			if err != nil {
+				return fmt.Errorf("failed to resolve peer public key: %w", err)
+			}
+			peer.publicKey = pub
+			if peer.publicKeyLineIdx >= 0 {
+				out[peer.publicKeyLineIdx] = fmt.Sprintf("PublicKey = %s", pub)
+			}
+		}
+
+		port := peer.endpointPort
+		if peer.endpointIsDiode && port == 0 {
+			port = listenPort
+		}
+		if peer.endpointIsDiode && port > 0 && peer.endpointLineIdx >= 0 {
+			out[peer.endpointLineIdx] = fmt.Sprintf("Endpoint = %s", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
+		}
+		if peer.deviceIDSet && peer.publicKey != "" && port > 0 {
+			peers = append(peers, wgDiodePeer{
+				PublicKey: peer.publicKey,
+				DeviceID:  peer.deviceID,
+				Port:      port,
+				PeerIPv4:  peer.peerIPv4,
+			})
+		}
+		return nil
+	}
+
+	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
-			// entering a new section
-			if inInterface && !inserted {
-				out = append(out, fmt.Sprintf("PrivateKey = %s", privB64))
-				inserted = true
+			if currentPeer != nil {
+				if err := finalizePeer(currentPeer); err != nil {
+					return "", nil, "", err
+				}
+				currentPeer = nil
 			}
-			inInterface = strings.EqualFold(trimmed, "[interface]")
+			if interfaceSeen && privLineIdx == -1 && strings.EqualFold(trimmed, "[peer]") {
+				interfaceInsertIdx = len(out)
+			}
+			if strings.EqualFold(trimmed, "[interface]") {
+				interfaceSeen = true
+			}
+			out = append(out, line)
+			if strings.EqualFold(trimmed, "[peer]") {
+				currentPeer = &wgPeerState{publicKeyLineIdx: -1, endpointLineIdx: -1}
+			}
+			continue
+		}
+
+		if currentPeer == nil && interfaceSeen {
+			key, value, ok := parseWGKeyValue(trimmed)
+			if ok && strings.EqualFold(key, "listenport") {
+				if port, err := strconv.Atoi(value); err == nil && util.IsPort(port) {
+					listenPort = port
+				}
+			}
+			if ok && strings.EqualFold(key, "postup") {
+				postUpSeen = true
+				postUpValue = value
+			}
+			if ok && strings.EqualFold(key, "privatekey") {
+				privValue = value
+				if strings.EqualFold(strings.TrimSpace(value), "postup") {
+					privPostUp = true
+					if privLineIdx >= 0 {
+						out[privLineIdx] = ""
+						privLineIdx = -1
+					}
+					continue
+				}
+				privLineIdx = len(out)
+				privAuto = isWGAutoValue(value)
+			}
 			out = append(out, line)
 			continue
 		}
 
-		if inInterface && strings.HasPrefix(strings.ToLower(trimmed), "privatekey") {
-			// override any provided key with ours
-			out = append(out, fmt.Sprintf("PrivateKey = %s", privB64))
-			inserted = true
-			// skip to next line
+		if currentPeer != nil {
+			key, value, ok := parseWGKeyValue(trimmed)
+			if !ok {
+				out = append(out, line)
+				continue
+			}
+			switch strings.ToLower(key) {
+			case "publickey":
+				currentPeer.publicKeyLineIdx = len(out)
+				currentPeer.publicKey = value
+				currentPeer.publicKeyAuto = isWGAutoValue(value)
+				out = append(out, line)
+			case "endpoint":
+				currentPeer.endpointLineIdx = len(out)
+				currentPeer.endpoint = value
+				addr, port, isDiode, err := parseDiodeEndpoint(client, value)
+				if err != nil {
+					return "", nil, "", err
+				}
+				if isDiode {
+					currentPeer.endpointIsDiode = true
+					currentPeer.endpointPort = port
+					currentPeer.deviceID = addr
+					currentPeer.deviceIDSet = true
+				} else {
+					currentPeer.endpointPort = parseWGEndpointPort(value)
+				}
+				out = append(out, line)
+			case "diodedevice":
+				addr, err := util.DecodeAddress(value)
+				if err != nil {
+					return "", nil, "", err
+				}
+				currentPeer.deviceID = addr
+				currentPeer.deviceIDSet = true
+				out = append(out, line)
+			case "allowedips":
+				currentPeer.peerIPv4 = firstIPv4FromList(value)
+				out = append(out, line)
+			default:
+				out = append(out, line)
+			}
 			continue
 		}
 
 		out = append(out, line)
 	}
-	if inInterface && !inserted {
-		out = append(out, fmt.Sprintf("PrivateKey = %s", privB64))
-		inserted = true
+
+	if currentPeer != nil {
+		if err := finalizePeer(currentPeer); err != nil {
+			return "", nil, "", err
+		}
 	}
-	if !inserted {
-		return "", errors.New("wireguard config missing [Interface] section")
+	if interfaceSeen && privLineIdx == -1 && !privPostUp {
+		interfaceInsertIdx = len(out)
 	}
-	return strings.Join(out, "\n"), nil
+	if !interfaceSeen {
+		return "", nil, "", errors.New("wireguard config missing [Interface] section")
+	}
+	if privPostUp {
+		if !postUpSeen || strings.TrimSpace(postUpValue) == "" {
+			return "", nil, "", errors.New("wireguard config sets PrivateKey=PostUp but no PostUp command provided")
+		}
+		return strings.Join(out, "\n"), peers, "", nil
+	}
+
+	var privB64 string
+	var pubB64 string
+	var err error
+	switch {
+	case privLineIdx >= 0 && privAuto:
+		// TODO: Fetch device private key from contract when device-only access is enabled.
+		_, pubB64, err = readOrCreateWGPrivateKey(keyPath)
+		if err != nil {
+			return "", nil, "", err
+		}
+		// Quote path for PostUp shell so paths with spaces (e.g. "Application Support") work
+		out[privLineIdx] = fmt.Sprintf("PostUp = wg set %%i private-key %s", fixupOSPath(keyPath))
+	case privLineIdx >= 0 && !privAuto && strings.TrimSpace(privValue) != "":
+		privB64 = strings.TrimSpace(privValue)
+		var err error
+		pubB64, err = deriveWGPublicKey(privB64)
+		if err != nil {
+			return "", nil, "", err
+		}
+		out[privLineIdx] = fmt.Sprintf("PrivateKey = %s", privB64)
+	default:
+		privB64, pubB64, err = readOrCreateWGPrivateKey(keyPath)
+		if err != nil {
+			return "", nil, "", err
+		}
+		if interfaceInsertIdx >= 0 {
+			out = append(out[:interfaceInsertIdx], append([]string{fmt.Sprintf("PrivateKey = %s", privB64)}, out[interfaceInsertIdx:]...)...)
+		}
+	}
+
+	return strings.Join(out, "\n"), peers, pubB64, nil
+}
+
+// fixupOSPath makes paths with spaces safe for use on the various OSes
+// On Unix use single quotes (sh); on Windows use double quotes (cmd.exe).
+func fixupOSPath(path string) string {
+	if runtime.GOOS == "windows" {
+		// cmd.exe: only double quotes quote; escape " as ""
+		return `"` + strings.ReplaceAll(path, `"`, `""`) + `"`
+	}
+	// sh/bash: single quotes; escape ' as '\''
+	return "'" + strings.ReplaceAll(path, "'", "'\\''") + "'"
 }
 
 func enableWGInterface(cfgPath, ifaceName string, logger *config.Logger) error {
@@ -1119,8 +1624,684 @@ func enableWGInterface(cfgPath, ifaceName string, logger *config.Logger) error {
 	return nil
 }
 
+type wgDiodePeer struct {
+	PublicKey string
+	DeviceID  util.Address
+	Port      int
+	PeerIPv4  net.IP
+}
+
+func parseWGKeyValue(line string) (key, value string, ok bool) {
+	if strings.HasPrefix(line, "#") || strings.HasPrefix(line, ";") {
+		trimmed := strings.TrimSpace(line[1:])
+		lower := strings.ToLower(trimmed)
+		if !strings.HasPrefix(lower, "diodedevice") {
+			return "", "", false
+		}
+		line = trimmed
+	}
+	parts := strings.SplitN(line, "=", 2)
+	if len(parts) != 2 {
+		return "", "", false
+	}
+	key = strings.TrimSpace(parts[0])
+	value = strings.TrimSpace(parts[1])
+	return key, value, true
+}
+
+func parseWGEndpointPort(value string) int {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return 0
+	}
+	if _, portStr, err := net.SplitHostPort(value); err == nil {
+		if port, err := strconv.Atoi(portStr); err == nil && util.IsPort(port) {
+			return port
+		}
+	}
+	if idx := strings.LastIndex(value, ":"); idx != -1 {
+		portStr := strings.TrimSpace(value[idx+1:])
+		if port, err := strconv.Atoi(portStr); err == nil && util.IsPort(port) {
+			return port
+		}
+	}
+	return 0
+}
+
+func firstIPv4FromList(value string) net.IP {
+	for _, item := range strings.Split(value, ",") {
+		item = strings.TrimSpace(item)
+		if item == "" {
+			continue
+		}
+		if ip := parseIPv4FromCIDR(item); ip != nil {
+			return ip
+		}
+		if ip := net.ParseIP(item); ip != nil && ip.To4() != nil {
+			return ip.To4()
+		}
+	}
+	return nil
+}
+
+func parseIPv4FromCIDR(value string) net.IP {
+	ip, _, err := net.ParseCIDR(value)
+	if err != nil {
+		return nil
+	}
+	if ip == nil {
+		return nil
+	}
+	return ip.To4()
+}
+
+const wgPortOpenTieWindow = 2 * time.Second
+
+type wgPortOpenTracker struct {
+	mu    sync.Mutex
+	peers map[string]*wgPortOpenPeerState
+
+	relayAddr map[util.Address]string
+}
+
+type wgPortOpenPeerState struct {
+	inboundPort  int
+	inboundAt    time.Time
+	outboundPort int
+	outboundAt   time.Time
+	activePort   int
+}
+
+func newWGPortOpenTracker(peers []wgDiodePeer) *wgPortOpenTracker {
+	tracker := &wgPortOpenTracker{
+		peers:     make(map[string]*wgPortOpenPeerState, len(peers)),
+		relayAddr: make(map[util.Address]string, len(peers)),
+	}
+	for _, peer := range peers {
+		tracker.peers[peer.PublicKey] = &wgPortOpenPeerState{}
+	}
+	return tracker
+}
+
+func (tracker *wgPortOpenTracker) rememberRelayAddr(device util.Address, addr string) {
+	if addr == "" {
+		return
+	}
+	tracker.mu.Lock()
+	tracker.relayAddr[device] = addr
+	tracker.mu.Unlock()
+}
+
+func (tracker *wgPortOpenTracker) relayAddrFor(device util.Address) string {
+	tracker.mu.Lock()
+	addr := tracker.relayAddr[device]
+	tracker.mu.Unlock()
+	return addr
+}
+
+func (tracker *wgPortOpenTracker) recordInbound(peer wgDiodePeer, port int) (int, bool, string) {
+	return tracker.record(peer.PublicKey, port, true)
+}
+
+func (tracker *wgPortOpenTracker) recordOutbound(peer wgDiodePeer, port int) (int, bool, string) {
+	return tracker.record(peer.PublicKey, port, false)
+}
+
+func (tracker *wgPortOpenTracker) record(key string, port int, inbound bool) (int, bool, string) {
+	if port <= 0 {
+		return 0, false, "invalid"
+	}
+	now := time.Now()
+	tracker.mu.Lock()
+	defer tracker.mu.Unlock()
+	state := tracker.peers[key]
+	if state == nil {
+		state = &wgPortOpenPeerState{}
+		tracker.peers[key] = state
+	}
+	if inbound {
+		state.inboundPort = port
+		state.inboundAt = now
+	} else {
+		state.outboundPort = port
+		state.outboundAt = now
+	}
+	selected, reason := selectWireGuardPort(state)
+	if selected == 0 {
+		return 0, false, reason
+	}
+	if selected != state.activePort {
+		state.activePort = selected
+		return selected, true, reason
+	}
+	return selected, false, reason
+}
+
+func selectWireGuardPort(state *wgPortOpenPeerState) (int, string) {
+	if state.inboundPort == 0 && state.outboundPort == 0 {
+		return 0, "none"
+	}
+	if state.inboundPort == 0 {
+		return state.outboundPort, "outbound-only"
+	}
+	if state.outboundPort == 0 {
+		return state.inboundPort, "inbound-only"
+	}
+	diff := state.inboundAt.Sub(state.outboundAt)
+	if diff < 0 {
+		diff = -diff
+	}
+	if diff <= wgPortOpenTieWindow {
+		if state.inboundPort == state.outboundPort {
+			return state.inboundPort, "tie-same"
+		}
+		if state.inboundPort < state.outboundPort {
+			return state.inboundPort, "tie-lower"
+		}
+		return state.outboundPort, "tie-lower"
+	}
+	if state.inboundAt.After(state.outboundAt) {
+		return state.inboundPort, "inbound-latest"
+	}
+	return state.outboundPort, "outbound-latest"
+}
+
+func applyWireGuardPortOpenHandler(cm *rpc.ClientManager, iface string, peers []wgDiodePeer, tracker *wgPortOpenTracker) {
+	cfg := config.AppConfig
+	peerByDevice := make(map[util.Address]wgDiodePeer, len(peers))
+	for _, peer := range peers {
+		peerByDevice[peer.DeviceID] = peer
+	}
+	cfg.Logger.Info("wireguard portopen2 handler enabled peers=%d iface=%s", len(peers), iface)
+
+	if cm == nil {
+		return
+	}
+
+	handler := func(portOpen *edge.PortOpen2) error {
+		if portOpen == nil {
+			return fmt.Errorf("nil portopen2 request")
+		}
+		cfg.Logger.Info("wireguard portopen2 inbound source=%s portName=%s physicalPort=%d flags=%s", portOpen.SourceDeviceID.HexString(), portOpen.PortName, portOpen.PhysicalPort, portOpen.Flags)
+		peer, ok := resolveWireGuardPeerForPortOpen(portOpen, peerByDevice)
+		if !ok {
+			known := make([]string, 0, len(peerByDevice))
+			for addr := range peerByDevice {
+				known = append(known, addr.HexString())
+			}
+			sort.Strings(known)
+			cfg.Logger.Warn("wireguard portopen2 no peer mapping source=%s local=%s portName=%s known=%s", portOpen.SourceDeviceID.HexString(), cfg.ClientAddr.HexString(), portOpen.PortName, strings.Join(known, ","))
+			return fmt.Errorf("no wireguard peer mapped for device %s", portOpen.SourceDeviceID.HexString())
+		}
+		if port, err := strconv.Atoi(portOpen.PortName); err == nil && port != peer.Port {
+			cfg.Logger.Warn("wireguard peer port mismatch device=%s requested=%d expected=%d", portOpen.SourceDeviceID.HexString(), port, peer.Port)
+		}
+		if portOpen.PhysicalPort <= 0 {
+			return fmt.Errorf("invalid physical port %d", portOpen.PhysicalPort)
+		}
+		relayAddr := portOpen.RelayAddr
+		if relayAddr == "" {
+			return fmt.Errorf("missing relay address for portopen2")
+		}
+		tracker.rememberRelayAddr(peer.DeviceID, relayAddr)
+		relayHost := portOpen.RelayHost
+		if relayHost == "" {
+			if host, _, err := net.SplitHostPort(relayAddr); err == nil {
+				relayHost = host
+			}
+		}
+		if relayHost == "" {
+			return fmt.Errorf("missing relay host for portopen2")
+		}
+		selectedPort, changed, reason := tracker.recordInbound(peer, portOpen.PhysicalPort)
+		if selectedPort == 0 {
+			cfg.Logger.Warn("wireguard portopen2 ignored peer=%s port=%d reason=%s", peer.PublicKey, portOpen.PhysicalPort, reason)
+			return nil
+		}
+		if !changed {
+			cfg.Logger.Info("wireguard portopen2 no change peer=%s selected=%d reason=%s", peer.PublicKey, selectedPort, reason)
+			return nil
+		}
+		if err := setWireGuardPeerEndpoint(iface, peer, relayHost, selectedPort); err != nil {
+			cfg.Logger.Warn("wireguard endpoint update failed peer=%s endpoint=%s:%d err=%v", peer.PublicKey, relayHost, selectedPort, err)
+			return err
+		}
+		cfg.Logger.Info("wireguard endpoint updated peer=%s endpoint=%s:%d reason=%s", peer.PublicKey, relayHost, selectedPort, reason)
+		logWireGuardPeerState(iface, peer, "inbound")
+		if err := pokeWireGuardPeer(peer); err != nil {
+			cfg.Logger.Warn("wireguard poke failed peer=%s err=%v", peer.PublicKey, err)
+		}
+		return nil
+	}
+
+	for _, peer := range peers {
+		if peer.Port <= 0 {
+			continue
+		}
+		cm.SetPortOpen2Handler(peer.Port, handler)
+	}
+}
+
+func resolveWireGuardPeerForPortOpen(portOpen *edge.PortOpen2, peerByDevice map[util.Address]wgDiodePeer) (wgDiodePeer, bool) {
+	if peer, ok := peerByDevice[portOpen.SourceDeviceID]; ok {
+		return peer, true
+	}
+	port, err := strconv.Atoi(portOpen.PortName)
+	if err == nil && port > 0 {
+		var match *wgDiodePeer
+		for _, candidate := range peerByDevice {
+			if candidate.Port == port {
+				if match != nil {
+					return wgDiodePeer{}, false
+				}
+				c := candidate
+				match = &c
+			}
+		}
+		if match != nil {
+			return *match, true
+		}
+	}
+	if len(peerByDevice) == 1 {
+		for _, candidate := range peerByDevice {
+			return candidate, true
+		}
+	}
+	return wgDiodePeer{}, false
+}
+
+func applyWireGuardDiodePeers(cm *rpc.ClientManager, iface string, peers []wgDiodePeer, tracker *wgPortOpenTracker) error {
+	cfg := config.AppConfig
+	if cm == nil {
+		return fmt.Errorf("missing client manager")
+	}
+	for _, peer := range peers {
+		if peer.Port <= 0 {
+			cfg.Logger.Warn("wireguard peer %s missing endpoint port", peer.PublicKey)
+			continue
+		}
+		portName := strconv.Itoa(peer.Port)
+		cfg.Logger.Info("wireguard portopen2 peer=%s device=%s port=%d", peer.PublicKey, peer.DeviceID.HexString(), peer.Port)
+		var relayClient *rpc.Client
+		relayHost := ""
+		var err error
+		relayAddr := tracker.relayAddrFor(peer.DeviceID)
+		if relayAddr == "" {
+			nodeID, resolvedAddr, resolvedHost, err := cm.ResolveRelayForDevice(peer.DeviceID)
+			if err != nil {
+				cfg.Logger.Warn("wireguard portopen2 resolve relay failed peer=%s: %v", peer.PublicKey, err)
+				continue
+			}
+			relayAddr = resolvedAddr
+			relayHost = resolvedHost
+			tracker.rememberRelayAddr(peer.DeviceID, relayAddr)
+			relayClient, err = cm.GetClientOrConnect(nodeID)
+			if err != nil {
+				cfg.Logger.Warn("wireguard portopen2 connect relay failed peer=%s relay=%s err=%v", peer.PublicKey, relayAddr, err)
+				continue
+			}
+		}
+		if relayHost == "" {
+			relayHost = relayAddr
+			if host, _, err := net.SplitHostPort(relayAddr); err == nil {
+				relayHost = host
+			}
+		}
+		if relayClient == nil {
+			relayClient = cm.GetClientByHost(relayAddr)
+			if relayClient == nil {
+				cfg.Logger.Warn("wireguard portopen2 missing relay client peer=%s relay=%s", peer.PublicKey, relayAddr)
+				continue
+			}
+		}
+		var portOpen *edge.PortOpen2
+		const maxAttempts = 3
+		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			portOpen, err = relayClient.PortOpen2(peer.DeviceID, portName, "rwu")
+			if err == nil {
+				break
+			}
+			if !isRetryablePortOpen2Error(err) || attempt == maxAttempts {
+				cfg.Logger.Warn("wireguard portopen2 failed peer=%s: %v", peer.PublicKey, err)
+				break
+			}
+			cfg.Logger.Warn("wireguard portopen2 retrying peer=%s attempt=%d err=%v", peer.PublicKey, attempt, err)
+			time.Sleep(time.Duration(attempt) * time.Second)
+		}
+		if err != nil {
+			continue
+		}
+		if portOpen == nil || !portOpen.Ok || portOpen.PhysicalPort <= 0 {
+			responseType := ""
+			var responseResult []byte
+			physicalPort := 0
+			ok := false
+			if portOpen != nil {
+				responseType = portOpen.ResponseType
+				responseResult = portOpen.ResponseResult
+				physicalPort = portOpen.PhysicalPort
+				ok = portOpen.Ok
+			}
+			cfg.Logger.Warn("wireguard portopen2 unexpected response peer=%s ok=%v port=%d type=%q result=%q result_hex=%x", peer.PublicKey, ok, physicalPort, responseType, responseResult, responseResult)
+			continue
+		}
+		selectedPort, changed, reason := tracker.recordOutbound(peer, portOpen.PhysicalPort)
+		if selectedPort == 0 {
+			cfg.Logger.Warn("wireguard portopen2 ignored peer=%s port=%d reason=%s", peer.PublicKey, portOpen.PhysicalPort, reason)
+			continue
+		}
+		if !changed {
+			cfg.Logger.Info("wireguard portopen2 no change peer=%s selected=%d reason=%s", peer.PublicKey, selectedPort, reason)
+			continue
+		}
+		if err := setWireGuardPeerEndpoint(iface, peer, relayHost, selectedPort); err != nil {
+			cfg.Logger.Warn("wireguard endpoint update failed peer=%s: %v", peer.PublicKey, err)
+			continue
+		}
+		cfg.Logger.Info("wireguard endpoint updated peer=%s endpoint=%s:%d reason=%s", peer.PublicKey, relayHost, selectedPort, reason)
+		logWireGuardPeerState(iface, peer, "outbound")
+	}
+	return nil
+}
+
+func isRetryablePortOpen2Error(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "no listener found") {
+		return true
+	}
+	if strings.Contains(msg, "timeout") {
+		return true
+	}
+	return false
+}
+
+// runCommandWithSudoFallback runs a command and, on permission failure, retries with sudo -n.
+// Uses CombinedOutput to capture both stdout and stderr.
+func runCommandWithSudoFallback(name string, args ...string) ([]byte, error) {
+	cmd := exec.Command(name, args...)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		return out, nil
+	}
+	if !isPermissionDenied(err, out) {
+		return out, err
+	}
+	if runtime.GOOS == "windows" {
+		return runCommandWithGsudoFallback(name, args, out, err)
+	}
+	return runCommandWithUnixSudoFallback(name, args, out, err)
+}
+
+func isPermissionDenied(err error, output []byte) bool {
+	lower := strings.ToLower(err.Error())
+	if strings.Contains(lower, "permission denied") || strings.Contains(lower, "operation not permitted") {
+		return true
+	}
+	if strings.Contains(lower, "access is denied") || strings.Contains(lower, "requires elevation") {
+		return true
+	}
+	outLower := strings.ToLower(string(output))
+	if strings.Contains(outLower, "permission denied") || strings.Contains(outLower, "operation not permitted") {
+		return true
+	}
+	return strings.Contains(outLower, "access is denied") || strings.Contains(outLower, "requires elevation")
+}
+
+func runCommandWithUnixSudoFallback(name string, args []string, out []byte, err error) ([]byte, error) {
+	sudoArgs := append([]string{"-n", name}, args...)
+	sudoCmd := exec.Command("sudo", sudoArgs...)
+	sudoOut, sudoErr := sudoCmd.CombinedOutput()
+	if sudoErr == nil {
+		return sudoOut, nil
+	}
+	if isSudoPasswordRequired(sudoOut, sudoErr) && isInteractiveTerminal() {
+		return runInteractiveSudo(name, args)
+	}
+	if len(sudoOut) > 0 {
+		return sudoOut, sudoErr
+	}
+	return out, err
+}
+
+func isSudoPasswordRequired(output []byte, err error) bool {
+	msg := strings.ToLower(string(output))
+	if strings.Contains(msg, "password is required") {
+		return true
+	}
+	if err != nil {
+		lower := strings.ToLower(err.Error())
+		if strings.Contains(lower, "password is required") {
+			return true
+		}
+	}
+	return false
+}
+
+func isInteractiveTerminal() bool {
+	stat, err := os.Stdin.Stat()
+	if err != nil {
+		return false
+	}
+	return (stat.Mode() & os.ModeCharDevice) != 0
+}
+
+func runInteractiveSudo(name string, args []string) ([]byte, error) {
+	sudoArgs := append([]string{name}, args...)
+	cmd := exec.Command("sudo", sudoArgs...)
+	cmd.Stdin = os.Stdin
+	var out bytes.Buffer
+	cmd.Stdout = io.MultiWriter(&out, os.Stdout)
+	cmd.Stderr = io.MultiWriter(&out, os.Stderr)
+	if err := cmd.Run(); err != nil {
+		return out.Bytes(), err
+	}
+	return out.Bytes(), nil
+}
+
+func runCommandWithGsudoFallback(name string, args []string, out []byte, err error) ([]byte, error) {
+	gsudoPath, lookupErr := exec.LookPath("gsudo")
+	if lookupErr != nil {
+		config.AppConfig.Logger.Warn("gsudo not found; run diode as admin or install gsudo to allow WireGuard updates")
+		return out, err
+	}
+	gsudoArgs := append([]string{name}, args...)
+	gsudoCmd := exec.Command(gsudoPath, gsudoArgs...)
+	gsudoOut, gsudoErr := gsudoCmd.CombinedOutput()
+	if gsudoErr == nil {
+		return gsudoOut, nil
+	}
+	if len(gsudoOut) > 0 {
+		return gsudoOut, gsudoErr
+	}
+	return out, err
+}
+
+func findWireGuardInterfaceForPeer(peer wgDiodePeer) string {
+	if runtime.GOOS != "darwin" {
+		return ""
+	}
+	// On macOS, wg-quick creates utun* interfaces, not the config name
+	// Find the utun interface that contains this peer's public key
+	out, err := runCommandWithSudoFallback("wg", "show", "interfaces")
+	if err != nil {
+		return ""
+	}
+	interfaces := strings.Fields(string(out))
+	for _, i := range interfaces {
+		if !strings.HasPrefix(i, "utun") {
+			continue
+		}
+		// Check if this interface has the peer's public key
+		checkOut, checkErr := runCommandWithSudoFallback("wg", "show", i)
+		if checkErr != nil {
+			continue
+		}
+		if !wgOutputHasPeer(string(checkOut), peer.PublicKey) {
+			continue
+		}
+		if peer.PeerIPv4 != nil && !wgOutputHasAllowedIP(string(checkOut), peer.PublicKey, peer.PeerIPv4) {
+			continue
+		}
+		return i
+	}
+	return ""
+}
+
+func wgOutputHasPeer(output string, publicKey string) bool {
+	lines := strings.Split(output, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "peer:") {
+			if strings.Contains(line, publicKey) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func wgOutputHasAllowedIP(output string, publicKey string, allowedIP net.IP) bool {
+	ipStr := allowedIP.String()
+	lines := strings.Split(output, "\n")
+	inPeer := false
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "peer:") {
+			inPeer = strings.Contains(line, publicKey)
+			continue
+		}
+		if !inPeer {
+			continue
+		}
+		if strings.HasPrefix(strings.ToLower(line), "allowed ips:") {
+			allowed := strings.TrimSpace(strings.TrimPrefix(strings.ToLower(line), "allowed ips:"))
+			for _, item := range strings.Split(allowed, ",") {
+				if strings.Contains(strings.TrimSpace(item), ipStr) {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	return false
+}
+
+func resolveWireGuardInterfaceName(iface string, peer wgDiodePeer) string {
+	if iface == "" {
+		return ""
+	}
+	actualIface := iface
+	if runtime.GOOS == "darwin" {
+		if foundIface := findWireGuardInterfaceForPeer(peer); foundIface != "" {
+			actualIface = foundIface
+		}
+	}
+	return actualIface
+}
+
+func setWireGuardPeerEndpoint(iface string, peer wgDiodePeer, host string, port int) error {
+	if iface == "" || peer.PublicKey == "" || host == "" || port <= 0 {
+		return fmt.Errorf("invalid wireguard endpoint parameters")
+	}
+	cfg := config.AppConfig
+	// On macOS, wg-quick creates a utun* interface, not the config name
+	actualIface := resolveWireGuardInterfaceName(iface, peer)
+	if actualIface == "" {
+		return fmt.Errorf("could not resolve wireguard interface")
+	}
+	if runtime.GOOS == "darwin" && actualIface != iface {
+		cfg.Logger.Info("Using WireGuard interface %s (resolved from %s)", actualIface, iface)
+	} else if runtime.GOOS == "darwin" && actualIface == iface {
+		cfg.Logger.Debug("Could not resolve WireGuard interface for peer %s, using config name %s", peer.PublicKey, iface)
+	}
+	endpoint := net.JoinHostPort(host, strconv.Itoa(port))
+	// Try wg set, and if it fails, retry with sudo
+	out, err := runCommandWithSudoFallback("wg", "set", actualIface, "peer", peer.PublicKey, "endpoint", endpoint)
+	if len(out) > 0 {
+		cfg.Logger.Info("wg set output: %s", strings.TrimSpace(string(out)))
+	}
+	if err != nil {
+		return fmt.Errorf("wg set failed: %w", err)
+	}
+	// Keepalive helps NATed peers establish handshake over the relay.
+	if _, err := runCommandWithSudoFallback("wg", "set", actualIface, "peer", peer.PublicKey, "persistent-keepalive", "25"); err != nil {
+		cfg.Logger.Debug("wg keepalive set failed peer=%s iface=%s err=%v", peer.PublicKey, actualIface, err)
+	}
+	return nil
+}
+
+func logWireGuardPeerState(iface string, peer wgDiodePeer, context string) {
+	if iface == "" || peer.PublicKey == "" {
+		return
+	}
+	actualIface := resolveWireGuardInterfaceName(iface, peer)
+	if actualIface == "" {
+		return
+	}
+	cfg := config.AppConfig
+	out, err := runCommandWithSudoFallback("wg", "show", actualIface)
+	if err != nil {
+		cfg.Logger.Debug("wg show failed peer=%s iface=%s context=%s err=%v", peer.PublicKey, actualIface, context, err)
+		return
+	}
+	lines := strings.Split(string(out), "\n")
+	inPeer := false
+	var endpoint, allowed, handshake, transfer string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "peer:") {
+			inPeer = strings.Contains(line, peer.PublicKey)
+			continue
+		}
+		if !inPeer {
+			continue
+		}
+		lower := strings.ToLower(line)
+		switch {
+		case strings.HasPrefix(lower, "endpoint:"):
+			endpoint = strings.TrimSpace(line[len("endpoint:"):])
+		case strings.HasPrefix(lower, "allowed ips:"):
+			allowed = strings.TrimSpace(line[len("allowed ips:"):])
+		case strings.HasPrefix(lower, "latest handshake:"):
+			handshake = strings.TrimSpace(line[len("latest handshake:"):])
+		case strings.HasPrefix(lower, "transfer:"):
+			transfer = strings.TrimSpace(line[len("transfer:"):])
+		}
+	}
+	if endpoint == "" && allowed == "" && handshake == "" && transfer == "" {
+		cfg.Logger.Debug("wg peer state not found peer=%s iface=%s context=%s", peer.PublicKey, actualIface, context)
+		return
+	}
+	cfg.Logger.Debug("wg peer state peer=%s iface=%s context=%s endpoint=%q allowed=%q handshake=%q transfer=%q", peer.PublicKey, actualIface, context, endpoint, allowed, handshake, transfer)
+}
+
+func pokeWireGuardPeer(peer wgDiodePeer) error {
+	if peer.PeerIPv4 == nil {
+		return fmt.Errorf("missing peer allowed ip")
+	}
+	if runtime.GOOS == "windows" {
+		return nil
+	}
+	addr := net.JoinHostPort(peer.PeerIPv4.String(), "1")
+	dialer := net.Dialer{Timeout: 2 * time.Second}
+	conn, err := dialer.Dial("udp", addr)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	if err := conn.SetWriteDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		return err
+	}
+	payload := []byte("diode-wg-init")
+	_, err = conn.Write(payload)
+	return err
+}
+
 // updateWireGuardFromContract fetches wireguard config and applies it
-func updateWireGuardFromContract(deviceAddr util.Address, props map[string]string) error {
+func updateWireGuardFromContract(client *rpc.Client, deviceAddr util.Address, contractAddr string, props map[string]string) error {
 	cfg := config.AppConfig
 	if props == nil {
 		return fmt.Errorf("missing contract properties for wireguard")
@@ -1130,22 +2311,12 @@ func updateWireGuardFromContract(deviceAddr util.Address, props map[string]strin
 		return nil
 	}
 
-	// Info output wgConf
-	// cfg.Logger.Info("Fetched WireGuard config: %s", wgConf)
-
-	// Avoid repeated work if config unchanged
-	h := sha256.Sum256([]byte(wgConf))
-	hashStr := fmt.Sprintf("%x", h[:])
-	if hashStr == lastWGConfigHash {
-		return nil
-	}
-
-	dir, err := wgConfigDirectory()
+	dir, usedFallback, err := resolveWGDirectory()
 	if err != nil {
 		return err
 	}
-	if err := ensureDir(dir); err != nil {
-		return err
+	if usedFallback {
+		cfg.Logger.Debug("WireGuard config directory fallback to %s", dir)
 	}
 
 	suffix, err := effectiveWGSuffix()
@@ -1155,25 +2326,24 @@ func updateWireGuardFromContract(deviceAddr util.Address, props map[string]strin
 	iface := fmt.Sprintf("wg-diode-%s", suffix)
 	confPath := filepath.Join(dir, fmt.Sprintf("%s.conf", iface))
 	keyPath := filepath.Join(dir, fmt.Sprintf("%s.key", iface))
-
-	// Ensure private key exists and derive pubkey
-	privB64, pubB64, err := readOrCreateWGPrivateKey(keyPath)
-	if err != nil {
-		return fmt.Errorf("failed to prepare private key: %w", err)
-	}
-
-	// Print the WireGuard public key for user information
-	cfg.PrintLabel("WireGuard Public Key", pubB64)
-
-	// Merge config with private key
-	finalConf, err := injectPrivateKeyIntoConfig(wgConf, privB64)
+	finalConf, diodePeers, pubB64, err := processWireGuardConfig(client, deviceAddr, contractAddr, wgConf, keyPath)
 	if err != nil {
 		return err
+	}
+
+	h := sha256.Sum256([]byte(finalConf))
+	hashStr := fmt.Sprintf("%x", h[:])
+	if hashStr == lastWGConfigHash {
+		return nil
 	}
 
 	// Write config file with secure permissions
 	if err := os.WriteFile(confPath, []byte(finalConf+"\n"), 0o600); err != nil {
 		return fmt.Errorf("failed to write config: %w", err)
+	}
+
+	if pubB64 != "" && pubB64 != lastWGPublicKey {
+		cfg.PrintLabel("WireGuard Public Key", pubB64)
 	}
 
 	// Attempt to enable interface (best-effort)
@@ -1188,7 +2358,18 @@ func updateWireGuardFromContract(deviceAddr util.Address, props map[string]strin
 		cfg.PrintInfo(fmt.Sprintf("WireGuard interface '%s' enabled", iface))
 	}
 
+	if client != nil && len(diodePeers) > 0 {
+		tracker := newWGPortOpenTracker(diodePeers)
+		applyWireGuardPortOpenHandler(app.clientManager, iface, diodePeers, tracker)
+		if err := applyWireGuardDiodePeers(app.clientManager, iface, diodePeers, tracker); err != nil {
+			cfg.Logger.Warn("Failed to apply WireGuard Diode peers: %v", err)
+		}
+	}
+
 	lastWGConfigHash = hashStr
+	if pubB64 != "" {
+		lastWGPublicKey = pubB64
+	}
 	return nil
 }
 
@@ -1198,12 +2379,12 @@ func updateWireGuardFromContract(deviceAddr util.Address, props map[string]strin
 func prepareWireGuardKeyOnly() error {
 	cfg := config.AppConfig
 
-	dir, err := wgConfigDirectory()
+	dir, usedFallback, err := resolveWGDirectory()
 	if err != nil {
 		return err
 	}
-	if err := ensureDir(dir); err != nil {
-		return err
+	if usedFallback {
+		cfg.Logger.Info("WireGuard config directory fallback to %s", dir)
 	}
 
 	suffix, err := effectiveWGSuffix()
@@ -1224,19 +2405,42 @@ func prepareWireGuardKeyOnly() error {
 
 // contractSync fetches contract properties once and applies them to config, ports, and wireguard
 func contractSync(cfg *config.Config) error {
-	client := app.WaitForFirstClient(true)
-	if client == nil {
-		return fmt.Errorf("could not connect to network")
+	const clientWaitTimeout = 30 * time.Second
+	client := app.WaitForFirstClientTimeout(clientWaitTimeout)
+	if client == nil && cfg.Logger != nil {
+		cfg.Logger.Info("No relay connection after %v; continuing contract sync to allow config recovery", clientWaitTimeout)
 	}
 
-	props, err := fetchContractProps(cfg.ClientAddr)
+	deviceAddr := cfg.ClientAddr
+
+	chain, proxyErr := buildProxyToChain(deviceAddr, contractAddress)
+	effectiveContractAddr, props, err := selectContractPropsWithFallback(deviceAddr, chain)
+	if proxyErr != nil && cfg.Logger != nil {
+		cfg.Logger.Debug("proxy_to resolution stopped early: %v", proxyErr)
+	}
+	if effectiveContractAddr != "" && effectiveContractAddr != lastEffectiveContract {
+		lastEffectiveContract = effectiveContractAddr
+		lastProxyToChain = strings.Join(chain, " -> ")
+		if len(chain) > 1 {
+			cfg.PrintLabel("Perimeter Proxy Chain", lastProxyToChain)
+		}
+		cfg.PrintLabel("Effective Perimeter", effectiveContractAddr)
+	}
+
+	// Cache the fetched properties for use by the API server
+	if props != nil {
+		lastContractPropsMutex.Lock()
+		lastContractProps = make(map[string]string)
+		for k, v := range props {
+			lastContractProps[k] = v
+		}
+		lastContractPropsMutex.Unlock()
+	}
+
 	if err != nil {
 		if len(props) == 0 {
-			if strings.Contains(err.Error(), "execution reverted") {
-				cfg.Logger.Warn("No contract properties found yet; will retry later: %v", err)
-			} else {
-				return err
-			}
+			// The only way this can happen is if the perimeter is invalid or if we are not a member
+			return err
 		} else {
 			cfg.Logger.Warn("Partial contract properties: %v", err)
 		}
@@ -1257,7 +2461,7 @@ func contractSync(cfg *config.Config) error {
 		return err
 	}
 
-	if err := updateWireGuardFromContract(cfg.ClientAddr, props); err != nil {
+	if err := updateWireGuardFromContract(client, cfg.ClientAddr, effectiveContractAddr, props); err != nil {
 		return err
 	}
 
@@ -1276,7 +2480,7 @@ func runContractController(cfg *config.Config) error {
 		}
 
 		if err := contractSync(cfg); err != nil {
-			cfg.Logger.Warn("Contract sync failed: %v", err)
+			cfg.Logger.Warn("Perimeter contract sync failed: %v", err)
 		}
 
 		time.Sleep(30 * time.Second)
@@ -1436,9 +2640,8 @@ func joinHandler() (err error) {
 	// If we have a valid contract address, initialize the Oasis SDK client.
 	if !contractless {
 		var err error
-		contractAddrBytes, err = hex.DecodeString(strings.TrimPrefix(contractAddress, "0x"))
-		if err != nil || len(contractAddrBytes) != 20 {
-			return fmt.Errorf("invalid contract address: %s", contractAddress)
+		if _, err = contractAddressToBytes(contractAddress); err != nil {
+			return err
 		}
 		oasisClient, err = NewOasisClient(context.Background(), network)
 		if err != nil {
@@ -1446,7 +2649,6 @@ func joinHandler() (err error) {
 		}
 		cfg.PrintLabel("Contract Address", contractAddress)
 	} else {
-		contractAddrBytes = nil
 		if wantWireGuard {
 			cfg.PrintInfo("WireGuard key-only mode (no contract address provided)")
 		} else {
@@ -1477,7 +2679,7 @@ func joinHandler() (err error) {
 
 	// Initial contract sync to apply perimeter before starting services
 	if syncErr := runContractControllerOnce(cfg); syncErr != nil {
-		cfg.Logger.Warn("Initial contract sync failed: %v", syncErr)
+		cfg.Logger.Warn("Initial perimeter contract sync failed: %v", syncErr)
 	}
 
 	// Dry run mode - just check property values once and exit

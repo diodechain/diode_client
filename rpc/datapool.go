@@ -270,14 +270,18 @@ func (p *DataPool) Unlock(name string) {
 
 // ClosePorts closes all ports belonging to the given client
 func (p *DataPool) ClosePorts(client *Client) {
+	var ports []*ConnectedPort
 	p.srv.Call(func() {
 		for k, v := range p.devices {
 			if v.client == client {
-				v.Close()
+				ports = append(ports, v)
 				delete(p.devices, k)
 			}
 		}
 	})
+	for _, port := range ports {
+		port.Close()
+	}
 }
 
 func (p *DataPool) SetCacheBNS(key string, bns []Address) {

@@ -22,16 +22,6 @@ import (
 	"github.com/gorilla/websocket"
 )
 
-// containsString checks if a slice of strings contains a specific string
-func containsString(slice []string, str string) bool {
-	for _, item := range slice {
-		if item == str {
-			return true
-		}
-	}
-	return false
-}
-
 // Config is Proxy Server configuration
 type ProxyConfig struct {
 	ProxyServerAddr    string
@@ -319,8 +309,14 @@ func (proxyServer *ProxyServer) Start() error {
 			certmagicCfg.OnDemand = &certmagic.OnDemandConfig{
 				DecisionFunc: func(name string) error {
 					dots := strings.Count(name, ".")
-					if dots > 3 || (len(rejectDomains) > 0 && containsString(rejectDomains, name)) {
+					if dots > 3 {
 						return fmt.Errorf("rejecting invalid domain %v", name)
+					}
+
+					for _, domain := range rejectDomains {
+						if strings.HasSuffix(name, domain) {
+							return fmt.Errorf("rejecting domain %v because it is in the reject list", name)
+						}
 					}
 
 					_, _, deviceID, _, err := parseHost(name)
