@@ -237,13 +237,6 @@ const wgKeyABI = `
 	]
 `
 
-func getPropertyValues(deviceAddr util.Address, keys []string) (map[string]string, error) {
-	if oasisClient == nil {
-		return nil, fmt.Errorf("oasis client not initialized")
-	}
-	return oasisClient.GetPropertyValues(deviceAddr, keys)
-}
-
 func contractAddressToBytes(contractAddr string) ([]byte, error) {
 	decoded, err := hex.DecodeString(strings.TrimPrefix(strings.TrimSpace(contractAddr), "0x"))
 	if err != nil || len(decoded) != 20 {

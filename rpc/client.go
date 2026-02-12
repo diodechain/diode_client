@@ -1361,8 +1361,7 @@ func (client *Client) ResolveBlockHash(blockNumber uint64) (blockHash []byte, er
 	if blockNumber == 0 {
 		return
 	}
-	var bq *blockquick.Window
-	bq = client.getBlockquickWindow()
+	bq := client.getBlockquickWindow()
 	var blockHeader blockquick.BlockHeader
 	if bq != nil {
 		blockHeader = bq.GetBlockHeader(blockNumber)
@@ -1624,8 +1623,7 @@ func (client *Client) doWatchLatestBlock() {
 	if client.isRebuildingBlockquick() {
 		return
 	}
-	var bq *blockquick.Window
-	bq = client.getBlockquickWindow()
+	bq := client.getBlockquickWindow()
 	if bq == nil {
 		return
 	}
