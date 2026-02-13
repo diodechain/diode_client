@@ -256,8 +256,9 @@ func (client *Client) GetDeviceKey(ref string) string {
 }
 
 func (client *Client) waitResponse(call *Call) (res interface{}, err error) {
-	defer call.Clean(CLOSED)
-	defer client.srv.Cast(func() { client.cm.RemoveCallByID(call.id) })
+	// Remove the call synchronously on exit. This avoids a race where a timed out
+	// call channel is closed before the call is removed from the manager.
+	defer client.cm.RemoveCallByID(call.id)
 	timeout := client.config.RemoteRPCTimeout
 	if timeout <= 0 {
 		timeout = client.localTimeout
@@ -706,10 +707,11 @@ func (client *Client) greet() error {
 	// In case the server does not request a ticket, we will submit one after 10 seconds
 	go func() {
 		time.Sleep(10 * time.Second)
-		s := client.s
-		if s != nil && client.getLastTicket() == nil {
-			client.SubmitTicketForUsage(big.NewInt(int64(s.TotalBytes())))
-		}
+		client.srv.Cast(func() {
+			if client.s != nil && client.getLastTicket() == nil {
+				client.SubmitTicketForUsage(big.NewInt(int64(client.s.TotalBytes())))
+			}
+		})
 	}()
 	return nil
 }
@@ -754,11 +756,14 @@ func (client *Client) SubmitTicketForUsage(minBytes *big.Int) (err error) {
 }
 
 func (client *Client) SubmitNewTicket() error {
-	current := uint64(0)
-	if client.s != nil {
-		current = client.s.TotalBytes()
-	}
-	return client.SubmitTicketForUsage(new(big.Int).SetUint64(current))
+	client.srv.Cast(func() {
+		current := uint64(0)
+		if client.s != nil {
+			current = client.s.TotalBytes()
+		}
+		_ = client.SubmitTicketForUsage(new(big.Int).SetUint64(current))
+	})
+	return nil
 }
 
 // HandleTicketRequest responds to a server ticket request.
