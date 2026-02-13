@@ -231,6 +231,12 @@ func (s *SSL) setTotalBytes(n uint64) {
 	s.totalBytes = n
 }
 
+func (s *SSL) setTotalConnections(n uint64) {
+	s.rm.Lock()
+	defer s.rm.Unlock()
+	s.totalConnections = n
+}
+
 func (s *SSL) incrementTotalBytes(n int) {
 	s.rm.Lock()
 	defer s.rm.Unlock()

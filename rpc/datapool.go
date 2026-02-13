@@ -130,11 +130,8 @@ func (p *DataPool) GetCacheOrResolveBNS(deviceName string, client *Client) ([]Ad
 	bns, cached := p.getCacheBNS(bnsKey)
 	if cached {
 		//check if cache is expired if so call updateCacheResolveBNS async. Expire duration is config.AppConfig.ResolveCacheTime
-		if !p.bnsCacheUpdatingFlag[bnsKey] && config.AppConfig.ResolveCacheTime > 0 {
-			if expireTime, ok := p.bnsCacheExpireItem[bnsKey]; ok && time.Now().After(expireTime) {
-				p.bnsCacheUpdatingFlag[bnsKey] = true
-				go p.updateCacheResolveBNS(deviceName, client)
-			}
+		if p.markCacheRefreshIfNeeded(bnsKey) {
+			go p.updateCacheResolveBNS(deviceName, client)
 		}
 		return bns, nil
 	}
@@ -154,11 +151,8 @@ func (p *DataPool) GetCacheOrResolvePeers(deviceName string, client *Client) ([]
 	peers, cached := p.getCacheBNS(peerKey)
 	if cached {
 		//check if cache is expired if so call updateCacheResolvePeers async. Expire duration is config.AppConfig.ResolveCacheTime
-		if !p.bnsCacheUpdatingFlag[peerKey] && config.AppConfig.ResolveCacheTime > 0 {
-			if expireTime, ok := p.bnsCacheExpireItem[peerKey]; ok && time.Now().After(expireTime) {
-				p.bnsCacheUpdatingFlag[peerKey] = true
-				go p.updateCacheResolvePeers(deviceName, client)
-			}
+		if p.markCacheRefreshIfNeeded(peerKey) {
+			go p.updateCacheResolvePeers(deviceName, client)
 		}
 		return peers, nil
 	}
@@ -180,11 +174,8 @@ func (p *DataPool) GetCacheOrResolveAllPeersOfAddrs(addr Address, client *Client
 	addrs := []Address{addr}
 	if cached {
 		//check if cache is expired if so call updateCacheResolveAllPeersOfAddrs async. Expire duration is config.AppConfig.ResolveCacheTime
-		if !p.bnsCacheUpdatingFlag[peerKey] && config.AppConfig.ResolveCacheTime > 0 {
-			if expireTime, ok := p.bnsCacheExpireItem[peerKey]; ok && time.Now().After(expireTime) {
-				p.bnsCacheUpdatingFlag[peerKey] = true
-				go p.updateCacheResolveAllPeersOfAddrs(addrs, client)
-			}
+		if p.markCacheRefreshIfNeeded(peerKey) {
+			go p.updateCacheResolveAllPeersOfAddrs(addrs, client)
 		}
 
 		return peers, nil
@@ -203,10 +194,7 @@ func (p *DataPool) GetCacheOrResolveAllPeersOfAddrs(addr Address, client *Client
 func (p *DataPool) updateCacheResolveAllPeersOfAddrs(members []Address, client *Client) {
 	peerKey := fmt.Sprintf("peers:%s", members[0].HexString())
 	peers := resolveAllPeersOfAddrs(members, client)
-
-	p.SetCacheBNS(peerKey, peers)
-	p.bnsCacheExpireItem[peerKey] = time.Now().Add(config.AppConfig.ResolveCacheTime)
-	p.bnsCacheUpdatingFlag[peerKey] = false
+	p.storeCacheBNS(peerKey, peers)
 }
 
 func (p *DataPool) updateCacheResolvePeers(deviceName string, client *Client) {
@@ -214,24 +202,22 @@ func (p *DataPool) updateCacheResolvePeers(deviceName string, client *Client) {
 	var addr []Address
 	bnsResult, err := p.GetCacheOrResolveBNS(deviceName, client)
 	if err != nil {
+		p.setCacheUpdating(peerKey, false)
 		return
 	}
 
 	addr = resolveAllPeersOfAddrs(bnsResult, client)
-
-	p.SetCacheBNS(peerKey, addr)
-	p.bnsCacheExpireItem[peerKey] = time.Now().Add(config.AppConfig.ResolveCacheTime)
-	p.bnsCacheUpdatingFlag[peerKey] = false
+	p.storeCacheBNS(peerKey, addr)
 }
 
 func (p *DataPool) updateCacheResolveBNS(deviceName string, client *Client) {
 	bnsKey := fmt.Sprintf("bns:%s", deviceName)
 	bns, err := client.ResolveBNS(deviceName)
 	if err == nil {
-		p.SetCacheBNS(bnsKey, bns)
-		p.bnsCacheExpireItem[bnsKey] = time.Now().Add(config.AppConfig.ResolveCacheTime)
+		p.storeCacheBNS(bnsKey, bns)
+		return
 	}
-	p.bnsCacheUpdatingFlag[bnsKey] = false
+	p.setCacheUpdating(bnsKey, false)
 }
 
 func resolveAllPeersOfAddrs(members []Address, client *Client) (peers []Address) {
@@ -305,13 +291,45 @@ func (p *DataPool) ClosePorts(client *Client) {
 }
 
 func (p *DataPool) SetCacheBNS(key string, bns []Address) {
-	p.srv.Cast(func() {
+	p.srv.Call(func() {
 		p.bnsCache.Set(key, bns, cache.DefaultExpiration)
 	})
 }
+
 func (p *DataPool) DeleteCacheBNS(key string) {
-	p.srv.Cast(func() {
+	p.srv.Call(func() {
 		p.bnsCache.Delete(key)
+	})
+}
+
+func (p *DataPool) markCacheRefreshIfNeeded(key string) (shouldRefresh bool) {
+	p.srv.Call(func() {
+		if config.AppConfig.ResolveCacheTime <= 0 || p.bnsCacheUpdatingFlag[key] {
+			return
+		}
+		if expireTime, ok := p.bnsCacheExpireItem[key]; ok && time.Now().After(expireTime) {
+			p.bnsCacheUpdatingFlag[key] = true
+			shouldRefresh = true
+		}
+	})
+	return
+}
+
+func (p *DataPool) setCacheUpdating(key string, updating bool) {
+	p.srv.Call(func() {
+		p.bnsCacheUpdatingFlag[key] = updating
+	})
+}
+
+func (p *DataPool) storeCacheBNS(key string, bns []Address) {
+	p.srv.Call(func() {
+		p.bnsCache.Set(key, bns, cache.DefaultExpiration)
+		if config.AppConfig.ResolveCacheTime > 0 {
+			p.bnsCacheExpireItem[key] = time.Now().Add(config.AppConfig.ResolveCacheTime)
+		} else {
+			delete(p.bnsCacheExpireItem, key)
+		}
+		p.bnsCacheUpdatingFlag[key] = false
 	})
 }
 
