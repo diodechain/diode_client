@@ -127,6 +127,7 @@ func (prv *PrivateKey) GenerateShared(pub *PublicKey, skLen, macLen int) (sk []b
 		return nil, ErrSharedKeyTooBig
 	}
 
+	//lint:ignore SA1019 secp256k1 ECDH still relies on curve ScalarMult in this implementation
 	x, _ := pub.Curve.ScalarMult(pub.X, pub.Y, prv.D.Bytes())
 	if x == nil {
 		return nil, ErrSharedKeyIsPointAtInfinity
@@ -337,6 +338,7 @@ func (prv *PrivateKey) Decrypt(c, s1, s2 []byte) (m []byte, err error) {
 		err = ErrInvalidPublicKey
 		return
 	}
+	//lint:ignore SA1019 secp256k1 curve validation uses IsOnCurve and cannot use crypto/ecdh directly
 	if !R.Curve.IsOnCurve(R.X, R.Y) {
 		err = ErrInvalidCurve
 		return
