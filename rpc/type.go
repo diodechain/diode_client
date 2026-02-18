@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/diodechain/diode_client/blockquick"
 	"github.com/diodechain/diode_client/crypto"
 	"github.com/diodechain/diode_client/db"
 	"github.com/diodechain/diode_client/edge"
@@ -111,7 +112,8 @@ func WindowSize() int {
 
 // LastValid returns the last valid block number and block header
 func (client *Client) LastValid() (uint64, crypto.Sha3) {
-	bq := client.getBlockquickWindow()
+	var bq *blockquick.Window
+	client.callTimeout(func() { bq = client.bq })
 	if bq == nil {
 		return restoreLastValid()
 	}

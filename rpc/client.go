@@ -75,7 +75,6 @@ type Client struct {
 
 	closed           uint32
 	closing          uint32 // set before Close() callback runs; allows GetNearestClient to exclude client earlier
-	stateMu          sync.RWMutex
 	srv              *genserver.GenServer
 	timer            *Timer
 	portOpen2Handler atomic.Value
@@ -140,37 +139,6 @@ func (client *Client) isClientClosed() bool {
 
 func (client *Client) setClientClosed() {
 	atomic.StoreUint32(&client.closed, 1)
-}
-
-func (client *Client) getBlockquickWindow() *blockquick.Window {
-	client.stateMu.RLock()
-	defer client.stateMu.RUnlock()
-	return client.bq
-}
-
-func (client *Client) setBlockquickWindow(win *blockquick.Window) {
-	client.stateMu.Lock()
-	client.bq = win
-	client.stateMu.Unlock()
-}
-
-func (client *Client) getLastTicket() *edge.DeviceTicket {
-	client.stateMu.RLock()
-	defer client.stateMu.RUnlock()
-	return client.lastTicket
-}
-
-func (client *Client) setLastTicket(ticket *edge.DeviceTicket) {
-	client.stateMu.Lock()
-	client.lastTicket = ticket
-	client.stateMu.Unlock()
-}
-
-func (client *Client) clearStateTicketsAndWindow() {
-	client.stateMu.Lock()
-	client.bq = nil
-	client.lastTicket = nil
-	client.stateMu.Unlock()
 }
 
 func isClientClosedError(err error) bool {
@@ -349,10 +317,17 @@ func (client *Client) CastContext(sender *ConnectedPort, method string, args ...
 }
 
 func (client *Client) insertCall(call *Call) (err error) {
-	if client.isClientClosed() {
-		return errClientClosed
+	timeout := client.callTimeout(func() {
+		if client.isClientClosed() {
+			err = errClientClosed
+			return
+		}
+		err = client.cm.Insert(call)
+	})
+	if err == nil {
+		err = timeout
 	}
-	return client.cm.Insert(call)
+	return
 }
 
 // CallContext returns the response after calling the rpc
@@ -378,33 +353,6 @@ func (client *Client) CallContext(method string, args ...interface{}) (res inter
 		client.metrics.UpdateRPCTimer(tsDiff)
 	}
 	return
-}
-
-// CheckTicket should client send traffic ticket to server
-func (client *Client) CheckTicket() {
-	defer client.timer.profile(time.Now(), "CheckTicket")
-
-	client.srv.Cast(func() {
-		if client.s == nil || client.getBlockquickWindow() == nil {
-			return
-		}
-
-		lastTicket := client.getLastTicket()
-		if client.s.TotalBytes() < client.s.Counter()+ticketBound &&
-			lastTicket != nil && client.isRecentTicket(lastTicket) {
-			return
-		}
-
-		ticket, err := client.newTicket()
-		if err != nil {
-			return
-		}
-
-		err = client.submitTicket(ticket)
-		if err == nil {
-			client.setLastTicket(ticket)
-		}
-	})
 }
 
 func (client *Client) isRecentTicket(tck *edge.DeviceTicket) bool {
@@ -516,7 +464,9 @@ func (client *Client) validateNetwork() error {
 		}
 	}
 
-	client.setBlockquickWindow(win)
+	if err = client.callTimeout(func() { client.bq = win }); err != nil {
+		return err
+	}
 	client.storeLastValid()
 	return nil
 }
@@ -639,7 +589,8 @@ func (client *Client) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]blockquic
 // GetBlockHeaderValid returns a validated recent block header
 // (only available for the last windowsSize blocks)
 func (client *Client) GetBlockHeaderValid(blockNum uint64) blockquick.BlockHeader {
-	bq := client.getBlockquickWindow()
+	var bq *blockquick.Window
+	client.callTimeout(func() { bq = client.bq })
 	if bq != nil {
 		return bq.GetBlockHeader(blockNum)
 	}
@@ -708,7 +659,7 @@ func (client *Client) greet() error {
 	go func() {
 		time.Sleep(10 * time.Second)
 		client.srv.Cast(func() {
-			if client.s != nil && client.getLastTicket() == nil {
+			if client.s != nil && client.lastTicket == nil {
 				client.SubmitTicketForUsage(big.NewInt(int64(client.s.TotalBytes())))
 			}
 		})
@@ -719,7 +670,7 @@ func (client *Client) greet() error {
 // SubmitTicketForUsage submits a ticket covering at least minBytes.
 func (client *Client) SubmitTicketForUsage(minBytes *big.Int) (err error) {
 	client.srv.Cast(func() {
-		if client.getBlockquickWindow() == nil || client.isClientClosed() || client.s == nil {
+		if client.bq == nil || client.isClientClosed() || client.s == nil {
 			return
 		}
 		if minBytes == nil {
@@ -749,7 +700,7 @@ func (client *Client) SubmitTicketForUsage(minBytes *big.Int) (err error) {
 		}
 		err = client.submitTicket(ticket)
 		if err == nil {
-			client.setLastTicket(ticket)
+			client.lastTicket = ticket
 		}
 	})
 	return nil
@@ -1366,7 +1317,8 @@ func (client *Client) ResolveBlockHash(blockNumber uint64) (blockHash []byte, er
 	if blockNumber == 0 {
 		return
 	}
-	bq := client.getBlockquickWindow()
+	var bq *blockquick.Window
+	client.callTimeout(func() { bq = client.bq })
 	var blockHeader blockquick.BlockHeader
 	if bq != nil {
 		blockHeader = bq.GetBlockHeader(blockNumber)
@@ -1628,7 +1580,8 @@ func (client *Client) doWatchLatestBlock() {
 	if client.isRebuildingBlockquick() {
 		return
 	}
-	bq := client.getBlockquickWindow()
+	var bq *blockquick.Window
+	client.callTimeout(func() { bq = client.bq })
 	if bq == nil {
 		return
 	}
@@ -1679,8 +1632,10 @@ func (client *Client) doWatchLatestBlock() {
 }
 
 func (client *Client) clearBlockquickWindow() error {
-	client.clearStateTicketsAndWindow()
-	return nil
+	return client.callTimeout(func() {
+		client.bq = nil
+		client.lastTicket = nil
+	})
 }
 
 func (client *Client) forceResetBlockquickState() {
