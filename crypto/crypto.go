@@ -138,6 +138,7 @@ func toECDSA(d []byte, strict bool) (*ecdsa.PrivateKey, error) {
 		return nil, fmt.Errorf("invalid private key, zero or negative")
 	}
 
+	//lint:ignore SA1019 secp256k1 not supported by crypto/ecdh; ScalarBaseMult required
 	priv.PublicKey.X, priv.PublicKey.Y = priv.PublicKey.Curve.ScalarBaseMult(d)
 	if priv.PublicKey.X == nil {
 		return nil, errors.New("invalid private key")
