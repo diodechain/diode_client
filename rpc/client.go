@@ -72,11 +72,10 @@ type Client struct {
 	// close event
 	OnClose func()
 
-	isClosed bool
-	closing  uint32 // set before Close() callback runs; allows GetNearestClient to exclude client earlier
-	srv      *genserver.GenServer
-	timer    *Timer
-
+	closed           uint32
+	closing          uint32 // set before Close() callback runs; allows GetNearestClient to exclude client earlier
+	srv              *genserver.GenServer
+	timer            *Timer
 	portOpen2Handler atomic.Value
 }
 
@@ -120,12 +119,25 @@ func NewClient(host string, clientMan *ClientManager, cfg *config.Config, pool *
 }
 
 func (client *Client) averageLatency() int64 {
-	return client.latencySum / client.latencyCount
+	latencyCount := atomic.LoadInt64(&client.latencyCount)
+	if latencyCount <= 0 {
+		return 0
+	}
+	latencySum := atomic.LoadInt64(&client.latencySum)
+	return latencySum / latencyCount
 }
 
 func (client *Client) addLatencyMeasurement(latency time.Duration) {
-	client.latencySum += latency.Milliseconds()
-	client.latencyCount++
+	atomic.AddInt64(&client.latencySum, latency.Milliseconds())
+	atomic.AddInt64(&client.latencyCount, 1)
+}
+
+func (client *Client) isClientClosed() bool {
+	return atomic.LoadUint32(&client.closed) == 1
+}
+
+func (client *Client) setClientClosed() {
+	atomic.StoreUint32(&client.closed, 1)
 }
 
 func (client *Client) doConnect() (err error) {
@@ -200,28 +212,46 @@ func (client *Client) GetDeviceKey(ref string) string {
 }
 
 func (client *Client) waitResponse(call *Call) (res interface{}, err error) {
-	defer call.Clean(CLOSED)
-	defer client.srv.Cast(func() { client.cm.RemoveCallByID(call.id) })
-	resp, ok := <-call.response
-	if !ok {
-		host, _ := client.Host()
-		err = CancelledError{host}
+	// Remove the call synchronously on exit. This avoids a race where a timed out
+	// call channel is closed before the call is removed from the manager.
+	defer client.cm.RemoveCallByID(call.id)
+	timeout := client.config.RemoteRPCTimeout
+	if timeout <= 0 {
+		timeout = client.localTimeout
+	}
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
+	select {
+	case resp, ok := <-call.response:
+		if !ok {
+			host, _ := client.Host()
+			err = CancelledError{host}
+			if call.sender != nil {
+				call.sender.remoteErr = io.EOF
+				call.sender.Close()
+			}
+			return
+		}
+		if rpcError, ok := resp.(edge.Error); ok {
+			err = RPCError{rpcError}
+			if call.sender != nil {
+				call.sender.remoteErr = RPCError{rpcError}
+				call.sender.Close()
+			}
+			return
+		}
+		res = resp
+		return res, nil
+	case <-timer.C:
+		err = TimeoutError{Timeout: timeout}
+		client.Log().Debug("RPC timeout after %s (method=%s id=%d)", timeout, call.method, call.id)
 		if call.sender != nil {
-			call.sender.remoteErr = io.EOF
+			call.sender.remoteErr = err
 			call.sender.Close()
 		}
-		return
+		return nil, err
 	}
-	if rpcError, ok := resp.(edge.Error); ok {
-		err = RPCError{rpcError}
-		if call.sender != nil {
-			call.sender.remoteErr = RPCError{rpcError}
-			call.sender.Close()
-		}
-		return
-	}
-	res = resp
-	return res, nil
 }
 
 // RespondContext sends a message (a response) without expecting a response
@@ -244,9 +274,13 @@ func (client *Client) RespondContext(requestID uint64, responseType string, meth
 func (client *Client) callTimeout(fun func()) error {
 	// Long enough timeout to at least survive initial reconnect attempts
 	if client == nil {
-		return fmt.Errorf("Client disconnected")
+		return errClientClosed
 	}
-	return client.srv.CallTimeout(fun, 30*time.Second)
+	err := client.srv.CallTimeout(fun, 30*time.Second)
+	if err != nil && strings.Contains(err.Error(), "dead genserver") {
+		return errClientClosed
+	}
+	return err
 }
 
 // CastContext returns a response future after calling the rpc
@@ -272,7 +306,7 @@ func (client *Client) CastContext(sender *ConnectedPort, method string, args ...
 
 func (client *Client) insertCall(call *Call) (err error) {
 	timeout := client.callTimeout(func() {
-		if client.isClosed {
+		if client.isClientClosed() {
 			err = errClientClosed
 			return
 		}
@@ -578,10 +612,11 @@ func (client *Client) greet() error {
 	// In case the server does not request a ticket, we will submit one after 10 seconds
 	go func() {
 		time.Sleep(10 * time.Second)
-		s := client.s
-		if s != nil && client.lastTicket == nil {
-			client.SubmitTicketForUsage(big.NewInt(int64(s.TotalBytes())))
-		}
+		client.srv.Cast(func() {
+			if client.s != nil && client.lastTicket == nil {
+				client.SubmitTicketForUsage(big.NewInt(int64(client.s.TotalBytes())))
+			}
+		})
 	}()
 	return nil
 }
@@ -589,7 +624,7 @@ func (client *Client) greet() error {
 // SubmitTicketForUsage submits a ticket covering at least minBytes.
 func (client *Client) SubmitTicketForUsage(minBytes *big.Int) (err error) {
 	client.srv.Cast(func() {
-		if client.bq == nil || client.isClosed || client.s == nil {
+		if client.bq == nil || client.isClientClosed() || client.s == nil {
 			return
 		}
 		if minBytes == nil {
@@ -610,8 +645,7 @@ func (client *Client) SubmitTicketForUsage(minBytes *big.Int) (err error) {
 			client.s.setTotalBytes(minUsage)
 		}
 
-		var ticket *edge.DeviceTicket
-		ticket, err = client.newTicket()
+		ticket, err := client.newTicket()
 		if err != nil {
 			return
 		}
@@ -623,7 +657,7 @@ func (client *Client) SubmitTicketForUsage(minBytes *big.Int) (err error) {
 			client.lastTicket = ticket
 		}
 	})
-	return
+	return nil
 }
 
 // HandleTicketRequest responds to a server ticket request.
@@ -665,12 +699,16 @@ func (client *Client) SignTransaction(tx *edge.Transaction) (err error) {
 
 // NewTicket returns ticket
 func (client *Client) newTicket() (*edge.DeviceTicket, error) {
-	serverID, err := client.s.GetServerID()
+	ssl := client.s
+	if ssl == nil || ssl.Closed() {
+		return nil, errClientClosed
+	}
+	serverID, err := ssl.GetServerID()
 	if err != nil {
 		return nil, err
 	}
-	total := client.s.TotalBytes()
-	client.s.UpdateCounter(total)
+	total := ssl.TotalBytes()
+	ssl.UpdateCounter(total)
 	lvbn, lvbh := client.LastValid()
 
 	ticket := &edge.DeviceTicket{
@@ -679,7 +717,7 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 		BlockNumber:      lvbn,
 		BlockHash:        lvbh[:],
 		FleetAddr:        client.config.FleetAddr,
-		TotalConnections: big.NewInt(int64(client.s.TotalConnections())),
+		TotalConnections: big.NewInt(int64(ssl.TotalConnections())),
 		TotalBytes:       big.NewInt(int64(total)),
 		LocalAddr:        []byte{},
 	}
@@ -699,7 +737,7 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 	if err := ticket.ValidateValues(); err != nil {
 		return nil, err
 	}
-	privKey, err := client.s.GetClientPrivateKey()
+	privKey, err := ssl.GetClientPrivateKey()
 	if err != nil {
 		return nil, err
 	}
@@ -731,6 +769,9 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 		if lastTicket, ok := resp.(edge.DeviceTicket); ok {
 			if lastTicket.Err == edge.ErrTicketTooLow {
 				ssl := client.s
+				if ssl == nil || ssl.Closed() {
+					return
+				}
 				sid, _ := ssl.GetServerID()
 				lastTicket.ServerID = sid
 				lastTicket.FleetAddr = client.config.FleetAddr
@@ -740,10 +781,11 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 					client.Log().Warn("received fake ticket.. last_ticket=%v", lastTicket)
 				} else {
 					client.Log().Debug("insufficient ticket, resending... last_ticket=%v", lastTicket)
-					ssl.totalConnections = lastTicket.TotalConnections.Uint64() + 1
-					err = client.SubmitTicketForUsage(lastTicket.TotalBytes)
-					if err != nil {
-						client.Log().Error("failed to re-submit ticket: %v", err)
+					ssl.setTotalBytes(lastTicket.TotalBytes.Uint64() + 1024)
+					ssl.setTotalConnections(lastTicket.TotalConnections.Uint64() + 1)
+					retryErr := client.SubmitTicketForUsage(lastTicket.TotalBytes)
+					if retryErr != nil {
+						client.Log().Error("failed to re-submit ticket: %v", retryErr)
 					}
 				}
 			} else if lastTicket.Err == edge.ErrTicketTooOld {
@@ -1382,13 +1424,13 @@ func (client *Client) IsDeviceAllowlisted(fleetAddr Address, clientAddr Address)
 
 // Closed returns whether client had closed
 func (client *Client) Closed() bool {
-	return client.isClosed
+	return client.isClientClosed()
 }
 
 // Closing returns true if the client is closed or in the process of closing (flag set before Close callback runs).
 // Used by ClientManager to avoid returning a client that is about to be closed.
 func (client *Client) Closing() bool {
-	return atomic.LoadUint32(&client.closing) == 1 || client.isClosed
+	return atomic.LoadUint32(&client.closing) == 1 || client.isClientClosed()
 }
 
 // Close rpc client
@@ -1399,11 +1441,11 @@ func (client *Client) Close() {
 	}
 	doCleanup := true
 	timeout := client.callTimeout(func() {
-		if client.isClosed {
+		if client.isClientClosed() {
 			doCleanup = false
 			return
 		}
-		client.isClosed = true
+		client.setClientClosed()
 		// remove existing calls
 		client.cm.RemoveCalls()
 		if client.OnClose != nil {
@@ -1411,12 +1453,23 @@ func (client *Client) Close() {
 		}
 		if client.s != nil {
 			client.s.Close()
-			client.s = nil
 		}
 	})
 	if timeout == nil && !doCleanup {
 		client.srv.Shutdown(0)
 		return
+	}
+	if timeout == errClientClosed && doCleanup {
+		// Genserver is already down; finish best-effort cleanup so callers
+		// don't block waiting for this client to terminate.
+		client.setClientClosed()
+		client.cm.RemoveCalls()
+		if client.OnClose != nil {
+			client.OnClose()
+		}
+		if client.s != nil {
+			client.s.Close()
+		}
 	}
 	// remove open ports (best-effort even if callTimeout failed)
 	if client.pool != nil {
@@ -1429,28 +1482,30 @@ func (client *Client) Close() {
 func (client *Client) Start() {
 	client.srv.Cast(func() {
 		if err := client.doStart(); err != nil {
-			if !client.isClosed {
+			if !client.isClientClosed() {
 				client.Log().Warn("Client connect failed: %v", err)
 			}
 			client.srv.Shutdown(0)
+			return
 		}
-	})
 
-	go func() {
-		if err := client.initialize(); err != nil {
-			if !client.isClosed {
-				client.Log().Warn("Client start failed: %v", err)
-				client.Close()
+		go func() {
+			if err := client.initialize(); err != nil {
+				if !client.isClientClosed() {
+					client.Log().Warn("Client start failed: %v", err)
+					client.Close()
+				}
 			}
-		}
-	}()
+		}()
+	})
 }
 
 func (client *Client) doStart() (err error) {
 	if err = client.doConnect(); err != nil {
 		return
 	}
-	go client.recvMessageLoop()
+	ssl := client.s
+	go client.recvMessageLoop(ssl)
 	client.cm.SendCallPtr = client.sendCall
 	return
 }
