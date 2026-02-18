@@ -36,7 +36,6 @@ const (
 	packetLimit                  = 65000
 	ticketBound                  = 4194304
 	callQueueSize                = 1024
-	blockHeaderFetchWorkerCount  = 8
 	blockquickDowngradeThreshold = 5
 	blockquickValidationError    = "couldn't validate any new blocks"
 )
@@ -139,17 +138,6 @@ func (client *Client) isClientClosed() bool {
 
 func (client *Client) setClientClosed() {
 	atomic.StoreUint32(&client.closed, 1)
-}
-
-func isClientClosedError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if err == errClientClosed {
-		return true
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "dead genserver") || strings.Contains(msg, errClientClosed.Error())
 }
 
 func (client *Client) doConnect() (err error) {
@@ -387,11 +375,7 @@ func (client *Client) validateNetwork() error {
 	// Fetching at least window size blocks -- this should be cached on disk instead.
 	blockHeaders, err := client.GetBlockHeadersUnsafe(blockNumMin, lvbn)
 	if err != nil {
-		if isClientClosedError(err) {
-			client.Log().Debug("Cannot fetch blocks %v-%v: client is closed", blockNumMin, lvbn)
-		} else {
-			client.Log().Error("Cannot fetch blocks %v-%v error: %v", blockNumMin, lvbn, err)
-		}
+		client.Log().Error("Cannot fetch blocks %v-%v error: %v", blockNumMin, lvbn, err)
 		return err
 	}
 	if len(blockHeaders) != windowSize {
@@ -517,67 +501,37 @@ func (client *Client) GetBlockHeaderUnsafe(blockNum uint64) (bh blockquick.Block
 // TODO: use copy instead reference of BlockHeader
 func (client *Client) GetBlockHeadersUnsafe2(blockNumbers []uint64) ([]blockquick.BlockHeader, error) {
 	count := len(blockNumbers)
-	if count == 0 {
-		return []blockquick.BlockHeader{}, nil
-	}
-
-	workerCount := blockHeaderFetchWorkerCount
-	if workerCount > count {
-		workerCount = count
-	}
-
+	headersCount := 0
 	responses := make(map[uint64]blockquick.BlockHeader, count)
-	errorMessages := []string{}
-	var stop uint32
-	jobs := make(chan uint64, count)
 	mx := sync.Mutex{}
 	wg := sync.WaitGroup{}
+	wg.Add(count)
+	errorMessages := []string{}
 
-	for i := 0; i < workerCount; i++ {
-		wg.Add(1)
-		go func() {
+	for _, i := range blockNumbers {
+		go func(bn uint64) {
 			defer wg.Done()
-			for bn := range jobs {
-				if atomic.LoadUint32(&stop) == 1 {
-					return
-				}
-
-				header, err := client.GetBlockHeaderUnsafe(bn)
-				if err != nil {
-					mx.Lock()
-					errorMessages = append(errorMessages, fmt.Sprintf("block %v: %v", bn, err))
-					mx.Unlock()
-					if isClientClosedError(err) {
-						atomic.StoreUint32(&stop, 1)
-					}
-					continue
-				}
-
+			header, err := client.GetBlockHeaderUnsafe(bn)
+			if err != nil {
 				mx.Lock()
-				responses[bn] = header
+				errorMessages = append(errorMessages, fmt.Sprintf("block %v: %v", bn, err.Error()))
 				mx.Unlock()
+				return
 			}
-		}()
+			mx.Lock()
+			headersCount++
+			responses[bn] = header
+			mx.Unlock()
+		}(i)
 	}
-
-	for _, blockNumber := range blockNumbers {
-		if atomic.LoadUint32(&stop) == 1 {
-			break
-		}
-		jobs <- blockNumber
-	}
-	close(jobs)
 	wg.Wait()
 
-	if len(responses) != count {
-		if len(errorMessages) == 0 {
-			return []blockquick.BlockHeader{}, fmt.Errorf("failed fetching some blocks: missing block headers")
-		}
+	if headersCount != count {
 		return []blockquick.BlockHeader{}, fmt.Errorf("failed fetching some blocks: %v", strings.Join(errorMessages, ", "))
 	}
 
 	// copy responses to headers
-	headers := make([]blockquick.BlockHeader, count)
+	headers := make([]blockquick.BlockHeader, headersCount)
 	for i, bn := range blockNumbers {
 		if bh, ok := responses[bn]; ok {
 			headers[i] = bh
@@ -702,17 +656,6 @@ func (client *Client) SubmitTicketForUsage(minBytes *big.Int) (err error) {
 		if err == nil {
 			client.lastTicket = ticket
 		}
-	})
-	return nil
-}
-
-func (client *Client) SubmitNewTicket() error {
-	client.srv.Cast(func() {
-		current := uint64(0)
-		if client.s != nil {
-			current = client.s.TotalBytes()
-		}
-		_ = client.SubmitTicketForUsage(new(big.Int).SetUint64(current))
 	})
 	return nil
 }
@@ -1593,9 +1536,6 @@ func (client *Client) doWatchLatestBlock() {
 	client.srv.Cast(func() { client.addLatencyMeasurement(elapsed) })
 
 	if err != nil {
-		if isClientClosedError(err) {
-			return
-		}
 		client.Log().Error("Couldn't getblockpeak: %v", err)
 		return
 	}
@@ -1609,9 +1549,6 @@ func (client *Client) doWatchLatestBlock() {
 	for num := lastblock + 1; num <= blockPeak; num++ {
 		blockHeader, err := client.GetBlockHeaderUnsafe(uint64(num))
 		if err != nil {
-			if isClientClosedError(err) {
-				return
-			}
 			client.Log().Error("Couldn't download block header %v", err)
 			return
 		}
