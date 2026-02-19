@@ -587,7 +587,7 @@ func (client *Client) greet() error {
 }
 
 // SubmitTicketForUsage submits a ticket covering at least minBytes.
-func (client *Client) SubmitTicketForUsage(minBytes *big.Int) (err error) {
+func (client *Client) SubmitTicketForUsage(minBytes *big.Int) {
 	client.srv.Cast(func() {
 		if client.bq == nil || client.isClosed || client.s == nil {
 			return
@@ -610,9 +610,9 @@ func (client *Client) SubmitTicketForUsage(minBytes *big.Int) (err error) {
 			client.s.setTotalBytes(minUsage)
 		}
 
-		var ticket *edge.DeviceTicket
-		ticket, err = client.newTicket()
+		ticket, err := client.newTicket()
 		if err != nil {
+			client.Log().Error("failed to create new ticket: %v", err)
 			return
 		}
 		if ticket.TotalBytes.Uint64() < minUsage {
@@ -643,9 +643,7 @@ func (client *Client) HandleTicketRequest(req *edge.TicketRequest) {
 	if client.s != nil {
 		client.Log().Debug("ticket_request current_total_bytes=%d", client.s.TotalBytes())
 	}
-	if err := client.SubmitTicketForUsage(req.Usage); err != nil {
-		client.Log().Error("failed to submit ticket for request: %v", err)
-	}
+	client.SubmitTicketForUsage(req.Usage)
 }
 
 // SignTransaction return signed transaction
@@ -741,10 +739,7 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 				} else {
 					client.Log().Debug("insufficient ticket, resending... last_ticket=%v", lastTicket)
 					ssl.totalConnections = lastTicket.TotalConnections.Uint64() + 1
-					err = client.SubmitTicketForUsage(lastTicket.TotalBytes)
-					if err != nil {
-						client.Log().Error("failed to re-submit ticket: %v", err)
-					}
+					client.SubmitTicketForUsage(lastTicket.TotalBytes)
 				}
 			} else if lastTicket.Err == edge.ErrTicketTooOld {
 				client.Log().Info("received too old ticket")

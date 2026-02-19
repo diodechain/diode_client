@@ -402,14 +402,15 @@ func (client *Client) recvMessageLoop() {
 	}()
 
 	for {
-		if client.s == nil {
+		ssl := client.s
+		if ssl == nil {
 			if !client.isClosed {
 				client.Log().Info("Client connection closed prematurely.")
 				client.Close()
 			}
 			return
 		}
-		msg, err := client.s.readMessage()
+		msg, err := ssl.readMessage()
 		if err != nil {
 			if !client.isClosed {
 				client.Log().Info("Client connection closed unexpectedly: %v", err)
