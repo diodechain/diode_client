@@ -98,7 +98,8 @@ type OasisClient struct {
 
 // NewOasisClient creates a new Oasis client for the specified network.
 func NewOasisClient(ctx context.Context, networkName string) (*OasisClient, error) {
-	netCfg, ptCfg, skipVerify, err := resolveSapphireNetwork(networkName)
+	normalizedNetworkName := normalizeNetworkName(networkName)
+	netCfg, ptCfg, skipVerify, err := resolveSapphireNetwork(normalizedNetworkName)
 	if err != nil {
 		return nil, err
 	}
@@ -119,19 +120,48 @@ func NewOasisClient(ctx context.Context, networkName string) (*OasisClient, erro
 		runtime:      runtime,
 		evm:          runtime.Evm,
 		ctx:          ctx,
-		networkName:  networkName,
+		networkName:  normalizedNetworkName,
 		rpcEndpoint:  netCfg.RPC,
 		paratimeName: oasisSapphireParaTime,
 	}, nil
 }
 
+func normalizeNetworkName(networkName string) string {
+	return strings.ToLower(strings.TrimSpace(networkName))
+}
+
+func normalizeLocalRPCEndpoint(rpcEndpoint string) string {
+	rpcEndpoint = strings.TrimSpace(rpcEndpoint)
+	switch {
+	case rpcEndpoint == "":
+		return rpcEndpoint
+	case strings.HasPrefix(rpcEndpoint, "dns:"):
+		return rpcEndpoint
+	case strings.HasPrefix(rpcEndpoint, "unix:"):
+		return rpcEndpoint
+	case strings.HasPrefix(rpcEndpoint, "unix-abstract:"):
+		return rpcEndpoint
+	case strings.HasPrefix(rpcEndpoint, "vsock:"):
+		return rpcEndpoint
+	case strings.Contains(rpcEndpoint, "://"):
+		return rpcEndpoint
+	default:
+		// Oasis config validation expects a URI-like value. Prefix host:port
+		// endpoints with dns: so local defaults and env values remain ergonomic.
+		return "dns:" + rpcEndpoint
+	}
+}
+
 func resolveSapphireNetwork(networkName string) (*oasisConfig.Network, *oasisConfig.ParaTime, bool, error) {
-	normalized := strings.ToLower(strings.TrimSpace(networkName))
+	normalized := normalizeNetworkName(networkName)
 	switch normalized {
 	case "mainnet", "testnet":
 		netCfg := oasisConfig.DefaultNetworks.All[normalized]
 		if netCfg == nil {
 			return nil, nil, false, fmt.Errorf("unknown network: %s", networkName)
+		}
+		if err := netCfg.Validate(); err != nil {
+			return nil, nil, false, fmt.Errorf("invalid network config for %s: %w", normalized, err)
 		}
 		ptCfg := netCfg.ParaTimes.All[oasisSapphireParaTime]
 		if ptCfg == nil {
@@ -146,16 +176,14 @@ func resolveSapphireNetwork(networkName string) (*oasisConfig.Network, *oasisCon
 		if rpcEndpoint == "" {
 			rpcEndpoint = oasisLocalRPCDefault
 		}
+		rpcEndpoint = normalizeLocalRPCEndpoint(rpcEndpoint)
 		chainContext := strings.TrimSpace(os.Getenv(oasisLocalChainContextEnv))
 		if chainContext == "" {
 			chainContext = oasisLocalChainCtxDefault
 		}
 		sapphireID := strings.TrimSpace(os.Getenv(oasisLocalSapphireIDEnv))
 		if sapphireID == "" {
-			sapphireID = defaultSapphireID()
-		}
-		if sapphireID == "" {
-			return nil, nil, false, fmt.Errorf("missing Sapphire runtime id for local network")
+			return nil, nil, false, fmt.Errorf("missing Sapphire runtime id for local network (set %s)", oasisLocalSapphireIDEnv)
 		}
 
 		ptCfg := &oasisConfig.ParaTime{ID: sapphireID}
@@ -179,18 +207,6 @@ func resolveSapphireNetwork(networkName string) (*oasisConfig.Network, *oasisCon
 	default:
 		return nil, nil, false, fmt.Errorf("invalid network: %s", networkName)
 	}
-}
-
-func defaultSapphireID() string {
-	netCfg := oasisConfig.DefaultNetworks.All["testnet"]
-	if netCfg == nil {
-		return ""
-	}
-	ptCfg := netCfg.ParaTimes.All[oasisSapphireParaTime]
-	if ptCfg == nil {
-		return ""
-	}
-	return ptCfg.ID
 }
 
 const jsondata = `
@@ -446,7 +462,7 @@ func buildProxyToChain(deviceAddr util.Address, startContractAddr string) (chain
 		if proxyTo == "" {
 			return chain, nil
 		}
-		if proxyTo == "" || strings.EqualFold(proxyTo, current) {
+		if strings.EqualFold(proxyTo, current) {
 			return chain, nil
 		}
 
