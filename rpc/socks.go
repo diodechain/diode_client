@@ -382,6 +382,7 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 	}
 
 	ports := make(chan *ConnectedPort, 1)
+	errorCollector := make(chan []error, 1)
 	var wg sync.WaitGroup
 	maxConcurrency := make(chan struct{}, 4)
 
@@ -393,11 +394,13 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 				<-maxConcurrency
 			}()
 			maxConcurrency <- struct{}{}
+			errors := make([]error, 0)
 
 			for _, serverID := range serverIDs {
 				client, err := socksServer.GetServer(serverID)
 				if err != nil {
 					socksServer.logger.Error("%d: GetServer() failed: %v", requestId, err)
+					errors = append(errors, err)
 					continue
 				}
 
@@ -406,6 +409,7 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 				if err != nil {
 					url, _ := client.Host()
 					socksServer.logger.Error("%d: doCreatePort() failed: %v via %v", requestId, err, url)
+					errors = append(errors, err)
 					continue
 				}
 
@@ -424,18 +428,29 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 					return
 				}
 			}
+
+			// try to insert or ignore
+			select {
+			case errorCollector <- errors:
+			default:
+				// ignore errors
+			}
 		}(candidate.deviceID, candidate.serverIDs)
 	}
 
 	go func() {
 		wg.Wait()
 		close(ports)
+		close(errorCollector)
 	}()
 
 	connPort, ok := <-ports
 	if ok && connPort != nil {
 		return connPort, nil
 	}
+
+	errorList := <-errorCollector
+	msg := fmt.Sprintf("doConnectDevice() for '%v' failed with %v candidates: %v", deviceName, len(candidates), errorList)
 
 	for _, device := range devices {
 		deviceID, _ := device.DeviceAddress()
@@ -448,7 +463,6 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 		return socksServer.doConnectDevice(requestId, deviceName, port, protocol, mode, retry-1)
 	}
 
-	msg := fmt.Sprintf("doConnectDevice() for '%v' failed: %v with %v candidates", deviceName, err, len(candidates))
 	socksServer.logger.Error(msg)
 	if _, ok := err.(RPCError); ok {
 		return nil, HttpError{404, DeviceError{err}}
