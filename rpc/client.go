@@ -623,7 +623,6 @@ func (client *Client) SubmitTicketForUsage(minBytes *big.Int) {
 			client.lastTicket = ticket
 		}
 	})
-	return
 }
 
 // HandleTicketRequest responds to a server ticket request.
