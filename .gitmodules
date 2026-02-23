@@ -1,3 +1,0 @@
-[submodule "crypto/secp256k1/libsecp256k1"]
-	path = crypto/secp256k1/libsecp256k1
-	url = https://github.com/bitcoin-core/secp256k1.git
