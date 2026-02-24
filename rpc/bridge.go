@@ -401,7 +401,7 @@ func (client *Client) recvMessageLoop() {
 		}
 	}()
 
-	ssl := client.s
+	ssl := client.Socket()
 	if ssl == nil {
 		if !client.isClosed {
 			client.Log().Info("Client connection closed prematurely.")

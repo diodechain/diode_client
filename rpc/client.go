@@ -1420,6 +1420,13 @@ func (client *Client) Close() {
 	client.srv.Shutdown(0)
 }
 
+func (client *Client) Socket() (ssl *SSL) {
+	client.callTimeout(func() {
+		ssl = client.s
+	})
+	return
+}
+
 // Start process rpc inbound message and outbound message
 func (client *Client) Start() {
 	client.srv.Cast(func() {
