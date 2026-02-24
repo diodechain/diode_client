@@ -181,7 +181,7 @@ func (cm *ClientManager) GetDefaultClients() []*Client {
 			continue
 		}
 		client, err := cm.GetClientOrConnect(id)
-		if err != nil {
+		if err != nil || client == nil {
 			continue
 		}
 		clients = append(clients, client)
