@@ -154,14 +154,15 @@ func (client *Client) doConnect() (err error) {
 
 func (client *Client) doDial() (err error) {
 	start := time.Now()
-	client.s, err = DialContext(client.pool.GetContext(), client.host, openssl.InsecureSkipHostVerification)
+	host := normalizeHostPort(client.host)
+	client.s, err = DialContext(client.pool.GetContext(), host, openssl.InsecureSkipHostVerification)
 	client.addLatencyMeasurement(time.Since(start))
 	return
 }
 
 // Info logs to logger in Info level
 func (client *Client) Log() *config.Logger {
-	return client.config.Logger.With(zap.String("server", client.host))
+	return client.config.Logger.With(zap.String("server", normalizeHostPort(client.host)))
 }
 
 // SetPortOpen2Handler configures a handler for inbound portopen2 requests.

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -164,23 +165,28 @@ func (cm *ClientManager) GetClientByHost(host string) *Client {
 // GetClientByHost returns an existing client for host without connecting.
 func (cm *ClientManager) GetDefaultClients() []*Client {
 	hosts := config.AppConfig.RemoteRPCAddrs
-	normalizedHosts := make([]string, 0, len(hosts))
-	for _, host := range hosts {
-		normalizedHosts = append(normalizedHosts, normalizeHostPort(host))
-	}
+	clients := make([]*Client, 0, len(hosts))
 
-	found := make([]*Client, 0, len(normalizedHosts))
-	cm.srv.Call(func() {
-		for _, c := range cm.clients {
-			if c == nil || c.Closing() {
-				continue
-			}
-			if util.StringsContain(normalizedHosts, normalizeHostPort(c.host)) {
-				found = append(found, c)
-			}
+	for _, host := range hosts {
+		url, err := url.Parse(host)
+		if err != nil {
+			continue
 		}
-	})
-	return found
+		if url.User.Username() == "" {
+			continue
+		}
+
+		id, err := util.DecodeAddress(url.User.Username())
+		if err != nil {
+			continue
+		}
+		client, err := cm.GetClientOrConnect(id)
+		if err != nil {
+			continue
+		}
+		clients = append(clients, client)
+	}
+	return clients
 }
 
 // ResolveRelayForDevice returns the relay node ID and address for a device by querying the network object.
@@ -220,6 +226,11 @@ func normalizeHostPort(host string) string {
 	if host == "" {
 		return ""
 	}
+	url, err := url.Parse(host)
+	if err == nil {
+		return net.JoinHostPort(url.Hostname(), url.Port())
+	}
+
 	if h, p, err := net.SplitHostPort(host); err == nil {
 		return net.JoinHostPort(strings.TrimSpace(strings.ToLower(h)), p)
 	}
@@ -231,6 +242,11 @@ func resolveRelayAddrFromClient(client *Client) (string, string) {
 		return "", ""
 	}
 	if remoteAddr, err := client.RemoteAddr(); err == nil && remoteAddr != nil {
+		url, err := url.Parse(remoteAddr.String())
+		if err == nil {
+			return net.JoinHostPort(url.Hostname(), url.Port()), url.Hostname()
+		}
+
 		if host, port, err := net.SplitHostPort(remoteAddr.String()); err == nil {
 			return net.JoinHostPort(host, port), host
 		}
