@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	mrand "math/rand"
 	"net"
 	"os"
@@ -37,6 +38,10 @@ import (
 	"github.com/diodechain/diode_client/edge"
 	"github.com/diodechain/diode_client/rpc"
 	"github.com/diodechain/diode_client/util"
+	ethereum "github.com/ethereum/go-ethereum"
+	gethCommon "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/oasisprotocol/oasis-core/go/common/cbor"
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/client"
 	oasisConfig "github.com/oasisprotocol/oasis-sdk/client-sdk/go/config"
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/connection"
@@ -73,10 +78,13 @@ const (
 	oasisSapphireParaTime            = "sapphire"
 	oasisLocalRPCDefault             = "127.0.0.1:4222"
 	oasisLocalChainCtxDefault        = "0000000000000000000000000000000000000000000000000000000000000000"
+	oasisLocalEVMRPCDefault          = "http://127.0.0.1:8545"
 	oasisLocalRPCEnv                 = "OASIS_LOCAL_GRPC"
 	oasisLocalChainContextEnv        = "OASIS_LOCAL_CHAIN_CONTEXT"
 	oasisLocalSapphireIDEnv          = "OASIS_LOCAL_SAPPHIRE_ID"
+	oasisLocalEVMRPCEnv              = "OASIS_LOCAL_EVM_RPC"
 	oasisSimulateGasLimit     uint64 = 2_000_000
+	signedCallLeashBlockRange uint64 = 128
 )
 
 var (
@@ -87,13 +95,14 @@ var (
 
 // OasisClient wraps the Oasis SDK connection for contract interactions.
 type OasisClient struct {
-	conn         connection.Connection
-	runtime      connection.RuntimeClient
-	evm          evm.V1
-	ctx          context.Context
-	networkName  string
-	rpcEndpoint  string
-	paratimeName string
+	conn           connection.Connection
+	runtime        connection.RuntimeClient
+	evm            evm.V1
+	ctx            context.Context
+	networkName    string
+	rpcEndpoint    string
+	evmRPCEndpoint string
+	paratimeName   string
 }
 
 // NewOasisClient creates a new Oasis client for the specified network.
@@ -115,14 +124,16 @@ func NewOasisClient(ctx context.Context, networkName string) (*OasisClient, erro
 	}
 
 	runtime := conn.Runtime(ptCfg)
+	evmRPCEndpoint := resolveSapphireEVMRPCEndpoint(normalizedNetworkName)
 	return &OasisClient{
-		conn:         conn,
-		runtime:      runtime,
-		evm:          runtime.Evm,
-		ctx:          ctx,
-		networkName:  normalizedNetworkName,
-		rpcEndpoint:  netCfg.RPC,
-		paratimeName: oasisSapphireParaTime,
+		conn:           conn,
+		runtime:        runtime,
+		evm:            runtime.Evm,
+		ctx:            ctx,
+		networkName:    normalizedNetworkName,
+		rpcEndpoint:    netCfg.RPC,
+		evmRPCEndpoint: evmRPCEndpoint,
+		paratimeName:   oasisSapphireParaTime,
 	}, nil
 }
 
@@ -149,6 +160,23 @@ func normalizeLocalRPCEndpoint(rpcEndpoint string) string {
 		// Oasis config validation expects a URI-like value. Prefix host:port
 		// endpoints with dns: so local defaults and env values remain ergonomic.
 		return "dns:" + rpcEndpoint
+	}
+}
+
+func resolveSapphireEVMRPCEndpoint(networkName string) string {
+	switch normalizeNetworkName(networkName) {
+	case "mainnet":
+		return "https://sapphire.oasis.io"
+	case "testnet":
+		return "https://testnet.sapphire.oasis.io"
+	case "local":
+		rpcEndpoint := strings.TrimSpace(os.Getenv(oasisLocalEVMRPCEnv))
+		if rpcEndpoint == "" {
+			return oasisLocalEVMRPCDefault
+		}
+		return rpcEndpoint
+	default:
+		return ""
 	}
 }
 
@@ -269,6 +297,90 @@ func (c *OasisClient) ConfidentialEVMSimulateCall(ctx context.Context, contractA
 	return c.evm.SimulateCall(ctx, client.RoundLatest, evmZeroGasPrice, oasisSimulateGasLimit, caller, contractAddr, evmZeroValue, callData)
 }
 
+type evmRSVSigner struct {
+	signerClient *rpc.Client
+}
+
+func (s evmRSVSigner) SignRSV(digest [32]byte) ([]byte, error) {
+	if s.signerClient == nil {
+		return nil, fmt.Errorf("missing signer client")
+	}
+	return s.signerClient.SignDigestRSV(digest[:])
+}
+
+// ConfidentialEVMSignedSimulateCall executes an authenticated signed eth_call on Sapphire.
+func (c *OasisClient) ConfidentialEVMSignedSimulateCall(
+	ctx context.Context,
+	contractAddr []byte,
+	callData []byte,
+	caller util.Address,
+	signerClient *rpc.Client,
+) ([]byte, error) {
+	if len(contractAddr) == 0 {
+		return nil, fmt.Errorf("missing contract address")
+	}
+	if signerClient == nil {
+		return nil, fmt.Errorf("missing signer client")
+	}
+
+	if c.evmRPCEndpoint == "" {
+		return nil, fmt.Errorf("missing Sapphire EVM RPC endpoint")
+	}
+	ethClient, err := ethclient.DialContext(ctx, c.evmRPCEndpoint)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect Sapphire EVM RPC: %w", err)
+	}
+	defer ethClient.Close()
+
+	callerAddr := gethCommon.BytesToAddress(caller[:])
+	chainID, err := ethClient.ChainID(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch chain id: %w", err)
+	}
+	latestHeader, err := ethClient.HeaderByNumber(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch latest EVM header: %w", err)
+	}
+	if latestHeader.Number == nil || latestHeader.Number.Sign() == 0 {
+		return nil, fmt.Errorf("invalid latest EVM header number")
+	}
+	nonce, err := ethClient.PendingNonceAt(ctx, callerAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch pending nonce: %w", err)
+	}
+
+	pack, err := evm.NewSignedCallDataPack(
+		evmRSVSigner{signerClient: signerClient},
+		chainID.Uint64(),
+		callerAddr.Bytes(),
+		contractAddr,
+		oasisSimulateGasLimit,
+		big.NewInt(0),
+		big.NewInt(0),
+		callData,
+		evm.Leash{
+			Nonce:       nonce,
+			BlockNumber: latestHeader.Number.Uint64() - 1,
+			BlockHash:   latestHeader.ParentHash.Bytes(),
+			BlockRange:  signedCallLeashBlockRange,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build signed call: %w", err)
+	}
+	signedCallData := cbor.Marshal(pack)
+
+	to := gethCommon.BytesToAddress(contractAddr)
+	return ethClient.CallContract(ctx, ethereum.CallMsg{
+		From:     callerAddr,
+		To:       &to,
+		Gas:      oasisSimulateGasLimit,
+		GasPrice: big.NewInt(0),
+		Value:    big.NewInt(0),
+		Data:     signedCallData,
+	}, nil)
+}
+
 func getPropertyValuesAt(deviceAddr util.Address, contractAddr string, keys []string) (map[string]string, error) {
 	if oasisClient == nil {
 		return nil, fmt.Errorf("oasis client not initialized")
@@ -337,10 +449,29 @@ func (c *OasisClient) GetPropertyValuesAt(deviceAddr util.Address, contractAddr 
 }
 
 func getDevicePublicKeyAt(deviceAddr util.Address, contractAddr string) (string, error) {
-	return getDeviceKeyAt(deviceAddr, contractAddr, "getDevicePublicKey", nil)
+	return getDeviceKeyAt(nil, deviceAddr, contractAddr, "getDevicePublicKey", nil)
 }
 
-func getDeviceKeyAt(deviceAddr util.Address, contractAddr string, methodName string, from *util.Address) (string, error) {
+func getDevicePrivateKeyAt(client *rpc.Client, deviceAddr util.Address, contractAddr string) (string, error) {
+	return getDeviceKeyAt(client, deviceAddr, contractAddr, "getDevicePrivateKey", &deviceAddr)
+}
+
+func warnWGPrivateKeyMigrationFallback(deviceAddr util.Address, contractAddr string, reason error) {
+	wgPrivateKeyMigrationWarnOnce.Do(func() {
+		cfg := config.AppConfig
+		if cfg == nil || cfg.Logger == nil {
+			return
+		}
+		cfg.Logger.Warn(
+			"WireGuard PrivateKey=auto fallback to local key: join contract %s for device %s needs migration to set getDevicePrivateKey() (reason: %v)",
+			contractAddr,
+			deviceAddr.HexString(),
+			reason,
+		)
+	})
+}
+
+func getDeviceKeyAt(client *rpc.Client, deviceAddr util.Address, contractAddr string, methodName string, from *util.Address) (string, error) {
 	if oasisClient == nil {
 		return "", fmt.Errorf("oasis client not initialized")
 	}
@@ -364,16 +495,30 @@ func getDeviceKeyAt(deviceAddr util.Address, contractAddr string, methodName str
 		return "", err
 	}
 
-	caller := evmZeroAddress
-	if from != nil {
-		caller = from[:]
+	var result []byte
+	var signedErr error
+	// For device-only private key reads, prefer authenticated signed eth_call.
+	if methodName == "getDevicePrivateKey" && from != nil && client != nil {
+		signedCaller := deviceAddr
+		if from != nil {
+			signedCaller = *from
+		}
+		result, signedErr = oasisClient.ConfidentialEVMSignedSimulateCall(oasisClient.ctx, contractAddrBytes, callData, signedCaller, client)
 	}
 
-	result, err := oasisClient.ConfidentialEVMSimulateCall(oasisClient.ctx, contractAddrBytes, caller, callData)
-	if err != nil {
-		return "", fmt.Errorf("failed to call device key method: %v", err)
+	if len(result) == 0 {
+		caller := evmZeroAddress
+		if from != nil {
+			caller = from[:]
+		}
+		result, err = oasisClient.ConfidentialEVMSimulateCall(oasisClient.ctx, contractAddrBytes, caller, callData)
+		if err != nil {
+			if signedErr != nil {
+				return "", fmt.Errorf("failed to call device key method: signed call: %v; simulate call: %v", signedErr, err)
+			}
+			return "", fmt.Errorf("failed to call device key method: %v", err)
+		}
 	}
-
 	var decoded [32]byte
 	if err := method.Outputs.Unpack(&decoded, result); err != nil {
 		return "", fmt.Errorf("failed to unpack device key response: %v", err)
@@ -1106,6 +1251,7 @@ var lastPrivatePorts []string
 var lastProtectedPorts []string
 var lastWGConfigHash string
 var lastWGPublicKey string
+var wgPrivateKeyMigrationWarnOnce sync.Once
 var lastBindSignature string
 var lastAppliedBindSignature string
 var socksServerStarted bool
@@ -1306,6 +1452,22 @@ func readOrCreateWGPrivateKey(keyPath string) (privB64, pubB64 string, err error
 	return privB64, pubB64, nil
 }
 
+func writeWGPrivateKey(keyPath, privB64 string) error {
+	privB64 = strings.TrimSpace(privB64)
+	if privB64 == "" {
+		return fmt.Errorf("empty private key")
+	}
+	return os.WriteFile(keyPath, []byte(privB64+"\n"), 0o600)
+}
+
+func contractWGPrivateKeyPath(keyPath string) string {
+	ext := filepath.Ext(keyPath)
+	if ext == "" {
+		return keyPath + ".contract.key"
+	}
+	return strings.TrimSuffix(keyPath, ext) + ".contract" + ext
+}
+
 // normalizeWireGuardConfig attempts to format a minified/single-line WireGuard config
 // into a standard multi-line INI-style format so our parser can locate sections.
 func normalizeWireGuardConfig(cfg string) string {
@@ -1455,6 +1617,19 @@ func processWireGuardConfig(client *rpc.Client, deviceAddr util.Address, contrac
 		return nil
 	}
 
+	setPostUpPrivateKey := func(filePath string) {
+		postUpLine := fmt.Sprintf("PostUp = wg set %%i private-key %s", fixupOSPath(filePath))
+		if privLineIdx >= 0 {
+			out[privLineIdx] = postUpLine
+			return
+		}
+		if interfaceInsertIdx >= 0 {
+			out = append(out[:interfaceInsertIdx], append([]string{postUpLine}, out[interfaceInsertIdx:]...)...)
+			return
+		}
+		out = append(out, postUpLine)
+	}
+
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
@@ -1576,13 +1751,25 @@ func processWireGuardConfig(client *rpc.Client, deviceAddr util.Address, contrac
 	var err error
 	switch {
 	case privLineIdx >= 0 && privAuto:
-		// TODO: Fetch device private key from contract when device-only access is enabled.
+		privB64, err = getDevicePrivateKeyAt(client, deviceAddr, contractAddr)
+		if err == nil {
+			pubB64, err = deriveWGPublicKey(privB64)
+			if err != nil {
+				return "", nil, "", err
+			}
+			contractKeyPath := contractWGPrivateKeyPath(keyPath)
+			if err := writeWGPrivateKey(contractKeyPath, privB64); err != nil {
+				return "", nil, "", err
+			}
+			setPostUpPrivateKey(contractKeyPath)
+			break
+		}
+		warnWGPrivateKeyMigrationFallback(deviceAddr, contractAddr, err)
 		_, pubB64, err = readOrCreateWGPrivateKey(keyPath)
 		if err != nil {
 			return "", nil, "", err
 		}
-		// Quote path for PostUp shell so paths with spaces (e.g. "Application Support") work
-		out[privLineIdx] = fmt.Sprintf("PostUp = wg set %%i private-key %s", fixupOSPath(keyPath))
+		setPostUpPrivateKey(keyPath)
 	case privLineIdx >= 0 && !privAuto && strings.TrimSpace(privValue) != "":
 		privB64 = strings.TrimSpace(privValue)
 		var err error
@@ -1590,15 +1777,16 @@ func processWireGuardConfig(client *rpc.Client, deviceAddr util.Address, contrac
 		if err != nil {
 			return "", nil, "", err
 		}
-		out[privLineIdx] = fmt.Sprintf("PrivateKey = %s", privB64)
+		if err := writeWGPrivateKey(keyPath, privB64); err != nil {
+			return "", nil, "", err
+		}
+		setPostUpPrivateKey(keyPath)
 	default:
 		privB64, pubB64, err = readOrCreateWGPrivateKey(keyPath)
 		if err != nil {
 			return "", nil, "", err
 		}
-		if interfaceInsertIdx >= 0 {
-			out = append(out[:interfaceInsertIdx], append([]string{fmt.Sprintf("PrivateKey = %s", privB64)}, out[interfaceInsertIdx:]...)...)
-		}
+		setPostUpPrivateKey(keyPath)
 	}
 
 	return strings.Join(out, "\n"), peers, pubB64, nil
