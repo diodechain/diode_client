@@ -29,6 +29,7 @@ import (
 	"github.com/diodechain/openssl"
 	"github.com/diodechain/zap"
 	"github.com/dominicletz/genserver"
+	gethCrypto "github.com/ethereum/go-ethereum/crypto"
 )
 
 const (
@@ -660,6 +661,39 @@ func (client *Client) SignTransaction(tx *edge.Transaction) (err error) {
 		return timeout
 	}
 	return tx.Sign(privKey)
+}
+
+// SignDigestRSV signs a 32-byte digest and returns an RSV-formatted signature.
+func (client *Client) SignDigestRSV(digest []byte) ([]byte, error) {
+	if len(digest) != 32 {
+		return nil, fmt.Errorf("invalid digest length: %d", len(digest))
+	}
+	var (
+		sig []byte
+		err error
+	)
+	timeout := client.callTimeout(func() {
+		if client.s == nil {
+			err = fmt.Errorf("client ssl not initialized")
+			return
+		}
+		privKey, keyErr := client.s.GetClientPrivateKey()
+		if keyErr != nil {
+			err = keyErr
+			return
+		}
+		sig, err = gethCrypto.Sign(digest, privKey)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if timeout != nil {
+		return nil, timeout
+	}
+	if len(sig) != 65 {
+		return nil, fmt.Errorf("invalid signature length: %d", len(sig))
+	}
+	return sig, nil
 }
 
 // NewTicket returns ticket
