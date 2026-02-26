@@ -226,13 +226,15 @@ func normalizeHostPort(host string) string {
 	if host == "" {
 		return ""
 	}
-	url, err := url.Parse(host)
-	if err == nil {
-		return net.JoinHostPort(url.Hostname(), url.Port())
-	}
-
 	if h, p, err := net.SplitHostPort(host); err == nil {
 		return net.JoinHostPort(strings.TrimSpace(strings.ToLower(h)), p)
+	}
+	if strings.Contains(host, "://") {
+		if u, err := url.Parse(host); err == nil {
+			if h, p := strings.TrimSpace(strings.ToLower(u.Hostname())), strings.TrimSpace(u.Port()); h != "" && p != "" {
+				return net.JoinHostPort(h, p)
+			}
+		}
 	}
 	return host
 }
@@ -242,13 +244,15 @@ func resolveRelayAddrFromClient(client *Client) (string, string) {
 		return "", ""
 	}
 	if remoteAddr, err := client.RemoteAddr(); err == nil && remoteAddr != nil {
-		url, err := url.Parse(remoteAddr.String())
-		if err == nil {
-			return net.JoinHostPort(url.Hostname(), url.Port()), url.Hostname()
-		}
-
 		if host, port, err := net.SplitHostPort(remoteAddr.String()); err == nil {
 			return net.JoinHostPort(host, port), host
+		}
+		if strings.Contains(remoteAddr.String(), "://") {
+			if u, err := url.Parse(remoteAddr.String()); err == nil {
+				if host, port := strings.TrimSpace(u.Hostname()), strings.TrimSpace(u.Port()); host != "" && port != "" {
+					return net.JoinHostPort(host, port), host
+				}
+			}
 		}
 		return remoteAddr.String(), remoteAddr.String()
 	}
