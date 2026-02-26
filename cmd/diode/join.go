@@ -1863,11 +1863,10 @@ func processWireGuardConfig(client *rpc.Client, deviceAddr util.Address, contrac
 		}
 		setPostUpPrivateKey(keyPath)
 	default:
-		_, pubB64, err = readOrCreateWGPrivateKey(keyPath)
-		if err != nil {
-			return "", nil, "", err
+		if config.AppConfig != nil && config.AppConfig.Logger != nil {
+			config.AppConfig.Logger.Warn("WireGuard config missing usable PrivateKey directive; expected auto, PostUp, or explicit non-empty value")
 		}
-		setPostUpPrivateKey(keyPath)
+		return "", nil, "", errors.New("wireguard config missing usable PrivateKey directive")
 	}
 
 	return strings.Join(out, "\n"), peers, pubB64, nil
