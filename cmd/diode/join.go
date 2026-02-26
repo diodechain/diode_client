@@ -1863,7 +1863,7 @@ func processWireGuardConfig(client *rpc.Client, deviceAddr util.Address, contrac
 		}
 		setPostUpPrivateKey(keyPath)
 	default:
-		privB64, pubB64, err = readOrCreateWGPrivateKey(keyPath)
+		_, pubB64, err = readOrCreateWGPrivateKey(keyPath)
 		if err != nil {
 			return "", nil, "", err
 		}
