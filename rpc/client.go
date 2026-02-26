@@ -41,11 +41,12 @@ const (
 )
 
 var (
-	globalRequestID          uint64 = 0
-	errEmptyBNSresult               = fmt.Errorf("couldn't resolve name (null)")
-	errSendTransactionFailed        = fmt.Errorf("server returned false")
-	errClientClosed                 = fmt.Errorf("rpc client was closed")
-	errPortOpenTimeout              = fmt.Errorf("portopen timeout")
+	globalRequestID            uint64 = 0
+	errEmptyBNSresult                 = fmt.Errorf("couldn't resolve name (null)")
+	errSendTransactionFailed          = fmt.Errorf("server returned false")
+	errClientClosed                   = fmt.Errorf("rpc client was closed")
+	errPortOpenTimeout                = fmt.Errorf("portopen timeout")
+	startupBlockMismatchWarned uint32
 )
 
 // Client struct for rpc client
@@ -366,8 +367,8 @@ func (client *Client) validateNetwork() error {
 		if blockHeaders[i].Hash() != blockHeaders[i+1].Parent() {
 			number := blockHeaders[i].Number()
 			hash := blockHeaders[i].Hash().String()
-			prevHash := blockHeaders[i+1].Parent().String()
-			return fmt.Errorf("received blocks parent is not his parent: n=%v, blockHeaders[i].Hash()=%v, blockHeaders[i+1].Parent()=%v", number, hash, prevHash)
+			nextParent := blockHeaders[i+1].Parent().String()
+			return fmt.Errorf("block header chain mismatch at height %d: hash %s != next parent %s", number, hash, nextParent)
 		}
 		if !blockHeaders[i].ValidateSig() {
 			return fmt.Errorf("received blocks signature is not valid: %v", blockHeaders[i])
@@ -1441,7 +1442,16 @@ func (client *Client) Start() {
 	go func() {
 		if err := client.initialize(); err != nil {
 			if !client.isClosed {
-				client.Log().Warn("Client start failed: %v", err)
+				if strings.Contains(err.Error(), "block header chain mismatch") {
+					msg := "Startup chain check failed: relay returned non-contiguous block headers. This relay will be skipped; other relays can still validate the network."
+					if atomic.CompareAndSwapUint32(&startupBlockMismatchWarned, 0, 1) {
+						client.Log().Warn("%s", msg)
+					} else {
+						client.Log().Debug("%s", msg)
+					}
+				} else {
+					client.Log().Warn("Client start failed: %v", err)
+				}
 				client.Close()
 			}
 		}
