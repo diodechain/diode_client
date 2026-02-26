@@ -42,10 +42,12 @@ import (
 	gethCommon "github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/oasisprotocol/oasis-core/go/common/cbor"
+	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/callformat"
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/client"
 	oasisConfig "github.com/oasisprotocol/oasis-sdk/client-sdk/go/config"
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/connection"
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/modules/evm"
+	oasisTypes "github.com/oasisprotocol/oasis-sdk/client-sdk/go/types"
 	"golang.org/x/crypto/curve25519"
 )
 
@@ -98,6 +100,8 @@ type OasisClient struct {
 	conn           connection.Connection
 	runtime        connection.RuntimeClient
 	evm            evm.V1
+	evmRPCClient   *ethclient.Client
+	evmRPCMu       sync.Mutex
 	ctx            context.Context
 	networkName    string
 	rpcEndpoint    string
@@ -308,6 +312,74 @@ func (s evmRSVSigner) SignRSV(digest [32]byte) ([]byte, error) {
 	return s.signerClient.SignDigestRSV(digest[:])
 }
 
+func decodeEVMCallResult(result *oasisTypes.CallResult) ([]byte, error) {
+	if result == nil {
+		return nil, fmt.Errorf("missing call result")
+	}
+	if result.Failed != nil {
+		return nil, fmt.Errorf("signed call failed: %w", result.Failed)
+	}
+	switch {
+	case result.Ok != nil:
+		var ok []byte
+		if err := cbor.Unmarshal(result.Ok, &ok); err != nil {
+			return nil, fmt.Errorf("failed to decode signed call success result: %w", err)
+		}
+		return ok, nil
+	case result.Unknown != nil:
+		var unknown []byte
+		if err := cbor.Unmarshal(result.Unknown, &unknown); err != nil {
+			return nil, fmt.Errorf("failed to decode signed call unknown result: %w", err)
+		}
+		return unknown, nil
+	default:
+		return nil, fmt.Errorf("empty signed call result")
+	}
+}
+
+func (c *OasisClient) encryptSignedCallData(ctx context.Context, pack *evm.SignedCallDataPack) (interface{}, error) {
+	if pack == nil {
+		return nil, fmt.Errorf("missing signed call data pack")
+	}
+	cdpk, err := c.runtime.Core.CallDataPublicKey(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch call data public key: %w", err)
+	}
+	encryptedData, decodeMeta, err := callformat.EncodeCall(
+		&pack.Data,
+		oasisTypes.CallFormatEncryptedX25519DeoxysII,
+		&callformat.EncodeConfig{
+			PublicKey: &cdpk.PublicKey,
+			Epoch:     cdpk.Epoch,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt signed call data: %w", err)
+	}
+	pack.Data = *encryptedData
+	return decodeMeta, nil
+}
+
+func (c *OasisClient) getEVMRPCClient(ctx context.Context) (*ethclient.Client, error) {
+	if c.evmRPCEndpoint == "" {
+		return nil, fmt.Errorf("missing Sapphire EVM RPC endpoint")
+	}
+
+	c.evmRPCMu.Lock()
+	defer c.evmRPCMu.Unlock()
+
+	if c.evmRPCClient != nil {
+		return c.evmRPCClient, nil
+	}
+
+	ethClient, err := ethclient.DialContext(ctx, c.evmRPCEndpoint)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect Sapphire EVM RPC: %w", err)
+	}
+	c.evmRPCClient = ethClient
+	return c.evmRPCClient, nil
+}
+
 // ConfidentialEVMSignedSimulateCall executes an authenticated signed eth_call on Sapphire.
 func (c *OasisClient) ConfidentialEVMSignedSimulateCall(
 	ctx context.Context,
@@ -323,14 +395,10 @@ func (c *OasisClient) ConfidentialEVMSignedSimulateCall(
 		return nil, fmt.Errorf("missing signer client")
 	}
 
-	if c.evmRPCEndpoint == "" {
-		return nil, fmt.Errorf("missing Sapphire EVM RPC endpoint")
-	}
-	ethClient, err := ethclient.DialContext(ctx, c.evmRPCEndpoint)
+	ethClient, err := c.getEVMRPCClient(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect Sapphire EVM RPC: %w", err)
+		return nil, err
 	}
-	defer ethClient.Close()
 
 	callerAddr := gethCommon.BytesToAddress(caller[:])
 	chainID, err := ethClient.ChainID(ctx)
@@ -368,10 +436,14 @@ func (c *OasisClient) ConfidentialEVMSignedSimulateCall(
 	if err != nil {
 		return nil, fmt.Errorf("failed to build signed call: %w", err)
 	}
+	decodeMeta, err := c.encryptSignedCallData(ctx, pack)
+	if err != nil {
+		return nil, err
+	}
 	signedCallData := cbor.Marshal(pack)
 
 	to := gethCommon.BytesToAddress(contractAddr)
-	return ethClient.CallContract(ctx, ethereum.CallMsg{
+	result, err := ethClient.CallContract(ctx, ethereum.CallMsg{
 		From:     callerAddr,
 		To:       &to,
 		Gas:      oasisSimulateGasLimit,
@@ -379,6 +451,18 @@ func (c *OasisClient) ConfidentialEVMSignedSimulateCall(
 		Value:    big.NewInt(0),
 		Data:     signedCallData,
 	}, nil)
+	if err != nil {
+		return nil, err
+	}
+	var encryptedCallResult oasisTypes.CallResult
+	if err = cbor.Unmarshal(result, &encryptedCallResult); err != nil {
+		return nil, fmt.Errorf("failed to decode signed call result envelope: %w", err)
+	}
+	decryptedCallResult, err := callformat.DecodeResult(&encryptedCallResult, decodeMeta)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt signed call result: %w", err)
+	}
+	return decodeEVMCallResult(decryptedCallResult)
 }
 
 func getPropertyValuesAt(deviceAddr util.Address, contractAddr string, keys []string) (map[string]string, error) {
@@ -499,10 +583,7 @@ func getDeviceKeyAt(client *rpc.Client, deviceAddr util.Address, contractAddr st
 	var signedErr error
 	// For device-only private key reads, prefer authenticated signed eth_call.
 	if methodName == "getDevicePrivateKey" && from != nil && client != nil {
-		signedCaller := deviceAddr
-		if from != nil {
-			signedCaller = *from
-		}
+		signedCaller := *from
 		result, signedErr = oasisClient.ConfidentialEVMSignedSimulateCall(oasisClient.ctx, contractAddrBytes, callData, signedCaller, client)
 	}
 
