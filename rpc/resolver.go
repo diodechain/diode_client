@@ -112,16 +112,22 @@ func (resolver *Resolver) fetchDeviceTicket(primary *Client, deviceID Address, p
 			continue
 		}
 		ticket, err := resolver.fetchAndValidate(client, deviceID)
+		if errors.Is(err, errOutdatedDeviceTicket) {
+			client.Log().Warn("found outdated deviceticket() %+v, clearing cache", ticket)
+			resolver.datapool.SetCacheDevice(deviceID, nil)
+			err = nil
+		}
+
 		if err == nil {
 			return ticket, nil
 		}
+
 		lastTicket = ticket
 		lastErr = err
 
-		if !errors.Is(err, errOutdatedDeviceTicket) || ticket == nil {
+		if ticket == nil {
 			continue
 		}
-		client.Log().Warn("found outdated deviceticket() %+v", ticket)
 
 		srvID := ticket.ServerID
 		if srvID == (Address{}) || triedServers[srvID] {
