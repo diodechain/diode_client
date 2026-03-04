@@ -369,7 +369,7 @@ func publishHandler() (err error) {
 	}
 
 	if cfg.EnableAPIServer {
-		configAPIServer := NewConfigAPIServer(cfg)
+		configAPIServer := NewConfigAPIServer(cfg, app.clientManager)
 		configAPIServer.ListenAndServe()
 		app.SetConfigAPIServer(configAPIServer)
 	}

@@ -55,7 +55,7 @@ func gatewayHandler() (err error) {
 	cfg := config.AppConfig
 	cfg.EnableProxyServer = true
 	if cfg.EnableAPIServer {
-		configAPIServer := NewConfigAPIServer(cfg)
+		configAPIServer := NewConfigAPIServer(cfg, app.clientManager)
 		configAPIServer.ListenAndServe()
 		app.SetConfigAPIServer(configAPIServer)
 	}

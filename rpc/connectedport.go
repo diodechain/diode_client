@@ -182,6 +182,9 @@ func (port *ConnectedPort) close() {
 		port.remoteErr = io.EOF
 	}
 	if port.client != nil {
+		if port.Conn != nil {
+			port.client.pool.UnregisterConnectionPeer(port.Conn.LocalAddr().String())
+		}
 		deviceKey := port.client.GetDeviceKey(port.Ref)
 		port.client.pool.SetPort(deviceKey, nil)
 	}

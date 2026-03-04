@@ -42,7 +42,7 @@ func socksdHandler() (err error) {
 	cfg.EnableProxyServer = true
 	cfg.ProxyServerPort = 8080
 	if cfg.EnableAPIServer {
-		configAPIServer := NewConfigAPIServer(cfg)
+		configAPIServer := NewConfigAPIServer(cfg, app.clientManager)
 		configAPIServer.ListenAndServe()
 		app.SetConfigAPIServer(configAPIServer)
 	}

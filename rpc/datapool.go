@@ -31,6 +31,9 @@ type DataPool struct {
 	// Track connection attempts in progress per device to prevent storms
 	connectionAttempts map[Address]int
 
+	// peerAddrToDeviceID maps local connection peer address (as seen by published-port backends) to remote Diode device ID
+	peerAddrToDeviceID map[string]Address
+
 	srv *genserver.GenServer
 }
 
@@ -50,6 +53,7 @@ func NewPool() *DataPool {
 		bnsCacheExpire:       config.AppConfig.ResolveCacheTime,
 		bnsCacheUpdatingFlag: make(map[string]bool),
 		connectionAttempts:   make(map[Address]int),
+		peerAddrToDeviceID:   make(map[string]Address),
 	}
 	if !config.AppConfig.LogDateTime {
 		pool.srv.DeadlockCallback = nil
@@ -445,6 +449,37 @@ func (p *DataPool) SetPort(key string, dev *ConnectedPort) {
 		} else {
 			p.devices[key] = dev
 		}
+	})
+}
+
+// RegisterConnectionPeer records that the given peer address (LocalAddr of the diode client's
+// connection to a published-port backend) corresponds to the given remote Diode device ID.
+// Backends use this to resolve conn.RemoteAddr() to the verified client identity.
+func (p *DataPool) RegisterConnectionPeer(peerAddr string, deviceID Address) {
+	if peerAddr == "" {
+		return
+	}
+	p.srv.Call(func() {
+		p.peerAddrToDeviceID[peerAddr] = deviceID
+	})
+}
+
+// GetDeviceIDForConnection returns the Diode device ID for the connection whose backend-side
+// peer address is peerAddr (the value of conn.RemoteAddr().String() as seen by the backend).
+func (p *DataPool) GetDeviceIDForConnection(peerAddr string) (deviceID Address, ok bool) {
+	p.srv.Call(func() {
+		deviceID, ok = p.peerAddrToDeviceID[peerAddr]
+	})
+	return deviceID, ok
+}
+
+// UnregisterConnectionPeer removes the peer mapping when a connection is closed.
+func (p *DataPool) UnregisterConnectionPeer(peerAddr string) {
+	if peerAddr == "" {
+		return
+	}
+	p.srv.Call(func() {
+		delete(p.peerAddrToDeviceID, peerAddr)
 	})
 }
 

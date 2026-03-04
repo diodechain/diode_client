@@ -907,7 +907,7 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 
 func startServicesFromConfig(cfg *config.Config) error {
 	if cfg.EnableAPIServer && app.configAPIServer == nil {
-		configAPIServer := NewConfigAPIServer(cfg)
+		configAPIServer := NewConfigAPIServer(cfg, app.clientManager)
 		configAPIServer.ListenAndServe()
 		app.SetConfigAPIServer(configAPIServer)
 	}
