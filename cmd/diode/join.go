@@ -1227,11 +1227,7 @@ func startServicesFromConfig(cfg *config.Config) error {
 	sig := bindSignature(cfg.SBinds)
 	needServer := cfg.EnableSocksServer || cfg.EnableProxyServer || cfg.EnableSProxyServer || len(cfg.Binds) > 0
 	if !needServer {
-		if app.socksServer != nil && sig != lastAppliedBindSignature {
-			app.socksServer.SetBinds(cfg.Binds)
-			lastAppliedBindSignature = sig
-		}
-		logBindSummary(cfg, sig)
+		applyAndLogBinds(&app, cfg, sig)
 		return nil
 	}
 
@@ -1253,11 +1249,7 @@ func startServicesFromConfig(cfg *config.Config) error {
 		lastAppliedBindSignature = ""
 	}
 
-	if app.socksServer != nil && sig != lastAppliedBindSignature {
-		app.socksServer.SetBinds(cfg.Binds)
-		lastAppliedBindSignature = sig
-	}
-	logBindSummary(cfg, sig)
+	applyAndLogBinds(&app, cfg, sig)
 
 	shouldStartSocks := cfg.EnableSocksServer || cfg.EnableProxyServer || cfg.EnableSProxyServer
 	if shouldStartSocks && !socksServerStarted {
@@ -1289,6 +1281,15 @@ func startServicesFromConfig(cfg *config.Config) error {
 		}
 	}
 	return nil
+}
+
+func applyAndLogBinds(app *Diode, cfg *config.Config, sig string) {
+	if app.socksServer != nil && sig != lastAppliedBindSignature {
+		app.socksServer.SetBinds(cfg.Binds)
+		cfg.Binds = app.socksServer.GetBinds() // resolve "auto" ports for logs and API
+		lastAppliedBindSignature = sig
+	}
+	logBindSummary(cfg, sig)
 }
 
 func logBindSummary(cfg *config.Config, sig string) {

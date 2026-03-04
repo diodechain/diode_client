@@ -218,9 +218,13 @@ func parseBind(bind string) (*config.Bind, error) {
 	ret := &config.Bind{
 		To: elements[1],
 	}
-	ret.LocalPort, err = strconv.Atoi(elements[0])
-	if err != nil {
-		return nil, fmt.Errorf("bind local_port should be a number but is: %v in: %v", elements[0], bind)
+	if strings.EqualFold(elements[0], "auto") || elements[0] == "0" {
+		ret.LocalPort = 0 // OS will assign ephemeral port at listen time
+	} else {
+		ret.LocalPort, err = strconv.Atoi(elements[0])
+		if err != nil {
+			return nil, fmt.Errorf("bind local_port should be a number or 'auto' but is: %v in: %v", elements[0], bind)
+		}
 	}
 
 	if !util.IsSubdomain(ret.To) {
@@ -395,6 +399,7 @@ func publishHandler() (err error) {
 	}
 	if len(cfg.Binds) > 0 {
 		socksServer.SetBinds(cfg.Binds)
+		cfg.Binds = socksServer.GetBinds() // resolve "auto" ports for logs and API
 		cfg.PrintInfo("")
 		cfg.PrintLabel("Bind      <name>", "<mode>     <remote>")
 		for _, bind := range cfg.Binds {

@@ -61,11 +61,12 @@ func socksdHandler() (err error) {
 	}
 	if len(cfg.Binds) > 0 {
 		socksServer.SetBinds(cfg.Binds)
+		cfg.Binds = socksServer.GetBinds() // resolve "auto" ports for logs and API
 		cfg.PrintInfo("")
 		cfg.PrintLabel("Bind      <name>", "<mode>     <remote>")
 		for _, bind := range cfg.Binds {
 			bindHost := net.JoinHostPort(bind.To, strconv.Itoa(bind.ToPort))
-			cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %s13", config.ProtocolName(bind.Protocol), bindHost))
+			cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %s", config.ProtocolName(bind.Protocol), bindHost))
 		}
 	}
 	app.SetSocksServer(socksServer)
