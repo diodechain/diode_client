@@ -76,10 +76,14 @@ func handleAPIClientID(w http.ResponseWriter, req *http.Request) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	if err != nil {
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error(), "peer": peer})
+		if encErr := json.NewEncoder(w).Encode(map[string]string{"error": err.Error(), "peer": peer}); encErr != nil {
+			log.Printf("failed to encode error response: %v", encErr)
+		}
 		return
 	}
-	_ = json.NewEncoder(w).Encode(map[string]string{"clientId": clientID, "peer": peer})
+	if encErr := json.NewEncoder(w).Encode(map[string]string{"clientId": clientID, "peer": peer}); encErr != nil {
+		log.Printf("failed to encode client-id response: %v", encErr)
+	}
 }
 
 func fetchClientID(peerAddr string) (string, error) {
@@ -115,5 +119,7 @@ func fetchClientID(peerAddr string) (string, error) {
 func writeHTML(w http.ResponseWriter, code int, body string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(code)
-	_, _ = w.Write([]byte("<!DOCTYPE html><html><body>" + body + "</body></html>"))
+	if _, err := w.Write([]byte("<!DOCTYPE html><html><body>" + body + "</body></html>")); err != nil {
+		log.Printf("failed to write HTML response: %v", err)
+	}
 }

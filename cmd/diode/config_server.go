@@ -208,6 +208,17 @@ func (configAPIServer *ConfigAPIServer) unsupportedMediaTypeError(w http.Respons
 	w.Write(res)
 }
 
+func (configAPIServer *ConfigAPIServer) serviceUnavailableError(w http.ResponseWriter) {
+	var response apiResponse
+	var res []byte
+	response.Success = false
+	response.Message = "service unavailable"
+	res, _ = json.Marshal(response)
+
+	w.WriteHeader(http.StatusServiceUnavailable)
+	w.Write(res)
+}
+
 func (configAPIServer *ConfigAPIServer) successResponse(w http.ResponseWriter, message string) {
 	var response apiResponse
 	var res []byte
@@ -646,22 +657,24 @@ func (configAPIServer *ConfigAPIServer) connectionClientIDHandleFunc() func(http
 			return
 		}
 		if configAPIServer.clientManager == nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
+			configAPIServer.serviceUnavailableError(w)
 			return
 		}
 		peer := strings.TrimSpace(req.URL.Query().Get("peer"))
 		if peer == "" {
-			w.WriteHeader(http.StatusBadRequest)
+			configAPIServer.clientError(w, map[string]string{"peer": "required"})
 			return
 		}
 		pool := configAPIServer.clientManager.GetPool()
 		deviceID, ok := pool.GetDeviceIDForConnection(peer)
 		if !ok {
-			w.WriteHeader(http.StatusNotFound)
+			configAPIServer.notFoundError(w)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(connectionClientIDResponse{ClientID: deviceID.HexString()})
+		if err := json.NewEncoder(w).Encode(connectionClientIDResponse{ClientID: deviceID.HexString()}); err != nil {
+			configAPIServer.appConfig.Logger.Error("Failed to encode connection-client-id response: %v", err)
+		}
 	}
 }
 
