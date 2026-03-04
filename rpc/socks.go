@@ -939,14 +939,17 @@ func (socksServer *Server) SetBinds(bindDefs []config.Bind) {
 	newBinds := make([]Bind, 0, len(bindDefs))
 
 	// Build the new bind set, reusing existing listeners for unchanged
-	// definitions (same config.Bind) where possible.
+	// definitions (same config.Bind) where possible. Never reuse when
+	// LocalPort is 0 (auto), since each auto bind gets its own ephemeral port.
 	for _, def := range bindDefs {
 		newBind := Bind{def: def}
-		for _, existing := range socksServer.binds {
-			if existing.def == def {
-				newBind.tcp = existing.tcp
-				newBind.udp = existing.udp
-				break
+		if def.LocalPort != 0 {
+			for _, existing := range socksServer.binds {
+				if existing.def == def {
+					newBind.tcp = existing.tcp
+					newBind.udp = existing.udp
+					break
+				}
 			}
 		}
 		newBinds = append(newBinds, newBind)
@@ -979,6 +982,16 @@ func (socksServer *Server) SetBinds(bindDefs []config.Bind) {
 	socksServer.binds = newBinds
 }
 
+// GetBinds returns the current bind definitions with resolved local ports
+// (e.g. when "auto" was used, LocalPort is the OS-assigned ephemeral port).
+func (socksServer *Server) GetBinds() []config.Bind {
+	out := make([]config.Bind, len(socksServer.binds))
+	for i := range socksServer.binds {
+		out[i] = socksServer.binds[i].def
+	}
+	return out
+}
+
 func (socksServer *Server) stopBind(bind Bind) {
 	if bind.udp != nil {
 		bind.udp.Close()
@@ -992,7 +1005,12 @@ func (socksServer *Server) stopBind(bind Bind) {
 
 func (socksServer *Server) startBind(bind *Bind) error {
 	var err error
-	address := net.JoinHostPort(localhost, strconv.Itoa(bind.def.LocalPort))
+	// LocalPort 0 means "auto": let the OS choose an ephemeral port
+	portStr := strconv.Itoa(bind.def.LocalPort)
+	if bind.def.LocalPort == 0 {
+		portStr = "0"
+	}
+	address := net.JoinHostPort(localhost, portStr)
 	switch bind.def.Protocol {
 	case config.UDPProtocol:
 		if bind.udp != nil {
@@ -1001,6 +1019,12 @@ func (socksServer *Server) startBind(bind *Bind) error {
 		bind.udp, err = net.ListenPacket("udp", address)
 		if err != nil {
 			return fmt.Errorf("StartBind() failed for: %+v because %v", bind.def, err)
+		}
+		if bind.def.LocalPort == 0 {
+			if ua, ok := bind.udp.LocalAddr().(*net.UDPAddr); ok {
+				bind.def.LocalPort = ua.Port
+				socksServer.logger.Info("Bind auto -> local port %d (udp -> %s:%d)", bind.def.LocalPort, bind.def.To, bind.def.ToPort)
+			}
 		}
 
 		packet := make([]byte, 2048)
@@ -1024,6 +1048,12 @@ func (socksServer *Server) startBind(bind *Bind) error {
 		bind.tcp, err = net.Listen("tcp", address)
 		if err != nil {
 			return fmt.Errorf("StartBind() failed for: %+v because %v", bind.def, err)
+		}
+		if bind.def.LocalPort == 0 {
+			if ta, ok := bind.tcp.Addr().(*net.TCPAddr); ok {
+				bind.def.LocalPort = ta.Port
+				socksServer.logger.Info("Bind auto -> local port %d (tcp/tls -> %s:%d)", bind.def.LocalPort, bind.def.To, bind.def.ToPort)
+			}
 		}
 
 		go func() {

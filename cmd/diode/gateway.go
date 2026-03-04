@@ -74,6 +74,7 @@ func gatewayHandler() (err error) {
 	}
 	if len(cfg.Binds) > 0 {
 		socksServer.SetBinds(cfg.Binds)
+		cfg.Binds = socksServer.GetBinds() // resolve "auto" ports for logs and API
 		cfg.PrintInfo("")
 		cfg.PrintLabel("Bind      <name>", "<mode>     <remote>")
 		for _, bind := range cfg.Binds {

@@ -1229,6 +1229,7 @@ func startServicesFromConfig(cfg *config.Config) error {
 	if !needServer {
 		if app.socksServer != nil && sig != lastAppliedBindSignature {
 			app.socksServer.SetBinds(cfg.Binds)
+			cfg.Binds = app.socksServer.GetBinds() // resolve "auto" ports for logs and API
 			lastAppliedBindSignature = sig
 		}
 		logBindSummary(cfg, sig)
@@ -1255,6 +1256,7 @@ func startServicesFromConfig(cfg *config.Config) error {
 
 	if app.socksServer != nil && sig != lastAppliedBindSignature {
 		app.socksServer.SetBinds(cfg.Binds)
+		cfg.Binds = app.socksServer.GetBinds() // resolve "auto" ports for logs and API
 		lastAppliedBindSignature = sig
 	}
 	logBindSummary(cfg, sig)
