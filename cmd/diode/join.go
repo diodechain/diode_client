@@ -8,6 +8,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
@@ -16,9 +17,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	mrand "math/rand"
 	"net"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -37,6 +38,16 @@ import (
 	"github.com/diodechain/diode_client/edge"
 	"github.com/diodechain/diode_client/rpc"
 	"github.com/diodechain/diode_client/util"
+	ethereum "github.com/ethereum/go-ethereum"
+	gethCommon "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/oasisprotocol/oasis-core/go/common/cbor"
+	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/callformat"
+	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/client"
+	oasisConfig "github.com/oasisprotocol/oasis-sdk/client-sdk/go/config"
+	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/connection"
+	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/modules/evm"
+	oasisTypes "github.com/oasisprotocol/oasis-sdk/client-sdk/go/types"
 	"golang.org/x/crypto/curve25519"
 )
 
@@ -51,8 +62,8 @@ var (
 	}
 	dryRun          = false
 	network         = "mainnet"
-	rpcURL          = ""
 	contractAddress = ""
+	oasisClient     *OasisClient
 	wantWireGuard   = false
 	wgSuffix        = ""
 )
@@ -65,26 +76,169 @@ func init() {
 	joinCmd.Flag.StringVar(&wgSuffix, "suffix", "", "custom suffix for WireGuard interface and files (default derived from -network)")
 }
 
-// JSON-RPC request structure
-type jsonRPCRequest struct {
-	JSONRPC string        `json:"jsonrpc"`
-	Method  string        `json:"method"`
-	Params  []interface{} `json:"params"`
-	ID      int           `json:"id"`
+const (
+	oasisSapphireParaTime            = "sapphire"
+	oasisLocalRPCDefault             = "127.0.0.1:4222"
+	oasisLocalChainCtxDefault        = "0000000000000000000000000000000000000000000000000000000000000000"
+	oasisLocalEVMRPCDefault          = "http://127.0.0.1:8545"
+	oasisLocalRPCEnv                 = "OASIS_LOCAL_GRPC"
+	oasisLocalChainContextEnv        = "OASIS_LOCAL_CHAIN_CONTEXT"
+	oasisLocalSapphireIDEnv          = "OASIS_LOCAL_SAPPHIRE_ID"
+	oasisLocalEVMRPCEnv              = "OASIS_LOCAL_EVM_RPC"
+	oasisSimulateGasLimit     uint64 = 2_000_000
+	signedCallLeashBlockRange uint64 = 128
+)
+
+var (
+	evmZeroAddress  = make([]byte, 20)
+	evmZeroValue    = []byte{0}
+	evmZeroGasPrice = []byte{0}
+)
+
+// OasisClient wraps the Oasis SDK connection for contract interactions.
+type OasisClient struct {
+	conn           connection.Connection
+	runtime        connection.RuntimeClient
+	evm            evm.V1
+	evmRPCClient   *ethclient.Client
+	evmRPCMu       sync.Mutex
+	ctx            context.Context
+	networkName    string
+	rpcEndpoint    string
+	evmRPCEndpoint string
+	paratimeName   string
 }
 
-// JSON-RPC response structure
-type jsonRPCResponse struct {
-	JSONRPC string        `json:"jsonrpc"`
-	ID      int           `json:"id"`
-	Result  string        `json:"result"`
-	Error   *jsonRPCError `json:"error,omitempty"`
+// NewOasisClient creates a new Oasis client for the specified network.
+func NewOasisClient(ctx context.Context, networkName string) (*OasisClient, error) {
+	normalizedNetworkName := normalizeNetworkName(networkName)
+	netCfg, ptCfg, skipVerify, err := resolveSapphireNetwork(normalizedNetworkName)
+	if err != nil {
+		return nil, err
+	}
+
+	var conn connection.Connection
+	if skipVerify {
+		conn, err = connection.ConnectNoVerify(ctx, netCfg)
+	} else {
+		conn, err = connection.Connect(ctx, netCfg)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to Oasis network: %w", err)
+	}
+
+	runtime := conn.Runtime(ptCfg)
+	evmRPCEndpoint := resolveSapphireEVMRPCEndpoint(normalizedNetworkName)
+	return &OasisClient{
+		conn:           conn,
+		runtime:        runtime,
+		evm:            runtime.Evm,
+		ctx:            ctx,
+		networkName:    normalizedNetworkName,
+		rpcEndpoint:    netCfg.RPC,
+		evmRPCEndpoint: evmRPCEndpoint,
+		paratimeName:   oasisSapphireParaTime,
+	}, nil
 }
 
-// JSON-RPC error structure
-type jsonRPCError struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
+func normalizeNetworkName(networkName string) string {
+	return strings.ToLower(strings.TrimSpace(networkName))
+}
+
+func normalizeLocalRPCEndpoint(rpcEndpoint string) string {
+	rpcEndpoint = strings.TrimSpace(rpcEndpoint)
+	switch {
+	case rpcEndpoint == "":
+		return rpcEndpoint
+	case strings.HasPrefix(rpcEndpoint, "dns:"):
+		return rpcEndpoint
+	case strings.HasPrefix(rpcEndpoint, "unix:"):
+		return rpcEndpoint
+	case strings.HasPrefix(rpcEndpoint, "unix-abstract:"):
+		return rpcEndpoint
+	case strings.HasPrefix(rpcEndpoint, "vsock:"):
+		return rpcEndpoint
+	case strings.Contains(rpcEndpoint, "://"):
+		return rpcEndpoint
+	default:
+		// Oasis config validation expects a URI-like value. Prefix host:port
+		// endpoints with dns: so local defaults and env values remain ergonomic.
+		return "dns:" + rpcEndpoint
+	}
+}
+
+func resolveSapphireEVMRPCEndpoint(networkName string) string {
+	switch normalizeNetworkName(networkName) {
+	case "mainnet":
+		return "https://sapphire.oasis.io"
+	case "testnet":
+		return "https://testnet.sapphire.oasis.io"
+	case "local":
+		rpcEndpoint := strings.TrimSpace(os.Getenv(oasisLocalEVMRPCEnv))
+		if rpcEndpoint == "" {
+			return oasisLocalEVMRPCDefault
+		}
+		return rpcEndpoint
+	default:
+		return ""
+	}
+}
+
+func resolveSapphireNetwork(networkName string) (*oasisConfig.Network, *oasisConfig.ParaTime, bool, error) {
+	normalized := normalizeNetworkName(networkName)
+	switch normalized {
+	case "mainnet", "testnet":
+		netCfg := oasisConfig.DefaultNetworks.All[normalized]
+		if netCfg == nil {
+			return nil, nil, false, fmt.Errorf("unknown network: %s", networkName)
+		}
+		if err := netCfg.Validate(); err != nil {
+			return nil, nil, false, fmt.Errorf("invalid network config for %s: %w", normalized, err)
+		}
+		ptCfg := netCfg.ParaTimes.All[oasisSapphireParaTime]
+		if ptCfg == nil {
+			return nil, nil, false, fmt.Errorf("sapphire paratime not configured for %s", normalized)
+		}
+		if err := ptCfg.Validate(); err != nil {
+			return nil, nil, false, fmt.Errorf("invalid sapphire paratime: %w", err)
+		}
+		return netCfg, ptCfg, false, nil
+	case "local":
+		rpcEndpoint := strings.TrimSpace(os.Getenv(oasisLocalRPCEnv))
+		if rpcEndpoint == "" {
+			rpcEndpoint = oasisLocalRPCDefault
+		}
+		rpcEndpoint = normalizeLocalRPCEndpoint(rpcEndpoint)
+		chainContext := strings.TrimSpace(os.Getenv(oasisLocalChainContextEnv))
+		if chainContext == "" {
+			chainContext = oasisLocalChainCtxDefault
+		}
+		sapphireID := strings.TrimSpace(os.Getenv(oasisLocalSapphireIDEnv))
+		if sapphireID == "" {
+			return nil, nil, false, fmt.Errorf("missing Sapphire runtime id for local network (set %s)", oasisLocalSapphireIDEnv)
+		}
+
+		ptCfg := &oasisConfig.ParaTime{ID: sapphireID}
+		netCfg := &oasisConfig.Network{
+			ChainContext: chainContext,
+			RPC:          rpcEndpoint,
+			ParaTimes: oasisConfig.ParaTimes{
+				Default: oasisSapphireParaTime,
+				All: map[string]*oasisConfig.ParaTime{
+					oasisSapphireParaTime: ptCfg,
+				},
+			},
+		}
+		if err := ptCfg.Validate(); err != nil {
+			return nil, nil, false, fmt.Errorf("invalid local Sapphire paratime id: %w", err)
+		}
+		if err := netCfg.Validate(); err != nil {
+			return nil, nil, false, fmt.Errorf("invalid local network config: %w", err)
+		}
+		return netCfg, ptCfg, true, nil
+	default:
+		return nil, nil, false, fmt.Errorf("invalid network: %s", networkName)
+	}
 }
 
 const jsondata = `
@@ -127,12 +281,204 @@ const wgKeyABI = `
 		"outputs": [
 			{"name": "privateKey", "type": "bytes32"}
 		]
-	}
-]
+		}
+	]
 `
 
-// getPropertyValuesAt fetches multiple property values from the given contract in one JSON-RPC batch
+func contractAddressToBytes(contractAddr string) ([]byte, error) {
+	decoded, err := hex.DecodeString(strings.TrimPrefix(strings.TrimSpace(contractAddr), "0x"))
+	if err != nil || len(decoded) != 20 {
+		return nil, fmt.Errorf("invalid contract address: %s", contractAddr)
+	}
+	return decoded, nil
+}
+
+// ConfidentialEVMSimulateCall performs a confidential read-only EVM call on Sapphire.
+func (c *OasisClient) ConfidentialEVMSimulateCall(ctx context.Context, contractAddr []byte, caller []byte, callData []byte) ([]byte, error) {
+	if len(contractAddr) == 0 {
+		return nil, fmt.Errorf("missing contract address")
+	}
+	return c.evm.SimulateCall(ctx, client.RoundLatest, evmZeroGasPrice, oasisSimulateGasLimit, caller, contractAddr, evmZeroValue, callData)
+}
+
+type evmRSVSigner struct {
+	signerClient *rpc.Client
+}
+
+func (s evmRSVSigner) SignRSV(digest [32]byte) ([]byte, error) {
+	if s.signerClient == nil {
+		return nil, fmt.Errorf("missing signer client")
+	}
+	return s.signerClient.SignDigestRSV(digest[:])
+}
+
+func decodeEVMCallResult(result *oasisTypes.CallResult) ([]byte, error) {
+	if result == nil {
+		return nil, fmt.Errorf("missing call result")
+	}
+	if result.Failed != nil {
+		return nil, fmt.Errorf("signed call failed: %w", result.Failed)
+	}
+	switch {
+	case result.Ok != nil:
+		var ok []byte
+		if err := cbor.Unmarshal(result.Ok, &ok); err != nil {
+			return nil, fmt.Errorf("failed to decode signed call success result: %w", err)
+		}
+		return ok, nil
+	case result.Unknown != nil:
+		var unknown []byte
+		if err := cbor.Unmarshal(result.Unknown, &unknown); err != nil {
+			return nil, fmt.Errorf("failed to decode signed call unknown result: %w", err)
+		}
+		return unknown, nil
+	default:
+		return nil, fmt.Errorf("empty signed call result")
+	}
+}
+
+func (c *OasisClient) encryptSignedCallData(ctx context.Context, pack *evm.SignedCallDataPack) (interface{}, error) {
+	if pack == nil {
+		return nil, fmt.Errorf("missing signed call data pack")
+	}
+	cdpk, err := c.runtime.Core.CallDataPublicKey(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch call data public key: %w", err)
+	}
+	encryptedData, decodeMeta, err := callformat.EncodeCall(
+		&pack.Data,
+		oasisTypes.CallFormatEncryptedX25519DeoxysII,
+		&callformat.EncodeConfig{
+			PublicKey: &cdpk.PublicKey,
+			Epoch:     cdpk.Epoch,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encrypt signed call data: %w", err)
+	}
+	pack.Data = *encryptedData
+	return decodeMeta, nil
+}
+
+func (c *OasisClient) getEVMRPCClient(ctx context.Context) (*ethclient.Client, error) {
+	if c.evmRPCEndpoint == "" {
+		return nil, fmt.Errorf("missing Sapphire EVM RPC endpoint")
+	}
+
+	c.evmRPCMu.Lock()
+	defer c.evmRPCMu.Unlock()
+
+	if c.evmRPCClient != nil {
+		return c.evmRPCClient, nil
+	}
+
+	ethClient, err := ethclient.DialContext(ctx, c.evmRPCEndpoint)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect Sapphire EVM RPC: %w", err)
+	}
+	c.evmRPCClient = ethClient
+	return c.evmRPCClient, nil
+}
+
+// ConfidentialEVMSignedSimulateCall executes an authenticated signed eth_call on Sapphire.
+func (c *OasisClient) ConfidentialEVMSignedSimulateCall(
+	ctx context.Context,
+	contractAddr []byte,
+	callData []byte,
+	caller util.Address,
+	signerClient *rpc.Client,
+) ([]byte, error) {
+	if len(contractAddr) == 0 {
+		return nil, fmt.Errorf("missing contract address")
+	}
+	if signerClient == nil {
+		return nil, fmt.Errorf("missing signer client")
+	}
+
+	ethClient, err := c.getEVMRPCClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	callerAddr := gethCommon.BytesToAddress(caller[:])
+	chainID, err := ethClient.ChainID(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch chain id: %w", err)
+	}
+	latestHeader, err := ethClient.HeaderByNumber(ctx, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch latest EVM header: %w", err)
+	}
+	if latestHeader.Number == nil || latestHeader.Number.Sign() == 0 {
+		return nil, fmt.Errorf("invalid latest EVM header number")
+	}
+	nonce, err := ethClient.PendingNonceAt(ctx, callerAddr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch pending nonce: %w", err)
+	}
+
+	pack, err := evm.NewSignedCallDataPack(
+		evmRSVSigner{signerClient: signerClient},
+		chainID.Uint64(),
+		callerAddr.Bytes(),
+		contractAddr,
+		oasisSimulateGasLimit,
+		big.NewInt(0),
+		big.NewInt(0),
+		callData,
+		evm.Leash{
+			Nonce:       nonce,
+			BlockNumber: latestHeader.Number.Uint64() - 1,
+			BlockHash:   latestHeader.ParentHash.Bytes(),
+			BlockRange:  signedCallLeashBlockRange,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build signed call: %w", err)
+	}
+	decodeMeta, err := c.encryptSignedCallData(ctx, pack)
+	if err != nil {
+		return nil, err
+	}
+	signedCallData := cbor.Marshal(pack)
+
+	to := gethCommon.BytesToAddress(contractAddr)
+	result, err := ethClient.CallContract(ctx, ethereum.CallMsg{
+		From:     callerAddr,
+		To:       &to,
+		Gas:      oasisSimulateGasLimit,
+		GasPrice: big.NewInt(0),
+		Value:    big.NewInt(0),
+		Data:     signedCallData,
+	}, nil)
+	if err != nil {
+		return nil, err
+	}
+	var encryptedCallResult oasisTypes.CallResult
+	if err = cbor.Unmarshal(result, &encryptedCallResult); err != nil {
+		return nil, fmt.Errorf("failed to decode signed call result envelope: %w", err)
+	}
+	decryptedCallResult, err := callformat.DecodeResult(&encryptedCallResult, decodeMeta)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt signed call result: %w", err)
+	}
+	return decodeEVMCallResult(decryptedCallResult)
+}
+
 func getPropertyValuesAt(deviceAddr util.Address, contractAddr string, keys []string) (map[string]string, error) {
+	if oasisClient == nil {
+		return nil, fmt.Errorf("oasis client not initialized")
+	}
+	return oasisClient.GetPropertyValuesAt(deviceAddr, contractAddr, keys)
+}
+
+// GetPropertyValues fetches property values using the Oasis SDK for the active contract.
+func (c *OasisClient) GetPropertyValues(deviceAddr util.Address, keys []string) (map[string]string, error) {
+	return c.GetPropertyValuesAt(deviceAddr, contractAddress, keys)
+}
+
+// GetPropertyValuesAt fetches property values using the Oasis SDK for a specific contract.
+func (c *OasisClient) GetPropertyValuesAt(deviceAddr util.Address, contractAddr string, keys []string) (map[string]string, error) {
 	abi, err := abi.JSON(strings.NewReader(jsondata))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse ABI: %v", err)
@@ -147,83 +493,32 @@ func getPropertyValuesAt(deviceAddr util.Address, contractAddr string, keys []st
 		return map[string]string{}, nil
 	}
 
-	requests := make([]jsonRPCRequest, 0, len(keys))
-	idToKey := make(map[int]string, len(keys))
+	contractAddrBytes, err := contractAddressToBytes(contractAddr)
+	if err != nil {
+		return nil, err
+	}
 
-	for idx, key := range keys {
+	results := make(map[string]string, len(keys))
+	var errs []string
+	for _, key := range keys {
 		packedData, err := method.Inputs.Pack(deviceAddr, key)
 		if err != nil {
 			return nil, fmt.Errorf("failed to pack inputs for key %s: %v", key, err)
 		}
 		callData := append(method.ID, packedData...)
-		callObject := map[string]interface{}{
-			"to":   contractAddr,
-			"data": "0x" + hex.EncodeToString(callData),
-		}
-		reqID := idx + 1
-		requests = append(requests, jsonRPCRequest{
-			JSONRPC: "2.0",
-			Method:  "eth_call",
-			Params:  []interface{}{callObject, "latest"},
-			ID:      reqID,
-		})
-		idToKey[reqID] = key
-	}
-
-	requestJSON, err := json.Marshal(requests)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal batch request: %v", err)
-	}
-
-	resp, err := http.Post(rpcURL, "application/json", bytes.NewBuffer(requestJSON))
-	if err != nil {
-		return nil, fmt.Errorf("failed to make HTTP request: %v", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response body: %v", err)
-	}
-
-	var responses []jsonRPCResponse
-	if err := json.Unmarshal(body, &responses); err != nil {
-		var single jsonRPCResponse
-		if err2 := json.Unmarshal(body, &single); err2 != nil {
-			return nil, fmt.Errorf("failed to unmarshal response as batch (%v) or single (%v)", err, err2)
-		}
-		responses = []jsonRPCResponse{single}
-	}
-
-	results := make(map[string]string, len(keys))
-	var errs []string
-	for _, resp := range responses {
-		key, ok := idToKey[resp.ID]
-		if !ok {
-			continue
-		}
-		if resp.Error != nil {
-			results[key] = ""
-			errs = append(errs, fmt.Sprintf("%s: are you a member of the perimeter? %s (code: %d)", key, resp.Error.Message, resp.Error.Code))
-			continue
-		}
-		if len(resp.Result) < 2 {
-			results[key] = ""
-			continue
-		}
-		decoded, err := hex.DecodeString(resp.Result[2:])
+		result, err := c.ConfidentialEVMSimulateCall(c.ctx, contractAddrBytes, evmZeroAddress, callData)
 		if err != nil {
-			errs = append(errs, fmt.Sprintf("%s: failed to decode result: %v", key, err))
+			errs = append(errs, fmt.Sprintf("%s: %v", key, err))
 			continue
 		}
-		if len(decoded) == 0 {
+		if len(result) == 0 {
 			results[key] = ""
 			// Property decoded to empty (0 bytes) - this will only happen if the perimeter is invalid
 			errs = append(errs, fmt.Sprintf("%s: invalid perimeter - empty decoded result", key))
 			continue
 		}
 		var value string
-		if err := method.Outputs.Unpack(&value, decoded); err != nil {
+		if err := method.Outputs.Unpack(&value, result); err != nil {
 			errs = append(errs, fmt.Sprintf("%s: failed to unpack result: %v", key, err))
 			continue
 		}
@@ -238,10 +533,33 @@ func getPropertyValuesAt(deviceAddr util.Address, contractAddr string, keys []st
 }
 
 func getDevicePublicKeyAt(deviceAddr util.Address, contractAddr string) (string, error) {
-	return getDeviceKeyAt(deviceAddr, contractAddr, "getDevicePublicKey", nil)
+	return getDeviceKeyAt(nil, deviceAddr, contractAddr, "getDevicePublicKey", nil)
 }
 
-func getDeviceKeyAt(deviceAddr util.Address, contractAddr string, methodName string, from *util.Address) (string, error) {
+func getDevicePrivateKeyAt(client *rpc.Client, deviceAddr util.Address, contractAddr string) (string, error) {
+	return getDeviceKeyAt(client, deviceAddr, contractAddr, "getDevicePrivateKey", &deviceAddr)
+}
+
+func warnWGPrivateKeyMigrationFallback(deviceAddr util.Address, contractAddr string, reason error) {
+	wgPrivateKeyMigrationWarnOnce.Do(func() {
+		cfg := config.AppConfig
+		if cfg == nil || cfg.Logger == nil {
+			return
+		}
+		cfg.Logger.Warn(
+			"WireGuard PrivateKey=auto fallback to local key: join contract %s for device %s needs migration to set getDevicePrivateKey() (reason: %v)",
+			contractAddr,
+			deviceAddr.HexString(),
+			reason,
+		)
+	})
+}
+
+func getDeviceKeyAt(client *rpc.Client, deviceAddr util.Address, contractAddr string, methodName string, from *util.Address) (string, error) {
+	if oasisClient == nil {
+		return "", fmt.Errorf("oasis client not initialized")
+	}
+
 	parsedABI, err := abi.JSON(strings.NewReader(wgKeyABI))
 	if err != nil {
 		return "", fmt.Errorf("failed to parse device key ABI: %v", err)
@@ -255,50 +573,38 @@ func getDeviceKeyAt(deviceAddr util.Address, contractAddr string, methodName str
 		return "", fmt.Errorf("failed to pack inputs for %s: %v", methodName, err)
 	}
 	callData := append(method.ID, packedData...)
-	callObject := map[string]interface{}{
-		"to":   contractAddr,
-		"data": "0x" + hex.EncodeToString(callData),
-	}
-	if from != nil {
-		callObject["from"] = from.HexString()
+
+	contractAddrBytes, err := contractAddressToBytes(contractAddr)
+	if err != nil {
+		return "", err
 	}
 
-	req := jsonRPCRequest{
-		JSONRPC: "2.0",
-		Method:  "eth_call",
-		Params:  []interface{}{callObject, "latest"},
-		ID:      1,
+	var result []byte
+	var signedErr error
+	// For device-only private key reads, prefer authenticated signed eth_call.
+	if methodName == "getDevicePrivateKey" && from != nil && client != nil {
+		signedCaller := *from
+		result, signedErr = oasisClient.ConfidentialEVMSignedSimulateCall(oasisClient.ctx, contractAddrBytes, callData, signedCaller, client)
 	}
-	requestJSON, err := json.Marshal(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal device key request: %v", err)
+
+	if len(result) == 0 {
+		caller := evmZeroAddress
+		if from != nil {
+			caller = from[:]
+		}
+		result, err = oasisClient.ConfidentialEVMSimulateCall(oasisClient.ctx, contractAddrBytes, caller, callData)
+		if err != nil {
+			if signedErr != nil {
+				return "", fmt.Errorf("failed to call device key method: signed call: %v; simulate call: %v", signedErr, err)
+			}
+			return "", fmt.Errorf("failed to call device key method: %v", err)
+		}
 	}
-	resp, err := http.Post(rpcURL, "application/json", bytes.NewBuffer(requestJSON))
-	if err != nil {
-		return "", fmt.Errorf("failed to call device key method: %v", err)
+	var decoded [32]byte
+	if err := method.Outputs.Unpack(&decoded, result); err != nil {
+		return "", fmt.Errorf("failed to unpack device key response: %v", err)
 	}
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read device key response: %v", err)
-	}
-	var response jsonRPCResponse
-	if err := json.Unmarshal(body, &response); err != nil {
-		return "", fmt.Errorf("failed to unmarshal device key response: %v", err)
-	}
-	if response.Error != nil {
-		return "", fmt.Errorf("device key call failed: %s (code: %d)", response.Error.Message, response.Error.Code)
-	}
-	if len(response.Result) < 2 {
-		return "", fmt.Errorf("device key call returned empty result")
-	}
-	decoded, err := hex.DecodeString(response.Result[2:])
-	if err != nil {
-		return "", fmt.Errorf("failed to decode device key response: %v", err)
-	}
-	if len(decoded) != 32 {
-		return "", fmt.Errorf("unexpected device key length: %d", len(decoded))
-	}
+
 	empty := true
 	for _, b := range decoded {
 		if b != 0 {
@@ -309,7 +615,7 @@ func getDeviceKeyAt(deviceAddr util.Address, contractAddr string, methodName str
 	if empty {
 		return "", fmt.Errorf("device key missing for %s", deviceAddr.HexString())
 	}
-	return base64.StdEncoding.EncodeToString(decoded), nil
+	return base64.StdEncoding.EncodeToString(decoded[:]), nil
 }
 
 // fetchContractPropsFromContract retrieves all contract-backed configuration in one batch call
@@ -326,7 +632,13 @@ func logJoinContractFetch(deviceAddr util.Address, contractAddr string, keys []s
 	if cfg == nil || cfg.Logger == nil {
 		return
 	}
-	cfg.Logger.Debug("Fetching join contract (device=%s, contract=%s, rpc=%s, keys=%v)", deviceAddr.HexString(), contractAddr, rpcURL, keys)
+	networkName := "unknown"
+	rpcEndpoint := "unknown"
+	if oasisClient != nil {
+		networkName = oasisClient.networkName
+		rpcEndpoint = oasisClient.rpcEndpoint
+	}
+	cfg.Logger.Debug("Fetching join contract (device=%s, contract=%s, network=%s, rpc=%s, keys=%v)", deviceAddr.HexString(), contractAddr, networkName, rpcEndpoint, keys)
 }
 
 func logJoinContractFetchResult(deviceAddr util.Address, contractAddr string, keys []string, props map[string]string, err error) {
@@ -376,7 +688,7 @@ func buildProxyToChain(deviceAddr util.Address, startContractAddr string) (chain
 		if proxyTo == "" {
 			return chain, nil
 		}
-		if proxyTo == "" || strings.EqualFold(proxyTo, current) {
+		if strings.EqualFold(proxyTo, current) {
 			return chain, nil
 		}
 
@@ -1020,6 +1332,7 @@ var lastPrivatePorts []string
 var lastProtectedPorts []string
 var lastWGConfigHash string
 var lastWGPublicKey string
+var wgPrivateKeyMigrationWarnOnce sync.Once
 var lastBindSignature string
 var lastAppliedBindSignature string
 var socksServerStarted bool
@@ -1220,6 +1533,22 @@ func readOrCreateWGPrivateKey(keyPath string) (privB64, pubB64 string, err error
 	return privB64, pubB64, nil
 }
 
+func writeWGPrivateKey(keyPath, privB64 string) error {
+	privB64 = strings.TrimSpace(privB64)
+	if privB64 == "" {
+		return fmt.Errorf("empty private key")
+	}
+	return os.WriteFile(keyPath, []byte(privB64+"\n"), 0o600)
+}
+
+func contractWGPrivateKeyPath(keyPath string) string {
+	ext := filepath.Ext(keyPath)
+	if ext == "" {
+		return keyPath + ".contract.key"
+	}
+	return strings.TrimSuffix(keyPath, ext) + ".contract" + ext
+}
+
 // normalizeWireGuardConfig attempts to format a minified/single-line WireGuard config
 // into a standard multi-line INI-style format so our parser can locate sections.
 func normalizeWireGuardConfig(cfg string) string {
@@ -1369,6 +1698,19 @@ func processWireGuardConfig(client *rpc.Client, deviceAddr util.Address, contrac
 		return nil
 	}
 
+	setPostUpPrivateKey := func(filePath string) {
+		postUpLine := fmt.Sprintf("PostUp = wg set %%i private-key %s", fixupOSPath(filePath))
+		if privLineIdx >= 0 {
+			out[privLineIdx] = postUpLine
+			return
+		}
+		if interfaceInsertIdx >= 0 {
+			out = append(out[:interfaceInsertIdx], append([]string{postUpLine}, out[interfaceInsertIdx:]...)...)
+			return
+		}
+		out = append(out, postUpLine)
+	}
+
 	for _, line := range lines {
 		trimmed := strings.TrimSpace(line)
 		if strings.HasPrefix(trimmed, "[") && strings.HasSuffix(trimmed, "]") {
@@ -1490,13 +1832,25 @@ func processWireGuardConfig(client *rpc.Client, deviceAddr util.Address, contrac
 	var err error
 	switch {
 	case privLineIdx >= 0 && privAuto:
-		// TODO: Fetch device private key from contract when device-only access is enabled.
+		privB64, err = getDevicePrivateKeyAt(client, deviceAddr, contractAddr)
+		if err == nil {
+			pubB64, err = deriveWGPublicKey(privB64)
+			if err != nil {
+				return "", nil, "", err
+			}
+			contractKeyPath := contractWGPrivateKeyPath(keyPath)
+			if err := writeWGPrivateKey(contractKeyPath, privB64); err != nil {
+				return "", nil, "", err
+			}
+			setPostUpPrivateKey(contractKeyPath)
+			break
+		}
+		warnWGPrivateKeyMigrationFallback(deviceAddr, contractAddr, err)
 		_, pubB64, err = readOrCreateWGPrivateKey(keyPath)
 		if err != nil {
 			return "", nil, "", err
 		}
-		// Quote path for PostUp shell so paths with spaces (e.g. "Application Support") work
-		out[privLineIdx] = fmt.Sprintf("PostUp = wg set %%i private-key %s", fixupOSPath(keyPath))
+		setPostUpPrivateKey(keyPath)
 	case privLineIdx >= 0 && !privAuto && strings.TrimSpace(privValue) != "":
 		privB64 = strings.TrimSpace(privValue)
 		var err error
@@ -1504,15 +1858,15 @@ func processWireGuardConfig(client *rpc.Client, deviceAddr util.Address, contrac
 		if err != nil {
 			return "", nil, "", err
 		}
-		out[privLineIdx] = fmt.Sprintf("PrivateKey = %s", privB64)
-	default:
-		privB64, pubB64, err = readOrCreateWGPrivateKey(keyPath)
-		if err != nil {
+		if err := writeWGPrivateKey(keyPath, privB64); err != nil {
 			return "", nil, "", err
 		}
-		if interfaceInsertIdx >= 0 {
-			out = append(out[:interfaceInsertIdx], append([]string{fmt.Sprintf("PrivateKey = %s", privB64)}, out[interfaceInsertIdx:]...)...)
+		setPostUpPrivateKey(keyPath)
+	default:
+		if config.AppConfig != nil && config.AppConfig.Logger != nil {
+			config.AppConfig.Logger.Warn("WireGuard config missing usable PrivateKey directive; expected auto, PostUp, or explicit non-empty value")
 		}
+		return "", nil, "", errors.New("wireguard config missing usable PrivateKey directive")
 	}
 
 	return strings.Join(out, "\n"), peers, pubB64, nil
@@ -2560,17 +2914,15 @@ func joinHandler() (err error) {
 		cfg.PrintLabel("Fleet address", cfg.FleetAddr.HexString())
 	}
 
-	// If we have a valid contract address, set RPC URL used for eth_call
+	// If we have a valid contract address, initialize the Oasis SDK client.
 	if !contractless {
-		switch network {
-		case "mainnet":
-			rpcURL = "https://sapphire.oasis.io"
-		case "testnet":
-			rpcURL = "https://testnet.sapphire.oasis.io"
-		case "local":
-			rpcURL = "http://localhost:8545"
-		default:
-			return fmt.Errorf("invalid network: %s", network)
+		var err error
+		if _, err = contractAddressToBytes(contractAddress); err != nil {
+			return err
+		}
+		oasisClient, err = NewOasisClient(context.Background(), network)
+		if err != nil {
+			return err
 		}
 		cfg.PrintLabel("Contract Address", contractAddress)
 	} else {

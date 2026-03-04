@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -161,6 +162,33 @@ func (cm *ClientManager) GetClientByHost(host string) *Client {
 	return found
 }
 
+// GetClientByHost returns an existing client for host without connecting.
+func (cm *ClientManager) GetDefaultClients() []*Client {
+	hosts := config.AppConfig.RemoteRPCAddrs
+	clients := make([]*Client, 0, len(hosts))
+
+	for _, host := range hosts {
+		url, err := url.Parse(host)
+		if err != nil {
+			continue
+		}
+		if url.User.Username() == "" {
+			continue
+		}
+
+		id, err := util.DecodeAddress(url.User.Username())
+		if err != nil {
+			continue
+		}
+		client, err := cm.GetClientOrConnect(id)
+		if err != nil || client == nil {
+			continue
+		}
+		clients = append(clients, client)
+	}
+	return clients
+}
+
 // ResolveRelayForDevice returns the relay node ID and address for a device by querying the network object.
 func (cm *ClientManager) ResolveRelayForDevice(deviceID util.Address) (util.Address, string, string, error) {
 	client := cm.GetNearestClient()
@@ -201,6 +229,13 @@ func normalizeHostPort(host string) string {
 	if h, p, err := net.SplitHostPort(host); err == nil {
 		return net.JoinHostPort(strings.TrimSpace(strings.ToLower(h)), p)
 	}
+	if strings.Contains(host, "://") {
+		if u, err := url.Parse(host); err == nil {
+			if h, p := strings.TrimSpace(strings.ToLower(u.Hostname())), strings.TrimSpace(u.Port()); h != "" && p != "" {
+				return net.JoinHostPort(h, p)
+			}
+		}
+	}
 	return host
 }
 
@@ -211,6 +246,13 @@ func resolveRelayAddrFromClient(client *Client) (string, string) {
 	if remoteAddr, err := client.RemoteAddr(); err == nil && remoteAddr != nil {
 		if host, port, err := net.SplitHostPort(remoteAddr.String()); err == nil {
 			return net.JoinHostPort(host, port), host
+		}
+		if strings.Contains(remoteAddr.String(), "://") {
+			if u, err := url.Parse(remoteAddr.String()); err == nil {
+				if host, port := strings.TrimSpace(u.Hostname()), strings.TrimSpace(u.Port()); host != "" && port != "" {
+					return net.JoinHostPort(host, port), host
+				}
+			}
 		}
 		return remoteAddr.String(), remoteAddr.String()
 	}

@@ -29,6 +29,7 @@ import (
 	"github.com/diodechain/openssl"
 	"github.com/diodechain/zap"
 	"github.com/dominicletz/genserver"
+	gethCrypto "github.com/ethereum/go-ethereum/crypto"
 )
 
 const (
@@ -41,11 +42,12 @@ const (
 )
 
 var (
-	globalRequestID          uint64 = 0
-	errEmptyBNSresult               = fmt.Errorf("couldn't resolve name (null)")
-	errSendTransactionFailed        = fmt.Errorf("server returned false")
-	errClientClosed                 = fmt.Errorf("rpc client was closed")
-	errPortOpenTimeout              = fmt.Errorf("portopen timeout")
+	globalRequestID            uint64 = 0
+	errEmptyBNSresult                 = fmt.Errorf("couldn't resolve name (null)")
+	errSendTransactionFailed          = fmt.Errorf("server returned false")
+	errClientClosed                   = fmt.Errorf("rpc client was closed")
+	errPortOpenTimeout                = fmt.Errorf("portopen timeout")
+	startupBlockMismatchWarned uint32
 )
 
 // Client struct for rpc client
@@ -154,14 +156,15 @@ func (client *Client) doConnect() (err error) {
 
 func (client *Client) doDial() (err error) {
 	start := time.Now()
-	client.s, err = DialContext(client.pool.GetContext(), client.host, openssl.InsecureSkipHostVerification)
+	host := normalizeHostPort(client.host)
+	client.s, err = DialContext(client.pool.GetContext(), host, openssl.InsecureSkipHostVerification)
 	client.addLatencyMeasurement(time.Since(start))
 	return
 }
 
 // Info logs to logger in Info level
 func (client *Client) Log() *config.Logger {
-	return client.config.Logger.With(zap.String("server", client.host))
+	return client.config.Logger.With(zap.String("server", normalizeHostPort(client.host)))
 }
 
 // SetPortOpen2Handler configures a handler for inbound portopen2 requests.
@@ -365,8 +368,8 @@ func (client *Client) validateNetwork() error {
 		if blockHeaders[i].Hash() != blockHeaders[i+1].Parent() {
 			number := blockHeaders[i].Number()
 			hash := blockHeaders[i].Hash().String()
-			prevHash := blockHeaders[i+1].Parent().String()
-			return fmt.Errorf("received blocks parent is not his parent: n=%v, blockHeaders[i].Hash()=%v, blockHeaders[i+1].Parent()=%v", number, hash, prevHash)
+			nextParent := blockHeaders[i+1].Parent().String()
+			return fmt.Errorf("block header chain mismatch at height %d: hash %s != next parent %s", number, hash, nextParent)
 		}
 		if !blockHeaders[i].ValidateSig() {
 			return fmt.Errorf("received blocks signature is not valid: %v", blockHeaders[i])
@@ -587,7 +590,7 @@ func (client *Client) greet() error {
 }
 
 // SubmitTicketForUsage submits a ticket covering at least minBytes.
-func (client *Client) SubmitTicketForUsage(minBytes *big.Int) (err error) {
+func (client *Client) SubmitTicketForUsage(minBytes *big.Int) {
 	client.srv.Cast(func() {
 		if client.bq == nil || client.isClosed || client.s == nil {
 			return
@@ -610,9 +613,9 @@ func (client *Client) SubmitTicketForUsage(minBytes *big.Int) (err error) {
 			client.s.setTotalBytes(minUsage)
 		}
 
-		var ticket *edge.DeviceTicket
-		ticket, err = client.newTicket()
+		ticket, err := client.newTicket()
 		if err != nil {
+			client.Log().Error("failed to create new ticket: %v", err)
 			return
 		}
 		if ticket.TotalBytes.Uint64() < minUsage {
@@ -623,7 +626,6 @@ func (client *Client) SubmitTicketForUsage(minBytes *big.Int) (err error) {
 			client.lastTicket = ticket
 		}
 	})
-	return
 }
 
 // HandleTicketRequest responds to a server ticket request.
@@ -643,9 +645,7 @@ func (client *Client) HandleTicketRequest(req *edge.TicketRequest) {
 	if client.s != nil {
 		client.Log().Debug("ticket_request current_total_bytes=%d", client.s.TotalBytes())
 	}
-	if err := client.SubmitTicketForUsage(req.Usage); err != nil {
-		client.Log().Error("failed to submit ticket for request: %v", err)
-	}
+	client.SubmitTicketForUsage(req.Usage)
 }
 
 // SignTransaction return signed transaction
@@ -661,6 +661,39 @@ func (client *Client) SignTransaction(tx *edge.Transaction) (err error) {
 		return timeout
 	}
 	return tx.Sign(privKey)
+}
+
+// SignDigestRSV signs a 32-byte digest and returns an RSV-formatted signature.
+func (client *Client) SignDigestRSV(digest []byte) ([]byte, error) {
+	if len(digest) != 32 {
+		return nil, fmt.Errorf("invalid digest length: %d", len(digest))
+	}
+	var (
+		sig []byte
+		err error
+	)
+	timeout := client.callTimeout(func() {
+		if client.s == nil {
+			err = fmt.Errorf("client ssl not initialized")
+			return
+		}
+		privKey, keyErr := client.s.GetClientPrivateKey()
+		if keyErr != nil {
+			err = keyErr
+			return
+		}
+		sig, err = gethCrypto.Sign(digest, privKey)
+	})
+	if err != nil {
+		return nil, err
+	}
+	if timeout != nil {
+		return nil, timeout
+	}
+	if len(sig) != 65 {
+		return nil, fmt.Errorf("invalid signature length: %d", len(sig))
+	}
+	return sig, nil
 }
 
 // NewTicket returns ticket
@@ -741,10 +774,7 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 				} else {
 					client.Log().Debug("insufficient ticket, resending... last_ticket=%v", lastTicket)
 					ssl.totalConnections = lastTicket.TotalConnections.Uint64() + 1
-					err = client.SubmitTicketForUsage(lastTicket.TotalBytes)
-					if err != nil {
-						client.Log().Error("failed to re-submit ticket: %v", err)
-					}
+					client.SubmitTicketForUsage(lastTicket.TotalBytes)
 				}
 			} else if lastTicket.Err == edge.ErrTicketTooOld {
 				client.Log().Info("received too old ticket")
@@ -1425,6 +1455,13 @@ func (client *Client) Close() {
 	client.srv.Shutdown(0)
 }
 
+func (client *Client) Socket() (ssl *SSL) {
+	client.callTimeout(func() {
+		ssl = client.s
+	})
+	return
+}
+
 // Start process rpc inbound message and outbound message
 func (client *Client) Start() {
 	client.srv.Cast(func() {
@@ -1439,7 +1476,16 @@ func (client *Client) Start() {
 	go func() {
 		if err := client.initialize(); err != nil {
 			if !client.isClosed {
-				client.Log().Warn("Client start failed: %v", err)
+				if strings.Contains(err.Error(), "block header chain mismatch") {
+					msg := "Startup chain check failed: relay returned non-contiguous block headers. This relay will be skipped; other relays can still validate the network."
+					if atomic.CompareAndSwapUint32(&startupBlockMismatchWarned, 0, 1) {
+						client.Log().Warn("%s", msg)
+					} else {
+						client.Log().Debug("%s", msg)
+					}
+				} else {
+					client.Log().Warn("Client start failed: %v", err)
+				}
 				client.Close()
 			}
 		}

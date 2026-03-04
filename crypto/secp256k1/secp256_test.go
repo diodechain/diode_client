@@ -2,12 +2,14 @@
 // Use of this source code is governed by a BSD-style license that can be found in
 // the LICENSE file.
 
+//go:build !gofuzz && cgo
+// +build !gofuzz,cgo
+
 package secp256k1
 
 import (
 	"bytes"
 	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
 	"encoding/hex"
 	"io"
@@ -21,8 +23,7 @@ func generateKeyPair() (pubkey, privkey []byte) {
 	if err != nil {
 		panic(err)
 	}
-	//lint:ignore SA1019 because S256() doesn't have it's own Marshal method
-	pubkey = elliptic.Marshal(S256(), key.X, key.Y)
+	pubkey = S256().Marshal(key.X, key.Y)
 
 	privkey = make([]byte, 32)
 	blob := key.D.Bytes()
@@ -41,13 +42,13 @@ func csprngEntropy(n int) []byte {
 
 func randSig() []byte {
 	sig := csprngEntropy(65)
-	sig[32] &= 0x70
+	sig[33] &= 0x70
 	sig[0] %= 4
 	return sig
 }
 
 // tests for malleability
-// highest bit of signature ECDSA s value must be 0, in the 33th byte
+// the highest bit of signature ECDSA s value must be 0, in the 33th byte
 func compactSigCheck(t *testing.T, sig []byte) {
 	var b = int(sig[33])
 	if b < 0 {
@@ -80,7 +81,7 @@ func TestSignatureValidity(t *testing.T) {
 	}
 	recid := int(sig[0])
 	if recid > 4 || recid < 0 {
-		t.Errorf("sig recid mismatch: want: within 0 to 4 have: %d", int(sig[64]))
+		t.Errorf("sig recid mismatch: want: within 0 to 4 have: %d", int(sig[0]))
 	}
 }
 
@@ -159,7 +160,7 @@ func signAndRecoverWithRandomMessages(t *testing.T, keys func() ([]byte, []byte)
 		compactSigCheck(t, sig)
 
 		// TODO: why do we flip around the recovery id?
-		// sig[len(sig)-1] %= 4
+		sig[0] %= 4
 
 		pubkey2, err := RecoverPubkey(msg, sig)
 		if err != nil {
@@ -207,12 +208,9 @@ func TestRandomMessagesAgainstValidSig(t *testing.T) {
 func TestRecoverSanity(t *testing.T) {
 	msg, _ := hex.DecodeString("ce0677bb30baa8cf067c88db9811f4333d131bf8bcf12fe7065d211dce971008")
 	sig, _ := hex.DecodeString("90f27b8b488db00b00606796d2987f6a5f59ae62ea05effe84fef5b8b0e549984a691139ad57a3f0b906637673aa2f63d1f55cb1a69199d4009eea23ceaddc9301")
-	// shift sig
 	shiftSig := make([]byte, 65)
 	shiftSig[0] = sig[64]
-	for i, byt := range sig[0:64] {
-		shiftSig[i+1] = byt
-	}
+	copy(shiftSig[1:], sig[0:64])
 	pubkey1, _ := hex.DecodeString("04e32df42865e97135acfb65f3bae71bdc86f4d49150ad6a440b6f15878109880a0a2b2667f7e725ceea70c673093bf67663e0312623c8e091b13cf2c0f11ef652")
 	pubkey2, err := RecoverPubkey(msg, shiftSig)
 	if err != nil {

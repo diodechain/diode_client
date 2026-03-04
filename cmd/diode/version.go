@@ -9,7 +9,6 @@ import (
 
 	"github.com/diodechain/diode_client/command"
 	"github.com/diodechain/diode_client/config"
-	"github.com/diodechain/openssl"
 )
 
 var (
@@ -23,13 +22,11 @@ var (
 )
 
 func versionHandler() (err error) {
-	goVersion := runtime.Version()
+	// goVersion := runtime.Version()
 	goOS := runtime.GOOS
 	goARCH := runtime.GOARCH
 	cpus := runtime.NumCPU()
 	cfg := config.AppConfig
-	cfg.PrintLabel("GO Version", goVersion)
-	cfg.PrintLabel("Openssl Version", openssl.OpensslVersion())
-	cfg.PrintLabel("OS ARCH CPU", fmt.Sprintf("%s %s %d", goOS, goARCH, cpus))
+	cfg.PrintLabel("OS Arch NumCPU", fmt.Sprintf("%s %s %d", goOS, goARCH, cpus))
 	return
 }
