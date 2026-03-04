@@ -79,6 +79,7 @@ type Server struct {
 	listener      net.Listener
 	udpconn       net.PacketConn
 	closeCh       chan struct{}
+	bindsMu       sync.RWMutex
 	binds         []Bind
 	cd            sync.Once
 }
@@ -936,16 +937,29 @@ func (socksServer *Server) forwardUDP(pconn net.PacketConn, raddr net.Addr, devi
 }
 
 func (socksServer *Server) SetBinds(bindDefs []config.Bind) {
+	socksServer.bindsMu.Lock()
+	defer socksServer.bindsMu.Unlock()
+
 	newBinds := make([]Bind, 0, len(bindDefs))
 
-	// Build the new bind set, reusing existing listeners for unchanged
-	// definitions (same config.Bind) where possible. Never reuse when
-	// LocalPort is 0 (auto), since each auto bind gets its own ephemeral port.
+	// Build the new bind set, reusing existing listeners where possible.
+	// For fixed LocalPort, reuse when the full config.Bind matches.
+	// For auto (LocalPort == 0), reuse by target and protocol so periodic
+	// config sync does not close and reopen auto-binds on new ephemeral ports.
 	for _, def := range bindDefs {
 		newBind := Bind{def: def}
 		if def.LocalPort != 0 {
 			for _, existing := range socksServer.binds {
 				if existing.def == def {
+					newBind.tcp = existing.tcp
+					newBind.udp = existing.udp
+					break
+				}
+			}
+		} else {
+			for _, existing := range socksServer.binds {
+				if existing.def.To == def.To && existing.def.ToPort == def.ToPort && existing.def.Protocol == def.Protocol {
+					newBind.def.LocalPort = existing.def.LocalPort
 					newBind.tcp = existing.tcp
 					newBind.udp = existing.udp
 					break
@@ -985,10 +999,12 @@ func (socksServer *Server) SetBinds(bindDefs []config.Bind) {
 // GetBinds returns the current bind definitions with resolved local ports
 // (e.g. when "auto" was used, LocalPort is the OS-assigned ephemeral port).
 func (socksServer *Server) GetBinds() []config.Bind {
+	socksServer.bindsMu.RLock()
 	out := make([]config.Bind, len(socksServer.binds))
 	for i := range socksServer.binds {
 		out[i] = socksServer.binds[i].def
 	}
+	socksServer.bindsMu.RUnlock()
 	return out
 }
 
@@ -1006,11 +1022,7 @@ func (socksServer *Server) stopBind(bind Bind) {
 func (socksServer *Server) startBind(bind *Bind) error {
 	var err error
 	// LocalPort 0 means "auto": let the OS choose an ephemeral port
-	portStr := strconv.Itoa(bind.def.LocalPort)
-	if bind.def.LocalPort == 0 {
-		portStr = "0"
-	}
-	address := net.JoinHostPort(localhost, portStr)
+	address := net.JoinHostPort(localhost, strconv.Itoa(bind.def.LocalPort))
 	switch bind.def.Protocol {
 	case config.UDPProtocol:
 		if bind.udp != nil {
@@ -1145,6 +1157,7 @@ func (socksServer *Server) Close() {
 			socksServer.listener.Close()
 			socksServer.listener = nil
 		}
+		socksServer.bindsMu.RLock()
 		for _, bind := range socksServer.binds {
 			if bind.tcp != nil {
 				bind.tcp.Close()
@@ -1153,5 +1166,6 @@ func (socksServer *Server) Close() {
 				bind.udp.Close()
 			}
 		}
+		socksServer.bindsMu.RUnlock()
 	})
 }
