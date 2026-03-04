@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/diodechain/diode_client/config"
+	"github.com/diodechain/diode_client/rpc"
 	"github.com/diodechain/diode_client/util"
 	"github.com/go-playground/validator"
 	"github.com/rs/cors"
@@ -129,18 +130,20 @@ func portValidation(sl validator.StructLevel) {
 
 // ConfigAPIServer struct
 type ConfigAPIServer struct {
-	appConfig   *config.Config
-	addr        string
-	corsOptions cors.Options
-	httpServer  *http.Server
-	cd          sync.Once
+	appConfig     *config.Config
+	clientManager *rpc.ClientManager
+	addr          string
+	corsOptions   cors.Options
+	httpServer    *http.Server
+	cd            sync.Once
 }
 
-// NewConfigAPIServer return ConfigAPIServer
-func NewConfigAPIServer(appConfig *config.Config) *ConfigAPIServer {
+// NewConfigAPIServer return ConfigAPIServer. clientManager may be nil; if set, enables GET /connection-client-id.
+func NewConfigAPIServer(appConfig *config.Config, clientManager *rpc.ClientManager) *ConfigAPIServer {
 	return &ConfigAPIServer{
-		appConfig: appConfig,
-		addr:      appConfig.APIServerAddr,
+		appConfig:     appConfig,
+		clientManager: clientManager,
+		addr:          appConfig.APIServerAddr,
 		corsOptions: cors.Options{
 			AllowedOrigins: []string{"http://localhost"},
 			AllowedMethods: []string{
@@ -202,6 +205,17 @@ func (configAPIServer *ConfigAPIServer) unsupportedMediaTypeError(w http.Respons
 	res, _ = json.Marshal(response)
 
 	w.WriteHeader(http.StatusUnsupportedMediaType)
+	w.Write(res)
+}
+
+func (configAPIServer *ConfigAPIServer) serviceUnavailableError(w http.ResponseWriter) {
+	var response apiResponse
+	var res []byte
+	response.Success = false
+	response.Message = "service unavailable"
+	res, _ = json.Marshal(response)
+
+	w.WriteHeader(http.StatusServiceUnavailable)
 	w.Write(res)
 }
 
@@ -629,9 +643,45 @@ func (configAPIServer *ConfigAPIServer) requireJSON(h http.Handler) http.Handler
 	})
 }
 
+// connectionClientIDResponse is the JSON response for GET /connection-client-id
+type connectionClientIDResponse struct {
+	ClientID string `json:"clientId"`
+}
+
+// connectionClientIDHandleFunc serves GET /connection-client-id?peer=<addr> so published-port
+// backends can resolve conn.RemoteAddr() to the verified Diode device ID of the connecting client.
+func (configAPIServer *ConfigAPIServer) connectionClientIDHandleFunc() func(http.ResponseWriter, *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
+		if req.Method != http.MethodGet {
+			configAPIServer.notFoundError(w)
+			return
+		}
+		if configAPIServer.clientManager == nil {
+			configAPIServer.serviceUnavailableError(w)
+			return
+		}
+		peer := strings.TrimSpace(req.URL.Query().Get("peer"))
+		if peer == "" {
+			configAPIServer.clientError(w, map[string]string{"peer": "required"})
+			return
+		}
+		pool := configAPIServer.clientManager.GetPool()
+		deviceID, ok := pool.GetDeviceIDForConnection(peer)
+		if !ok {
+			configAPIServer.notFoundError(w)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(connectionClientIDResponse{ClientID: deviceID.HexString()}); err != nil {
+			configAPIServer.appConfig.Logger.Error("Failed to encode connection-client-id response: %v", err)
+		}
+	}
+}
+
 // ListenAndServe start config api server
 func (configAPIServer *ConfigAPIServer) ListenAndServe() {
 	mux := http.NewServeMux()
+	mux.HandleFunc("/connection-client-id", configAPIServer.connectionClientIDHandleFunc())
 	mux.HandleFunc("/config", configAPIServer.apiHandleFunc())
 	mux.HandleFunc("/", configAPIServer.rootHandleFunc())
 	handler := cors.New(configAPIServer.corsOptions).Handler(mux)

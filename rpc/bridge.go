@@ -137,6 +137,10 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 				}
 			}
 			client.pool.SetPort(deviceKey, port)
+			// Register peer addr so backends can resolve conn.RemoteAddr() to Diode device ID
+			if remoteConn != nil {
+				client.pool.RegisterConnectionPeer(remoteConn.LocalAddr().String(), portOpen.DeviceID)
+			}
 			_ = client.ResponsePortOpen(portOpen, nil)
 			port.Copy()
 		}()
