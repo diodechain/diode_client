@@ -11,6 +11,9 @@ import (
 
 func withTempDB(t *testing.T, fn func()) {
 	t.Helper()
+	testDBMu.Lock()
+	t.Cleanup(testDBMu.Unlock)
+
 	dir := t.TempDir()
 	dbFile := filepath.Join(dir, "test.db")
 

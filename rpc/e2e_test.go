@@ -72,12 +72,18 @@ func randomData(total, count int) (transportData [][]byte) {
 }
 
 func TestE2ETunnels(t *testing.T) {
+	testDBMu.Lock()
+	t.Cleanup(testDBMu.Unlock)
+
 	cfg := testConfig()
 	config.AppConfig = cfg
 	clidb, err := db.OpenFile(cfg.DBPath, false)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = clidb.Close() })
+	originalDB := db.DB
+	t.Cleanup(func() { db.DB = originalDB })
 	db.DB = clidb
 	ca, cb := net.Pipe()
 	defer ca.Close()
