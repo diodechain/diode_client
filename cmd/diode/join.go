@@ -1284,10 +1284,19 @@ func startServicesFromConfig(cfg *config.Config) error {
 }
 
 func applyAndLogBinds(app *Diode, cfg *config.Config, sig string) {
-	if app.socksServer != nil && sig != lastAppliedBindSignature {
-		app.socksServer.SetBinds(cfg.Binds)
-		cfg.Binds = app.socksServer.GetBinds() // resolve "auto" ports for logs and API
-		lastAppliedBindSignature = sig
+	if app.socksServer != nil {
+		if sig != lastAppliedBindSignature {
+			app.socksServer.SetBinds(cfg.Binds)
+			lastAppliedBindSignature = sig
+		}
+		// Always refresh cfg.Binds from the socks server when we have binds, so the API
+		// and logs see resolved ports (e.g. "0" -> 56510). After a contract sync we
+		// overwrite cfg.Binds with parsed strings (LocalPort 0); without this refresh
+		// the signature would be unchanged and we'd never call GetBinds(), so the API
+		// would keep returning 0 for auto binds.
+		if len(cfg.Binds) > 0 {
+			cfg.Binds = app.socksServer.GetBinds()
+		}
 	}
 	logBindSummary(cfg, sig)
 }
