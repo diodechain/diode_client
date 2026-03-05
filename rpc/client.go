@@ -724,6 +724,8 @@ func parseSapphireRPCResult(method string, payload []byte) (json.RawMessage, err
 		Result json.RawMessage `json:"result"`
 		Error  json.RawMessage `json:"error"`
 	}
+	// Relay returns a full JSON-RPC envelope; callers want either a concrete "result"
+	// or a surfaced upstream error so decoding stays centralized here.
 	var env envelope
 	if err := json.Unmarshal(payload, &env); err != nil {
 		return nil, fmt.Errorf("failed to decode sapphire rpc %s response: %w", method, err)

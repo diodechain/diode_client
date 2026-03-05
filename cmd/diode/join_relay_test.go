@@ -46,20 +46,20 @@ func TestDecodeHexDataRejectsNonHexPrefix(t *testing.T) {
 	}
 }
 
-func TestShouldUseMainnetRelay(t *testing.T) {
+func TestHasRelayClient(t *testing.T) {
 	oc := &OasisClient{networkName: "mainnet"}
-	if oc.shouldUseMainnetRelay() {
+	if oc.hasRelayClient() {
 		t.Fatal("expected relay to be disabled without relay client")
 	}
 
 	oc.SetRelayClient(&rpc.Client{})
-	if !oc.shouldUseMainnetRelay() {
-		t.Fatal("expected relay to be enabled on mainnet with relay client")
+	if !oc.hasRelayClient() {
+		t.Fatal("expected relay to be enabled with relay client")
 	}
 
 	oc.networkName = "testnet"
-	if oc.shouldUseMainnetRelay() {
-		t.Fatal("expected relay to be disabled on testnet")
+	if !oc.hasRelayClient() {
+		t.Fatal("expected relay to remain enabled on testnet when relay client is present")
 	}
 }
 

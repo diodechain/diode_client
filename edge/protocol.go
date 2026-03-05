@@ -354,6 +354,8 @@ func parsePortSendResponse(buffer []byte) (interface{}, error) {
 }
 
 func parseSapphireRPCResponse(buffer []byte) (interface{}, error) {
+	// sapphire:rpc returns the same RLP response envelope as other RPC methods:
+	// payload[0] is the response pivot and payload[1] is raw JSON-RPC bytes.
 	var response struct {
 		RequestID uint64
 		Payload   []interface{}
