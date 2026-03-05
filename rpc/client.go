@@ -12,6 +12,7 @@ import (
 	"bytes"
 	"crypto/ecdsa"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"io"
 	"math/big"
@@ -694,6 +695,46 @@ func (client *Client) SignDigestRSV(digest []byte) ([]byte, error) {
 		return nil, fmt.Errorf("invalid signature length: %d", len(sig))
 	}
 	return sig, nil
+}
+
+// SapphireRPC forwards a JSON-RPC method call to the connected relay's Sapphire RPC path.
+func (client *Client) SapphireRPC(method string, params interface{}) (json.RawMessage, error) {
+	paramsJSON, err := json.Marshal(params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode sapphire rpc params for %s: %w", method, err)
+	}
+	rawResp, err := client.CallContext("sapphire:rpc", method, string(paramsJSON))
+	if err != nil {
+		return nil, fmt.Errorf("sapphire rpc %s call failed: %w", method, err)
+	}
+	var payload []byte
+	switch v := rawResp.(type) {
+	case []byte:
+		payload = v
+	case string:
+		payload = []byte(v)
+	default:
+		return nil, fmt.Errorf("sapphire rpc %s returned unsupported payload type %T", method, rawResp)
+	}
+	return parseSapphireRPCResult(method, payload)
+}
+
+func parseSapphireRPCResult(method string, payload []byte) (json.RawMessage, error) {
+	type envelope struct {
+		Result json.RawMessage `json:"result"`
+		Error  json.RawMessage `json:"error"`
+	}
+	var env envelope
+	if err := json.Unmarshal(payload, &env); err != nil {
+		return nil, fmt.Errorf("failed to decode sapphire rpc %s response: %w", method, err)
+	}
+	if len(bytes.TrimSpace(env.Error)) > 0 && !bytes.Equal(bytes.TrimSpace(env.Error), []byte("null")) {
+		return nil, fmt.Errorf("sapphire rpc %s error: %s", method, string(env.Error))
+	}
+	if len(bytes.TrimSpace(env.Result)) == 0 || bytes.Equal(bytes.TrimSpace(env.Result), []byte("null")) {
+		return nil, fmt.Errorf("sapphire rpc %s missing result", method)
+	}
+	return env.Result, nil
 }
 
 // NewTicket returns ticket
