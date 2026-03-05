@@ -728,10 +728,13 @@ func parseSapphireRPCResult(method string, payload []byte) (json.RawMessage, err
 	if err := json.Unmarshal(payload, &env); err != nil {
 		return nil, fmt.Errorf("failed to decode sapphire rpc %s response: %w", method, err)
 	}
-	if len(bytes.TrimSpace(env.Error)) > 0 && !bytes.Equal(bytes.TrimSpace(env.Error), []byte("null")) {
-		return nil, fmt.Errorf("sapphire rpc %s error: %s", method, string(env.Error))
+	jsonNull := []byte("null")
+	trimmedErr := bytes.TrimSpace(env.Error)
+	if len(trimmedErr) > 0 && !bytes.Equal(trimmedErr, jsonNull) {
+		return nil, fmt.Errorf("sapphire rpc %s error: %s", method, string(trimmedErr))
 	}
-	if len(bytes.TrimSpace(env.Result)) == 0 || bytes.Equal(bytes.TrimSpace(env.Result), []byte("null")) {
+	trimmedResult := bytes.TrimSpace(env.Result)
+	if len(trimmedResult) == 0 || bytes.Equal(trimmedResult, jsonNull) {
 		return nil, fmt.Errorf("sapphire rpc %s missing result", method)
 	}
 	return env.Result, nil

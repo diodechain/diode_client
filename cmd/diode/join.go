@@ -169,6 +169,17 @@ func (c *OasisClient) shouldUseMainnetRelay() bool {
 	return c != nil && normalizeNetworkName(c.networkName) == "mainnet" && c.getRelayClient() != nil
 }
 
+func logRelayFallback(op string, err error) {
+	if err == nil {
+		return
+	}
+	cfg := config.AppConfig
+	if cfg == nil || cfg.Logger == nil {
+		return
+	}
+	cfg.Logger.Debug("Sapphire relay %s failed; falling back to direct RPC: %v", op, err)
+}
+
 func normalizeNetworkName(networkName string) string {
 	return strings.ToLower(strings.TrimSpace(networkName))
 }
@@ -430,9 +441,11 @@ func (c *OasisClient) ConfidentialEVMSimulateCall(ctx context.Context, contractA
 		return nil, fmt.Errorf("missing contract address")
 	}
 	if c.shouldUseMainnetRelay() {
-		if result, err := c.relayEthCall(contractAddr, caller, callData); err == nil {
+		result, err := c.relayEthCall(contractAddr, caller, callData)
+		if err == nil {
 			return result, nil
 		}
+		logRelayFallback("eth_call", err)
 	}
 	return c.evm.SimulateCall(ctx, client.RoundLatest, evmZeroGasPrice, oasisSimulateGasLimit, caller, contractAddr, evmZeroValue, callData)
 }
@@ -694,9 +707,11 @@ func (c *OasisClient) ConfidentialEVMSignedSimulateCall(
 		return nil, fmt.Errorf("missing signer client")
 	}
 	if c.shouldUseMainnetRelay() {
-		if result, err := c.confidentialEVMSignedSimulateCallViaRelay(ctx, contractAddr, callData, caller, signerClient); err == nil {
+		result, err := c.confidentialEVMSignedSimulateCallViaRelay(ctx, contractAddr, callData, caller, signerClient)
+		if err == nil {
 			return result, nil
 		}
+		logRelayFallback("signed eth_call", err)
 	}
 
 	ethClient, err := c.getEVMRPCClient(ctx)
