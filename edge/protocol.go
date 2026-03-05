@@ -353,6 +353,33 @@ func parsePortSendResponse(buffer []byte) (interface{}, error) {
 	return portSend, nil
 }
 
+func parseSapphireRPCResponse(buffer []byte) (interface{}, error) {
+	// sapphire:rpc returns the same RLP response envelope as other RPC methods:
+	// payload[0] is the response pivot and payload[1] is raw JSON-RPC bytes.
+	var response struct {
+		RequestID uint64
+		Payload   []interface{}
+	}
+	if err := rlp.DecodeBytes(buffer, &response); err != nil {
+		return nil, err
+	}
+	if len(response.Payload) < 2 {
+		return nil, fmt.Errorf("sapphire:rpc response missing payload")
+	}
+	pivot, ok := decodePortOpen2Bytes(response.Payload[0])
+	if !ok {
+		return nil, fmt.Errorf("sapphire:rpc response missing type")
+	}
+	if !bytes.Equal(bytes.ToLower(pivot), responsePivot) {
+		return nil, fmt.Errorf("sapphire:rpc unexpected response type: %q", string(pivot))
+	}
+	body, ok := decodePortOpen2Bytes(response.Payload[1])
+	if !ok {
+		return nil, fmt.Errorf("sapphire:rpc response body has unsupported type")
+	}
+	return body, nil
+}
+
 func parsePortOpenResponse(buffer []byte) (interface{}, error) {
 	var response portOpenResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
@@ -871,6 +898,8 @@ func NewMessage(writer io.Writer, requestID uint64, method string, args ...inter
 		return parseStateRootsResponse, nil
 	case "sendtransaction":
 		return parseTransactionResponse, nil
+	case "sapphire:rpc":
+		return parseSapphireRPCResponse, nil
 	default:
 		return nil, ErrRPCNotSupport
 	}

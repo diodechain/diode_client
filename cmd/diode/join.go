@@ -14,6 +14,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"io"
@@ -35,17 +36,16 @@ import (
 	"github.com/diodechain/diode_client/accounts/abi"
 	"github.com/diodechain/diode_client/command"
 	"github.com/diodechain/diode_client/config"
+	diodeCrypto "github.com/diodechain/diode_client/crypto"
+	"github.com/diodechain/diode_client/db"
 	"github.com/diodechain/diode_client/edge"
 	"github.com/diodechain/diode_client/rpc"
 	"github.com/diodechain/diode_client/util"
-	ethereum "github.com/ethereum/go-ethereum"
 	gethCommon "github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/ethclient"
+	gethCrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/oasisprotocol/oasis-core/go/common/cbor"
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/callformat"
-	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/client"
 	oasisConfig "github.com/oasisprotocol/oasis-sdk/client-sdk/go/config"
-	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/connection"
 	"github.com/oasisprotocol/oasis-sdk/client-sdk/go/modules/evm"
 	oasisTypes "github.com/oasisprotocol/oasis-sdk/client-sdk/go/types"
 	"golang.org/x/crypto/curve25519"
@@ -80,65 +80,66 @@ const (
 	oasisSapphireParaTime            = "sapphire"
 	oasisLocalRPCDefault             = "127.0.0.1:4222"
 	oasisLocalChainCtxDefault        = "0000000000000000000000000000000000000000000000000000000000000000"
-	oasisLocalEVMRPCDefault          = "http://127.0.0.1:8545"
 	oasisLocalRPCEnv                 = "OASIS_LOCAL_GRPC"
 	oasisLocalChainContextEnv        = "OASIS_LOCAL_CHAIN_CONTEXT"
 	oasisLocalSapphireIDEnv          = "OASIS_LOCAL_SAPPHIRE_ID"
-	oasisLocalEVMRPCEnv              = "OASIS_LOCAL_EVM_RPC"
 	oasisSimulateGasLimit     uint64 = 2_000_000
 	signedCallLeashBlockRange uint64 = 128
 )
 
 var (
-	evmZeroAddress  = make([]byte, 20)
-	evmZeroValue    = []byte{0}
-	evmZeroGasPrice = []byte{0}
+	evmZeroAddress = make([]byte, 20)
 )
 
 // OasisClient wraps the Oasis SDK connection for contract interactions.
 type OasisClient struct {
-	conn           connection.Connection
-	runtime        connection.RuntimeClient
-	evm            evm.V1
-	evmRPCClient   *ethclient.Client
-	evmRPCMu       sync.Mutex
-	ctx            context.Context
-	networkName    string
-	rpcEndpoint    string
-	evmRPCEndpoint string
-	paratimeName   string
+	// relayClient is required for all Sapphire call paths.
+	relayClient   *rpc.Client
+	relayClientMu sync.RWMutex
+	ctx           context.Context
+	networkName   string
+	rpcEndpoint   string
+	paratimeName  string
 }
 
 // NewOasisClient creates a new Oasis client for the specified network.
 func NewOasisClient(ctx context.Context, networkName string) (*OasisClient, error) {
 	normalizedNetworkName := normalizeNetworkName(networkName)
-	netCfg, ptCfg, skipVerify, err := resolveSapphireNetwork(normalizedNetworkName)
-	if err != nil {
-		return nil, err
+	switch normalizedNetworkName {
+	case "mainnet", "testnet", "local":
+	default:
+		return nil, fmt.Errorf("invalid network: %s", networkName)
 	}
 
-	var conn connection.Connection
-	if skipVerify {
-		conn, err = connection.ConnectNoVerify(ctx, netCfg)
-	} else {
-		conn, err = connection.Connect(ctx, netCfg)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to Oasis network: %w", err)
-	}
-
-	runtime := conn.Runtime(ptCfg)
-	evmRPCEndpoint := resolveSapphireEVMRPCEndpoint(normalizedNetworkName)
 	return &OasisClient{
-		conn:           conn,
-		runtime:        runtime,
-		evm:            runtime.Evm,
-		ctx:            ctx,
-		networkName:    normalizedNetworkName,
-		rpcEndpoint:    netCfg.RPC,
-		evmRPCEndpoint: evmRPCEndpoint,
-		paratimeName:   oasisSapphireParaTime,
+		ctx:          ctx,
+		networkName:  normalizedNetworkName,
+		rpcEndpoint:  "relay:sapphire:rpc",
+		paratimeName: oasisSapphireParaTime,
 	}, nil
+}
+
+func (c *OasisClient) SetRelayClient(client *rpc.Client) {
+	if c == nil {
+		return
+	}
+	// Relay connections can rotate; guard updates because reads happen from call paths.
+	c.relayClientMu.Lock()
+	c.relayClient = client
+	c.relayClientMu.Unlock()
+}
+
+func (c *OasisClient) getRelayClient() *rpc.Client {
+	if c == nil {
+		return nil
+	}
+	c.relayClientMu.RLock()
+	defer c.relayClientMu.RUnlock()
+	return c.relayClient
+}
+
+func (c *OasisClient) hasRelayClient() bool {
+	return c != nil && c.getRelayClient() != nil
 }
 
 func normalizeNetworkName(networkName string) string {
@@ -164,23 +165,6 @@ func normalizeLocalRPCEndpoint(rpcEndpoint string) string {
 		// Oasis config validation expects a URI-like value. Prefix host:port
 		// endpoints with dns: so local defaults and env values remain ergonomic.
 		return "dns:" + rpcEndpoint
-	}
-}
-
-func resolveSapphireEVMRPCEndpoint(networkName string) string {
-	switch normalizeNetworkName(networkName) {
-	case "mainnet":
-		return "https://sapphire.oasis.io"
-	case "testnet":
-		return "https://testnet.sapphire.oasis.io"
-	case "local":
-		rpcEndpoint := strings.TrimSpace(os.Getenv(oasisLocalEVMRPCEnv))
-		if rpcEndpoint == "" {
-			return oasisLocalEVMRPCDefault
-		}
-		return rpcEndpoint
-	default:
-		return ""
 	}
 }
 
@@ -293,23 +277,177 @@ func contractAddressToBytes(contractAddr string) ([]byte, error) {
 	return decoded, nil
 }
 
+func encodeHexQuantity(v uint64) string {
+	return fmt.Sprintf("0x%x", v)
+}
+
+func encodeHexData(v []byte) string {
+	return "0x" + hex.EncodeToString(v)
+}
+
+func makeEthCallObject(to gethCommon.Address, from gethCommon.Address, data []byte) map[string]string {
+	// Mirror SimulateCall semantics (read-only, zero value, zero gas price) for relay eth_call.
+	return map[string]string{
+		"to":       to.Hex(),
+		"from":     from.Hex(),
+		"gas":      encodeHexQuantity(oasisSimulateGasLimit),
+		"gasPrice": "0x0",
+		"value":    "0x0",
+		"data":     encodeHexData(data),
+	}
+}
+
+func decodeJSONRawString(raw json.RawMessage, field string) (string, error) {
+	var value string
+	if err := json.Unmarshal(raw, &value); err != nil {
+		return "", fmt.Errorf("invalid %s value: %w", field, err)
+	}
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return "", fmt.Errorf("empty %s value", field)
+	}
+	return value, nil
+}
+
+func decodeHexQuantityBigInt(raw string, field string) (*big.Int, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, fmt.Errorf("empty %s", field)
+	}
+	if !strings.HasPrefix(raw, "0x") && !strings.HasPrefix(raw, "0X") {
+		return nil, fmt.Errorf("invalid %s hex prefix: %s", field, raw)
+	}
+	raw = raw[2:]
+	if raw == "" {
+		return nil, fmt.Errorf("empty %s hex value", field)
+	}
+	value := new(big.Int)
+	if _, ok := value.SetString(raw, 16); !ok {
+		return nil, fmt.Errorf("invalid %s hex value: %s", field, raw)
+	}
+	if value.Sign() < 0 {
+		return nil, fmt.Errorf("invalid negative %s: %s", field, raw)
+	}
+	return value, nil
+}
+
+func decodeHexQuantityUint64(raw string, field string) (uint64, error) {
+	value, err := decodeHexQuantityBigInt(raw, field)
+	if err != nil {
+		return 0, err
+	}
+	if !value.IsUint64() {
+		return 0, fmt.Errorf("%s out of uint64 range: %s", field, raw)
+	}
+	return value.Uint64(), nil
+}
+
+func decodeHexData(raw string, field string) ([]byte, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, fmt.Errorf("empty %s", field)
+	}
+	if !strings.HasPrefix(raw, "0x") && !strings.HasPrefix(raw, "0X") {
+		return nil, fmt.Errorf("invalid %s hex prefix: %s", field, raw)
+	}
+	trimmed := raw[2:]
+	if len(trimmed)%2 == 1 {
+		trimmed = "0" + trimmed
+	}
+	decoded, err := hex.DecodeString(trimmed)
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s hex: %w", field, err)
+	}
+	return decoded, nil
+}
+
+func (c *OasisClient) relayEthCall(contractAddr []byte, caller []byte, callData []byte) ([]byte, error) {
+	relayClient := c.getRelayClient()
+	if relayClient == nil {
+		return nil, fmt.Errorf("relay client not available")
+	}
+
+	// Route Sapphire eth_call through the connected Diode relay and decode hex result bytes.
+	toAddr := gethCommon.BytesToAddress(contractAddr)
+	fromAddr := gethCommon.BytesToAddress(caller)
+	callObj := makeEthCallObject(toAddr, fromAddr, callData)
+	rawResult, err := relayClient.SapphireRPC("eth_call", []interface{}{callObj, "latest"})
+	if err != nil {
+		return nil, err
+	}
+	resultHex, err := decodeJSONRawString(rawResult, "eth_call result")
+	if err != nil {
+		return nil, err
+	}
+	return decodeHexData(resultHex, "eth_call result")
+}
+
 // ConfidentialEVMSimulateCall performs a confidential read-only EVM call on Sapphire.
 func (c *OasisClient) ConfidentialEVMSimulateCall(ctx context.Context, contractAddr []byte, caller []byte, callData []byte) ([]byte, error) {
+	_ = ctx
 	if len(contractAddr) == 0 {
 		return nil, fmt.Errorf("missing contract address")
 	}
-	return c.evm.SimulateCall(ctx, client.RoundLatest, evmZeroGasPrice, oasisSimulateGasLimit, caller, contractAddr, evmZeroValue, callData)
+	if !c.hasRelayClient() {
+		return nil, fmt.Errorf("missing relay client for confidential simulate call")
+	}
+	return c.relayEthCall(contractAddr, caller, callData)
 }
 
 type evmRSVSigner struct {
 	signerClient *rpc.Client
 }
 
-func (s evmRSVSigner) SignRSV(digest [32]byte) ([]byte, error) {
-	if s.signerClient == nil {
-		return nil, fmt.Errorf("missing signer client")
+func signDigestWithLocalDeviceKey(digest []byte) (sig []byte, err error) {
+	if len(digest) != 32 {
+		return nil, fmt.Errorf("invalid digest length: %d", len(digest))
 	}
-	return s.signerClient.SignDigestRSV(digest[:])
+	// Fallback signer uses the local device key when relay-side signing is unavailable.
+	if db.DB == nil {
+		return nil, fmt.Errorf("local device key database is not initialized")
+	}
+	privPEM := rpc.EnsurePrivatePEM()
+	block, _ := pem.Decode(privPEM)
+	if block == nil {
+		return nil, fmt.Errorf("invalid local device key pem")
+	}
+	privKey, err := diodeCrypto.DerToECDSA(block.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse local device key: %w", err)
+	}
+	sig, err = gethCrypto.Sign(digest, privKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sign digest with local device key: %w", err)
+	}
+	if len(sig) != 65 {
+		return nil, fmt.Errorf("invalid signature length: %d", len(sig))
+	}
+	return sig, nil
+}
+
+func (s evmRSVSigner) SignRSV(digest [32]byte) ([]byte, error) {
+	var signerErr error
+	if s.signerClient != nil {
+		sig, err := s.signerClient.SignDigestRSV(digest[:])
+		if err == nil && len(sig) == 65 {
+			return sig, nil
+		}
+		if err != nil {
+			signerErr = err
+		} else {
+			signerErr = fmt.Errorf("invalid signature length: %d", len(sig))
+		}
+	}
+	sig, err := signDigestWithLocalDeviceKey(digest[:])
+	if err == nil {
+		return sig, nil
+	}
+	if signerErr == nil {
+		signerErr = fmt.Errorf("missing signer client")
+	}
+	// oasis-sdk v0.16.0 indexes signature[64] before checking `err`.
+	// Return a 65-byte placeholder so upstream returns the error instead of panicking.
+	return make([]byte, 65), fmt.Errorf("relay signer failed: %v; local signer failed: %v", signerErr, err)
 }
 
 func decodeEVMCallResult(result *oasisTypes.CallResult) ([]byte, error) {
@@ -338,18 +476,54 @@ func decodeEVMCallResult(result *oasisTypes.CallResult) ([]byte, error) {
 }
 
 func (c *OasisClient) encryptSignedCallData(ctx context.Context, pack *evm.SignedCallDataPack) (interface{}, error) {
+	_ = ctx
 	if pack == nil {
 		return nil, fmt.Errorf("missing signed call data pack")
 	}
-	cdpk, err := c.runtime.Core.CallDataPublicKey(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch call data public key: %w", err)
+	relayClient := c.getRelayClient()
+	if relayClient == nil {
+		return nil, fmt.Errorf("missing relay client for call data public key")
 	}
+	rawCDPK, err := relayClient.SapphireRPC("oasis_callDataPublicKey", []interface{}{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch call data public key via relay: %w", err)
+	}
+	var cdpk struct {
+		Key       string `json:"key"`
+		Checksum  string `json:"checksum"`
+		Signature string `json:"signature"`
+		Epoch     uint64 `json:"epoch"`
+	}
+	if err := json.Unmarshal(rawCDPK, &cdpk); err != nil {
+		return nil, fmt.Errorf("failed to decode relay call data public key response: %w", err)
+	}
+	keyBytes, err := decodeHexData(cdpk.Key, "call data public key")
+	if err != nil {
+		return nil, err
+	}
+	checksumBytes, err := decodeHexData(cdpk.Checksum, "call data public key checksum")
+	if err != nil {
+		return nil, err
+	}
+	sigBytes, err := decodeHexData(cdpk.Signature, "call data public key signature")
+	if err != nil {
+		return nil, err
+	}
+	var signedPubKey oasisTypes.SignedPublicKey
+	if len(keyBytes) != len(signedPubKey.PublicKey) {
+		return nil, fmt.Errorf("invalid call data public key length: %d", len(keyBytes))
+	}
+	if len(sigBytes) != len(signedPubKey.Signature) {
+		return nil, fmt.Errorf("invalid call data public key signature length: %d", len(sigBytes))
+	}
+	copy(signedPubKey.PublicKey[:], keyBytes)
+	copy(signedPubKey.Signature[:], sigBytes)
+	signedPubKey.Checksum = checksumBytes
 	encryptedData, decodeMeta, err := callformat.EncodeCall(
 		&pack.Data,
 		oasisTypes.CallFormatEncryptedX25519DeoxysII,
 		&callformat.EncodeConfig{
-			PublicKey: &cdpk.PublicKey,
+			PublicKey: &signedPubKey,
 			Epoch:     cdpk.Epoch,
 		},
 	)
@@ -360,24 +534,124 @@ func (c *OasisClient) encryptSignedCallData(ctx context.Context, pack *evm.Signe
 	return decodeMeta, nil
 }
 
-func (c *OasisClient) getEVMRPCClient(ctx context.Context) (*ethclient.Client, error) {
-	if c.evmRPCEndpoint == "" {
-		return nil, fmt.Errorf("missing Sapphire EVM RPC endpoint")
+func (c *OasisClient) confidentialEVMSignedSimulateCallViaRelay(
+	ctx context.Context,
+	contractAddr []byte,
+	callData []byte,
+	caller util.Address,
+	signerClient *rpc.Client,
+) ([]byte, error) {
+	relayClient := c.getRelayClient()
+	if relayClient == nil {
+		return nil, fmt.Errorf("relay client not available")
 	}
 
-	c.evmRPCMu.Lock()
-	defer c.evmRPCMu.Unlock()
-
-	if c.evmRPCClient != nil {
-		return c.evmRPCClient, nil
-	}
-
-	ethClient, err := ethclient.DialContext(ctx, c.evmRPCEndpoint)
+	callerAddr := gethCommon.BytesToAddress(caller[:])
+	// Fetch chain metadata from the same relay used for the call so leash/signature context matches.
+	chainIDRaw, err := relayClient.SapphireRPC("eth_chainId", []interface{}{})
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect Sapphire EVM RPC: %w", err)
+		return nil, fmt.Errorf("failed to fetch chain id via relay: %w", err)
 	}
-	c.evmRPCClient = ethClient
-	return c.evmRPCClient, nil
+	chainIDHex, err := decodeJSONRawString(chainIDRaw, "chain id")
+	if err != nil {
+		return nil, err
+	}
+	chainID, err := decodeHexQuantityBigInt(chainIDHex, "chain id")
+	if err != nil {
+		return nil, err
+	}
+	if !chainID.IsUint64() {
+		return nil, fmt.Errorf("chain id out of uint64 range: %s", chainID.String())
+	}
+
+	latestHeaderRaw, err := relayClient.SapphireRPC("eth_getBlockByNumber", []interface{}{"latest", false})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch latest EVM header via relay: %w", err)
+	}
+	var latestHeader struct {
+		Number     string `json:"number"`
+		ParentHash string `json:"parentHash"`
+	}
+	if err := json.Unmarshal(latestHeaderRaw, &latestHeader); err != nil {
+		return nil, fmt.Errorf("failed to decode latest EVM header via relay: %w", err)
+	}
+	blockNum, err := decodeHexQuantityUint64(latestHeader.Number, "latest block number")
+	if err != nil {
+		return nil, err
+	}
+	if blockNum == 0 {
+		return nil, fmt.Errorf("invalid latest EVM header number")
+	}
+	parentHash, err := decodeHexData(latestHeader.ParentHash, "latest parent hash")
+	if err != nil {
+		return nil, err
+	}
+	if len(parentHash) != 32 {
+		return nil, fmt.Errorf("invalid latest parent hash length: %d", len(parentHash))
+	}
+
+	nonceRaw, err := relayClient.SapphireRPC("eth_getTransactionCount", []interface{}{callerAddr.Hex(), "pending"})
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch pending nonce via relay: %w", err)
+	}
+	nonceHex, err := decodeJSONRawString(nonceRaw, "pending nonce")
+	if err != nil {
+		return nil, err
+	}
+	nonce, err := decodeHexQuantityUint64(nonceHex, "pending nonce")
+	if err != nil {
+		return nil, err
+	}
+
+	pack, err := evm.NewSignedCallDataPack(
+		evmRSVSigner{signerClient: signerClient},
+		chainID.Uint64(),
+		callerAddr.Bytes(),
+		contractAddr,
+		oasisSimulateGasLimit,
+		big.NewInt(0),
+		big.NewInt(0),
+		callData,
+		evm.Leash{
+			Nonce:       nonce,
+			BlockNumber: blockNum - 1,
+			BlockHash:   parentHash,
+			BlockRange:  signedCallLeashBlockRange,
+		},
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build signed call: %w", err)
+	}
+	decodeMeta, err := c.encryptSignedCallData(ctx, pack)
+	if err != nil {
+		return nil, err
+	}
+	signedCallData := cbor.Marshal(pack)
+
+	to := gethCommon.BytesToAddress(contractAddr)
+	callObj := makeEthCallObject(to, callerAddr, signedCallData)
+	rawResult, err := relayClient.SapphireRPC("eth_call", []interface{}{callObj, "latest"})
+	if err != nil {
+		return nil, fmt.Errorf("signed eth_call via relay failed: %w", err)
+	}
+	resultHex, err := decodeJSONRawString(rawResult, "signed eth_call result")
+	if err != nil {
+		return nil, err
+	}
+	result, err := decodeHexData(resultHex, "signed eth_call result")
+	if err != nil {
+		return nil, err
+	}
+
+	var encryptedCallResult oasisTypes.CallResult
+	if err = cbor.Unmarshal(result, &encryptedCallResult); err != nil {
+		return nil, fmt.Errorf("failed to decode signed call result envelope: %w", err)
+	}
+	decryptedCallResult, err := callformat.DecodeResult(&encryptedCallResult, decodeMeta)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decrypt signed call result: %w", err)
+	}
+	return decodeEVMCallResult(decryptedCallResult)
 }
 
 // ConfidentialEVMSignedSimulateCall executes an authenticated signed eth_call on Sapphire.
@@ -394,75 +668,10 @@ func (c *OasisClient) ConfidentialEVMSignedSimulateCall(
 	if signerClient == nil {
 		return nil, fmt.Errorf("missing signer client")
 	}
-
-	ethClient, err := c.getEVMRPCClient(ctx)
-	if err != nil {
-		return nil, err
+	if !c.hasRelayClient() {
+		return nil, fmt.Errorf("missing relay client for signed simulate call")
 	}
-
-	callerAddr := gethCommon.BytesToAddress(caller[:])
-	chainID, err := ethClient.ChainID(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch chain id: %w", err)
-	}
-	latestHeader, err := ethClient.HeaderByNumber(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch latest EVM header: %w", err)
-	}
-	if latestHeader.Number == nil || latestHeader.Number.Sign() == 0 {
-		return nil, fmt.Errorf("invalid latest EVM header number")
-	}
-	nonce, err := ethClient.PendingNonceAt(ctx, callerAddr)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch pending nonce: %w", err)
-	}
-
-	pack, err := evm.NewSignedCallDataPack(
-		evmRSVSigner{signerClient: signerClient},
-		chainID.Uint64(),
-		callerAddr.Bytes(),
-		contractAddr,
-		oasisSimulateGasLimit,
-		big.NewInt(0),
-		big.NewInt(0),
-		callData,
-		evm.Leash{
-			Nonce:       nonce,
-			BlockNumber: latestHeader.Number.Uint64() - 1,
-			BlockHash:   latestHeader.ParentHash.Bytes(),
-			BlockRange:  signedCallLeashBlockRange,
-		},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to build signed call: %w", err)
-	}
-	decodeMeta, err := c.encryptSignedCallData(ctx, pack)
-	if err != nil {
-		return nil, err
-	}
-	signedCallData := cbor.Marshal(pack)
-
-	to := gethCommon.BytesToAddress(contractAddr)
-	result, err := ethClient.CallContract(ctx, ethereum.CallMsg{
-		From:     callerAddr,
-		To:       &to,
-		Gas:      oasisSimulateGasLimit,
-		GasPrice: big.NewInt(0),
-		Value:    big.NewInt(0),
-		Data:     signedCallData,
-	}, nil)
-	if err != nil {
-		return nil, err
-	}
-	var encryptedCallResult oasisTypes.CallResult
-	if err = cbor.Unmarshal(result, &encryptedCallResult); err != nil {
-		return nil, fmt.Errorf("failed to decode signed call result envelope: %w", err)
-	}
-	decryptedCallResult, err := callformat.DecodeResult(&encryptedCallResult, decodeMeta)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decrypt signed call result: %w", err)
-	}
-	return decodeEVMCallResult(decryptedCallResult)
+	return c.confidentialEVMSignedSimulateCallViaRelay(ctx, contractAddr, callData, caller, signerClient)
 }
 
 func getPropertyValuesAt(deviceAddr util.Address, contractAddr string, keys []string) (map[string]string, error) {
@@ -584,6 +793,8 @@ func getDeviceKeyAt(client *rpc.Client, deviceAddr util.Address, contractAddr st
 	// For device-only private key reads, prefer authenticated signed eth_call.
 	if methodName == "getDevicePrivateKey" && from != nil && client != nil {
 		signedCaller := *from
+		// Keep Oasis relay routing aligned with the signer relay connection.
+		oasisClient.SetRelayClient(client)
 		result, signedErr = oasisClient.ConfidentialEVMSignedSimulateCall(oasisClient.ctx, contractAddrBytes, callData, signedCaller, client)
 	}
 
@@ -2694,6 +2905,9 @@ func prepareWireGuardKeyOnly() error {
 func contractSync(cfg *config.Config) error {
 	const clientWaitTimeout = 30 * time.Second
 	client := app.WaitForFirstClientTimeout(clientWaitTimeout)
+	if oasisClient != nil {
+		oasisClient.SetRelayClient(client)
+	}
 	if client == nil && cfg.Logger != nil {
 		cfg.Logger.Info("No relay connection after %v; continuing contract sync to allow config recovery", clientWaitTimeout)
 	}
