@@ -2,7 +2,7 @@ TESTS= $(shell go list ./... | grep -v -e gowasm_test -e cmd)
 GOPATH= $(shell go env GOPATH)
 GOBIN= $(or $(shell go env GOBIN), $(GOPATH)/bin)
 GOMODCACHE= $(or $(shell go env GOMODCACHE), $(GOPATH)/pkg/mod)
-COMMIT= $(shell git describe --tags --dirty)
+COMMIT= $(shell git describe --tags)
 BUILDTIME= $(shell date +"%d %b %Y")
 TAGS := $(strip patch_runtime $(EXTRA_TAGS))
 GOBUILD=go build -ldflags '-extldflags "-lpthread" -s -r ./ -X "main.version=${COMMIT}${VARIANT}" -X "main.buildTime=${BUILDTIME}"' -tags "$(TAGS)"
