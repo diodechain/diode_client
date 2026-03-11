@@ -415,5 +415,8 @@ func doInitSSLCtx(config *config.Config) (*openssl.Ctx, error) {
 	ctx.SetSessionCacheMode(openssl.SessionCacheBoth)
 	ctx.SetSessionId([]byte("diode_e2e"))
 	ctx.SetDialTimeout(15 * time.Second)
+	// ReleaseBuffers allows readBio/writeBio to release buffers when empty,
+	// reducing memory retention during high-throughput gateway operation.
+	ctx.SetMode(openssl.ReleaseBuffers)
 	return ctx, nil
 }
