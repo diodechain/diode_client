@@ -267,9 +267,18 @@ func (cm *ClientManager) registerConnectedClientLocked(host string, nodeID util.
 		if req == nil || req.client != client || key == nodeID {
 			continue
 		}
-		if candidate != nil {
-			candidate.consecutiveFailures++
-			candidate.lastFailure = time.Now()
+		failedCandidate := cm.ensureCandidateLocked(req.host)
+		if failedCandidate != nil {
+			failedCandidate.consecutiveFailures++
+			failedCandidate.lastFailure = time.Now()
+			if nodeID != util.EmptyAddress {
+				failedCandidate.nodeID = nodeID
+				failedCandidate.hasNodeID = true
+				failedCandidate.validated = true
+			}
+			if key != util.EmptyAddress && failedCandidate.hasNodeID && failedCandidate.nodeID != key {
+				failedCandidate.authoritative = false
+			}
 			cm.scheduleRelayCandidateCacheFlushLocked()
 		}
 		for _, waiting := range req.waiting {
@@ -359,6 +368,64 @@ func (cm *ClientManager) knownRelayHosts(nodeID util.Address) []string {
 	return hosts
 }
 
+func (cm *ClientManager) sortServerIDsForRouting(serverIDs []util.Address) []util.Address {
+	if len(serverIDs) < 2 {
+		out := make([]util.Address, len(serverIDs))
+		copy(out, serverIDs)
+		return out
+	}
+
+	type rankedServerID struct {
+		serverID util.Address
+		ranked   *rankedRelayCandidate
+		index    int
+	}
+
+	var rankedIDs []rankedServerID
+	cm.srv.Call(func() {
+		now := time.Now()
+		rankedIDs = make([]rankedServerID, 0, len(serverIDs))
+		for index, serverID := range serverIDs {
+			ranked := cm.bestNodeCandidateLocked(serverID, now)
+			rankedIDs = append(rankedIDs, rankedServerID{
+				serverID: serverID,
+				ranked:   ranked,
+				index:    index,
+			})
+		}
+	})
+
+	sort.SliceStable(rankedIDs, func(i, j int) bool {
+		left := rankedIDs[i]
+		right := rankedIDs[j]
+		if left.ranked == nil && right.ranked == nil {
+			return left.index < right.index
+		}
+		if left.ranked == nil {
+			return false
+		}
+		if right.ranked == nil {
+			return true
+		}
+		if left.ranked.bucket != right.ranked.bucket {
+			return left.ranked.bucket < right.ranked.bucket
+		}
+		if left.ranked.score != right.ranked.score {
+			return left.ranked.score < right.ranked.score
+		}
+		if left.ranked.source != right.ranked.source {
+			return left.ranked.source < right.ranked.source
+		}
+		return left.index < right.index
+	})
+
+	out := make([]util.Address, 0, len(rankedIDs))
+	for _, ranked := range rankedIDs {
+		out = append(out, ranked.serverID)
+	}
+	return out
+}
+
 func (cm *ClientManager) rankedNodeCandidatesLocked(nodeID util.Address, now time.Time, validatedOnly bool) []rankedRelayCandidate {
 	candidates := make([]rankedRelayCandidate, 0)
 	for _, candidate := range cm.candidates {
@@ -375,6 +442,15 @@ func (cm *ClientManager) rankedNodeCandidatesLocked(nodeID util.Address, now tim
 	}
 	sortRankedCandidates(candidates)
 	return candidates
+}
+
+func (cm *ClientManager) bestNodeCandidateLocked(nodeID util.Address, now time.Time) *rankedRelayCandidate {
+	ranked := cm.rankedNodeCandidatesLocked(nodeID, now, false)
+	if len(ranked) == 0 {
+		return nil
+	}
+	best := ranked[0]
+	return &best
 }
 
 func (candidate *relayCandidate) allowedForPool(now time.Time) bool {
@@ -537,12 +613,12 @@ func parseNetworkEntry(entry networkEntry) (discoveredRelay, bool) {
 	if !entry.Connected || len(entry.Node) < 4 {
 		return discoveredRelay{}, false
 	}
-	nodeType, _ := entry.Node[0].(string)
-	if !strings.EqualFold(strings.TrimSpace(nodeType), "server") {
+	nodeType, ok := entry.Node[0].(string)
+	if !ok || !strings.EqualFold(strings.TrimSpace(nodeType), "server") {
 		return discoveredRelay{}, false
 	}
-	host, _ := entry.Node[1].(string)
-	if !isRoutableDiscoveryHost(host) {
+	host, ok := entry.Node[1].(string)
+	if !ok || !isRoutableDiscoveryHost(host) {
 		return discoveredRelay{}, false
 	}
 	port, ok := parseDiscoveryPort(entry.Node[2])

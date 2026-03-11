@@ -168,6 +168,90 @@ func TestKnownRelayHostsPreferValidatedLowLatency(t *testing.T) {
 	}
 }
 
+func TestSortServerIDsForRoutingPrefersBestKnownNode(t *testing.T) {
+	cfg := testConfig()
+	config.AppConfig = cfg
+	cm := NewClientManager(cfg)
+	now := time.Now()
+
+	fastNode := util.Address{1}
+	slowNode := util.Address{2}
+	unknownNode := util.Address{3}
+
+	fastCandidate := cm.ensureCandidateLocked("fast:41046")
+	fastCandidate.nodeID = fastNode
+	fastCandidate.hasNodeID = true
+	fastCandidate.validated = true
+	fastCandidate.hasLatency = true
+	fastCandidate.latencyEWMA = 12
+	fastCandidate.lastSuccess = now
+	fastCandidate.configured = true
+
+	slowCandidate := cm.ensureCandidateLocked("slow:41046")
+	slowCandidate.nodeID = slowNode
+	slowCandidate.hasNodeID = true
+	slowCandidate.validated = true
+	slowCandidate.hasLatency = true
+	slowCandidate.latencyEWMA = 60
+	slowCandidate.lastSuccess = now
+	slowCandidate.configured = true
+
+	got := cm.sortServerIDsForRouting([]util.Address{unknownNode, slowNode, fastNode})
+	want := []util.Address{fastNode, slowNode, unknownNode}
+	if len(got) != len(want) {
+		t.Fatalf("unexpected server id count: got %d want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("unexpected server id order[%d]: got %s want %s", i, got[i].HexString(), want[i].HexString())
+		}
+	}
+}
+
+func TestRegisterConnectedClientLockedPenalizesRequestedHostOnIdentityMismatch(t *testing.T) {
+	cfg := testConfig()
+	config.AppConfig = cfg
+	cm := NewClientManager(cfg)
+	expectedNode := util.Address{1}
+	actualNode := util.Address{2}
+
+	requestedHost := "requested:41046"
+	connectedHost := "connected:41046"
+	client := &Client{host: connectedHost}
+
+	cm.srv.Call(func() {
+		cm.ensureCandidateLocked(requestedHost)
+		cm.ensureCandidateLocked(connectedHost)
+		cm.waitingNode[expectedNode] = &nodeRequest{
+			host:   requestedHost,
+			client: client,
+		}
+		cm.registerConnectedClientLocked(connectedHost, actualNode, client)
+	})
+
+	requestedCandidate := cm.candidates[requestedHost]
+	if requestedCandidate == nil {
+		t.Fatal("expected requested candidate to exist")
+	}
+	if requestedCandidate.consecutiveFailures != 1 {
+		t.Fatalf("expected requested host to be penalized once, got %d", requestedCandidate.consecutiveFailures)
+	}
+	if !requestedCandidate.validated || !requestedCandidate.hasNodeID || requestedCandidate.nodeID != actualNode {
+		t.Fatalf("expected requested host to be rebound to actual node: %+v", requestedCandidate)
+	}
+	if requestedCandidate.authoritative {
+		t.Fatal("expected requested host authoritative flag to be cleared on mismatch")
+	}
+
+	connectedCandidate := cm.candidates[connectedHost]
+	if connectedCandidate == nil {
+		t.Fatal("expected connected candidate to exist")
+	}
+	if connectedCandidate.consecutiveFailures != 0 {
+		t.Fatalf("expected connected host not to be penalized, got %d", connectedCandidate.consecutiveFailures)
+	}
+}
+
 func TestIsRoutableDiscoveryHost(t *testing.T) {
 	tests := []struct {
 		host string
