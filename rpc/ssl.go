@@ -261,12 +261,57 @@ func (s *SSL) readMessage() (msg edge.Message, err error) {
 	if err != nil {
 		return
 	}
+	if totalLen, totalErr := expectedRLPValueLength(res); totalErr == nil && totalLen > len(res) {
+		remaining := make([]byte, totalLen-len(res))
+		var extra int
+		extra, err = io.ReadFull(s.reader, remaining)
+		if err != nil {
+			return
+		}
+		n += extra
+		res = append(res, remaining...)
+	}
 	s.incrementTotalBytes(n + 2)
 	msg = edge.Message{
 		Len:    n + 2,
 		Buffer: res,
 	}
 	return msg, nil
+}
+
+func expectedRLPValueLength(buf []byte) (int, error) {
+	if len(buf) == 0 {
+		return 0, io.ErrUnexpectedEOF
+	}
+	prefix := buf[0]
+	switch {
+	case prefix < 0x80:
+		return 1, nil
+	case prefix < 0xb8:
+		return int(prefix-0x80) + 1, nil
+	case prefix < 0xc0:
+		sizeOfSize := int(prefix - 0xb7)
+		if len(buf) < 1+sizeOfSize {
+			return 0, io.ErrUnexpectedEOF
+		}
+		return 1 + sizeOfSize + decodeRLPSize(buf[1:1+sizeOfSize]), nil
+	case prefix < 0xf8:
+		return int(prefix-0xc0) + 1, nil
+	default:
+		sizeOfSize := int(prefix - 0xf7)
+		if len(buf) < 1+sizeOfSize {
+			return 0, io.ErrUnexpectedEOF
+		}
+		return 1 + sizeOfSize + decodeRLPSize(buf[1:1+sizeOfSize]), nil
+	}
+}
+
+func decodeRLPSize(buf []byte) int {
+	size := 0
+	for _, b := range buf {
+		size = (size << 8) | int(b)
+	}
+	return size
 }
 
 func (s *SSL) sendMessage(buf []byte) error {

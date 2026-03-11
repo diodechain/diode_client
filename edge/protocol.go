@@ -353,8 +353,8 @@ func parsePortSendResponse(buffer []byte) (interface{}, error) {
 	return portSend, nil
 }
 
-func parseSapphireRPCResponse(buffer []byte) (interface{}, error) {
-	// sapphire:rpc returns the same RLP response envelope as other RPC methods:
+func parseJSONRPCResponse(buffer []byte, method string) (interface{}, error) {
+	// relay rpc wrappers return the same RLP response envelope as other RPC methods:
 	// payload[0] is the response pivot and payload[1] is raw JSON-RPC bytes.
 	var response struct {
 		RequestID uint64
@@ -364,20 +364,28 @@ func parseSapphireRPCResponse(buffer []byte) (interface{}, error) {
 		return nil, err
 	}
 	if len(response.Payload) < 2 {
-		return nil, fmt.Errorf("sapphire:rpc response missing payload")
+		return nil, fmt.Errorf("%s response missing payload", method)
 	}
 	pivot, ok := decodePortOpen2Bytes(response.Payload[0])
 	if !ok {
-		return nil, fmt.Errorf("sapphire:rpc response missing type")
+		return nil, fmt.Errorf("%s response missing type", method)
 	}
 	if !bytes.Equal(bytes.ToLower(pivot), responsePivot) {
-		return nil, fmt.Errorf("sapphire:rpc unexpected response type: %q", string(pivot))
+		return nil, fmt.Errorf("%s unexpected response type: %q", method, string(pivot))
 	}
 	body, ok := decodePortOpen2Bytes(response.Payload[1])
 	if !ok {
-		return nil, fmt.Errorf("sapphire:rpc response body has unsupported type")
+		return nil, fmt.Errorf("%s response body has unsupported type", method)
 	}
 	return body, nil
+}
+
+func parseSapphireRPCResponse(buffer []byte) (interface{}, error) {
+	return parseJSONRPCResponse(buffer, "sapphire:rpc")
+}
+
+func parseRelayRPCResponse(buffer []byte) (interface{}, error) {
+	return parseJSONRPCResponse(buffer, "rpc")
 }
 
 func parsePortOpenResponse(buffer []byte) (interface{}, error) {
@@ -898,6 +906,8 @@ func NewMessage(writer io.Writer, requestID uint64, method string, args ...inter
 		return parseStateRootsResponse, nil
 	case "sendtransaction":
 		return parseTransactionResponse, nil
+	case "rpc":
+		return parseRelayRPCResponse, nil
 	case "sapphire:rpc":
 		return parseSapphireRPCResponse, nil
 	default:
