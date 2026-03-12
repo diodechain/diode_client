@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/diodechain/diode_client/db"
 	"github.com/diodechain/diode_client/util"
 	"github.com/dominicletz/genserver"
 )
@@ -196,7 +195,7 @@ func (cm *ClientManager) addAuthoritativeCandidate(nodeID util.Address, host str
 }
 
 func (cm *ClientManager) loadRelayCandidateCacheLocked(now time.Time) {
-	candidates, err := loadRelayCandidateCache(now)
+	candidates, err := loadRelayCandidateCache(cm.relayCacheDB, now)
 	if err != nil {
 		if cm.Config != nil && cm.Config.Logger != nil {
 			cm.Config.Logger.Warn("failed to load relay candidate cache: %v", err)
@@ -223,7 +222,7 @@ func (cm *ClientManager) loadRelayCandidateCacheLocked(now time.Time) {
 }
 
 func (cm *ClientManager) scheduleRelayCandidateCacheFlushLocked() {
-	if db.DB == nil {
+	if cm.relayCacheDB == nil {
 		return
 	}
 	if cm.cacheFlushTimer != nil {
@@ -239,7 +238,7 @@ func (cm *ClientManager) scheduleRelayCandidateCacheFlushLocked() {
 }
 
 func (cm *ClientManager) persistRelayCandidateCacheLocked(now time.Time) {
-	if err := persistRelayCandidateCache(cm.candidates, now); err != nil && cm.Config != nil && cm.Config.Logger != nil {
+	if err := persistRelayCandidateCache(cm.relayCacheDB, cm.candidates, now); err != nil && cm.Config != nil && cm.Config.Logger != nil {
 		cm.Config.Logger.Warn("failed to persist relay candidate cache: %v", err)
 	}
 }

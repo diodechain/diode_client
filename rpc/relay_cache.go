@@ -29,17 +29,17 @@ type relayCandidateCacheRecord struct {
 	LastRefreshUnix     int64   `json:"last_refresh_unix,omitempty"`
 }
 
-func loadRelayCandidateCache(now time.Time) ([]*relayCandidate, error) {
-	if db.DB == nil {
+func loadRelayCandidateCache(cacheDB *db.Database, now time.Time) ([]*relayCandidate, error) {
+	if cacheDB == nil {
 		return nil, nil
 	}
-	payload, err := db.DB.Get(relayCandidateCacheKey)
+	payload, err := cacheDB.Get(relayCandidateCacheKey)
 	if err != nil || len(payload) == 0 {
 		return nil, nil
 	}
 	var records []relayCandidateCacheRecord
 	if err := json.Unmarshal(payload, &records); err != nil {
-		_ = db.DB.Del(relayCandidateCacheKey)
+		_ = cacheDB.Del(relayCandidateCacheKey)
 		return nil, err
 	}
 	candidates := make([]*relayCandidate, 0, len(records))
@@ -53,8 +53,8 @@ func loadRelayCandidateCache(now time.Time) ([]*relayCandidate, error) {
 	return candidates, nil
 }
 
-func persistRelayCandidateCache(candidates map[string]*relayCandidate, now time.Time) error {
-	if db.DB == nil {
+func persistRelayCandidateCache(cacheDB *db.Database, candidates map[string]*relayCandidate, now time.Time) error {
+	if cacheDB == nil {
 		return nil
 	}
 	records := make([]relayCandidateCacheRecord, 0, len(candidates))
@@ -68,13 +68,13 @@ func persistRelayCandidateCache(candidates map[string]*relayCandidate, now time.
 		return records[i].Host < records[j].Host
 	})
 	if len(records) == 0 {
-		return db.DB.Del(relayCandidateCacheKey)
+		return cacheDB.Del(relayCandidateCacheKey)
 	}
 	payload, err := json.Marshal(records)
 	if err != nil {
 		return err
 	}
-	return db.DB.Put(relayCandidateCacheKey, payload)
+	return cacheDB.Put(relayCandidateCacheKey, payload)
 }
 
 func relayCandidateFromCacheRecord(record relayCandidateCacheRecord, now time.Time) (*relayCandidate, bool) {

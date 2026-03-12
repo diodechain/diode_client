@@ -11,7 +11,7 @@ import (
 	"github.com/diodechain/diode_client/util"
 )
 
-func setupRelayCacheTest(t *testing.T) *config.Config {
+func setupRelayCacheTest(t *testing.T) (*config.Config, *db.Database) {
 	t.Helper()
 	testDBMu.Lock()
 	cfg := testConfig()
@@ -29,11 +29,11 @@ func setupRelayCacheTest(t *testing.T) *config.Config {
 		_ = handle.Close()
 		testDBMu.Unlock()
 	})
-	return cfg
+	return cfg, handle
 }
 
 func TestRelayCandidateCacheRoundTripPrunesInvalidAndExpired(t *testing.T) {
-	setupRelayCacheTest(t)
+	_, cacheDB := setupRelayCacheTest(t)
 	now := time.Unix(1_700_000_000, 0)
 
 	candidates := map[string]*relayCandidate{
@@ -68,11 +68,11 @@ func TestRelayCandidateCacheRoundTripPrunesInvalidAndExpired(t *testing.T) {
 		},
 	}
 
-	if err := persistRelayCandidateCache(candidates, now); err != nil {
+	if err := persistRelayCandidateCache(cacheDB, candidates, now); err != nil {
 		t.Fatalf("persistRelayCandidateCache(): %v", err)
 	}
 
-	loaded, err := loadRelayCandidateCache(now)
+	loaded, err := loadRelayCandidateCache(cacheDB, now)
 	if err != nil {
 		t.Fatalf("loadRelayCandidateCache(): %v", err)
 	}
@@ -88,11 +88,11 @@ func TestRelayCandidateCacheRoundTripPrunesInvalidAndExpired(t *testing.T) {
 }
 
 func TestLoadRelayCandidateCacheMergesConfiguredAndChoosesFastest(t *testing.T) {
-	cfg := setupRelayCacheTest(t)
+	cfg, cacheDB := setupRelayCacheTest(t)
 	now := time.Now()
 	cfg.RemoteRPCAddrs = []string{"alpha:41046", "beta:41046"}
 
-	if err := persistRelayCandidateCache(map[string]*relayCandidate{
+	if err := persistRelayCandidateCache(cacheDB, map[string]*relayCandidate{
 		"alpha:41046": {
 			host:        "alpha:41046",
 			validated:   true,
@@ -128,12 +128,12 @@ func TestLoadRelayCandidateCacheMergesConfiguredAndChoosesFastest(t *testing.T) 
 }
 
 func TestKnownRelayHostsUsesCachedDiscoveredCandidatesBeforeRefresh(t *testing.T) {
-	cfg := setupRelayCacheTest(t)
+	cfg, cacheDB := setupRelayCacheTest(t)
 	now := time.Now()
 	nodeID := util.Address{9}
 	cfg.RemoteRPCAddrs = []string{"cfg:41046"}
 
-	if err := persistRelayCandidateCache(map[string]*relayCandidate{
+	if err := persistRelayCandidateCache(cacheDB, map[string]*relayCandidate{
 		"cfg:41046": {
 			host:        "cfg:41046",
 			nodeID:      nodeID,
@@ -178,7 +178,7 @@ func TestKnownRelayHostsUsesCachedDiscoveredCandidatesBeforeRefresh(t *testing.T
 }
 
 func TestRelayCandidateCachePersistsFailureAndIdentityMismatch(t *testing.T) {
-	cfg := setupRelayCacheTest(t)
+	cfg, cacheDB := setupRelayCacheTest(t)
 	config.AppConfig = cfg
 	cm := NewClientManager(cfg)
 
@@ -191,7 +191,7 @@ func TestRelayCandidateCachePersistsFailureAndIdentityMismatch(t *testing.T) {
 		cm.persistRelayCandidateCacheLocked(time.Now())
 	})
 
-	loaded, err := loadRelayCandidateCache(time.Now())
+	loaded, err := loadRelayCandidateCache(cacheDB, time.Now())
 	if err != nil {
 		t.Fatalf("loadRelayCandidateCache(): %v", err)
 	}

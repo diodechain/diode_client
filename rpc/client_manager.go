@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/diodechain/diode_client/config"
+	"github.com/diodechain/diode_client/db"
 	"github.com/diodechain/diode_client/edge"
 	"github.com/diodechain/diode_client/util"
 	"github.com/dominicletz/genserver"
@@ -38,6 +39,7 @@ type ClientManager struct {
 	pool   *DataPool
 	Config *config.Config
 
+	relayCacheDB    *db.Database
 	candidates      map[string]*relayCandidate
 	discoveryStop   chan struct{}
 	discoveryClose  sync.Once
@@ -66,6 +68,7 @@ func NewClientManager(cfg *config.Config) *ClientManager {
 		pool:              NewPool(),
 		Config:            cfg,
 		targetClients:     5,
+		relayCacheDB:      db.DB,
 		candidates:        make(map[string]*relayCandidate),
 		discoveryStop:     make(chan struct{}),
 		portOpen2Handlers: make(map[string]func(*edge.PortOpen2) error),
