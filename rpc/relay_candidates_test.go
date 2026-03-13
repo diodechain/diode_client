@@ -208,6 +208,71 @@ func TestSortServerIDsForRoutingPrefersBestKnownNode(t *testing.T) {
 	}
 }
 
+func TestSortServerIDsForRoutingUsesConnectedClientLatencyFallback(t *testing.T) {
+	cfg := testConfig()
+	config.AppConfig = cfg
+	cm := NewClientManager(cfg)
+
+	fastNode := util.Address{1}
+	slowNode := util.Address{2}
+	unknownNode := util.Address{3}
+
+	cm.srv.Call(func() {
+		cm.clientMap[fastNode] = &Client{
+			host:         "fast:41046",
+			latencySum:   120,
+			latencyCount: 10,
+		}
+		cm.clientMap[slowNode] = &Client{
+			host:         "slow:41046",
+			latencySum:   600,
+			latencyCount: 10,
+		}
+	})
+
+	got := cm.sortServerIDsForRouting([]util.Address{unknownNode, slowNode, fastNode})
+	want := []util.Address{fastNode, slowNode, unknownNode}
+	if len(got) != len(want) {
+		t.Fatalf("unexpected server id count: got %d want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("unexpected server id order[%d]: got %s want %s", i, got[i].HexString(), want[i].HexString())
+		}
+	}
+}
+
+func TestGetDefaultClientsIncludesPlainHostSeeds(t *testing.T) {
+	cfg := testConfig()
+	config.AppConfig = cfg
+	cfg.RemoteRPCAddrs = []string{
+		"plain:41046",
+		"diode://0x0100000000000000000000000000000000000000@encoded:41046",
+	}
+	cm := NewClientManager(cfg)
+
+	plainNode := util.Address{2}
+	encodedNode := util.Address{1}
+	plainClient := &Client{host: "plain:41046", serverID: plainNode}
+	encodedClient := &Client{host: "encoded:41046", serverID: encodedNode}
+
+	cm.srv.Call(func() {
+		cm.clients = append(cm.clients, plainClient, encodedClient)
+		cm.clientMap[encodedNode] = encodedClient
+	})
+
+	got := cm.GetDefaultClients()
+	if len(got) != 2 {
+		t.Fatalf("unexpected default client count: got %d want 2", len(got))
+	}
+	if got[0] != plainClient {
+		t.Fatalf("expected plain host seed client first, got %+v", got[0])
+	}
+	if got[1] != encodedClient {
+		t.Fatalf("expected encoded seed client second, got %+v", got[1])
+	}
+}
+
 func TestRegisterConnectedClientLockedPenalizesRequestedHostOnIdentityMismatch(t *testing.T) {
 	cfg := testConfig()
 	config.AppConfig = cfg
