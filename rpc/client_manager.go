@@ -176,15 +176,22 @@ func (cm *ClientManager) GetClientByHost(host string) *Client {
 
 // GetClientByHost returns an existing client for host without connecting.
 func (cm *ClientManager) GetDefaultClients() []*Client {
-	hosts := config.AppConfig.RemoteRPCAddrs
+	hosts := cm.Config.RemoteRPCAddrs
 	clients := make([]*Client, 0, len(hosts))
+	seenHosts := make(map[string]bool, len(hosts))
 
 	for _, host := range hosts {
-		url, err := url.Parse(host)
-		if err != nil {
+		if client := cm.GetClientByHost(host); client != nil {
+			norm := normalizeHostPort(client.host)
+			if norm != "" && !seenHosts[norm] {
+				seenHosts[norm] = true
+				clients = append(clients, client)
+			}
 			continue
 		}
-		if url.User.Username() == "" {
+
+		url, err := url.Parse(host)
+		if err != nil || url.User == nil || url.User.Username() == "" {
 			continue
 		}
 
@@ -195,6 +202,13 @@ func (cm *ClientManager) GetDefaultClients() []*Client {
 		client, err := cm.GetClientOrConnect(id)
 		if err != nil || client == nil {
 			continue
+		}
+		norm := normalizeHostPort(client.host)
+		if norm != "" && seenHosts[norm] {
+			continue
+		}
+		if norm != "" {
+			seenHosts[norm] = true
 		}
 		clients = append(clients, client)
 	}

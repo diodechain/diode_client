@@ -385,7 +385,7 @@ func (cm *ClientManager) sortServerIDsForRouting(serverIDs []util.Address) []uti
 		now := time.Now()
 		rankedIDs = make([]rankedServerID, 0, len(serverIDs))
 		for index, serverID := range serverIDs {
-			ranked := cm.bestNodeCandidateLocked(serverID, now)
+			ranked := cm.bestServerIDCandidateLocked(serverID, now)
 			rankedIDs = append(rankedIDs, rankedServerID{
 				serverID: serverID,
 				ranked:   ranked,
@@ -452,6 +452,35 @@ func (cm *ClientManager) bestNodeCandidateLocked(nodeID util.Address, now time.T
 	return &best
 }
 
+func (cm *ClientManager) bestServerIDCandidateLocked(nodeID util.Address, now time.Time) *rankedRelayCandidate {
+	if ranked := cm.bestNodeCandidateLocked(nodeID, now); ranked != nil {
+		return ranked
+	}
+	client := cm.clientMap[nodeID]
+	if client == nil || client.Closing() {
+		return nil
+	}
+	host := normalizeHostPort(client.host)
+	if host == "" {
+		return nil
+	}
+	if candidate := cm.candidates[host]; candidate != nil {
+		ranked := rankCandidate(candidate, now)
+		return &ranked
+	}
+	candidate := &relayCandidate{
+		host:        host,
+		nodeID:      nodeID,
+		hasNodeID:   true,
+		validated:   true,
+		hasLatency:  true,
+		latencyEWMA: float64(client.averageLatency()),
+		lastSuccess: now,
+	}
+	ranked := rankCandidate(candidate, now)
+	return &ranked
+}
+
 func (candidate *relayCandidate) allowedForPool(now time.Time) bool {
 	if candidate.configured || candidate.perimeter || candidate.authoritative {
 		return true
@@ -472,14 +501,16 @@ func (candidate *relayCandidate) isFresh(now time.Time) bool {
 
 func (candidate *relayCandidate) sourceRank() int {
 	switch {
-	case candidate.configured || candidate.perimeter:
-		return 0
 	case candidate.authoritative:
+		return 0
+	case candidate.validated:
 		return 1
-	case candidate.discovered:
+	case candidate.configured || candidate.perimeter:
 		return 2
-	default:
+	case candidate.discovered:
 		return 3
+	default:
+		return 4
 	}
 }
 
