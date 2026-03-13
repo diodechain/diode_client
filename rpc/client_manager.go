@@ -6,7 +6,6 @@ package rpc
 
 import (
 	"fmt"
-	"math/rand"
 	"net"
 	"net/url"
 	"sort"
@@ -17,6 +16,7 @@ import (
 	"time"
 
 	"github.com/diodechain/diode_client/config"
+	"github.com/diodechain/diode_client/db"
 	"github.com/diodechain/diode_client/edge"
 	"github.com/diodechain/diode_client/util"
 	"github.com/dominicletz/genserver"
@@ -38,6 +38,12 @@ type ClientManager struct {
 
 	pool   *DataPool
 	Config *config.Config
+
+	relayCacheDB    *db.Database
+	candidates      map[string]*relayCandidate
+	discoveryStop   chan struct{}
+	discoveryClose  sync.Once
+	cacheFlushTimer *time.Timer
 
 	// savedDefaultAddresses stores the default addresses that were removed when contract addresses were first detected
 	savedDefaultAddresses config.StringValues
@@ -62,6 +68,9 @@ func NewClientManager(cfg *config.Config) *ClientManager {
 		pool:              NewPool(),
 		Config:            cfg,
 		targetClients:     5,
+		relayCacheDB:      db.DB,
+		candidates:        make(map[string]*relayCandidate),
+		discoveryStop:     make(chan struct{}),
 		portOpen2Handlers: make(map[string]func(*edge.PortOpen2) error),
 	}
 	if !config.AppConfig.LogDateTime {
@@ -72,11 +81,14 @@ func NewClientManager(cfg *config.Config) *ClientManager {
 
 func (cm *ClientManager) Start() {
 	cm.srv.Call(func() {
+		cm.loadRelayCandidateCacheLocked(time.Now())
+		cm.syncConfiguredCandidatesLocked(cm.Config.RemoteRPCAddrs)
 		for x := 0; x < cm.targetClients; x++ {
 			cm.doAddClient()
 		}
 	})
 	go cm.sortTopClients()
+	go cm.runDiscoveryLoop()
 }
 
 // SetPortOpen2Handler registers a portopen2 handler for a given port number.
@@ -164,15 +176,22 @@ func (cm *ClientManager) GetClientByHost(host string) *Client {
 
 // GetClientByHost returns an existing client for host without connecting.
 func (cm *ClientManager) GetDefaultClients() []*Client {
-	hosts := config.AppConfig.RemoteRPCAddrs
+	hosts := cm.Config.RemoteRPCAddrs
 	clients := make([]*Client, 0, len(hosts))
+	seenHosts := make(map[string]bool, len(hosts))
 
 	for _, host := range hosts {
-		url, err := url.Parse(host)
-		if err != nil {
+		if client := cm.GetClientByHost(host); client != nil {
+			norm := normalizeHostPort(client.host)
+			if norm != "" && !seenHosts[norm] {
+				seenHosts[norm] = true
+				clients = append(clients, client)
+			}
 			continue
 		}
-		if url.User.Username() == "" {
+
+		url, err := url.Parse(host)
+		if err != nil || url.User == nil || url.User.Username() == "" {
 			continue
 		}
 
@@ -183,6 +202,13 @@ func (cm *ClientManager) GetDefaultClients() []*Client {
 		client, err := cm.GetClientOrConnect(id)
 		if err != nil || client == nil {
 			continue
+		}
+		norm := normalizeHostPort(client.host)
+		if norm != "" && seenHosts[norm] {
+			continue
+		}
+		if norm != "" {
+			seenHosts[norm] = true
 		}
 		clients = append(clients, client)
 	}
@@ -203,6 +229,12 @@ func (cm *ClientManager) ResolveRelayForDevice(deviceID util.Address) (util.Addr
 	if device.ServerID == zero {
 		return util.Address{}, "", "", fmt.Errorf("device server id missing")
 	}
+	if host, ok := cm.knownRelayAddr(device.ServerID); ok {
+		relayAddr, relayHost, err := formatRelayAddr(host)
+		if err == nil {
+			return device.ServerID, relayAddr, relayHost, nil
+		}
+	}
 	node, err := client.GetNode(device.ServerID)
 	if err != nil {
 		return util.Address{}, "", "", err
@@ -218,7 +250,9 @@ func (cm *ClientManager) ResolveRelayForDevice(deviceID util.Address) (util.Addr
 	if port <= 0 {
 		return util.Address{}, "", "", fmt.Errorf("relay port missing")
 	}
-	return device.ServerID, net.JoinHostPort(host, strconv.Itoa(port)), host, nil
+	relayAddr := net.JoinHostPort(host, strconv.Itoa(port))
+	cm.addAuthoritativeCandidate(device.ServerID, relayAddr)
+	return device.ServerID, relayAddr, host, nil
 }
 
 func normalizeHostPort(host string) string {
@@ -273,7 +307,7 @@ func (cm *ClientManager) AddNewAddresses() {
 		// Build set of contract addresses (valid, non-empty)
 		contractAddresses := make(map[string]bool)
 		for _, addr := range cm.Config.RemoteRPCAddrs {
-			addr = strings.TrimSpace(addr)
+			addr = normalizeHostPort(addr)
 			if addr != "" {
 				contractAddresses[addr] = true
 			}
@@ -282,14 +316,16 @@ func (cm *ClientManager) AddNewAddresses() {
 		// Build set of current client addresses
 		clientAddresses := make(map[string]bool)
 		for _, c := range cm.clients {
-			clientAddresses[c.host] = true
+			clientAddresses[normalizeHostPort(c.host)] = true
 		}
 
 		hasContractAddresses := len(contractAddresses) > 0
 
 		// Case 1: No contract addresses - restore defaults if we have contract clients
 		if !hasContractAddresses {
+			cm.syncPerimeterCandidatesLocked(nil)
 			if len(cm.savedDefaultAddresses) == 0 {
+				cm.syncConfiguredCandidatesLocked(cm.Config.RemoteRPCAddrs)
 				// No saved defaults, nothing to restore
 				return
 			}
@@ -297,13 +333,13 @@ func (cm *ClientManager) AddNewAddresses() {
 			// Build set of saved default addresses
 			savedDefaultsMap := make(map[string]bool)
 			for _, addr := range cm.savedDefaultAddresses {
-				savedDefaultsMap[addr] = true
+				savedDefaultsMap[normalizeHostPort(addr)] = true
 			}
 
 			// Find contract clients (not in saved defaults)
 			var contractClients []*Client
 			for _, c := range cm.clients {
-				if !savedDefaultsMap[c.host] {
+				if !savedDefaultsMap[normalizeHostPort(c.host)] {
 					contractClients = append(contractClients, c)
 				}
 			}
@@ -316,6 +352,7 @@ func (cm *ClientManager) AddNewAddresses() {
 			// Restore defaults and close contract clients
 			cm.Config.PrintInfo("All node addresses removed from perimeter, restoring cached default nodes")
 			cm.Config.RemoteRPCAddrs = cm.savedDefaultAddresses
+			cm.syncConfiguredCandidatesLocked(cm.Config.RemoteRPCAddrs)
 			cm.Config.Logger.Debug("Restoring %d cached default nodes: %v", len(cm.savedDefaultAddresses), cm.savedDefaultAddresses)
 
 			cm.Config.PrintInfo(fmt.Sprintf("Closing %d nodes no longer in perimeter", len(contractClients)))
@@ -327,11 +364,17 @@ func (cm *ClientManager) AddNewAddresses() {
 		}
 
 		// Case 2: Contract addresses present
+		cm.syncConfiguredCandidatesLocked(nil)
+		cm.syncPerimeterCandidatesLocked(cm.Config.RemoteRPCAddrs)
 		// Save current clients as defaults on first detection
 		if len(cm.savedDefaultAddresses) == 0 {
-			savedAddrs := make([]string, 0, len(cm.clients))
-			for _, c := range cm.clients {
-				savedAddrs = append(savedAddrs, c.host)
+			savedAddrs := make([]string, 0, len(cm.Config.RemoteRPCAddrs))
+			for _, addr := range cm.Config.RemoteRPCAddrs {
+				addr = strings.TrimSpace(addr)
+				if addr == "" {
+					continue
+				}
+				savedAddrs = append(savedAddrs, addr)
 			}
 			cm.savedDefaultAddresses = config.StringValues(savedAddrs)
 			cm.Config.Logger.Debug("Cached %d default addresses for later restoration: %v", len(cm.savedDefaultAddresses), cm.savedDefaultAddresses)
@@ -340,7 +383,7 @@ func (cm *ClientManager) AddNewAddresses() {
 		// Find clients to close (not in contract addresses)
 		var clientsToClose []*Client
 		for _, c := range cm.clients {
-			if !contractAddresses[c.host] {
+			if !contractAddresses[normalizeHostPort(c.host)] {
 				clientsToClose = append(clientsToClose, c)
 			}
 		}
@@ -387,6 +430,9 @@ func (cm *ClientManager) AddNewAddresses() {
 }
 
 func (cm *ClientManager) Stop() {
+	cm.discoveryClose.Do(func() {
+		close(cm.discoveryStop)
+	})
 	done := false
 	cm.srv.Call2(func(r *genserver.Reply) bool {
 		// When the Terminate function calls
@@ -395,6 +441,11 @@ func (cm *ClientManager) Stop() {
 			return done
 		}
 		done = true
+		if cm.cacheFlushTimer != nil {
+			cm.cacheFlushTimer.Stop()
+			cm.cacheFlushTimer = nil
+			cm.persistRelayCandidateCacheLocked(time.Now())
+		}
 
 		if cm.srv.Terminate == nil {
 			cm.srv.Terminate = func() { r.ReRun() }
@@ -438,17 +489,7 @@ func (cm *ClientManager) startClient(host string) *Client {
 		}
 		cm.Config.Logger.Debug("Added relay#%d [%s] @ %s", n, nodeID.HexString(), host)
 		cm.srv.Cast(func() {
-			cm.clientMap[nodeID] = client
-			for _, c := range cm.waitingAny {
-				c.ReRun()
-			}
-			cm.waitingAny = []*genserver.Reply{}
-			if req := cm.waitingNode[nodeID]; req != nil {
-				for _, c := range req.waiting {
-					c.ReRun()
-				}
-			}
-			delete(cm.waitingNode, nodeID)
+			cm.registerConnectedClientLocked(host, nodeID, client)
 		})
 	}
 	client.srv.Terminate = func() {
@@ -516,6 +557,13 @@ func (cm *ClientManager) GetClientOrConnect(nodeID util.Address) (client *Client
 		return
 	}
 
+	for _, host := range cm.knownRelayHosts(nodeID) {
+		client, err = cm.connect(nodeID, host)
+		if err == nil && client != nil {
+			return client, nil
+		}
+	}
+
 	// Need to find the destination host, so ask another node for it
 	fclient := cm.GetNearestClient()
 	if fclient == nil {
@@ -538,6 +586,7 @@ func (cm *ClientManager) GetClientOrConnect(nodeID util.Address) (client *Client
 	}
 
 	host := net.JoinHostPort(string(serverObj.Host), fmt.Sprintf("%d", serverObj.EdgePort))
+	cm.addAuthoritativeCandidate(nodeID, host)
 	client, err = cm.connect(nodeID, host)
 	if err != nil {
 		err = fmt.Errorf("couldn't connect to server: '%s' with error '%v'", host, err)
@@ -757,23 +806,4 @@ func (cm *ClientManager) doSortTopClients() {
 	} else {
 		cm.topClients[0] = nil
 	}
-}
-
-func (cm *ClientManager) doSelectNextHost() string {
-	hosts := make(map[string]bool, len(cm.clients))
-	for _, c := range cm.clients {
-		hosts[c.host] = true
-	}
-
-	var candidates []string
-	for _, c := range cm.Config.RemoteRPCAddrs {
-		if _, ok := hosts[c]; !ok {
-			candidates = append(candidates, c)
-		}
-	}
-
-	if len(candidates) > 0 {
-		return candidates[rand.Intn(len(candidates))]
-	}
-	return ""
 }
