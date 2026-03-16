@@ -30,3 +30,21 @@ func TestParseSapphireRPCResultInvalidJSON(t *testing.T) {
 		t.Fatal("expected parse error for invalid JSON")
 	}
 }
+
+func TestParseRelayRPCResultSuccess(t *testing.T) {
+	raw := []byte(`{"jsonrpc":"2.0","id":1,"result":[{"node_id":"0x1"}]}`)
+	result, err := parseRelayRPCResult("dio_network", raw)
+	if err != nil {
+		t.Fatalf("parseRelayRPCResult() returned error: %v", err)
+	}
+	if !bytes.Equal(result, []byte(`[{"node_id":"0x1"}]`)) {
+		t.Fatalf("unexpected result: got %s", string(result))
+	}
+}
+
+func TestParseRelayRPCResultInvalidJSON(t *testing.T) {
+	_, err := parseRelayRPCResult("dio_network", []byte(`not-json`))
+	if err == nil {
+		t.Fatal("expected parse error for invalid JSON")
+	}
+}

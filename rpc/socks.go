@@ -381,6 +381,7 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 		for _, defaultID := range defaultIds {
 			serverIDs = appendAddressIfNotExists(serverIDs, defaultID)
 		}
+		serverIDs = socksServer.clientManager.sortServerIDsForRouting(serverIDs)
 
 		candidates = append(candidates, candidate{deviceID, serverIDs})
 	}
