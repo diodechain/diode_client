@@ -9,21 +9,25 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
-	"syscall"
 
 	"github.com/diodechain/diode_client/command"
 	"github.com/diodechain/diode_client/config"
+	"github.com/diodechain/diode_client/rpc"
+	"github.com/diodechain/diode_client/util"
 )
 
 var (
 	sshCmd = &command.Command{
-		Name:        "ssh",
-		HelpText:    `  Connect to a diode node via ssh.`,
-		ExampleText: `  diode ssh ubuntu@mymachine.diode -p 22`,
-		Run:         sshHandler,
-		Type:        command.OneOffCommand,
+		Name:            "ssh",
+		HelpText:        `  Connect to a diode node via ssh.`,
+		ExampleText:     `  diode ssh ubuntu@mymachine.diode -p 22`,
+		Run:             sshHandler,
+		Type:            command.OneOffCommand,
+		PassThroughArgs: true,
 	}
 )
 
@@ -36,17 +40,25 @@ func sshHandler() (err error) {
 		os.Exit(1)
 	}
 
-	// We use preferably the local diode client listening at port localhost:1080
-	// But if it's closed we use the gateway address diode.link:1080
-	proxy_command := "nc -X 5 -x 127.0.0.1:1080 %h %p"
-	if _, err := net.Dial("tcp", "127.0.0.1:1080"); err != nil {
-		proxy_command = "nc -X 5 -x diode.link:1080 %h %p"
-		cfg.PrintLabel("Using gateway address", "diode.link:1080")
-	} else {
-		cfg.PrintLabel("Using local diode client", "localhost:1080")
+	if err := app.Start(); err != nil {
+		cfg.PrintError("Could not start local Diode client", err)
+		os.Exit(1)
 	}
+	proxyAddr, cleanupProxy, err := startSSHLocalSocksProxy()
+	if err != nil {
+		cfg.PrintError("Could not start local Diode SOCKS proxy", err)
+		os.Exit(1)
+	}
+	defer cleanupProxy()
+	cfg.PrintLabel("Using local diode client", proxyAddr)
 
-	args := []string{"ssh", "-o", "ProxyCommand=" + proxy_command}
+	proxy_command := "nc -X 5 -x " + proxyAddr + " %h %p"
+
+	args := []string{
+		"ssh",
+		"-o", "ProxyCommand=" + proxy_command,
+		"-o", "StrictHostKeyChecking=accept-new",
+	}
 	os_args := os.Args
 	// Remove all args before the ssh command by finding "ssh" and removing all args before it
 	ssh_index := -1
@@ -60,7 +72,7 @@ func sshHandler() (err error) {
 		cfg.PrintError("ssh command not found", errors.New("ssh command not found"))
 		os.Exit(1)
 	}
-	sshArgs := os_args[ssh_index+1:]
+	sshArgs := normalizeSSHArgs(os_args[ssh_index+1:])
 	args = append(args, sshArgs...)
 
 	if target := extractSSHTarget(sshArgs); target != "" {
@@ -70,17 +82,97 @@ func sshHandler() (err error) {
 		}
 	}
 
+	identityFile, cleanup, err := createEphemeralSSHIdentity()
+	if err != nil {
+		cfg.PrintError("Could not create ephemeral ssh identity", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+	args = append(args, "-i", identityFile)
+
 	ssh, err := exec.LookPath("ssh")
 	if err != nil {
 		cfg.PrintError("ssh not found", err)
 		os.Exit(1)
 	}
-	err = syscall.Exec(ssh, args, os.Environ())
+	cmd := exec.Command(ssh, args[1:]...)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	cmd.Env = os.Environ()
+	err = cmd.Run()
 	if err != nil {
 		cfg.PrintError("Could not execute ssh", err)
 		os.Exit(1)
 	}
 	return
+}
+
+func normalizeSSHArgs(args []string) []string {
+	if len(args) > 0 && args[0] == "--" {
+		return args[1:]
+	}
+	return args
+}
+
+func startSSHLocalSocksProxy() (string, func(), error) {
+	cfg := config.AppConfig
+	socksCfg := rpc.Config{
+		Addr:            net.JoinHostPort("127.0.0.1", "0"),
+		FleetAddr:       cfg.FleetAddr,
+		Blocklists:      cfg.Blocklists(),
+		Allowlists:      cfg.Allowlists,
+		EnableProxy:     false,
+		ProxyServerAddr: cfg.ProxyServerAddr(),
+		Fallback:        cfg.SocksFallback,
+	}
+	socksServer, err := rpc.NewSocksServer(socksCfg, app.clientManager)
+	if err != nil {
+		return "", nil, err
+	}
+	if err := socksServer.Start(); err != nil {
+		return "", nil, err
+	}
+	addr := socksServer.Addr()
+	if addr == nil {
+		socksServer.Close()
+		return "", nil, fmt.Errorf("socks listener did not expose an address")
+	}
+	tcpAddr, ok := addr.(*net.TCPAddr)
+	if !ok {
+		socksServer.Close()
+		return "", nil, fmt.Errorf("unexpected socks listener address type: %T", addr)
+	}
+	host := tcpAddr.IP.String()
+	if host == "" || host == "::" || host == "0.0.0.0" {
+		host = "127.0.0.1"
+	}
+	cleanup := func() {
+		socksServer.Close()
+	}
+	return net.JoinHostPort(host, strconv.Itoa(tcpAddr.Port)), cleanup, nil
+}
+
+func createEphemeralSSHIdentity() (string, func(), error) {
+	sshKeygen, err := exec.LookPath("ssh-keygen")
+	if err != nil {
+		return "", nil, err
+	}
+	dir, err := os.MkdirTemp("", "diode-ssh-*")
+	if err != nil {
+		return "", nil, err
+	}
+	keyPath := filepath.Join(dir, "id_ed25519")
+	cmd := exec.Command(sshKeygen, "-q", "-t", "ed25519", "-N", "", "-f", keyPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return "", nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+	}
+	cleanup := func() {
+		_ = os.RemoveAll(dir)
+	}
+	return keyPath, cleanup, nil
 }
 
 // sshOptsWithArg lists SSH short options that take a value (next argument).
@@ -117,6 +209,12 @@ func validateSSHTarget(target string) error {
 	if at != -1 {
 		host = target[at+1:]
 	}
+	if colon := strings.LastIndex(host, ":"); colon != -1 && isDiodeAddressHost(host[:colon]) {
+		hostWithoutPort := target[:at+1+colon]
+		port := host[colon+1:]
+		return fmt.Errorf("do not put port in the hostname; use -p PORT instead (e.g. %q -p %s)",
+			hostWithoutPort, port)
+	}
 	// Port in hostname (e.g. ubuntu@mymachine.diode:22) - use -p instead
 	if colon := strings.Index(host, ".diode:"); colon != -1 {
 		hostWithoutPort := target[:at+1+colon+len(".diode")]
@@ -124,8 +222,8 @@ func validateSSHTarget(target string) error {
 		return fmt.Errorf("do not put port in the hostname; use -p PORT instead (e.g. %q -p %s)",
 			hostWithoutPort, port)
 	}
-	// Host must end with .diode for diode network resolution
-	if !strings.HasSuffix(host, ".diode") && !strings.Contains(host, ":") {
+	// Host may be either a raw Diode address or a .diode host alias.
+	if !strings.HasSuffix(host, ".diode") && !strings.Contains(host, ":") && !isDiodeAddressHost(host) {
 		var suggested string
 		if at != -1 {
 			suggested = target[:at+1] + host + ".diode"
@@ -135,4 +233,9 @@ func validateSSHTarget(target string) error {
 		return fmt.Errorf("diode hostname must end with .diode (e.g. %q)", suggested)
 	}
 	return nil
+}
+
+func isDiodeAddressHost(host string) bool {
+	_, err := util.DecodeAddress(host)
+	return err == nil
 }

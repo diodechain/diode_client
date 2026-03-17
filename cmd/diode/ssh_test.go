@@ -35,17 +35,20 @@ func TestExtractSSHTarget(t *testing.T) {
 
 func TestValidateSSHTarget(t *testing.T) {
 	tests := []struct {
-		name    string
-		target  string
-		wantErr bool
+		name     string
+		target   string
+		wantErr  bool
 		contains []string // substrings that must appear in the error
 	}{
 		{name: "valid user@host", target: "ubuntu@mymachine.diode", wantErr: false},
 		{name: "valid host only", target: "mymachine.diode", wantErr: false},
+		{name: "valid raw address with user", target: "ubuntu@0x1111111111111111111111111111111111111111", wantErr: false},
+		{name: "valid raw address host only", target: "0x1111111111111111111111111111111111111111", wantErr: false},
 		{name: "missing .diode suffix", target: "ubuntu@mymachine", wantErr: true, contains: []string{".diode", "ubuntu@mymachine.diode"}},
 		{name: "missing .diode host only", target: "mymachine", wantErr: true, contains: []string{".diode", "mymachine.diode"}},
 		{name: "port in hostname", target: "ubuntu@mymachine.diode:22", wantErr: true, contains: []string{"-p", "22", "ubuntu@mymachine.diode"}},
 		{name: "port in hostname custom port", target: "ubuntu@mymachine.diode:2222", wantErr: true, contains: []string{"-p", "2222"}},
+		{name: "port in raw address hostname", target: "ubuntu@0x1111111111111111111111111111111111111111:22", wantErr: true, contains: []string{"-p", "22", "ubuntu@0x1111111111111111111111111111111111111111"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {

@@ -84,6 +84,13 @@ type Server struct {
 	cd            sync.Once
 }
 
+func (socksServer *Server) Addr() net.Addr {
+	if socksServer == nil || socksServer.listener == nil {
+		return nil
+	}
+	return socksServer.listener.Addr()
+}
+
 type DeviceError struct {
 	err error
 }
@@ -284,8 +291,29 @@ func handShake5(conn net.Conn, buf []byte) (url string, err error) {
 }
 
 func isDiodeHost(host string) bool {
+	if rawHost, ok := splitRawAddressHost(host); ok {
+		return isDiodeAddress(rawHost)
+	}
 	subdomainPort := domainPattern.FindStringSubmatch(host)
 	return len(subdomainPort) == 4
+}
+
+func splitRawAddressHost(host string) (string, bool) {
+	if isDiodeAddress(host) {
+		return host, true
+	}
+	if idx := strings.LastIndex(host, ":"); idx != -1 {
+		rawHost := host[:idx]
+		if isDiodeAddress(rawHost) {
+			return rawHost, true
+		}
+	}
+	return "", false
+}
+
+func isDiodeAddress(host string) bool {
+	_, err := util.DecodeAddress(host)
+	return err == nil
 }
 
 func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, port int, protocol int, mode string, retry int) (conn *ConnectedPort, err error) {
@@ -412,7 +440,7 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 				conn, err = doCreatePort(client, deviceID, port, portName, mode, requestId)
 				if err != nil {
 					url, _ := client.Host()
-					socksServer.logger.Error("%d: doCreatePort() failed: %v via %v", requestId, err, url)
+					socksServer.logger.Debug("%d: doCreatePort() failed: %v via %v", requestId, err, url)
 					errors = append(errors, err)
 					continue
 				}
@@ -669,6 +697,14 @@ func lookupFallbackHost(h string) (string, error) {
 func parseHost(host string) (isWS bool, mode string, deviceID string, port int, err error) {
 	mode = defaultMode
 	strPort := "80"
+	if rawHost, ok := splitRawAddressHost(host); ok {
+		deviceID = rawHost
+		if idx := strings.LastIndex(host, ":"); idx != -1 && idx > len(rawHost)-1 {
+			strPort = host[idx+1:]
+		}
+		port, err = strconv.Atoi(strPort)
+		return
+	}
 	sh := strings.Split(host, ":")
 	if len(sh) > 1 {
 		host = sh[0]
