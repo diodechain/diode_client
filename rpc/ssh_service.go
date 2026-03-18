@@ -215,12 +215,14 @@ func (svc *EmbeddedSSHService) handleSessionChannel(newChannel ssh.NewChannel, m
 				req.Reply(err == nil, nil)
 			}
 		case "shell":
-			next, handled, err := startSSHRequestProcess(req, proc, meta.Port.SSHLocalUser, "", ptyReq, channel, waitForProcess)
+			next, handled, err := startSSHRequestProcess(req, proc, meta.Port.SSHLocalUser, "", ptyReq)
 			if err != nil {
 				return err
 			}
 			if handled {
 				proc = next
+				go proxySSHProcessIO(channel, proc)
+				go waitForProcess()
 			}
 		case "exec":
 			command, err := parseSSHExecRequest(req.Payload)
@@ -230,12 +232,14 @@ func (svc *EmbeddedSSHService) handleSessionChannel(newChannel ssh.NewChannel, m
 				}
 				return err
 			}
-			next, handled, err := startSSHRequestProcess(req, proc, meta.Port.SSHLocalUser, command, ptyReq, channel, waitForProcess)
+			next, handled, err := startSSHRequestProcess(req, proc, meta.Port.SSHLocalUser, command, ptyReq)
 			if err != nil {
 				return err
 			}
 			if handled {
 				proc = next
+				go proxySSHProcessIO(channel, proc)
+				go waitForProcess()
 			}
 		case "env":
 			if req.WantReply {
@@ -252,7 +256,7 @@ func (svc *EmbeddedSSHService) handleSessionChannel(newChannel ssh.NewChannel, m
 	return nil
 }
 
-func startSSHRequestProcess(req *ssh.Request, proc *sshProcessHandle, localUser string, command string, ptyReq *sshPTYRequest, channel ssh.Channel, waitForProcess func()) (*sshProcessHandle, bool, error) {
+func startSSHRequestProcess(req *ssh.Request, proc *sshProcessHandle, localUser string, command string, ptyReq *sshPTYRequest) (*sshProcessHandle, bool, error) {
 	if proc != nil {
 		if req.WantReply {
 			req.Reply(false, nil)
@@ -267,8 +271,6 @@ func startSSHRequestProcess(req *ssh.Request, proc *sshProcessHandle, localUser 
 	if err != nil {
 		return nil, false, err
 	}
-	go proxySSHProcessIO(channel, next)
-	go waitForProcess()
 	return next, true, nil
 }
 
