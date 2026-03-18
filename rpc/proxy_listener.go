@@ -50,8 +50,8 @@ func (pl *proxyListener) run() {
 			continue
 		}
 
-		go func() {
-			if err = tlsConn.Handshake(); err != nil {
+		go func(conn net.Conn, tlsConn *tls.Conn) {
+			if err := tlsConn.Handshake(); err != nil {
 				config.AppConfig.Logger.Warn("[%s] Handshake error: %s %v", tlsConn.RemoteAddr().String(), tlsConn.ConnectionState().ServerName, err)
 				// Testing: Comment the following two lines for local testing without certs
 				tlsConn.Close()
@@ -74,28 +74,28 @@ func (pl *proxyListener) run() {
 
 			// Inject X-Forwarded-For, X-Real-IP, and Forwarded so the backend sees the original client.
 			clientAddr := tlsConn.RemoteAddr().String()
-			conn = newForwardedHeaderConn(conn, clientAddr)
+			forwardedConn := newForwardedHeaderConn(conn, clientAddr)
 
 			protocol := config.TLSProtocol
 			var connPort *ConnectedPort
 			connPort, err = pl.proxy.socksServer.connectDeviceFrom(deviceID, port, protocol, mode, clientAddr, func(*ConnectedPort) (net.Conn, error) {
-				return conn, nil
+				return forwardedConn, nil
 			})
 
 			if err != nil {
 				pl.proxy.logger.Error("[%s] Failed to accept(%v '%v'): %v", tlsConn.RemoteAddr().String(), name, deviceID, err.Error())
-				if conn != nil {
+				if forwardedConn != nil {
 					if httpErr, ok := err.(HttpError); ok {
-						rawHttpError(conn, httpErr.code, httpErr.Error())
+						rawHttpError(forwardedConn, httpErr.code, httpErr.Error())
 					} else {
-						rawHttpError(conn, 404, err.Error())
+						rawHttpError(forwardedConn, 404, err.Error())
 					}
-					conn.Close()
+					forwardedConn.Close()
 				}
 			} else {
 				connPort.Copy()
 			}
-		}()
+		}(conn, tlsConn)
 	}
 }
 
