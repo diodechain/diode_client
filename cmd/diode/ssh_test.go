@@ -35,9 +35,9 @@ func TestExtractSSHTarget(t *testing.T) {
 
 func TestValidateSSHTarget(t *testing.T) {
 	tests := []struct {
-		name    string
-		target  string
-		wantErr bool
+		name     string
+		target   string
+		wantErr  bool
 		contains []string // substrings that must appear in the error
 	}{
 		{name: "valid user@host", target: "ubuntu@mymachine.diode", wantErr: false},

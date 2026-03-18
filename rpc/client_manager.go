@@ -20,6 +20,7 @@ import (
 	"github.com/diodechain/diode_client/edge"
 	"github.com/diodechain/diode_client/util"
 	"github.com/dominicletz/genserver"
+	"golang.org/x/sync/singleflight"
 )
 
 // ClientManager struct for the client manager
@@ -45,6 +46,8 @@ type ClientManager struct {
 	portOpen2Mu             sync.RWMutex
 	portOpen2Handlers       map[string]func(*edge.PortOpen2) error
 	defaultPortOpen2Handler func(*edge.PortOpen2) error
+
+	defaultClientsGroup *singleflight.Group
 }
 
 type nodeRequest struct {
@@ -56,13 +59,14 @@ type nodeRequest struct {
 // NewClientManager returns a new manager rpc client
 func NewClientManager(cfg *config.Config) *ClientManager {
 	cm := &ClientManager{
-		srv:               genserver.New("ClientManager"),
-		clientMap:         make(map[util.Address]*Client),
-		waitingNode:       make(map[util.Address]*nodeRequest),
-		pool:              NewPool(),
-		Config:            cfg,
-		targetClients:     5,
-		portOpen2Handlers: make(map[string]func(*edge.PortOpen2) error),
+		srv:                 genserver.New("ClientManager"),
+		clientMap:           make(map[util.Address]*Client),
+		waitingNode:         make(map[util.Address]*nodeRequest),
+		pool:                NewPool(),
+		Config:              cfg,
+		targetClients:       5,
+		portOpen2Handlers:   make(map[string]func(*edge.PortOpen2) error),
+		defaultClientsGroup: &singleflight.Group{},
 	}
 	if !config.AppConfig.LogDateTime {
 		cm.srv.DeadlockCallback = nil
@@ -162,21 +166,37 @@ func (cm *ClientManager) GetClientByHost(host string) *Client {
 	return found
 }
 
-// GetClientByHost returns an existing client for host without connecting.
+// GetDefaultClients returns connected clients for configured RPC hosts.
+// Concurrent callers are coalesced so only one connect loop runs at a time,
+// avoiding thundering herd on ClientManager.connect() and timeout storms.
 func (cm *ClientManager) GetDefaultClients() []*Client {
+	v, _, _ := cm.defaultClientsGroup.Do("default", func() (interface{}, error) {
+		return cm.getDefaultClientsUncached(), nil
+	})
+	return v.([]*Client)
+}
+
+// testHookGetDefaultClientsUncached, when non-nil, is called once at the start of getDefaultClientsUncached (for unit tests).
+var testHookGetDefaultClientsUncached func()
+
+// getDefaultClientsUncached does the actual GetClientOrConnect loop (used under singleflight).
+func (cm *ClientManager) getDefaultClientsUncached() []*Client {
+	if testHookGetDefaultClientsUncached != nil {
+		testHookGetDefaultClientsUncached()
+	}
 	hosts := config.AppConfig.RemoteRPCAddrs
 	clients := make([]*Client, 0, len(hosts))
 
 	for _, host := range hosts {
-		url, err := url.Parse(host)
+		parsed, err := url.Parse(host)
 		if err != nil {
 			continue
 		}
-		if url.User.Username() == "" {
+		if parsed.User.Username() == "" {
 			continue
 		}
 
-		id, err := util.DecodeAddress(url.User.Username())
+		id, err := util.DecodeAddress(parsed.User.Username())
 		if err != nil {
 			continue
 		}
@@ -568,11 +588,33 @@ func (cm *ClientManager) connect(nodeID util.Address, host string) (ret *Client,
 			}
 		}
 		req.waiting = append(req.waiting, r)
+
+		go func() {
+			// Cleanup if the client is not found after 20 seconds
+			time.Sleep(20 * time.Second)
+			cm.srv.Cast(func() {
+				req := cm.waitingNode[nodeID]
+				if req == nil {
+					return
+				}
+				for i, w := range req.waiting {
+					if w == r {
+						req.waiting = append(req.waiting[:i], req.waiting[i+1:]...)
+						break
+					}
+				}
+				if len(req.waiting) == 0 {
+					delete(cm.waitingNode, nodeID)
+				}
+			})
+		}()
+
 		if req.client == nil || req.client.Closing() {
 			req.client = cm.startClient(req.host)
 		}
 		return false
 	}, 15*time.Second)
+
 	return
 }
 
