@@ -14,6 +14,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/diodechain/diode_client/config"
@@ -628,6 +629,9 @@ func normalizeSSHForwardBindAddr(bindAddr string) (listenAddr string, payloadAdd
 	case "::1":
 		return "::1", "::1", nil
 	default:
+		if strings.EqualFold(bindAddr, "localhost") {
+			return "127.0.0.1", "localhost", nil
+		}
 		return "", "", fmt.Errorf("remote forwarding only supports loopback bind addresses")
 	}
 }
