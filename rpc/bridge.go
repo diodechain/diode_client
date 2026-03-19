@@ -94,6 +94,55 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 
 			portOpen.SrcPortNumber = int(publishedPort.Src)
 
+			if publishedPort.SSHEnabled {
+				if err := validateEmbeddedSSHPort(publishedPort); err != nil {
+					_ = client.ResponsePortOpen(portOpen, err)
+					client.Log().Error("Failed to accept embedded ssh port: %v", err)
+					return
+				}
+
+				sshService, err := client.pool.GetSSHService()
+				if err != nil {
+					_ = client.ResponsePortOpen(portOpen, err)
+					client.Log().Error("Failed to initialize embedded ssh service: %v", err)
+					return
+				}
+
+				localConn, serverConn := net.Pipe()
+				port := NewConnectedPort(0, portOpen.Ref, portOpen.DeviceID, client, portOpen.PortNumber)
+				defer port.Shutdown()
+				port.Conn = localConn
+				port.Protocol = portOpen.Protocol
+				port.PortNumber = portOpen.PortNumber
+				port.SrcPortNumber = portOpen.SrcPortNumber
+				// `diode ssh` always speaks the Diode end-to-end TLS transport, but
+				// some servers still deliver the legacy raw `portopen` fallback. Keep
+				// upgrading the transport here so both naming paths reach the embedded
+				// SSH service consistently.
+				if err := port.UpgradeTLSServer(); err != nil {
+					_ = client.ResponsePortOpen(portOpen, err)
+					client.Log().Error("Failed to tunnel embedded ssh tls server: %v", err)
+					_ = localConn.Close()
+					_ = serverConn.Close()
+					return
+				}
+				client.pool.SetPort(deviceKey, port)
+
+				_ = client.ResponsePortOpen(portOpen, nil)
+				go func() {
+					defer serverConn.Close()
+					if err := sshService.ServeConn(serverConn, sshConnMeta{
+						Port:         publishedPort,
+						SourceDevice: portOpen.DeviceID,
+					}); err != nil {
+						client.Log().Warn("Embedded ssh session failed source=%s port=%d err=%v", portOpen.DeviceID.HexString(), publishedPort.To, err)
+					}
+					_ = port.Close()
+				}()
+				port.Copy()
+				return
+			}
+
 			// connect to stream service first, before creating the port
 			host := net.JoinHostPort(publishedPort.SrcHost, strconv.Itoa(portOpen.SrcPortNumber))
 

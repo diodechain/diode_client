@@ -4,6 +4,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -42,10 +43,13 @@ func TestValidateSSHTarget(t *testing.T) {
 	}{
 		{name: "valid user@host", target: "ubuntu@mymachine.diode", wantErr: false},
 		{name: "valid host only", target: "mymachine.diode", wantErr: false},
+		{name: "valid raw address with user", target: "ubuntu@0x1111111111111111111111111111111111111111", wantErr: false},
+		{name: "valid raw address host only", target: "0x1111111111111111111111111111111111111111", wantErr: false},
 		{name: "missing .diode suffix", target: "ubuntu@mymachine", wantErr: true, contains: []string{".diode", "ubuntu@mymachine.diode"}},
 		{name: "missing .diode host only", target: "mymachine", wantErr: true, contains: []string{".diode", "mymachine.diode"}},
 		{name: "port in hostname", target: "ubuntu@mymachine.diode:22", wantErr: true, contains: []string{"-p", "22", "ubuntu@mymachine.diode"}},
 		{name: "port in hostname custom port", target: "ubuntu@mymachine.diode:2222", wantErr: true, contains: []string{"-p", "2222"}},
+		{name: "port in raw address hostname", target: "ubuntu@0x1111111111111111111111111111111111111111:22", wantErr: true, contains: []string{"-p", "22", "ubuntu@0x1111111111111111111111111111111111111111"}},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -65,5 +69,65 @@ func TestValidateSSHTarget(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBuildSSHProxyCommand(t *testing.T) {
+	tests := []struct {
+		name  string
+		goos  string
+		exe   string
+		proxy string
+		want  string
+	}{
+		{
+			name:  "unix",
+			goos:  "linux",
+			exe:   "/usr/local/bin/diode",
+			proxy: "127.0.0.1:1080",
+			want:  "/usr/local/bin/diode ssh-proxy -proxy-addr 127.0.0.1:1080 %h %p",
+		},
+		{
+			name:  "windows path with spaces",
+			goos:  "windows",
+			exe:   `C:\Program Files\Diode\diode.exe`,
+			proxy: "127.0.0.1:1080",
+			want:  `"C:\Program Files\Diode\diode.exe" ssh-proxy -proxy-addr 127.0.0.1:1080 %h %p`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := buildSSHProxyCommand(tc.goos, tc.exe, tc.proxy)
+			if got != tc.want {
+				t.Fatalf("buildSSHProxyCommand(%q, %q, %q) = %q, want %q", tc.goos, tc.exe, tc.proxy, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFindOpenSSHToolWindowsInstallHelp(t *testing.T) {
+	origLookPath := lookPath
+	origGOOS := runtimeGOOS
+	t.Cleanup(func() {
+		lookPath = origLookPath
+		runtimeGOOS = origGOOS
+	})
+
+	lookPath = func(string) (string, error) {
+		return "", errors.New("executable file not found in %PATH%")
+	}
+	runtimeGOOS = "windows"
+
+	for _, tool := range []string{"ssh", "ssh-keygen"} {
+		_, err := findOpenSSHTool(tool)
+		if err == nil {
+			t.Fatalf("expected error when %s is missing", tool)
+		}
+		for _, part := range []string{"OpenSSH Client", "Add-WindowsCapability", "OpenSSH.Client~~~~0.0.1.0"} {
+			if !strings.Contains(err.Error(), part) {
+				t.Fatalf("expected %q in error %q", part, err.Error())
+			}
+		}
 	}
 }

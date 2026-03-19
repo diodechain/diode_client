@@ -34,6 +34,7 @@ type DataPool struct {
 
 	// peerAddrToDeviceID maps local connection peer address (as seen by published-port backends) to remote Diode device ID
 	peerAddrToDeviceID map[string]Address
+	sshService         *EmbeddedSSHService
 
 	srv *genserver.GenServer
 }
@@ -508,4 +509,14 @@ func (p *DataPool) SetPublishedPorts(ports map[int]*config.Port) {
 	p.srv.Cast(func() {
 		p.publishedPorts = ports
 	})
+}
+
+func (p *DataPool) GetSSHService() (svc *EmbeddedSSHService, err error) {
+	p.srv.Call(func() {
+		if p.sshService == nil {
+			p.sshService, err = NewEmbeddedSSHService()
+		}
+		svc = p.sshService
+	})
+	return
 }
