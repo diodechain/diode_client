@@ -31,14 +31,11 @@ var (
 	}
 )
 
+var runtimeGOOS = runtime.GOOS
+
 func sshHandler() (err error) {
 	cfg := config.AppConfig
 	cfg.Logger.Warn("ssh command is still BETA, parameters may change")
-
-	if runtime.GOOS == "windows" {
-		cfg.PrintError("Not supported on windows", errors.New("not supported on windows"))
-		os.Exit(1)
-	}
 
 	if err := app.Start(); err != nil {
 		cfg.PrintError("Could not start local Diode client", err)
@@ -52,11 +49,15 @@ func sshHandler() (err error) {
 	defer cleanupProxy()
 	cfg.PrintLabel("Using local diode client", proxyAddr)
 
-	proxy_command := "nc -X 5 -x " + proxyAddr + " %h %p"
+	diodeExe, err := os.Executable()
+	if err != nil {
+		cfg.PrintError("Could not determine diode executable path", err)
+		os.Exit(1)
+	}
 
 	args := []string{
 		"ssh",
-		"-o", "ProxyCommand=" + proxy_command,
+		"-o", "ProxyCommand=" + buildSSHProxyCommand(runtimeGOOS, diodeExe, proxyAddr),
 		"-o", "StrictHostKeyChecking=accept-new",
 	}
 	os_args := os.Args
@@ -90,7 +91,7 @@ func sshHandler() (err error) {
 	defer cleanup()
 	args = append(args, "-i", identityFile)
 
-	ssh, err := exec.LookPath("ssh")
+	ssh, err := findOpenSSHTool("ssh")
 	if err != nil {
 		cfg.PrintError("ssh not found", err)
 		os.Exit(1)
@@ -154,7 +155,7 @@ func startSSHLocalSocksProxy() (string, func(), error) {
 }
 
 func createEphemeralSSHIdentity() (string, func(), error) {
-	sshKeygen, err := exec.LookPath("ssh-keygen")
+	sshKeygen, err := findOpenSSHTool("ssh-keygen")
 	if err != nil {
 		return "", nil, err
 	}
@@ -238,4 +239,53 @@ func validateSSHTarget(target string) error {
 func isDiodeAddressHost(host string) bool {
 	_, err := util.DecodeAddress(host)
 	return err == nil
+}
+
+var lookPath = exec.LookPath
+
+func findOpenSSHTool(name string) (string, error) {
+	path, err := lookPath(name)
+	if err == nil {
+		return path, nil
+	}
+	if runtimeGOOS != "windows" {
+		return "", err
+	}
+	return "", fmt.Errorf("%w\nInstall OpenSSH Client on Windows via Settings > Optional Features or PowerShell:\n  Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0", err)
+}
+
+func buildSSHProxyCommand(goos string, diodeExe string, proxyAddr string) string {
+	return joinShellCommand(goos, []string{diodeExe, "ssh-proxy", "-proxy-addr", proxyAddr, "%h", "%p"})
+}
+
+func joinShellCommand(goos string, args []string) string {
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		if goos == "windows" {
+			quoted[i] = quoteCmdArg(arg)
+		} else {
+			quoted[i] = quotePOSIXArg(arg)
+		}
+	}
+	return strings.Join(quoted, " ")
+}
+
+func quotePOSIXArg(arg string) string {
+	if arg == "" {
+		return "''"
+	}
+	if !strings.ContainsAny(arg, " \t\n'\"\\$`!&*()[]{}|;<>?") {
+		return arg
+	}
+	return "'" + strings.ReplaceAll(arg, "'", `'"'"'`) + "'"
+}
+
+func quoteCmdArg(arg string) string {
+	if arg == "" {
+		return `""`
+	}
+	if !strings.ContainsAny(arg, " \t\"&|<>^()!") {
+		return arg
+	}
+	return `"` + strings.ReplaceAll(arg, `"`, `\"`) + `"`
 }

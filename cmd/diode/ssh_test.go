@@ -4,6 +4,7 @@
 package main
 
 import (
+	"errors"
 	"strings"
 	"testing"
 )
@@ -68,5 +69,65 @@ func TestValidateSSHTarget(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestBuildSSHProxyCommand(t *testing.T) {
+	tests := []struct {
+		name  string
+		goos  string
+		exe   string
+		proxy string
+		want  string
+	}{
+		{
+			name:  "unix",
+			goos:  "linux",
+			exe:   "/usr/local/bin/diode",
+			proxy: "127.0.0.1:1080",
+			want:  "/usr/local/bin/diode ssh-proxy -proxy-addr 127.0.0.1:1080 %h %p",
+		},
+		{
+			name:  "windows path with spaces",
+			goos:  "windows",
+			exe:   `C:\Program Files\Diode\diode.exe`,
+			proxy: "127.0.0.1:1080",
+			want:  `"C:\Program Files\Diode\diode.exe" ssh-proxy -proxy-addr 127.0.0.1:1080 %h %p`,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			got := buildSSHProxyCommand(tc.goos, tc.exe, tc.proxy)
+			if got != tc.want {
+				t.Fatalf("buildSSHProxyCommand(%q, %q, %q) = %q, want %q", tc.goos, tc.exe, tc.proxy, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestFindOpenSSHToolWindowsInstallHelp(t *testing.T) {
+	origLookPath := lookPath
+	origGOOS := runtimeGOOS
+	t.Cleanup(func() {
+		lookPath = origLookPath
+		runtimeGOOS = origGOOS
+	})
+
+	lookPath = func(string) (string, error) {
+		return "", errors.New("executable file not found in %PATH%")
+	}
+	runtimeGOOS = "windows"
+
+	for _, tool := range []string{"ssh", "ssh-keygen"} {
+		_, err := findOpenSSHTool(tool)
+		if err == nil {
+			t.Fatalf("expected error when %s is missing", tool)
+		}
+		for _, part := range []string{"OpenSSH Client", "Add-WindowsCapability", "OpenSSH.Client~~~~0.0.1.0"} {
+			if !strings.Contains(err.Error(), part) {
+				t.Fatalf("expected %q in error %q", part, err.Error())
+			}
+		}
 	}
 }
