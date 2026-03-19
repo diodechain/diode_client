@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"strconv"
 	"sync"
 
 	"github.com/diodechain/diode_client/config"
@@ -44,6 +45,44 @@ type sshProcessHandle struct {
 	wait   func() error
 	resize func(cols, rows uint32) error
 	close  func() error
+}
+
+type sshDirectTCPIPPayload struct {
+	DestAddr   string
+	DestPort   uint32
+	OriginAddr string
+	OriginPort uint32
+}
+
+type sshTCPIPForwardPayload struct {
+	BindAddr string
+	BindPort uint32
+}
+
+type sshForwardedTCPIPPayload struct {
+	BindAddr   string
+	BindPort   uint32
+	OriginAddr string
+	OriginPort uint32
+}
+
+type sshRemoteForwardKey struct {
+	bindAddr string
+	bindPort uint32
+}
+
+type sshRemoteForward struct {
+	key         sshRemoteForwardKey
+	listenAddr  string
+	payloadAddr string
+	listener    net.Listener
+}
+
+type embeddedSSHConn struct {
+	meta           sshConnMeta
+	conn           ssh.Conn
+	remoteForwards map[sshRemoteForwardKey]*sshRemoteForward
+	remoteMu       sync.Mutex
 }
 
 func NewEmbeddedSSHService() (*EmbeddedSSHService, error) {
@@ -143,29 +182,47 @@ func (svc *EmbeddedSSHService) ServeConn(conn net.Conn, meta sshConnMeta) error 
 		return err
 	}
 	defer serverConn.Close()
-	go ssh.DiscardRequests(requests)
+
+	connState := &embeddedSSHConn{
+		meta:           meta,
+		conn:           serverConn,
+		remoteForwards: make(map[sshRemoteForwardKey]*sshRemoteForward),
+	}
 
 	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		connState.handleGlobalRequests(requests)
+	}()
 	for newChannel := range channels {
-		if newChannel.ChannelType() != "session" {
-			_ = newChannel.Reject(ssh.UnknownChannelType, "only session channels are supported")
-			continue
-		}
 		wg.Add(1)
 		go func(ch ssh.NewChannel) {
 			defer wg.Done()
-			if err := svc.handleSessionChannel(ch, meta); err != nil {
+			if err := connState.handleChannel(ch); err != nil {
 				if config.AppConfig != nil && config.AppConfig.Logger != nil {
 					config.AppConfig.Logger.Warn("ssh session failed port=%d source=%s err=%v", meta.Port.To, meta.SourceDevice.HexString(), err)
 				}
 			}
 		}(newChannel)
 	}
+	connState.closeAllRemoteForwards()
 	wg.Wait()
 	return nil
 }
 
-func (svc *EmbeddedSSHService) handleSessionChannel(newChannel ssh.NewChannel, meta sshConnMeta) error {
+func (connState *embeddedSSHConn) handleChannel(newChannel ssh.NewChannel) error {
+	switch newChannel.ChannelType() {
+	case "session":
+		return connState.handleSessionChannel(newChannel)
+	case "direct-tcpip":
+		return connState.handleDirectTCPIPChannel(newChannel)
+	default:
+		return newChannel.Reject(ssh.UnknownChannelType, "unsupported channel type")
+	}
+}
+
+func (connState *embeddedSSHConn) handleSessionChannel(newChannel ssh.NewChannel) error {
 	channel, requests, err := newChannel.Accept()
 	if err != nil {
 		return err
@@ -215,7 +272,7 @@ func (svc *EmbeddedSSHService) handleSessionChannel(newChannel ssh.NewChannel, m
 				req.Reply(err == nil, nil)
 			}
 		case "shell":
-			next, handled, err := startSSHRequestProcess(req, proc, meta.Port.SSHLocalUser, "", ptyReq)
+			next, handled, err := startSSHRequestProcess(req, proc, connState.meta.Port.SSHLocalUser, "", ptyReq)
 			if err != nil {
 				return err
 			}
@@ -232,7 +289,7 @@ func (svc *EmbeddedSSHService) handleSessionChannel(newChannel ssh.NewChannel, m
 				}
 				return err
 			}
-			next, handled, err := startSSHRequestProcess(req, proc, meta.Port.SSHLocalUser, command, ptyReq)
+			next, handled, err := startSSHRequestProcess(req, proc, connState.meta.Port.SSHLocalUser, command, ptyReq)
 			if err != nil {
 				return err
 			}
@@ -254,6 +311,205 @@ func (svc *EmbeddedSSHService) handleSessionChannel(newChannel ssh.NewChannel, m
 
 	waitForProcess()
 	return nil
+}
+
+func (connState *embeddedSSHConn) handleDirectTCPIPChannel(newChannel ssh.NewChannel) error {
+	var payload sshDirectTCPIPPayload
+	if err := ssh.Unmarshal(newChannel.ExtraData(), &payload); err != nil {
+		return newChannel.Reject(ssh.Prohibited, "invalid direct-tcpip payload")
+	}
+
+	targetConn, err := net.Dial("tcp", net.JoinHostPort(payload.DestAddr, strconv.Itoa(int(payload.DestPort))))
+	if err != nil {
+		return newChannel.Reject(ssh.ConnectionFailed, err.Error())
+	}
+
+	channel, requests, err := newChannel.Accept()
+	if err != nil {
+		_ = targetConn.Close()
+		return err
+	}
+	defer channel.Close()
+	defer targetConn.Close()
+
+	go ssh.DiscardRequests(requests)
+	proxySSHForward(channel, targetConn)
+	return nil
+}
+
+func (connState *embeddedSSHConn) handleGlobalRequests(requests <-chan *ssh.Request) {
+	for req := range requests {
+		switch req.Type {
+		case "tcpip-forward":
+			connState.handleTCPIPForward(req)
+		case "cancel-tcpip-forward":
+			connState.handleCancelTCPIPForward(req)
+		default:
+			if req.WantReply {
+				_ = req.Reply(false, nil)
+			}
+		}
+	}
+}
+
+func (connState *embeddedSSHConn) handleTCPIPForward(req *ssh.Request) {
+	var payload sshTCPIPForwardPayload
+	if err := ssh.Unmarshal(req.Payload, &payload); err != nil {
+		if req.WantReply {
+			_ = req.Reply(false, nil)
+		}
+		return
+	}
+
+	listenAddr, payloadAddr, err := normalizeSSHForwardBindAddr(payload.BindAddr)
+	if err != nil {
+		if req.WantReply {
+			_ = req.Reply(false, nil)
+		}
+		return
+	}
+
+	listener, err := net.Listen("tcp", net.JoinHostPort(listenAddr, strconv.Itoa(int(payload.BindPort))))
+	if err != nil {
+		if req.WantReply {
+			_ = req.Reply(false, nil)
+		}
+		return
+	}
+
+	tcpAddr, ok := listener.Addr().(*net.TCPAddr)
+	if !ok {
+		_ = listener.Close()
+		if req.WantReply {
+			_ = req.Reply(false, nil)
+		}
+		return
+	}
+
+	forward := &sshRemoteForward{
+		key: sshRemoteForwardKey{
+			bindAddr: payloadAddr,
+			bindPort: uint32(tcpAddr.Port),
+		},
+		listenAddr:  listenAddr,
+		payloadAddr: payloadAddr,
+		listener:    listener,
+	}
+
+	if err := connState.storeRemoteForward(forward); err != nil {
+		_ = listener.Close()
+		if req.WantReply {
+			_ = req.Reply(false, nil)
+		}
+		return
+	}
+
+	if req.WantReply {
+		replyPayload := []byte(nil)
+		if payload.BindPort == 0 {
+			replyPayload = ssh.Marshal(struct {
+				BindPort uint32
+			}{BindPort: forward.key.bindPort})
+		}
+		if err := req.Reply(true, replyPayload); err != nil {
+			connState.deleteRemoteForward(forward.key)
+			_ = listener.Close()
+			return
+		}
+	}
+
+	go connState.serveRemoteForward(forward)
+}
+
+func (connState *embeddedSSHConn) handleCancelTCPIPForward(req *ssh.Request) {
+	var payload sshTCPIPForwardPayload
+	if err := ssh.Unmarshal(req.Payload, &payload); err != nil {
+		if req.WantReply {
+			_ = req.Reply(false, nil)
+		}
+		return
+	}
+
+	_, bindAddr, err := normalizeSSHForwardBindAddr(payload.BindAddr)
+	if err != nil {
+		if req.WantReply {
+			_ = req.Reply(false, nil)
+		}
+		return
+	}
+
+	key := sshRemoteForwardKey{bindAddr: bindAddr, bindPort: payload.BindPort}
+	forward := connState.deleteRemoteForward(key)
+	if forward != nil {
+		_ = forward.listener.Close()
+	}
+	if req.WantReply {
+		_ = req.Reply(forward != nil, nil)
+	}
+}
+
+func (connState *embeddedSSHConn) storeRemoteForward(forward *sshRemoteForward) error {
+	connState.remoteMu.Lock()
+	defer connState.remoteMu.Unlock()
+	if _, ok := connState.remoteForwards[forward.key]; ok {
+		return fmt.Errorf("remote forward already exists")
+	}
+	connState.remoteForwards[forward.key] = forward
+	return nil
+}
+
+func (connState *embeddedSSHConn) deleteRemoteForward(key sshRemoteForwardKey) *sshRemoteForward {
+	connState.remoteMu.Lock()
+	defer connState.remoteMu.Unlock()
+	forward := connState.remoteForwards[key]
+	delete(connState.remoteForwards, key)
+	return forward
+}
+
+func (connState *embeddedSSHConn) closeAllRemoteForwards() {
+	connState.remoteMu.Lock()
+	forwards := make([]*sshRemoteForward, 0, len(connState.remoteForwards))
+	for key, forward := range connState.remoteForwards {
+		delete(connState.remoteForwards, key)
+		forwards = append(forwards, forward)
+	}
+	connState.remoteMu.Unlock()
+
+	for _, forward := range forwards {
+		_ = forward.listener.Close()
+	}
+}
+
+func (connState *embeddedSSHConn) serveRemoteForward(forward *sshRemoteForward) {
+	for {
+		targetConn, err := forward.listener.Accept()
+		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
+			return
+		}
+		go connState.handleForwardedTCPIPConn(forward, targetConn)
+	}
+}
+
+func (connState *embeddedSSHConn) handleForwardedTCPIPConn(forward *sshRemoteForward, targetConn net.Conn) {
+	originAddr, originPort := sshConnAddress(targetConn.RemoteAddr())
+	channel, requests, err := connState.conn.OpenChannel("forwarded-tcpip", ssh.Marshal(sshForwardedTCPIPPayload{
+		BindAddr:   forward.payloadAddr,
+		BindPort:   forward.key.bindPort,
+		OriginAddr: originAddr,
+		OriginPort: originPort,
+	}))
+	if err != nil {
+		_ = targetConn.Close()
+		return
+	}
+	defer channel.Close()
+	defer targetConn.Close()
+
+	go ssh.DiscardRequests(requests)
+	proxySSHForward(channel, targetConn)
 }
 
 func startSSHRequestProcess(req *ssh.Request, proc *sshProcessHandle, localUser string, command string, ptyReq *sshPTYRequest) (*sshProcessHandle, bool, error) {
@@ -297,6 +553,31 @@ func proxySSHProcessIO(channel ssh.Channel, proc *sshProcessHandle) {
 	}
 }
 
+func proxySSHForward(channel ssh.Channel, targetConn net.Conn) {
+	done := make(chan struct{}, 2)
+
+	go copySSHForward(targetConn, channel, done)
+	go copySSHForward(channel, targetConn, done)
+
+	<-done
+	<-done
+}
+
+func copySSHForward(dst io.Writer, src io.Reader, done chan<- struct{}) {
+	_, _ = io.Copy(dst, src)
+	closeSSHWrite(dst)
+	done <- struct{}{}
+}
+
+func closeSSHWrite(dst io.Writer) {
+	type closeWriter interface {
+		CloseWrite() error
+	}
+	if writer, ok := dst.(closeWriter); ok {
+		_ = writer.CloseWrite()
+	}
+}
+
 func parseSSHExecRequest(payload []byte) (string, error) {
 	value, rest, ok := parseSSHString(payload)
 	if !ok || len(rest) != 0 {
@@ -334,6 +615,37 @@ func parseSSHString(payload []byte) (string, []byte, bool) {
 		return "", nil, false
 	}
 	return string(payload[:size]), payload[size:], true
+}
+
+func normalizeSSHForwardBindAddr(bindAddr string) (listenAddr string, payloadAddr string, err error) {
+	switch bindAddr {
+	case "":
+		return "127.0.0.1", "localhost", nil
+	case "localhost":
+		return "127.0.0.1", "localhost", nil
+	case "127.0.0.1":
+		return "127.0.0.1", "127.0.0.1", nil
+	case "::1":
+		return "::1", "::1", nil
+	default:
+		return "", "", fmt.Errorf("remote forwarding only supports loopback bind addresses")
+	}
+}
+
+func sshConnAddress(addr net.Addr) (string, uint32) {
+	if addr == nil {
+		return "", 0
+	}
+
+	host, portStr, err := net.SplitHostPort(addr.String())
+	if err != nil {
+		return addr.String(), 0
+	}
+	port, err := strconv.Atoi(portStr)
+	if err != nil || port < 0 {
+		return host, 0
+	}
+	return host, uint32(port)
 }
 
 func exitStatusCode(err error) uint32 {
