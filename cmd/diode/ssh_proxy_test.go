@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"io"
 	"net"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -168,5 +170,23 @@ func TestProxySSHStreamBadProxyAddress(t *testing.T) {
 	err := proxySSHStream("127.0.0.1:1", "target.diode", 22, strings.NewReader(""), io.Discard)
 	if err == nil {
 		t.Fatalf("expected dial failure")
+	}
+}
+
+func TestIsExpectedSSHProxyShutdownErr(t *testing.T) {
+	tests := []error{
+		io.EOF,
+		net.ErrClosed,
+		os.ErrClosed,
+		errors.New("write tcp 127.0.0.1:1->127.0.0.1:2: wsasend: An existing connection was forcibly closed by the remote host"),
+		errors.New("write tcp 127.0.0.1:1->127.0.0.1:2: broken pipe"),
+	}
+	for _, err := range tests {
+		if !isExpectedSSHProxyShutdownErr(err) {
+			t.Fatalf("expected shutdown error to be ignored: %v", err)
+		}
+	}
+	if isExpectedSSHProxyShutdownErr(errors.New("unexpected failure")) {
+		t.Fatalf("did not expect arbitrary errors to be ignored")
 	}
 }

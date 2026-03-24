@@ -103,6 +103,10 @@ func sshHandler() (err error) {
 	cmd.Env = os.Environ()
 	err = cmd.Run()
 	if err != nil {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			os.Exit(exitErr.ExitCode())
+		}
 		cfg.PrintError("Could not execute ssh", err)
 		os.Exit(1)
 	}

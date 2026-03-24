@@ -6,11 +6,15 @@ package main
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net"
+	"os"
 	"strconv"
+	"strings"
+	"syscall"
 )
 
 func runSSHProxyCommand(args []string, stdin io.Reader, stdout io.Writer, stderr io.Writer) error {
@@ -60,17 +64,40 @@ func proxySSHStream(proxyAddr string, targetHost string, targetPort int, stdin i
 	}()
 
 	_, err = io.Copy(stdout, conn)
+	if isExpectedSSHProxyShutdownErr(err) {
+		return nil
+	}
 	if err != nil {
 		return err
 	}
 	select {
 	case writeErr := <-done:
+		if isExpectedSSHProxyShutdownErr(writeErr) {
+			return nil
+		}
 		if writeErr != nil {
 			return writeErr
 		}
 	default:
 	}
 	return nil
+}
+
+func isExpectedSSHProxyShutdownErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) || errors.Is(err, os.ErrClosed) {
+		return true
+	}
+	if errors.Is(err, syscall.EPIPE) || errors.Is(err, syscall.ECONNRESET) || errors.Is(err, syscall.ECONNABORTED) {
+		return true
+	}
+	text := strings.ToLower(err.Error())
+	return strings.Contains(text, "broken pipe") ||
+		strings.Contains(text, "connection reset by peer") ||
+		strings.Contains(text, "forcibly closed by the remote host") ||
+		strings.Contains(text, "use of closed network connection")
 }
 
 func socks5Handshake(conn net.Conn, targetHost string, targetPort int) error {
