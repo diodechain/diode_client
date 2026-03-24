@@ -20,10 +20,11 @@ import (
 )
 
 type sshLocalUser struct {
-	user  *user.User
-	shell string
-	uid   uint32
-	gid   uint32
+	user   *user.User
+	shell  string
+	uid    uint32
+	gid    uint32
+	groups []uint32
 }
 
 func validateNativeSSHAccess(localUser string) error {
@@ -64,8 +65,9 @@ func startSSHProcess(localUser string, command string, ptyReq *sshPTYRequest) (*
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
 	if currentUID == 0 {
 		cmd.SysProcAttr.Credential = &syscall.Credential{
-			Uid: account.uid,
-			Gid: account.gid,
+			Uid:    account.uid,
+			Gid:    account.gid,
+			Groups: account.groups,
 		}
 	}
 
@@ -161,10 +163,43 @@ func newSSHLocalUser(name string, u *user.User, shell string) (*sshLocalUser, er
 	if err != nil {
 		return nil, fmt.Errorf("invalid gid for user %s: %w", name, err)
 	}
+	groupIDs, err := u.GroupIds()
+	if err != nil {
+		return nil, fmt.Errorf("could not resolve supplementary groups for user %s: %w", name, err)
+	}
+	groups, err := normalizeSupplementaryGroups(groupIDs, uint32(gid))
+	if err != nil {
+		return nil, fmt.Errorf("invalid supplementary groups for user %s: %w", name, err)
+	}
 	return &sshLocalUser{
-		user:  u,
-		shell: shell,
-		uid:   uint32(uid),
-		gid:   uint32(gid),
+		user:   u,
+		shell:  shell,
+		uid:    uint32(uid),
+		gid:    uint32(gid),
+		groups: groups,
 	}, nil
+}
+
+func normalizeSupplementaryGroups(groupIDs []string, primaryGID uint32) ([]uint32, error) {
+	if len(groupIDs) == 0 {
+		return nil, nil
+	}
+	groups := make([]uint32, 0, len(groupIDs))
+	seen := make(map[uint32]struct{}, len(groupIDs))
+	for _, groupID := range groupIDs {
+		value, err := strconv.ParseUint(groupID, 10, 32)
+		if err != nil {
+			return nil, err
+		}
+		gid := uint32(value)
+		if gid == primaryGID {
+			continue
+		}
+		if _, ok := seen[gid]; ok {
+			continue
+		}
+		seen[gid] = struct{}{}
+		groups = append(groups, gid)
+	}
+	return groups, nil
 }
