@@ -235,18 +235,18 @@ func (connState *embeddedSSHConn) handleSessionChannel(newChannel ssh.NewChannel
 		once   sync.Once
 	)
 
-	waitForProcess := func() {
+	waitForProcess := func(currentProc *sshProcessHandle) {
 		once.Do(func() {
-			if proc == nil {
+			if currentProc == nil {
 				return
 			}
 			status := uint32(0)
-			if err := proc.wait(); err != nil {
+			if err := currentProc.wait(); err != nil {
 				status = exitStatusCode(err)
 			}
 			_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{Status: status}))
-			if proc.close != nil {
-				_ = proc.close()
+			if currentProc.close != nil {
+				_ = currentProc.close()
 			}
 			_ = channel.CloseWrite()
 			_ = channel.Close()
@@ -291,7 +291,7 @@ func (connState *embeddedSSHConn) handleSessionChannel(newChannel ssh.NewChannel
 		}
 	}
 
-	waitForProcess()
+	waitForProcess(proc)
 	return nil
 }
 
@@ -487,13 +487,13 @@ func startSSHRequestProcess(req *ssh.Request, proc *sshProcessHandle, localUser 
 	return next, true, nil
 }
 
-func handleSSHSessionStart(req *ssh.Request, proc *sshProcessHandle, localUser string, command string, ptyReq *sshPTYRequest, channel ssh.Channel, waitForProcess func()) (*sshProcessHandle, error) {
+func handleSSHSessionStart(req *ssh.Request, proc *sshProcessHandle, localUser string, command string, ptyReq *sshPTYRequest, channel ssh.Channel, waitForProcess func(*sshProcessHandle)) (*sshProcessHandle, error) {
 	next, handled, err := startSSHRequestProcess(req, proc, localUser, command, ptyReq)
 	if err != nil || !handled {
 		return next, err
 	}
 	go proxySSHProcessIO(channel, next)
-	go waitForProcess()
+	go waitForProcess(next)
 	return next, nil
 }
 
