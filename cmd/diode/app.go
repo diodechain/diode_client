@@ -98,6 +98,7 @@ func init() {
 	diodeCmd.AddSubCommand(timeCmd)
 	diodeCmd.AddSubCommand(tokenCmd)
 	diodeCmd.AddSubCommand(sshCmd)
+	diodeCmd.AddSubCommand(sshProxyCmd)
 	diodeCmd.AddSubCommand(versionCmd)
 	diodeCmd.AddSubCommand(updateCmd)
 }

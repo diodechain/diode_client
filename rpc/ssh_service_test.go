@@ -336,6 +336,18 @@ func TestNormalizeSSHForwardBindAddrAcceptsLocalhostCaseInsensitive(t *testing.T
 	}
 }
 
+func TestNormalizeSSHForwardBindAddrAcceptsLoopbackIPs(t *testing.T) {
+	for _, bindAddr := range []string{"127.0.0.2", "127.1.2.3", "::1"} {
+		listenAddr, payloadAddr, err := normalizeSSHForwardBindAddr(bindAddr)
+		if err != nil {
+			t.Fatalf("normalizeSSHForwardBindAddr(%q): %v", bindAddr, err)
+		}
+		if listenAddr != bindAddr || payloadAddr != bindAddr {
+			t.Fatalf("unexpected bind normalization for %q: listen=%q payload=%q", bindAddr, listenAddr, payloadAddr)
+		}
+	}
+}
+
 func TestEmbeddedSSHServiceRemoteForwardsCloseWithConnection(t *testing.T) {
 	currentUser, err := user.Current()
 	if err != nil {

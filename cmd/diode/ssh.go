@@ -20,13 +20,24 @@ import (
 )
 
 var (
+	sshCommandName      = "ssh"
+	sshProxyCommandName = "ssh-proxy"
+
 	sshCmd = &command.Command{
-		Name:            "ssh",
+		Name:            sshCommandName,
 		HelpText:        `  Connect to a diode node via ssh.`,
 		ExampleText:     `  diode ssh ubuntu@mymachine.diode -p 22`,
 		Run:             sshHandler,
 		Type:            command.OneOffCommand,
 		PassThroughArgs: true,
+	}
+	sshProxyCmd = &command.Command{
+		Name:            sshProxyCommandName,
+		Run:             sshProxyHandler,
+		Type:            command.OneOffCommand,
+		PassThroughArgs: true,
+		Hidden:          true,
+		SkipParentHooks: true,
 	}
 )
 
@@ -55,20 +66,12 @@ func sshHandler() (err error) {
 	}
 
 	args := buildSSHBaseArgs(runtimeGOOS, diodeExe, proxyAddr)
-	os_args := os.Args
-	// Remove all args before the ssh command by finding "ssh" and removing all args before it
-	ssh_index := -1
-	for i, arg := range os_args {
-		if arg == "ssh" {
-			ssh_index = i
-			break
-		}
-	}
-	if ssh_index == -1 {
-		cfg.PrintError("ssh command not found", errors.New("ssh command not found"))
+	sshArgs, err := subcommandPassThroughArgs(os.Args, sshCommandName)
+	if err != nil {
+		cfg.PrintError("ssh command not found", err)
 		os.Exit(1)
 	}
-	sshArgs := normalizeSSHArgs(os_args[ssh_index+1:])
+	sshArgs = normalizeSSHArgs(sshArgs)
 	args = append(args, sshArgs...)
 
 	if target := extractSSHTarget(sshArgs); target != "" {
@@ -105,6 +108,23 @@ func normalizeSSHArgs(args []string) []string {
 		return args[1:]
 	}
 	return args
+}
+
+func sshProxyHandler() error {
+	args, err := subcommandPassThroughArgs(diodeCmd.Flag.Args(), sshProxyCommandName)
+	if err != nil {
+		return err
+	}
+	return runSSHProxyCommand(args, os.Stdin, os.Stdout, os.Stderr)
+}
+
+func subcommandPassThroughArgs(args []string, name string) ([]string, error) {
+	for i, arg := range args {
+		if arg == name {
+			return args[i+1:], nil
+		}
+	}
+	return nil, fmt.Errorf("%s command not found", name)
 }
 
 func startSSHLocalSocksProxy() (string, func(), error) {

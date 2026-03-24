@@ -22,14 +22,6 @@ var (
 )
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "ssh-proxy" {
-		if err := runSSHProxyCommand(os.Args[2:], os.Stdin, os.Stdout, os.Stderr); err != nil {
-			fmt.Fprintf(os.Stderr, "diode ssh-proxy: %v\n", err)
-			os.Exit(1)
-		}
-		os.Exit(0)
-	}
-
 	// If tray build is enabled, the tray implementation may decide to take over
 	if maybeRunWithTray(os.Args[1:]) {
 		os.Exit(0)
@@ -47,7 +39,11 @@ func main() {
 		} else if ce, ok := err.(codeError); ok {
 			status = ce.Code()
 		}
-		cfg.PrintError("Couldn't execute command", err)
+		if cfg == nil || cfg.Logger == nil {
+			fmt.Fprintf(os.Stderr, "Couldn't execute command: %v\n", err)
+		} else {
+			cfg.PrintError("Couldn't execute command", err)
+		}
 		os.Exit(status)
 	}
 	os.Exit(0)

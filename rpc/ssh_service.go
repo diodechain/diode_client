@@ -74,7 +74,6 @@ type sshRemoteForwardKey struct {
 
 type sshRemoteForward struct {
 	key         sshRemoteForwardKey
-	listenAddr  string
 	payloadAddr string
 	listener    net.Listener
 }
@@ -258,9 +257,7 @@ func (connState *embeddedSSHConn) handleSessionChannel(newChannel ssh.NewChannel
 		switch req.Type {
 		case "pty-req":
 			nextPTY, err := parseSSHPTYRequest(req.Payload)
-			if req.WantReply {
-				req.Reply(err == nil, nil)
-			}
+			replySSHRequest(req, err == nil, nil)
 			if err == nil {
 				ptyReq = nextPTY
 			}
@@ -269,44 +266,28 @@ func (connState *embeddedSSHConn) handleSessionChannel(newChannel ssh.NewChannel
 			if err == nil && proc != nil && proc.resize != nil {
 				err = proc.resize(cols, rows)
 			}
-			if req.WantReply {
-				req.Reply(err == nil, nil)
-			}
+			replySSHRequest(req, err == nil, nil)
 		case "shell":
-			next, handled, err := startSSHRequestProcess(req, proc, connState.meta.Port.SSHLocalUser, "", ptyReq)
+			next, err := handleSSHSessionStart(req, proc, connState.meta.Port.SSHLocalUser, "", ptyReq, channel, waitForProcess)
 			if err != nil {
 				return err
 			}
-			if handled {
-				proc = next
-				go proxySSHProcessIO(channel, proc)
-				go waitForProcess()
-			}
+			proc = next
 		case "exec":
 			command, err := parseSSHExecRequest(req.Payload)
 			if err != nil {
-				if req.WantReply {
-					req.Reply(false, nil)
-				}
+				replySSHRequest(req, false, nil)
 				return err
 			}
-			next, handled, err := startSSHRequestProcess(req, proc, connState.meta.Port.SSHLocalUser, command, ptyReq)
+			next, err := handleSSHSessionStart(req, proc, connState.meta.Port.SSHLocalUser, command, ptyReq, channel, waitForProcess)
 			if err != nil {
 				return err
 			}
-			if handled {
-				proc = next
-				go proxySSHProcessIO(channel, proc)
-				go waitForProcess()
-			}
+			proc = next
 		case "env":
-			if req.WantReply {
-				req.Reply(false, nil)
-			}
+			replySSHRequest(req, false, nil)
 		default:
-			if req.WantReply {
-				req.Reply(false, nil)
-			}
+			replySSHRequest(req, false, nil)
 		}
 	}
 
@@ -346,9 +327,7 @@ func (connState *embeddedSSHConn) handleGlobalRequests(requests <-chan *ssh.Requ
 		case "cancel-tcpip-forward":
 			connState.handleCancelTCPIPForward(req)
 		default:
-			if req.WantReply {
-				_ = req.Reply(false, nil)
-			}
+			replySSHRequest(req, false, nil)
 		}
 	}
 }
@@ -356,34 +335,26 @@ func (connState *embeddedSSHConn) handleGlobalRequests(requests <-chan *ssh.Requ
 func (connState *embeddedSSHConn) handleTCPIPForward(req *ssh.Request) {
 	var payload sshTCPIPForwardPayload
 	if err := ssh.Unmarshal(req.Payload, &payload); err != nil {
-		if req.WantReply {
-			_ = req.Reply(false, nil)
-		}
+		replySSHRequest(req, false, nil)
 		return
 	}
 
 	listenAddr, payloadAddr, err := normalizeSSHForwardBindAddr(payload.BindAddr)
 	if err != nil {
-		if req.WantReply {
-			_ = req.Reply(false, nil)
-		}
+		replySSHRequest(req, false, nil)
 		return
 	}
 
 	listener, err := net.Listen("tcp", net.JoinHostPort(listenAddr, strconv.Itoa(int(payload.BindPort))))
 	if err != nil {
-		if req.WantReply {
-			_ = req.Reply(false, nil)
-		}
+		replySSHRequest(req, false, nil)
 		return
 	}
 
 	tcpAddr, ok := listener.Addr().(*net.TCPAddr)
 	if !ok {
 		_ = listener.Close()
-		if req.WantReply {
-			_ = req.Reply(false, nil)
-		}
+		replySSHRequest(req, false, nil)
 		return
 	}
 
@@ -392,31 +363,26 @@ func (connState *embeddedSSHConn) handleTCPIPForward(req *ssh.Request) {
 			bindAddr: payloadAddr,
 			bindPort: uint32(tcpAddr.Port),
 		},
-		listenAddr:  listenAddr,
 		payloadAddr: payloadAddr,
 		listener:    listener,
 	}
 
 	if err := connState.storeRemoteForward(forward); err != nil {
 		_ = listener.Close()
-		if req.WantReply {
-			_ = req.Reply(false, nil)
-		}
+		replySSHRequest(req, false, nil)
 		return
 	}
 
-	if req.WantReply {
-		replyPayload := []byte(nil)
-		if payload.BindPort == 0 {
-			replyPayload = ssh.Marshal(struct {
-				BindPort uint32
-			}{BindPort: forward.key.bindPort})
-		}
-		if err := req.Reply(true, replyPayload); err != nil {
-			connState.deleteRemoteForward(forward.key)
-			_ = listener.Close()
-			return
-		}
+	replyPayload := []byte(nil)
+	if payload.BindPort == 0 {
+		replyPayload = ssh.Marshal(struct {
+			BindPort uint32
+		}{BindPort: forward.key.bindPort})
+	}
+	if req.WantReply && !replySSHRequest(req, true, replyPayload) {
+		connState.deleteRemoteForward(forward.key)
+		_ = listener.Close()
+		return
 	}
 
 	go connState.serveRemoteForward(forward)
@@ -425,17 +391,13 @@ func (connState *embeddedSSHConn) handleTCPIPForward(req *ssh.Request) {
 func (connState *embeddedSSHConn) handleCancelTCPIPForward(req *ssh.Request) {
 	var payload sshTCPIPForwardPayload
 	if err := ssh.Unmarshal(req.Payload, &payload); err != nil {
-		if req.WantReply {
-			_ = req.Reply(false, nil)
-		}
+		replySSHRequest(req, false, nil)
 		return
 	}
 
 	_, bindAddr, err := normalizeSSHForwardBindAddr(payload.BindAddr)
 	if err != nil {
-		if req.WantReply {
-			_ = req.Reply(false, nil)
-		}
+		replySSHRequest(req, false, nil)
 		return
 	}
 
@@ -444,9 +406,7 @@ func (connState *embeddedSSHConn) handleCancelTCPIPForward(req *ssh.Request) {
 	if forward != nil {
 		_ = forward.listener.Close()
 	}
-	if req.WantReply {
-		_ = req.Reply(forward != nil, nil)
-	}
+	replySSHRequest(req, forward != nil, nil)
 }
 
 func (connState *embeddedSSHConn) storeRemoteForward(forward *sshRemoteForward) error {
@@ -515,20 +475,26 @@ func (connState *embeddedSSHConn) handleForwardedTCPIPConn(forward *sshRemoteFor
 
 func startSSHRequestProcess(req *ssh.Request, proc *sshProcessHandle, localUser string, command string, ptyReq *sshPTYRequest) (*sshProcessHandle, bool, error) {
 	if proc != nil {
-		if req.WantReply {
-			req.Reply(false, nil)
-		}
+		replySSHRequest(req, false, nil)
 		return proc, false, nil
 	}
 
 	next, err := startSSHProcess(localUser, command, ptyReq)
-	if req.WantReply {
-		req.Reply(err == nil, nil)
-	}
+	replySSHRequest(req, err == nil, nil)
 	if err != nil {
 		return nil, false, err
 	}
 	return next, true, nil
+}
+
+func handleSSHSessionStart(req *ssh.Request, proc *sshProcessHandle, localUser string, command string, ptyReq *sshPTYRequest, channel ssh.Channel, waitForProcess func()) (*sshProcessHandle, error) {
+	next, handled, err := startSSHRequestProcess(req, proc, localUser, command, ptyReq)
+	if err != nil || !handled {
+		return next, err
+	}
+	go proxySSHProcessIO(channel, next)
+	go waitForProcess()
+	return next, nil
 }
 
 func proxySSHProcessIO(channel ssh.Channel, proc *sshProcessHandle) {
@@ -619,21 +585,20 @@ func parseSSHString(payload []byte) (string, []byte, bool) {
 }
 
 func normalizeSSHForwardBindAddr(bindAddr string) (listenAddr string, payloadAddr string, err error) {
-	switch bindAddr {
-	case "":
+	if bindAddr == "" || strings.EqualFold(bindAddr, "localhost") {
 		return "127.0.0.1", "localhost", nil
-	case "localhost":
-		return "127.0.0.1", "localhost", nil
-	case "127.0.0.1":
-		return "127.0.0.1", "127.0.0.1", nil
-	case "::1":
-		return "::1", "::1", nil
-	default:
-		if strings.EqualFold(bindAddr, "localhost") {
-			return "127.0.0.1", "localhost", nil
-		}
-		return "", "", fmt.Errorf("remote forwarding only supports loopback bind addresses")
 	}
+	if ip := net.ParseIP(bindAddr); ip != nil && ip.IsLoopback() {
+		return bindAddr, bindAddr, nil
+	}
+	return "", "", fmt.Errorf("remote forwarding only supports loopback bind addresses")
+}
+
+func replySSHRequest(req *ssh.Request, ok bool, payload []byte) bool {
+	if !req.WantReply {
+		return true
+	}
+	return req.Reply(ok, payload) == nil
 }
 
 func sshConnAddress(addr net.Addr) (string, uint32) {
