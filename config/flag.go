@@ -92,6 +92,7 @@ type Config struct {
 	PublicPublishedPorts    StringValues     `yaml:"published_public_ports,omitempty" json:"-"`
 	ProtectedPublishedPorts StringValues     `yaml:"published_protected_ports,omitempty" json:"-"`
 	PrivatePublishedPorts   StringValues     `yaml:"published_private_ports,omitempty" json:"-"`
+	SSHPublishedServices    StringValues     `yaml:"ssh_services,omitempty" json:"-"`
 	blocklists              map[Address]bool `yaml:"-" json:"-"`
 	ResolveCacheTime        time.Duration    `yaml:"-" json:"-"` // BNS cache time
 	BnsCacheTime            time.Duration    `yaml:"-" json:"-"` // BNS cache time
@@ -261,6 +262,8 @@ type Port struct {
 	BnsAllowlist         map[string]bool
 	DriveAllowList       map[Address]bool
 	DriveMemberAllowList map[Address]bool
+	SSHEnabled           bool
+	SSHLocalUser         string
 }
 
 // ModeIdentifier returns a mode code of the human readable version

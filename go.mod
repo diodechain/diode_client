@@ -4,6 +4,7 @@ go 1.25.3
 
 require (
 	github.com/caddyserver/certmagic v0.19.2
+	github.com/creack/pty v1.1.24
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 	github.com/diodechain/go-cache v2.1.0+incompatible
 	github.com/diodechain/go-update v2.2.11+incompatible

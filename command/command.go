@@ -47,6 +47,9 @@ type Command struct {
 	Flag             flag.FlagSet
 	Type             Type
 	SingleConnection bool
+	PassThroughArgs  bool
+	Hidden           bool
+	SkipParentHooks  bool
 }
 
 // AddSubCommand add subcommand to the given command, the subcommand will execute if
@@ -61,12 +64,12 @@ func (cmd *Command) AddSubCommand(subCmd *Command) {
 }
 
 func (cmd *Command) subCommandsKey() []string {
-	subCommandsKey := make([]string, len(cmd.subCommands))
-	count := 0
-
-	for i := range cmd.subCommands {
-		subCommandsKey[count] = i
-		count++
+	subCommandsKey := make([]string, 0, len(cmd.subCommands))
+	for i, subCmd := range cmd.subCommands {
+		if subCmd.Hidden {
+			continue
+		}
+		subCommandsKey = append(subCommandsKey, i)
 	}
 	return subCommandsKey
 }
@@ -200,15 +203,31 @@ func (cmd *Command) Execute() (err error) {
 	}
 	args = cmd.Flag.Args()
 	if len(args) > 0 {
-		err = subCmd.Flag.Parse(args[1:])
+		if subCmd.PassThroughArgs {
+			passArgs := args[1:]
+			if len(passArgs) == 1 {
+				switch passArgs[0] {
+				case "--help", "-help", "-h":
+					subCmd.printUsage()
+					return nil
+				}
+			}
+		} else {
+			err = subCmd.Flag.Parse(args[1:])
+		}
 	} else {
-		subCmd.Flag.Parse([]string{})
+		if !subCmd.PassThroughArgs {
+			subCmd.Flag.Parse([]string{})
+		}
 	}
 	if err != nil {
 		err = nil
 		return
 	}
 
+	if subCmd.SkipParentHooks {
+		return run(subCmd.PreRun, subCmd.Run, subCmd.PostRun)
+	}
 	return run(cmd.PreRun, subCmd.PreRun, subCmd.Run, subCmd.PostRun, cmd.PostRun)
 }
 

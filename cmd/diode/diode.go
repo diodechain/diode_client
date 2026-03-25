@@ -5,6 +5,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"time"
 
@@ -38,7 +39,11 @@ func main() {
 		} else if ce, ok := err.(codeError); ok {
 			status = ce.Code()
 		}
-		cfg.PrintError("Couldn't execute command", err)
+		if cfg == nil || cfg.Logger == nil {
+			fmt.Fprintf(os.Stderr, "Couldn't execute command: %v\n", err)
+		} else {
+			cfg.PrintError("Couldn't execute command", err)
+		}
 		os.Exit(status)
 	}
 	os.Exit(0)
