@@ -831,7 +831,7 @@ func getDeviceKeyAt(client *rpc.Client, deviceAddr util.Address, contractAddr st
 
 // fetchContractPropsFromContract retrieves all contract-backed configuration in one batch call
 func fetchContractPropsFromContract(deviceAddr util.Address, contractAddr string) (map[string]string, error) {
-	keys := []string{"public", "private", "protected", "wireguard", "socksd", "bind", "debug", "diodeaddrs", "fleet", "extra_config"}
+	keys := []string{"public", "private", "protected", "sshd", "wireguard", "socksd", "bind", "debug", "diodeaddrs", "fleet", "extra_config"}
 	logJoinContractFetch(deviceAddr, contractAddr, keys)
 	props, err := getPropertyValuesAt(deviceAddr, contractAddr, keys)
 	logJoinContractFetchResult(deviceAddr, contractAddr, keys, props, err)
@@ -973,6 +973,59 @@ func updatePortsFromContract(deviceAddr util.Address, props map[string]string) (
 	protectedPorts = splitPortList(protectedPortsStr)
 
 	return publicPorts, privatePorts, protectedPorts, nil
+}
+
+func updateSSHServicesFromContract(props map[string]string) (definitions []string, ports []*config.Port, err error) {
+	if props == nil {
+		return nil, nil, fmt.Errorf("missing contract properties for ssh services")
+	}
+	return parseSSHPropertyValue(strings.TrimSpace(props["sshd"]))
+}
+
+func buildPublishedPortMap(publicPorts, privatePorts, protectedPorts []string, sshPorts []*config.Port) (map[int]*config.Port, error) {
+	portString := make(map[int]*config.Port)
+
+	ports, err := parsePorts(publicPorts, config.PublicPublishedMode)
+	if err != nil {
+		return nil, err
+	}
+	for _, port := range ports {
+		if portString[port.To] != nil {
+			return nil, fmt.Errorf("public port specified twice: %v", port.To)
+		}
+		portString[port.To] = port
+	}
+
+	ports, err = parsePorts(protectedPorts, config.ProtectedPublishedMode)
+	if err != nil {
+		return nil, err
+	}
+	for _, port := range ports {
+		if portString[port.To] != nil {
+			return nil, fmt.Errorf("port conflict between public and protected port: %v", port.To)
+		}
+		portString[port.To] = port
+	}
+
+	ports, err = parsePorts(privatePorts, config.PrivatePublishedMode)
+	if err != nil {
+		return nil, err
+	}
+	for _, port := range ports {
+		if portString[port.To] != nil {
+			return nil, fmt.Errorf("port conflict with private port: %v", port.To)
+		}
+		portString[port.To] = port
+	}
+
+	for _, service := range sshPorts {
+		if portString[service.To] != nil {
+			return nil, fmt.Errorf("port conflict with ssh service: %v", service.To)
+		}
+		portString[service.To] = service
+	}
+
+	return portString, nil
 }
 
 // normalizeList trims whitespace, drops empties, and keeps order
@@ -1551,6 +1604,7 @@ func bindSignature(binds config.StringValues) string {
 var lastPublicPorts []string
 var lastPrivatePorts []string
 var lastProtectedPorts []string
+var lastSSHPublishedServices []string
 var lastWGConfigHash string
 var lastWGPublicKey string
 var wgPrivateKeyMigrationWarnOnce sync.Once
@@ -2995,74 +3049,46 @@ func updatePublishedPorts(client *rpc.Client, props map[string]string) error {
 
 	// Track whether there were any published ports before this update so we
 	// can notify the user when the configuration is cleared.
-	previousHadPorts := len(lastPublicPorts) > 0 || len(lastPrivatePorts) > 0 || len(lastProtectedPorts) > 0
+	previousHadPorts := len(lastPublicPorts) > 0 || len(lastPrivatePorts) > 0 || len(lastProtectedPorts) > 0 || len(lastSSHPublishedServices) > 0
 
 	publicPorts, privatePorts, protectedPorts, err := updatePortsFromContract(deviceAddr, props)
 	if err != nil {
 		cfg.Logger.Error("Failed to update ports from contract: %v", err)
 		return err
 	}
+	sshServices, sshPorts, err := updateSSHServicesFromContract(props)
+	if err != nil {
+		cfg.Logger.Error("Failed to update ssh services from contract: %v", err)
+		return err
+	}
 
 	if reflect.DeepEqual(lastPublicPorts, publicPorts) &&
 		reflect.DeepEqual(lastPrivatePorts, privatePorts) &&
-		reflect.DeepEqual(lastProtectedPorts, protectedPorts) {
+		reflect.DeepEqual(lastProtectedPorts, protectedPorts) &&
+		reflect.DeepEqual(lastSSHPublishedServices, sshServices) {
 		return nil
 	}
 
 	lastPublicPorts = publicPorts
 	lastPrivatePorts = privatePorts
 	lastProtectedPorts = protectedPorts
+	lastSSHPublishedServices = sshServices
 
 	// Debug output for port configurations
 	cfg.Logger.Debug("Public Ports: %s", strings.Join(publicPorts, ","))
 	cfg.Logger.Debug("Private Ports: %s", strings.Join(privatePorts, ","))
 	cfg.Logger.Debug("Protected Ports: %s", strings.Join(protectedPorts, ","))
+	cfg.Logger.Debug("SSH Services: %s", strings.Join(sshServices, ","))
 
 	// Update the config with new port settings
 	cfg.PublicPublishedPorts = publicPorts
 	cfg.PrivatePublishedPorts = privatePorts
 	cfg.ProtectedPublishedPorts = protectedPorts
+	cfg.SSHPublishedServices = config.StringValues(sshServices)
 
-	// Process the port configurations similar to publishHandler
-	portString := make(map[int]*config.Port)
-
-	// Process public ports
-	ports, err := parsePorts(cfg.PublicPublishedPorts, config.PublicPublishedMode)
+	portString, err := buildPublishedPortMap(publicPorts, privatePorts, protectedPorts, sshPorts)
 	if err != nil {
 		return err
-	}
-	for _, port := range ports {
-		if portString[port.To] != nil {
-			err = fmt.Errorf("public port specified twice: %v", port.To)
-			return err
-		}
-		portString[port.To] = port
-	}
-
-	// Process protected ports
-	ports, err = parsePorts(cfg.ProtectedPublishedPorts, config.ProtectedPublishedMode)
-	if err != nil {
-		return err
-	}
-	for _, port := range ports {
-		if portString[port.To] != nil {
-			err = fmt.Errorf("port conflict between public and protected port: %v", port.To)
-			return err
-		}
-		portString[port.To] = port
-	}
-
-	// Process private ports
-	ports, err = parsePorts(cfg.PrivatePublishedPorts, config.PrivatePublishedMode)
-	if err != nil {
-		return err
-	}
-	for _, port := range ports {
-		if portString[port.To] != nil {
-			err = fmt.Errorf("port conflict with private port: %v", port.To)
-			return err
-		}
-		portString[port.To] = port
 	}
 
 	// Update the published ports
@@ -3106,7 +3132,7 @@ func updatePublishedPorts(client *rpc.Client, props map[string]string) error {
 			for driveMember := range port.DriveMemberAllowList {
 				addrs = append(addrs, driveMember.HexString())
 			}
-			host := net.JoinHostPort(port.SrcHost, strconv.Itoa(port.Src))
+			host := publishedPortDisplayHost(port)
 			cfg.PrintLabel(fmt.Sprintf("Port %12s", host), fmt.Sprintf("%8d  %10s       %s        %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol), strings.Join(addrs, ",")))
 		}
 	} else if previousHadPorts {
