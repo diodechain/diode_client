@@ -1,6 +1,9 @@
 package main
 
 import (
+	"os"
+	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -105,6 +108,29 @@ func TestPublishedPortDisplayHostSSH(t *testing.T) {
 	port := &config.Port{SSHEnabled: true, SSHLocalUser: "ubuntu"}
 	if got := publishedPortDisplayHost(port); got != "sshd:ubuntu" {
 		t.Fatalf("expected ssh display host, got %q", got)
+	}
+}
+
+func TestCreateEphemeralSSHIdentity(t *testing.T) {
+	if _, err := exec.LookPath("ssh-keygen"); err != nil {
+		t.Skip("ssh-keygen not available")
+	}
+
+	path, cleanup, err := createEphemeralSSHIdentity()
+	if err != nil {
+		t.Fatalf("createEphemeralSSHIdentity returned error: %v", err)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("expected private key file to exist: %v", err)
+	}
+	if _, err := os.Stat(path + ".pub"); err != nil {
+		t.Fatalf("expected public key file to exist: %v", err)
+	}
+
+	dir := filepath.Dir(path)
+	cleanup()
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Fatalf("expected temp identity directory to be removed, err=%v", err)
 	}
 }
 

@@ -9,30 +9,6 @@ import (
 	"testing"
 )
 
-func TestSSHBaseArgsDisableUnneededAuthMethods(t *testing.T) {
-	args := buildSSHBaseArgs("linux", "/usr/local/bin/diode", "127.0.0.1:1080")
-
-	for _, want := range []string{
-		"ProxyCommand=/usr/local/bin/diode ssh-proxy -proxy-addr 127.0.0.1:1080 %h %p",
-		"StrictHostKeyChecking=accept-new",
-		"PubkeyAuthentication=no",
-		"PasswordAuthentication=no",
-		"KbdInteractiveAuthentication=no",
-		"BatchMode=yes",
-	} {
-		found := false
-		for i := 0; i < len(args)-1; i++ {
-			if args[i] == "-o" && args[i+1] == want {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Fatalf("expected ssh args to include %q: %v", want, args)
-		}
-	}
-}
-
 func TestExtractSSHTarget(t *testing.T) {
 	tests := []struct {
 		name string
@@ -143,13 +119,15 @@ func TestFindOpenSSHToolWindowsInstallHelp(t *testing.T) {
 	}
 	runtimeGOOS = "windows"
 
-	_, err := findOpenSSHTool("ssh")
-	if err == nil {
-		t.Fatalf("expected error when ssh is missing")
-	}
-	for _, part := range []string{"OpenSSH Client", "Add-WindowsCapability", "OpenSSH.Client~~~~0.0.1.0"} {
-		if !strings.Contains(err.Error(), part) {
-			t.Fatalf("expected %q in error %q", part, err.Error())
+	for _, tool := range []string{"ssh", "ssh-keygen"} {
+		_, err := findOpenSSHTool(tool)
+		if err == nil {
+			t.Fatalf("expected error when %s is missing", tool)
+		}
+		for _, part := range []string{"OpenSSH Client", "Add-WindowsCapability", "OpenSSH.Client~~~~0.0.1.0"} {
+			if !strings.Contains(err.Error(), part) {
+				t.Fatalf("expected %q in error %q", part, err.Error())
+			}
 		}
 	}
 }

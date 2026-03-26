@@ -9,6 +9,7 @@ import (
 	"net"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -65,13 +66,25 @@ func sshHandler() (err error) {
 		os.Exit(1)
 	}
 
-	args := buildSSHBaseArgs(runtimeGOOS, diodeExe, proxyAddr)
-	sshArgs, err := subcommandPassThroughArgs(os.Args, sshCommandName)
-	if err != nil {
-		cfg.PrintError("ssh command not found", err)
+	args := []string{
+		"ssh",
+		"-o", "ProxyCommand=" + buildSSHProxyCommand(runtimeGOOS, diodeExe, proxyAddr),
+		"-o", "StrictHostKeyChecking=accept-new",
+	}
+	os_args := os.Args
+	// Remove all args before the ssh command by finding "ssh" and removing all args before it
+	ssh_index := -1
+	for i, arg := range os_args {
+		if arg == "ssh" {
+			ssh_index = i
+			break
+		}
+	}
+	if ssh_index == -1 {
+		cfg.PrintError("ssh command not found", errors.New("ssh command not found"))
 		os.Exit(1)
 	}
-	sshArgs = normalizeSSHArgs(sshArgs)
+	sshArgs := normalizeSSHArgs(os_args[ssh_index+1:])
 	args = append(args, sshArgs...)
 
 	if target := extractSSHTarget(sshArgs); target != "" {
@@ -80,6 +93,14 @@ func sshHandler() (err error) {
 			os.Exit(1)
 		}
 	}
+
+	identityFile, cleanup, err := createEphemeralSSHIdentity()
+	if err != nil {
+		cfg.PrintError("Could not create ephemeral ssh identity", err)
+		os.Exit(1)
+	}
+	defer cleanup()
+	args = append(args, "-i", identityFile)
 
 	ssh, err := findOpenSSHTool("ssh")
 	if err != nil {
@@ -165,6 +186,28 @@ func startSSHLocalSocksProxy() (string, func(), error) {
 	return net.JoinHostPort(host, strconv.Itoa(tcpAddr.Port)), cleanup, nil
 }
 
+func createEphemeralSSHIdentity() (string, func(), error) {
+	sshKeygen, err := findOpenSSHTool("ssh-keygen")
+	if err != nil {
+		return "", nil, err
+	}
+	dir, err := os.MkdirTemp("", "diode-ssh-*")
+	if err != nil {
+		return "", nil, err
+	}
+	keyPath := filepath.Join(dir, "id_ed25519")
+	cmd := exec.Command(sshKeygen, "-q", "-t", "ed25519", "-N", "", "-f", keyPath)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		_ = os.RemoveAll(dir)
+		return "", nil, fmt.Errorf("%w: %s", err, strings.TrimSpace(string(output)))
+	}
+	cleanup := func() {
+		_ = os.RemoveAll(dir)
+	}
+	return keyPath, cleanup, nil
+}
+
 // sshOptsWithArg lists SSH short options that take a value (next argument).
 var sshOptsWithArg = map[string]bool{
 	"p": true, "P": true, "i": true, "o": true, "l": true,
@@ -241,18 +284,6 @@ func findOpenSSHTool(name string) (string, error) {
 		return "", err
 	}
 	return "", fmt.Errorf("%w\nInstall OpenSSH Client on Windows via Settings > Optional Features or PowerShell:\n  Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0", err)
-}
-
-func buildSSHBaseArgs(goos string, diodeExe string, proxyAddr string) []string {
-	return []string{
-		"ssh",
-		"-o", "ProxyCommand=" + buildSSHProxyCommand(goos, diodeExe, proxyAddr),
-		"-o", "StrictHostKeyChecking=accept-new",
-		"-o", "PubkeyAuthentication=no",
-		"-o", "PasswordAuthentication=no",
-		"-o", "KbdInteractiveAuthentication=no",
-		"-o", "BatchMode=yes",
-	}
 }
 
 func buildSSHProxyCommand(goos string, diodeExe string, proxyAddr string) string {
