@@ -928,21 +928,48 @@ func buildProxyToChain(deviceAddr util.Address, startContractAddr string) (chain
 	return chain, err
 }
 
-func selectContractPropsWithFallback(deviceAddr util.Address, chain []string) (contractAddr string, props map[string]string, err error) {
-	if len(chain) == 0 {
-		return "", nil, fmt.Errorf("empty proxy_to chain")
+func resolveEffectiveContractProps(
+	deviceAddr util.Address,
+	startContractAddr string,
+	buildChain func(util.Address, string) ([]string, error),
+	fetchProps func(util.Address, string) (map[string]string, error),
+) (chain []string, contractAddr string, props map[string]string, err error) {
+	chain, err = buildChain(deviceAddr, startContractAddr)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("proxy_to resolution failed: %w", err)
 	}
 
-	var lastErr error
-	for i := len(chain) - 1; i >= 0; i-- {
-		addr := chain[i]
-		props, err = fetchContractPropsFromContract(deviceAddr, addr)
-		if err == nil || len(props) > 0 {
-			return addr, props, err
-		}
-		lastErr = err
+	if len(chain) == 0 {
+		return nil, "", nil, fmt.Errorf("empty proxy_to chain")
 	}
-	return chain[0], nil, lastErr
+
+	contractAddr = chain[len(chain)-1]
+	props, err = fetchProps(deviceAddr, contractAddr)
+	if err != nil && len(props) == 0 {
+		return chain, contractAddr, nil, err
+	}
+
+	return chain, contractAddr, props, err
+}
+
+func commitEffectiveContractState(cfg *config.Config, chain []string, contractAddr string, props map[string]string) {
+	chainStr := strings.Join(chain, " -> ")
+	if contractAddr != "" && (contractAddr != lastEffectiveContract || chainStr != lastProxyToChain) {
+		lastEffectiveContract = contractAddr
+		lastProxyToChain = chainStr
+		if cfg != nil && cfg.Logger != nil {
+			if len(chain) > 1 {
+				cfg.PrintLabel("Perimeter Proxy Chain", lastProxyToChain)
+			}
+			cfg.PrintLabel("Effective Perimeter", contractAddr)
+		}
+	}
+
+	if props != nil {
+		lastContractPropsMutex.Lock()
+		lastContractProps = props
+		lastContractPropsMutex.Unlock()
+	}
 }
 
 // updatePortsFromContract uses the provided property map to extract port configurations,
@@ -2914,29 +2941,7 @@ func contractSync(cfg *config.Config) error {
 
 	deviceAddr := cfg.ClientAddr
 
-	chain, proxyErr := buildProxyToChain(deviceAddr, contractAddress)
-	effectiveContractAddr, props, err := selectContractPropsWithFallback(deviceAddr, chain)
-	if proxyErr != nil && cfg.Logger != nil {
-		cfg.Logger.Debug("proxy_to resolution stopped early: %v", proxyErr)
-	}
-	if effectiveContractAddr != "" && effectiveContractAddr != lastEffectiveContract {
-		lastEffectiveContract = effectiveContractAddr
-		lastProxyToChain = strings.Join(chain, " -> ")
-		if len(chain) > 1 {
-			cfg.PrintLabel("Perimeter Proxy Chain", lastProxyToChain)
-		}
-		cfg.PrintLabel("Effective Perimeter", effectiveContractAddr)
-	}
-
-	// Cache the fetched properties for use by the API server
-	if props != nil {
-		lastContractPropsMutex.Lock()
-		lastContractProps = make(map[string]string)
-		for k, v := range props {
-			lastContractProps[k] = v
-		}
-		lastContractPropsMutex.Unlock()
-	}
+	chain, effectiveContractAddr, props, err := resolveEffectiveContractProps(deviceAddr, contractAddress, buildProxyToChain, fetchContractPropsFromContract)
 
 	if err != nil {
 		if len(props) == 0 {
@@ -2946,6 +2951,8 @@ func contractSync(cfg *config.Config) error {
 			cfg.Logger.Warn("Partial contract properties: %v", err)
 		}
 	}
+
+	commitEffectiveContractState(cfg, chain, effectiveContractAddr, props)
 
 	applyControlPlaneConfig(cfg, props)
 
