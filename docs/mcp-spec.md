@@ -1,0 +1,95 @@
+# Diode MCP specification
+
+Normative description of **`diode mcp`**: Model Context Protocol server over **stdio** (JSON-RPC on stdin/stdout), matching the current client implementation.
+
+---
+
+## Server
+
+| Field | Value |
+|-------|--------|
+| **Command** | `diode mcp` (with normal global Diode flags and config as for other subcommands). |
+| **Transport** | Stdio: MCP messages on **stdin** / **stdout**; implementation logging may use **stderr** (see SDK `LoggingTransport`). |
+| **Implementation `name`** | `diode` |
+| **Implementation `title`** | `Diode Network Client` |
+| **`version`** | Same as the `diode` binary build (reported by **`diode_get_version`**). |
+
+**Server instructions** (exposed to hosts such as Cursor): tools cover client version, local identity on the network, address resolution, and file **push**/**pull** to a remote peer running a **`diode files`**-style HTTP listener. For file tools, **`peer_host`** should be a Diode-reachable hostname (e.g. **`mydevice.diode.link`**).
+
+**Runtime:** The process runs **`prepareDiode`**, starts the shared **`app`** (Diode client connected to the fleet), then serves MCP until **SIGINT** / **SIGTERM**. **`EnableUpdate`** is disabled for the MCP command. Tools that need the network return an error if there is **no connected client** (`GetNearestClient() == nil`).
+
+---
+
+## Tools
+
+Each tool has a **name** (below), a **description** (as registered with the host), and a **JSON object** input schema inferred from the Go types (property names match the **`json`** tags). Successful structured results are returned as JSON objects with the output field names listed.
+
+### `diode_get_version`
+
+| | |
+|--|--|
+| **Description** | Return the Diode client binary version and build timestamp. |
+| **Input** | Empty object (no parameters). |
+| **Result** | `version` (string), `build_time` (string, optional). |
+| **Errors** | None from validation; always returns the embedded build metadata. |
+
+---
+
+### `diode_get_client_info`
+
+| | |
+|--|--|
+| **Description** | Return this client's address, fleet, optional BNS name, and last validated block from the Diode network. |
+| **Input** | Empty object. |
+| **Result** | `client_address`, `fleet_address`, `last_valid_block`, `last_valid_block_hash` (strings / numbers as encoded); `client_name` (optional, BNS-style **`name.diode`** when configured). |
+| **Errors** | Config not initialized; not connected to the Diode network. |
+
+---
+
+### `diode_query_address`
+
+| | |
+|--|--|
+| **Description** | Resolve a Diode address or name: account type when the input decodes as an address, and device tickets from the network. |
+| **Input** | `address` (string, required) - hex address, BNS-style identifier, or other form accepted by **`ResolveDevice`**. |
+| **Result** | `address` (echo), optional `account_type` or `account_type_error`; `devices` (array of device ticket objects). Each device object includes fields such as `device_id`, `version`, `server_id`, `block_number`, `block_hash`, `fleet_addr`, `total_connections`, `total_bytes`, `local_addr`, `device_sig`, `server_sig`, `chain_id`, `epoch`, `cache_time`, and optional `validation_error`. |
+| **Partial failure** | If resolution fails, `resolve_error` may be set and `devices` may be empty; the tool still returns a structured result when the resolver returns an error (no fatal tool error in that path). |
+| **Errors** | Missing `address`; not connected to the Diode network. |
+
+---
+
+### `diode_file_push`
+
+| | |
+|--|--|
+| **Description** | Upload bytes to a remote HTTP file listener (**`diode files`** contract): **HTTP PUT** to **`http://{peer_host}:{port}{remote_path}`** over the Diode client’s in-process SOCKS dial (same family as **`diode fetch`**). |
+| **Input** | `peer_host` (string), `port` (integer 1-65535), `remote_path` (string; leading **`/`** added if missing; path segments URL-escaped). Exactly **one** of: `content_base64` (standard base64) or `local_file_path` (read file from the MCP host filesystem). |
+| **Result** | `status_code` (HTTP status), `message` (status line or short response body snippet on failure). |
+| **HTTP** | **PUT**, **`Content-Type: application/octet-stream`**, **`Content-Length`** set; client timeout **5 minutes**. |
+| **Errors** | Not connected; both or neither of `content_base64` / `local_file_path`; invalid base64 or unreadable local file; bad host/port/path; transport or network failure. Non-2xx HTTP still returns structured output with `status_code` and `message` (up to ~4 KiB of body text when present). |
+
+---
+
+### `diode_file_pull`
+
+| | |
+|--|--|
+| **Description** | Download a file from a remote HTTP file listener: **HTTP GET** over the same Diode dial path as **`diode_file_push`**. |
+| **Input** | `peer_host`, `port`, `remote_path` (same rules as push). Optional `local_path`; optional `max_inline_bytes` (default **4194304** = 4 MiB). |
+| **Result** | `status_code`; on success either `content_base64` + `message` (**inline** mode) or `local_path_written` + `message` (**file** mode). |
+| **Inline mode** | If `local_path` is omitted: read the response body into memory; if size **>** `max_inline_bytes`, return an error instructing the caller to set `local_path`. Otherwise return **`content_base64`** of the body. |
+| **File mode** | If `local_path` is set: resolve destination path - trailing **`/`** or **`\`** or an **existing directory** → write **`basename(remote_path)`** inside that directory; otherwise treat `local_path` as the full output file path (non-existent path → new file). Create parent directories with **`0755`** as needed, then stream the body to the file. |
+| **HTTP** | Client timeout **5 minutes**. |
+| **Errors** | Not connected; bad host/port/path; transport failure; non-2xx HTTP (structured like push). Inline mode: body too large for `max_inline_bytes`. |
+
+---
+
+## Related documents
+
+- **`docs/file-transfer-spec.md`** - normative **`diode files`** / **push** / **pull** HTTP semantics (MCP file tools target that listener).
+
+---
+
+## Status
+
+Tracks **`diode mcp`** and tools under **`cmd/diode/mcp.go`** and **`cmd/diode/internal/mcptools/`**. Update this document when adding or changing tools.
