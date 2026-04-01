@@ -153,11 +153,12 @@ func TestResolveEffectiveContractPropsProxySuccess(t *testing.T) {
 	}
 
 	commitEffectiveContractState(&config.Config{}, chain, effective, props)
-	if lastEffectiveContract != testContractB {
-		t.Fatalf("expected cached effective contract %s, got %s", testContractB, lastEffectiveContract)
+	gotEffective, gotChain := getContractSyncStateForTest()
+	if gotEffective != testContractB {
+		t.Fatalf("expected cached effective contract %s, got %s", testContractB, gotEffective)
 	}
-	if lastProxyToChain != testContractA+" -> "+testContractB {
-		t.Fatalf("unexpected proxy chain: %s", lastProxyToChain)
+	if gotChain != testContractA+" -> "+testContractB {
+		t.Fatalf("unexpected proxy chain: %s", gotChain)
 	}
 	if cached := getLastContractPropsForTest(); !reflect.DeepEqual(cached, map[string]string{"public": "80/tcp"}) {
 		t.Fatalf("unexpected cached properties: %#v", cached)
@@ -166,9 +167,7 @@ func TestResolveEffectiveContractPropsProxySuccess(t *testing.T) {
 
 func TestResolveEffectiveContractPropsPreservesStateOnTargetFailure(t *testing.T) {
 	resetJoinContractSyncStateForTest(t)
-	lastEffectiveContract = testContractB
-	lastProxyToChain = testContractA + " -> " + testContractB
-	setLastContractPropsForTest(map[string]string{"public": "80/tcp"})
+	setContractSyncStateForTest(testContractB, testContractA+" -> "+testContractB, map[string]string{"public": "80/tcp"})
 
 	chain, effective, props, err := resolveEffectiveContractProps(
 		util.Address{},
@@ -195,11 +194,12 @@ func TestResolveEffectiveContractPropsPreservesStateOnTargetFailure(t *testing.T
 	if len(props) != 0 {
 		t.Fatalf("expected no properties on failure, got %#v", props)
 	}
-	if lastEffectiveContract != testContractB {
-		t.Fatalf("expected effective contract to remain %s, got %s", testContractB, lastEffectiveContract)
+	stateEffective, stateChain := getContractSyncStateForTest()
+	if stateEffective != testContractB {
+		t.Fatalf("expected effective contract to remain %s, got %s", testContractB, stateEffective)
 	}
-	if lastProxyToChain != testContractA+" -> "+testContractB {
-		t.Fatalf("expected proxy chain to remain unchanged, got %s", lastProxyToChain)
+	if stateChain != testContractA+" -> "+testContractB {
+		t.Fatalf("expected proxy chain to remain unchanged, got %s", stateChain)
 	}
 	if cached := getLastContractPropsForTest(); !reflect.DeepEqual(cached, map[string]string{"public": "80/tcp"}) {
 		t.Fatalf("expected cached properties to remain unchanged, got %#v", cached)
@@ -208,9 +208,7 @@ func TestResolveEffectiveContractPropsPreservesStateOnTargetFailure(t *testing.T
 
 func TestResolveEffectiveContractPropsPreservesStateOnProxyResolutionFailure(t *testing.T) {
 	resetJoinContractSyncStateForTest(t)
-	lastEffectiveContract = testContractB
-	lastProxyToChain = testContractA + " -> " + testContractB
-	setLastContractPropsForTest(map[string]string{"public": "80/tcp"})
+	setContractSyncStateForTest(testContractB, testContractA+" -> "+testContractB, map[string]string{"public": "80/tcp"})
 
 	fetchCalled := false
 	chain, effective, props, err := resolveEffectiveContractProps(
@@ -239,11 +237,12 @@ func TestResolveEffectiveContractPropsPreservesStateOnProxyResolutionFailure(t *
 	if fetchCalled {
 		t.Fatal("expected no contract fetch when proxy resolution fails")
 	}
-	if lastEffectiveContract != testContractB {
-		t.Fatalf("expected effective contract to remain %s, got %s", testContractB, lastEffectiveContract)
+	stateEffective, stateChain := getContractSyncStateForTest()
+	if stateEffective != testContractB {
+		t.Fatalf("expected effective contract to remain %s, got %s", testContractB, stateEffective)
 	}
-	if lastProxyToChain != testContractA+" -> "+testContractB {
-		t.Fatalf("expected proxy chain to remain unchanged, got %s", lastProxyToChain)
+	if stateChain != testContractA+" -> "+testContractB {
+		t.Fatalf("expected proxy chain to remain unchanged, got %s", stateChain)
 	}
 	if cached := getLastContractPropsForTest(); !reflect.DeepEqual(cached, map[string]string{"public": "80/tcp"}) {
 		t.Fatalf("expected cached properties to remain unchanged, got %#v", cached)
@@ -280,11 +279,12 @@ func TestResolveEffectiveContractPropsPartialTargetFetchKeepsPointedContract(t *
 	}
 
 	commitEffectiveContractState(&config.Config{}, chain, effective, props)
-	if lastEffectiveContract != testContractB {
-		t.Fatalf("expected cached effective contract %s, got %s", testContractB, lastEffectiveContract)
+	stateEffective, stateChain := getContractSyncStateForTest()
+	if stateEffective != testContractB {
+		t.Fatalf("expected cached effective contract %s, got %s", testContractB, stateEffective)
 	}
-	if lastProxyToChain != testContractA+" -> "+testContractB {
-		t.Fatalf("unexpected proxy chain: %s", lastProxyToChain)
+	if stateChain != testContractA+" -> "+testContractB {
+		t.Fatalf("unexpected proxy chain: %s", stateChain)
 	}
 	if cached := getLastContractPropsForTest(); !reflect.DeepEqual(cached, map[string]string{"public": "80/tcp"}) {
 		t.Fatalf("expected cached partial properties, got %#v", cached)
@@ -321,40 +321,44 @@ func TestResolveEffectiveContractPropsNonProxyContract(t *testing.T) {
 	}
 
 	commitEffectiveContractState(&config.Config{}, chain, effective, props)
-	if lastEffectiveContract != testContractA {
-		t.Fatalf("expected cached effective contract %s, got %s", testContractA, lastEffectiveContract)
+	stateEffective, stateChain := getContractSyncStateForTest()
+	if stateEffective != testContractA {
+		t.Fatalf("expected cached effective contract %s, got %s", testContractA, stateEffective)
 	}
-	if lastProxyToChain != testContractA {
-		t.Fatalf("expected single-contract chain %s, got %s", testContractA, lastProxyToChain)
+	if stateChain != testContractA {
+		t.Fatalf("expected single-contract chain %s, got %s", testContractA, stateChain)
 	}
 }
 
 func resetJoinContractSyncStateForTest(t *testing.T) {
 	t.Helper()
 
-	origEffective := lastEffectiveContract
-	origChain := lastProxyToChain
+	origEffective, origChain := getContractSyncStateForTest()
 	origProps := getLastContractPropsForTest()
 
-	lastEffectiveContract = ""
-	lastProxyToChain = ""
-	setLastContractPropsForTest(nil)
+	setContractSyncStateForTest("", "", nil)
 
 	t.Cleanup(func() {
-		lastEffectiveContract = origEffective
-		lastProxyToChain = origChain
-		setLastContractPropsForTest(origProps)
+		setContractSyncStateForTest(origEffective, origChain, origProps)
 	})
 }
 
 func getLastContractPropsForTest() map[string]string {
-	lastContractPropsMutex.RLock()
-	defer lastContractPropsMutex.RUnlock()
+	lastContractSyncStateMutex.RLock()
+	defer lastContractSyncStateMutex.RUnlock()
 	return lastContractProps
 }
 
-func setLastContractPropsForTest(props map[string]string) {
-	lastContractPropsMutex.Lock()
-	defer lastContractPropsMutex.Unlock()
+func getContractSyncStateForTest() (effective string, chain string) {
+	lastContractSyncStateMutex.RLock()
+	defer lastContractSyncStateMutex.RUnlock()
+	return lastEffectiveContract, lastProxyToChain
+}
+
+func setContractSyncStateForTest(effective string, chain string, props map[string]string) {
+	lastContractSyncStateMutex.Lock()
+	defer lastContractSyncStateMutex.Unlock()
+	lastEffectiveContract = effective
+	lastProxyToChain = chain
 	lastContractProps = props
 }

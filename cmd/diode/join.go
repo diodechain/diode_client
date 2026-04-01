@@ -954,21 +954,23 @@ func resolveEffectiveContractProps(
 
 func commitEffectiveContractState(cfg *config.Config, chain []string, contractAddr string, props map[string]string) {
 	chainStr := strings.Join(chain, " -> ")
+	shouldLog := false
+	lastContractSyncStateMutex.Lock()
 	if contractAddr != "" && (contractAddr != lastEffectiveContract || chainStr != lastProxyToChain) {
 		lastEffectiveContract = contractAddr
 		lastProxyToChain = chainStr
-		if cfg != nil && cfg.Logger != nil {
-			if len(chain) > 1 {
-				cfg.PrintLabel("Perimeter Proxy Chain", lastProxyToChain)
-			}
-			cfg.PrintLabel("Effective Perimeter", contractAddr)
-		}
+		shouldLog = true
 	}
-
 	if props != nil {
-		lastContractPropsMutex.Lock()
 		lastContractProps = props
-		lastContractPropsMutex.Unlock()
+	}
+	lastContractSyncStateMutex.Unlock()
+
+	if shouldLog && cfg != nil && cfg.Logger != nil {
+		if len(chain) > 1 {
+			cfg.PrintLabel("Perimeter Proxy Chain", chainStr)
+		}
+		cfg.PrintLabel("Effective Perimeter", contractAddr)
 	}
 }
 
@@ -1586,8 +1588,8 @@ var lastAppliedBindSignature string
 var socksServerStarted bool
 var lastEffectiveContract string
 var lastProxyToChain string
-var lastContractProps map[string]string // Cache for last fetched contract properties (used by API server)
-var lastContractPropsMutex sync.RWMutex // Protects lastContractProps
+var lastContractProps map[string]string     // Cache for last fetched contract properties (used by API server)
+var lastContractSyncStateMutex sync.RWMutex // Protects effective contract, proxy chain, and cached contract props
 
 // GetContractAddress returns the current contract/perimeter address
 func GetContractAddress() string {
@@ -1596,7 +1598,23 @@ func GetContractAddress() string {
 
 // GetEffectiveContractAddress returns the effective contract address
 func GetEffectiveContractAddress() string {
+	lastContractSyncStateMutex.RLock()
+	defer lastContractSyncStateMutex.RUnlock()
 	return lastEffectiveContract
+}
+
+func getContractSyncStateSnapshot() (effectiveContract string, props map[string]string) {
+	lastContractSyncStateMutex.RLock()
+	defer lastContractSyncStateMutex.RUnlock()
+
+	effectiveContract = lastEffectiveContract
+	if lastContractProps != nil {
+		props = make(map[string]string, len(lastContractProps))
+		for k, v := range lastContractProps {
+			props[k] = v
+		}
+	}
+	return effectiveContract, props
 }
 
 // wgBasepoint is the X25519 basepoint per RFC 7748
