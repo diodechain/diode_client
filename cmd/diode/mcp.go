@@ -11,6 +11,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/diodechain/diode_client/cmd/diode/internal/mcptools"
 	"github.com/diodechain/diode_client/command"
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/edge"
@@ -91,7 +92,7 @@ func mcpHandler() error {
 		Version: version,
 		Title:   "Diode Network Client",
 	}, &mcp.ServerOptions{
-		Instructions: "Tools for the Diode client: version, local identity, and on-chain queries via the connected Diode network.",
+		Instructions: "Tools for the Diode client: version, local identity, on-chain queries, and file push/pull to a remote device running `diode files` (HTTP PUT/GET over the network). Use peer_host such as your BNS host (e.g. mydevice.diode.link).",
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -108,6 +109,8 @@ func mcpHandler() error {
 		Name:        "diode_query_address",
 		Description: "Resolve a Diode address (JSON argument {\"address\":\"0x...\"}): account type when decodable, and device tickets from the network.",
 	}, mcpToolQueryAddress)
+
+	mcptools.AddFileTools(server, mcptools.Deps{Cfg: config.AppConfig, CM: app.clientManager})
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
