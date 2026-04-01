@@ -61,7 +61,6 @@ const ip = `(\[?[0-9A-Fa-f:]*:[0-9A-Fa-f:]+(?:%[a-zA-Z0-9]+)?\]?|[0-9A-Za-z-]+\.
 
 var portPattern = regexp.MustCompile(`^(` + ip + `:)?(\d+)(:(\d*)(:(tcp|tls|udp))?)?$`)
 var accessPattern = regexp.MustCompile(`^0x[a-fA-F0-9]{40}$`)
-var sshServicePattern = regexp.MustCompile(`^(private|protected|public):(\d+):([A-Za-z0-9._-]+)$`)
 
 func parsePorts(portStrings []string, mode int) ([]*config.Port, error) {
 	ports := []*config.Port{}
@@ -251,120 +250,6 @@ func parseBind(bind string) (*config.Bind, error) {
 	return ret, nil
 }
 
-func parseSSHServices(serviceStrings []string) ([]*config.Port, error) {
-	ports := []*config.Port{}
-	for _, serviceString := range serviceStrings {
-		segments := strings.Split(serviceString, ",")
-		if len(segments) == 0 {
-			return nil, fmt.Errorf("ssh service definition cannot be empty")
-		}
-
-		head := sshServicePattern.FindStringSubmatch(strings.TrimSpace(segments[0]))
-		if len(head) != 4 {
-			return nil, fmt.Errorf("ssh service format expected private|protected:<extern_port>:<local_user> but got: %v", segments[0])
-		}
-
-		mode := config.ModeIdentifier(head[1])
-		if mode == config.PublicPublishedMode {
-			return nil, fmt.Errorf("public ssh services are not supported")
-		}
-		if mode == 0 {
-			return nil, fmt.Errorf("unsupported ssh service mode: %s", head[1])
-		}
-
-		externPort, err := strconv.Atoi(head[2])
-		if err != nil || !util.IsPort(externPort) {
-			return nil, fmt.Errorf("ssh service port number should be bigger than 1 and smaller than 65535")
-		}
-
-		allowlist := make(map[util.Address]bool)
-		bnsAllowlist := make(map[string]bool)
-		driveAllowlist := make(map[util.Address]bool)
-		driveMemberAllowlist := make(map[util.Address]bool)
-		for _, rawSegment := range segments[1:] {
-			segment := strings.TrimSpace(rawSegment)
-			if segment == "" {
-				continue
-			}
-
-			var client *rpc.Client
-			if app.clientManager != nil {
-				client = app.clientManager.GetNearestClient()
-			}
-			access := accessPattern.FindString(segment)
-			if access == "" {
-				bnsName := bnsPattern.FindString(segment)
-				if bnsName != "" && isValidBNS(bnsName) {
-					bnsAllowlist[bnsName] = true
-					if client == nil {
-						return nil, fmt.Errorf("ssh service couldn't resolve BNS name without an active client: %v", segment)
-					}
-					_, err := client.GetCacheOrResolvePeers(bnsName)
-					if err != nil {
-						return nil, fmt.Errorf("ssh service couldn't resolve BNS name: %v", segment)
-					}
-					continue
-				}
-				return nil, fmt.Errorf("ssh service expected <address> or <bnsName> but got: %v", segment)
-			}
-
-			addr, err := util.DecodeAddress(access)
-			if err != nil {
-				return nil, fmt.Errorf("ssh service couldn't parse address: %v", segment)
-			}
-			if client == nil {
-				allowlist[addr] = true
-				continue
-			}
-			addrType, err := client.ResolveAccountType(addr)
-			if err != nil {
-				return nil, fmt.Errorf("ssh service couldn't resolve account type: %v", segment)
-			}
-			if addrType == "driveMember" {
-				driveMemberAllowlist[addr] = true
-				_, err := client.GetCacheOrResolveAllPeersOfAddrs(addr)
-				if err != nil {
-					return nil, fmt.Errorf("ssh service couldn't resolve Device: %v", segment)
-				}
-			} else if addrType == "drive" {
-				driveAllowlist[addr] = true
-				_, err := client.GetCacheOrResolveAllPeersOfAddrs(addr)
-				if err != nil {
-					return nil, fmt.Errorf("ssh service couldn't resolve drive: %v", segment)
-				}
-			} else {
-				allowlist[addr] = true
-			}
-		}
-
-		port := &config.Port{
-			To:                   externPort,
-			Mode:                 mode,
-			Protocol:             config.AnyProtocol,
-			Allowlist:            allowlist,
-			BnsAllowlist:         bnsAllowlist,
-			DriveAllowList:       driveAllowlist,
-			DriveMemberAllowList: driveMemberAllowlist,
-			SSHEnabled:           true,
-			SSHLocalUser:         head[3],
-		}
-		if mode == config.PrivatePublishedMode &&
-			len(port.Allowlist) == 0 &&
-			len(port.BnsAllowlist) == 0 &&
-			len(port.DriveAllowList) == 0 &&
-			len(port.DriveMemberAllowList) == 0 {
-			return nil, fmt.Errorf("private ssh service requires providing at least one address")
-		}
-		if mode == config.ProtectedPublishedMode && (len(port.Allowlist) > 5 || len(port.BnsAllowlist) > 5) {
-			return nil, fmt.Errorf("fleet address size should not exceeds 5 when publish protected ssh service")
-		}
-
-		ports = append(ports, port)
-	}
-
-	return ports, nil
-}
-
 func publishHandler() (err error) {
 	cfg := config.AppConfig
 	portString := make(map[int]*config.Port)
@@ -494,10 +379,7 @@ func publishHandler() (err error) {
 			for driveMember := range port.DriveMemberAllowList {
 				addrs = append(addrs, driveMember.HexString())
 			}
-			host := net.JoinHostPort(port.SrcHost, strconv.Itoa(port.Src))
-			if port.SSHEnabled {
-				host = fmt.Sprintf("sshd:%s", port.SSHLocalUser)
-			}
+			host := publishedPortDisplayHost(port)
 			cfg.PrintLabel(fmt.Sprintf("Port %12s", host), fmt.Sprintf("%8d  %10s       %s        %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol), strings.Join(addrs, ",")))
 		}
 	}
