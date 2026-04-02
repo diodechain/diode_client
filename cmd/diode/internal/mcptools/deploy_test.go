@@ -7,12 +7,12 @@ import "testing"
 
 func TestParseDiodeDeployTarget(t *testing.T) {
 	t.Parallel()
-	host, port, err := ParseDiodeDeployTarget("")
+	_, _, err := ParseDiodeDeployTarget("")
 	if err == nil {
 		t.Fatal("empty: want error")
 	}
 
-	host, port, err = ParseDiodeDeployTarget("diode://0xb6a70432a8bbbcb9ce019c9a9c82fd0f651be121.diode:8003")
+	host, port, err := ParseDiodeDeployTarget("diode://0xb6a70432a8bbbcb9ce019c9a9c82fd0f651be121.diode:8003")
 	if err != nil {
 		t.Fatal(err)
 	}
