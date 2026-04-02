@@ -105,7 +105,7 @@ Each tool has a **name** (below), a **description** (as registered with the host
 | **Input** | `peer_host`, `port`, `remote_path` (same rules as push). Optional `local_path`; optional `max_inline_bytes` (default **4194304** = 4 MiB). |
 | **Result** | `status_code`; on success either `content_base64` + `message` (**inline** mode) or `local_path_written` + `message` (**file** mode). |
 | **Inline mode** | If `local_path` is omitted: read the response body into memory; if size **>** `max_inline_bytes`, return an error instructing the caller to set `local_path`. Otherwise return **`content_base64`** of the body. |
-| **File mode** | If `local_path` is set: resolve destination path - trailing **`/`** or **`\`** or an **existing directory** → write **`basename(remote_path)`** inside that directory; otherwise treat `local_path` as the full output file path (non-existent path → new file). Create parent directories with **`0755`** as needed, then stream the body to the file. |
+| **File mode** | If `local_path` is set: resolve destination path - trailing **`/`** or **`\`** or an **existing directory** → write **`basename(remote_path)`** inside that directory; otherwise treat `local_path` as the full output file path (non-existent path → new file). Create parent directories with **`0750`** as needed, then stream the body to the file (new files **`0600`**). |
 | **HTTP** | Client timeout **5 minutes**. |
 | **Errors** | Not connected; bad host/port/path; transport failure; non-2xx HTTP (structured like push). Inline mode: body too large for `max_inline_bytes`. |
 

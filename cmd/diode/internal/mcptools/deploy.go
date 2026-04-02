@@ -169,7 +169,7 @@ func ensureLocalTarGzNamed(pkgPath, uuid string) (finalPath string, err error) {
 		return "", fmt.Errorf("rename tarball to %s: %w", want, err)
 	}
 	defer in.Close()
-	out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return "", err
 	}

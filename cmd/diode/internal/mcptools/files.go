@@ -234,10 +234,10 @@ func toolFilePull(ctx context.Context, _ *mcp.CallToolRequest, in FilePullIn, d 
 	if err != nil {
 		return nil, FilePullOut{}, err
 	}
-	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(dest), 0750); err != nil {
 		return nil, FilePullOut{}, err
 	}
-	f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	f, err := os.OpenFile(dest, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		return nil, FilePullOut{}, err
 	}

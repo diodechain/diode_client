@@ -123,13 +123,13 @@ func (h *Handler) servePut(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dir := filepath.Dir(abs)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, 0750); err != nil {
 		http.Error(w, "could not create parent directories", http.StatusInternalServerError)
 		return
 	}
 
 	body := http.MaxBytesReader(w, r.Body, h.maxBody())
-	f, err := os.OpenFile(abs, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	f, err := os.OpenFile(abs, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
 	if err != nil {
 		http.Error(w, "could not open file for write", http.StatusInternalServerError)
 		return
