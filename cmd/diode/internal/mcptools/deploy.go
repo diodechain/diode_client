@@ -5,7 +5,6 @@
 package mcptools
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -295,9 +294,14 @@ func toolDeploy(ctx context.Context, _ *mcp.CallToolRequest, in DeployIn, d Deps
 		return nil, DeployOut{}, err
 	}
 
-	body, err := os.ReadFile(pkgPath)
+	f, err := os.Open(pkgPath)
 	if err != nil {
-		return nil, DeployOut{}, fmt.Errorf("read package %q: %w", pkgPath, err)
+		return nil, DeployOut{}, fmt.Errorf("open package %q: %w", pkgPath, err)
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, DeployOut{}, fmt.Errorf("stat package %q: %w", pkgPath, err)
 	}
 
 	remotePath := token + ".tar.gz"
@@ -312,12 +316,12 @@ func toolDeploy(ctx context.Context, _ *mcp.CallToolRequest, in DeployIn, d Deps
 	}
 	client := &http.Client{Transport: transport, Timeout: 15 * time.Minute}
 
-	reqHTTP, err := http.NewRequestWithContext(ctx, http.MethodPut, urlStr, bytes.NewReader(body))
+	reqHTTP, err := http.NewRequestWithContext(ctx, http.MethodPut, urlStr, f)
 	if err != nil {
 		return nil, DeployOut{}, err
 	}
 	reqHTTP.Header.Set("Content-Type", "application/gzip")
-	reqHTTP.ContentLength = int64(len(body))
+	reqHTTP.ContentLength = fi.Size()
 
 	resp, err := client.Do(reqHTTP)
 	if err != nil {

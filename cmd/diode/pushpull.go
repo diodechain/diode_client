@@ -4,7 +4,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -153,7 +152,12 @@ func pushHandler() error {
 		return fmt.Errorf("not connected to the Diode network")
 	}
 
-	body, err := os.ReadFile(localPath)
+	f, err := os.Open(localPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
 	if err != nil {
 		return err
 	}
@@ -184,12 +188,12 @@ func pushHandler() error {
 		return err
 	}
 	client := &http.Client{Transport: transport, Timeout: 5 * time.Minute}
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodPut, urlStr, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodPut, urlStr, f)
 	if err != nil {
 		return err
 	}
 	req.Header.Set("Content-Type", "application/octet-stream")
-	req.ContentLength = int64(len(body))
+	req.ContentLength = fi.Size()
 
 	resp, err := client.Do(req)
 	if err != nil {

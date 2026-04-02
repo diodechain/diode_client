@@ -158,20 +158,8 @@ func filesHandler() error {
 		}
 	}
 
-	for {
-		app.Wait()
-		if app.Closed() {
-			return nil
-		}
-		for {
-			client := app.WaitForFirstClient()
-			if client != nil {
-				break
-			}
-			cfg.Logger.Info("Could not connect to network trying again in 5 seconds")
-			time.Sleep(5 * time.Second)
-		}
-	}
+	app.Wait()
+	return nil
 }
 
 func printFilePublishBanner(cfg *config.Config, port *config.Port) {
