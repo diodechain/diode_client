@@ -101,6 +101,7 @@ func init() {
 	diodeCmd.AddSubCommand(sshProxyCmd)
 	diodeCmd.AddSubCommand(versionCmd)
 	diodeCmd.AddSubCommand(updateCmd)
+	diodeCmd.AddSubCommand(mcpCmd)
 }
 
 func prepareDiode() error {
@@ -171,7 +172,7 @@ func prepareDiode() error {
 	}
 
 	if cfg.BnsCacheTime > 0 {
-		fmt.Println("Warning: bnscachetime is deprecated, please use resolvecachetime instead")
+		cfg.Logger.Warn("Warning: bnscachetime is deprecated, please use resolvecachetime instead")
 		cfg.ResolveCacheTime = cfg.BnsCacheTime
 	}
 	// initialize diode application
