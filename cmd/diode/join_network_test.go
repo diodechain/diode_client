@@ -1,9 +1,13 @@
 package main
 
 import (
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/diodechain/diode_client/config"
+	"github.com/diodechain/diode_client/util"
 	oasisConfig "github.com/oasisprotocol/oasis-sdk/client-sdk/go/config"
 )
 
@@ -109,4 +113,286 @@ func TestResolveSapphireNetworkRejectsInvalidNetwork(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected invalid network error")
 	}
+}
+
+func TestFormatProxyToLookupErrorExecutionReverted(t *testing.T) {
+	deviceAddr, err := util.DecodeAddress(testContractA)
+	if err != nil {
+		t.Fatalf("DecodeAddress(%q): %v", testContractA, err)
+	}
+
+	formatted := formatProxyToLookupError(
+		deviceAddr,
+		testContractB,
+		errors.New(`batch errors: proxy_to: sapphire rpc eth_call error: {"code":3,"data":"0x","message":"execution reverted"}`),
+	)
+	if formatted == nil {
+		t.Fatal("expected formatted error")
+	}
+	msg := formatted.Error()
+	if !strings.Contains(msg, "might not be added to perimeter") {
+		t.Fatalf("expected human-friendly perimeter hint, got %q", msg)
+	}
+	if !strings.Contains(msg, testContractB) {
+		t.Fatalf("expected contract address in message, got %q", msg)
+	}
+	if !strings.Contains(msg, deviceAddr.HexString()) {
+		t.Fatalf("expected asset address in message, got %q", msg)
+	}
+}
+
+func TestFormatProxyToLookupErrorPassesThroughOtherErrors(t *testing.T) {
+	original := errors.New("temporary disconnect")
+	formatted := formatProxyToLookupError(util.Address{}, testContractB, original)
+	if !errors.Is(formatted, original) {
+		t.Fatalf("expected original error to be preserved, got %v", formatted)
+	}
+}
+
+const (
+	testContractA = "0x1111111111111111111111111111111111111111"
+	testContractB = "0x2222222222222222222222222222222222222222"
+)
+
+func TestResolveEffectiveContractPropsProxySuccess(t *testing.T) {
+	resetJoinContractSyncStateForTest(t)
+
+	chain, effective, props, err := resolveEffectiveContractProps(
+		util.Address{},
+		testContractA,
+		func(deviceAddr util.Address, startContractAddr string) ([]string, error) {
+			if startContractAddr != testContractA {
+				t.Fatalf("unexpected start contract: %s", startContractAddr)
+			}
+			return []string{testContractA, testContractB}, nil
+		},
+		func(deviceAddr util.Address, contractAddr string) (map[string]string, error) {
+			if contractAddr != testContractB {
+				t.Fatalf("expected fetch from pointed contract %s, got %s", testContractB, contractAddr)
+			}
+			return map[string]string{"public": "80/tcp"}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("resolveEffectiveContractProps() returned error: %v", err)
+	}
+	if !reflect.DeepEqual(chain, []string{testContractA, testContractB}) {
+		t.Fatalf("unexpected chain: %#v", chain)
+	}
+	if effective != testContractB {
+		t.Fatalf("expected effective contract %s, got %s", testContractB, effective)
+	}
+	if !reflect.DeepEqual(props, map[string]string{"public": "80/tcp"}) {
+		t.Fatalf("unexpected properties: %#v", props)
+	}
+
+	commitEffectiveContractState(&config.Config{}, chain, effective, props)
+	gotEffective, gotChain := getContractSyncStateForTest()
+	if gotEffective != testContractB {
+		t.Fatalf("expected cached effective contract %s, got %s", testContractB, gotEffective)
+	}
+	if gotChain != testContractA+" -> "+testContractB {
+		t.Fatalf("unexpected proxy chain: %s", gotChain)
+	}
+	if cached := getLastContractPropsForTest(); !reflect.DeepEqual(cached, map[string]string{"public": "80/tcp"}) {
+		t.Fatalf("unexpected cached properties: %#v", cached)
+	}
+}
+
+func TestResolveEffectiveContractPropsPreservesStateOnTargetFailure(t *testing.T) {
+	resetJoinContractSyncStateForTest(t)
+	setContractSyncStateForTest(testContractB, testContractA+" -> "+testContractB, map[string]string{"public": "80/tcp"})
+
+	chain, effective, props, err := resolveEffectiveContractProps(
+		util.Address{},
+		testContractA,
+		func(deviceAddr util.Address, startContractAddr string) ([]string, error) {
+			return []string{testContractA, testContractB}, nil
+		},
+		func(deviceAddr util.Address, contractAddr string) (map[string]string, error) {
+			if contractAddr != testContractB {
+				t.Fatalf("expected fetch from pointed contract %s, got %s", testContractB, contractAddr)
+			}
+			return nil, errors.New("sapphire rpc eth_call call failed: :disconnect")
+		},
+	)
+	if err == nil {
+		t.Fatal("expected error for full target fetch failure")
+	}
+	if !reflect.DeepEqual(chain, []string{testContractA, testContractB}) {
+		t.Fatalf("unexpected chain: %#v", chain)
+	}
+	if effective != testContractB {
+		t.Fatalf("expected resolved target %s even on failure, got %s", testContractB, effective)
+	}
+	if len(props) != 0 {
+		t.Fatalf("expected no properties on failure, got %#v", props)
+	}
+	stateEffective, stateChain := getContractSyncStateForTest()
+	if stateEffective != testContractB {
+		t.Fatalf("expected effective contract to remain %s, got %s", testContractB, stateEffective)
+	}
+	if stateChain != testContractA+" -> "+testContractB {
+		t.Fatalf("expected proxy chain to remain unchanged, got %s", stateChain)
+	}
+	if cached := getLastContractPropsForTest(); !reflect.DeepEqual(cached, map[string]string{"public": "80/tcp"}) {
+		t.Fatalf("expected cached properties to remain unchanged, got %#v", cached)
+	}
+}
+
+func TestResolveEffectiveContractPropsPreservesStateOnProxyResolutionFailure(t *testing.T) {
+	resetJoinContractSyncStateForTest(t)
+	setContractSyncStateForTest(testContractB, testContractA+" -> "+testContractB, map[string]string{"public": "80/tcp"})
+
+	fetchCalled := false
+	chain, effective, props, err := resolveEffectiveContractProps(
+		util.Address{},
+		testContractA,
+		func(deviceAddr util.Address, startContractAddr string) ([]string, error) {
+			return []string{testContractA, testContractB}, errors.New("sapphire rpc eth_call call failed: :disconnect")
+		},
+		func(deviceAddr util.Address, contractAddr string) (map[string]string, error) {
+			fetchCalled = true
+			return nil, nil
+		},
+	)
+	if err == nil {
+		t.Fatal("expected error for proxy resolution failure")
+	}
+	if len(chain) != 0 {
+		t.Fatalf("expected no chain on proxy resolution failure, got %#v", chain)
+	}
+	if effective != "" {
+		t.Fatalf("expected no effective contract on proxy resolution failure, got %s", effective)
+	}
+	if len(props) != 0 {
+		t.Fatalf("expected no properties on proxy resolution failure, got %#v", props)
+	}
+	if fetchCalled {
+		t.Fatal("expected no contract fetch when proxy resolution fails")
+	}
+	stateEffective, stateChain := getContractSyncStateForTest()
+	if stateEffective != testContractB {
+		t.Fatalf("expected effective contract to remain %s, got %s", testContractB, stateEffective)
+	}
+	if stateChain != testContractA+" -> "+testContractB {
+		t.Fatalf("expected proxy chain to remain unchanged, got %s", stateChain)
+	}
+	if cached := getLastContractPropsForTest(); !reflect.DeepEqual(cached, map[string]string{"public": "80/tcp"}) {
+		t.Fatalf("expected cached properties to remain unchanged, got %#v", cached)
+	}
+}
+
+func TestResolveEffectiveContractPropsPartialTargetFetchKeepsPointedContract(t *testing.T) {
+	resetJoinContractSyncStateForTest(t)
+
+	chain, effective, props, err := resolveEffectiveContractProps(
+		util.Address{},
+		testContractA,
+		func(deviceAddr util.Address, startContractAddr string) ([]string, error) {
+			return []string{testContractA, testContractB}, nil
+		},
+		func(deviceAddr util.Address, contractAddr string) (map[string]string, error) {
+			if contractAddr != testContractB {
+				t.Fatalf("expected fetch from pointed contract %s, got %s", testContractB, contractAddr)
+			}
+			return map[string]string{"public": "80/tcp"}, errors.New("batch errors: private: sapphire rpc eth_call call failed: :disconnect")
+		},
+	)
+	if err == nil {
+		t.Fatal("expected partial fetch error")
+	}
+	if !reflect.DeepEqual(chain, []string{testContractA, testContractB}) {
+		t.Fatalf("unexpected chain: %#v", chain)
+	}
+	if effective != testContractB {
+		t.Fatalf("expected effective contract %s, got %s", testContractB, effective)
+	}
+	if !reflect.DeepEqual(props, map[string]string{"public": "80/tcp"}) {
+		t.Fatalf("unexpected partial properties: %#v", props)
+	}
+
+	commitEffectiveContractState(&config.Config{}, chain, effective, props)
+	stateEffective, stateChain := getContractSyncStateForTest()
+	if stateEffective != testContractB {
+		t.Fatalf("expected cached effective contract %s, got %s", testContractB, stateEffective)
+	}
+	if stateChain != testContractA+" -> "+testContractB {
+		t.Fatalf("unexpected proxy chain: %s", stateChain)
+	}
+	if cached := getLastContractPropsForTest(); !reflect.DeepEqual(cached, map[string]string{"public": "80/tcp"}) {
+		t.Fatalf("expected cached partial properties, got %#v", cached)
+	}
+}
+
+func TestResolveEffectiveContractPropsNonProxyContract(t *testing.T) {
+	resetJoinContractSyncStateForTest(t)
+
+	chain, effective, props, err := resolveEffectiveContractProps(
+		util.Address{},
+		testContractA,
+		func(deviceAddr util.Address, startContractAddr string) ([]string, error) {
+			return []string{testContractA}, nil
+		},
+		func(deviceAddr util.Address, contractAddr string) (map[string]string, error) {
+			if contractAddr != testContractA {
+				t.Fatalf("expected fetch from original contract %s, got %s", testContractA, contractAddr)
+			}
+			return map[string]string{"private": "443/tls"}, nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("resolveEffectiveContractProps() returned error: %v", err)
+	}
+	if !reflect.DeepEqual(chain, []string{testContractA}) {
+		t.Fatalf("unexpected chain: %#v", chain)
+	}
+	if effective != testContractA {
+		t.Fatalf("expected effective contract %s, got %s", testContractA, effective)
+	}
+	if !reflect.DeepEqual(props, map[string]string{"private": "443/tls"}) {
+		t.Fatalf("unexpected properties: %#v", props)
+	}
+
+	commitEffectiveContractState(&config.Config{}, chain, effective, props)
+	stateEffective, stateChain := getContractSyncStateForTest()
+	if stateEffective != testContractA {
+		t.Fatalf("expected cached effective contract %s, got %s", testContractA, stateEffective)
+	}
+	if stateChain != testContractA {
+		t.Fatalf("expected single-contract chain %s, got %s", testContractA, stateChain)
+	}
+}
+
+func resetJoinContractSyncStateForTest(t *testing.T) {
+	t.Helper()
+
+	origEffective, origChain := getContractSyncStateForTest()
+	origProps := getLastContractPropsForTest()
+
+	setContractSyncStateForTest("", "", nil)
+
+	t.Cleanup(func() {
+		setContractSyncStateForTest(origEffective, origChain, origProps)
+	})
+}
+
+func getLastContractPropsForTest() map[string]string {
+	lastContractSyncStateMutex.RLock()
+	defer lastContractSyncStateMutex.RUnlock()
+	return lastContractProps
+}
+
+func getContractSyncStateForTest() (effective string, chain string) {
+	lastContractSyncStateMutex.RLock()
+	defer lastContractSyncStateMutex.RUnlock()
+	return lastEffectiveContract, lastProxyToChain
+}
+
+func setContractSyncStateForTest(effective string, chain string, props map[string]string) {
+	lastContractSyncStateMutex.Lock()
+	defer lastContractSyncStateMutex.Unlock()
+	lastEffectiveContract = effective
+	lastProxyToChain = chain
+	lastContractProps = props
 }

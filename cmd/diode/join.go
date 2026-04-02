@@ -889,7 +889,7 @@ func buildProxyToChain(deviceAddr util.Address, startContractAddr string) (chain
 		props, fetchErr := getPropertyValuesAt(deviceAddr, current, []string{"proxy_to"})
 		if fetchErr != nil && len(props) == 0 {
 			// Can't even read proxy_to; stop at the last known good contract.
-			return chain, fetchErr
+			return chain, formatProxyToLookupError(deviceAddr, current, fetchErr)
 		}
 
 		proxyTo := ""
@@ -928,21 +928,65 @@ func buildProxyToChain(deviceAddr util.Address, startContractAddr string) (chain
 	return chain, err
 }
 
-func selectContractPropsWithFallback(deviceAddr util.Address, chain []string) (contractAddr string, props map[string]string, err error) {
-	if len(chain) == 0 {
-		return "", nil, fmt.Errorf("empty proxy_to chain")
+func formatProxyToLookupError(deviceAddr util.Address, contractAddr string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "execution reverted") {
+		return fmt.Errorf(
+			"asset %s might not be added to perimeter %s (proxy_to lookup reverted: %w)",
+			deviceAddr.HexString(),
+			contractAddr,
+			err,
+		)
+	}
+	return err
+}
+
+func resolveEffectiveContractProps(
+	deviceAddr util.Address,
+	startContractAddr string,
+	buildChain func(util.Address, string) ([]string, error),
+	fetchProps func(util.Address, string) (map[string]string, error),
+) (chain []string, contractAddr string, props map[string]string, err error) {
+	chain, err = buildChain(deviceAddr, startContractAddr)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("proxy_to resolution failed: %w", err)
 	}
 
-	var lastErr error
-	for i := len(chain) - 1; i >= 0; i-- {
-		addr := chain[i]
-		props, err = fetchContractPropsFromContract(deviceAddr, addr)
-		if err == nil || len(props) > 0 {
-			return addr, props, err
-		}
-		lastErr = err
+	if len(chain) == 0 {
+		return nil, "", nil, fmt.Errorf("empty proxy_to chain")
 	}
-	return chain[0], nil, lastErr
+
+	contractAddr = chain[len(chain)-1]
+	props, err = fetchProps(deviceAddr, contractAddr)
+	if err != nil && len(props) == 0 {
+		return chain, contractAddr, nil, err
+	}
+
+	return chain, contractAddr, props, err
+}
+
+func commitEffectiveContractState(cfg *config.Config, chain []string, contractAddr string, props map[string]string) {
+	chainStr := strings.Join(chain, " -> ")
+	shouldLog := false
+	lastContractSyncStateMutex.Lock()
+	if contractAddr != "" && (contractAddr != lastEffectiveContract || chainStr != lastProxyToChain) {
+		lastEffectiveContract = contractAddr
+		lastProxyToChain = chainStr
+		shouldLog = true
+	}
+	if props != nil {
+		lastContractProps = props
+	}
+	lastContractSyncStateMutex.Unlock()
+
+	if shouldLog && cfg != nil && cfg.Logger != nil {
+		if len(chain) > 1 {
+			cfg.PrintLabel("Perimeter Proxy Chain", chainStr)
+		}
+		cfg.PrintLabel("Effective Perimeter", contractAddr)
+	}
 }
 
 // updatePortsFromContract uses the provided property map to extract port configurations,
@@ -1613,8 +1657,8 @@ var lastAppliedBindSignature string
 var socksServerStarted bool
 var lastEffectiveContract string
 var lastProxyToChain string
-var lastContractProps map[string]string // Cache for last fetched contract properties (used by API server)
-var lastContractPropsMutex sync.RWMutex // Protects lastContractProps
+var lastContractProps map[string]string     // Cache for last fetched contract properties (used by API server)
+var lastContractSyncStateMutex sync.RWMutex // Protects effective contract, proxy chain, and cached contract props
 
 // GetContractAddress returns the current contract/perimeter address
 func GetContractAddress() string {
@@ -1623,7 +1667,23 @@ func GetContractAddress() string {
 
 // GetEffectiveContractAddress returns the effective contract address
 func GetEffectiveContractAddress() string {
+	lastContractSyncStateMutex.RLock()
+	defer lastContractSyncStateMutex.RUnlock()
 	return lastEffectiveContract
+}
+
+func getContractSyncStateSnapshot() (effectiveContract string, props map[string]string) {
+	lastContractSyncStateMutex.RLock()
+	defer lastContractSyncStateMutex.RUnlock()
+
+	effectiveContract = lastEffectiveContract
+	if lastContractProps != nil {
+		props = make(map[string]string, len(lastContractProps))
+		for k, v := range lastContractProps {
+			props[k] = v
+		}
+	}
+	return effectiveContract, props
 }
 
 // wgBasepoint is the X25519 basepoint per RFC 7748
@@ -2968,29 +3028,7 @@ func contractSync(cfg *config.Config) error {
 
 	deviceAddr := cfg.ClientAddr
 
-	chain, proxyErr := buildProxyToChain(deviceAddr, contractAddress)
-	effectiveContractAddr, props, err := selectContractPropsWithFallback(deviceAddr, chain)
-	if proxyErr != nil && cfg.Logger != nil {
-		cfg.Logger.Debug("proxy_to resolution stopped early: %v", proxyErr)
-	}
-	if effectiveContractAddr != "" && effectiveContractAddr != lastEffectiveContract {
-		lastEffectiveContract = effectiveContractAddr
-		lastProxyToChain = strings.Join(chain, " -> ")
-		if len(chain) > 1 {
-			cfg.PrintLabel("Perimeter Proxy Chain", lastProxyToChain)
-		}
-		cfg.PrintLabel("Effective Perimeter", effectiveContractAddr)
-	}
-
-	// Cache the fetched properties for use by the API server
-	if props != nil {
-		lastContractPropsMutex.Lock()
-		lastContractProps = make(map[string]string)
-		for k, v := range props {
-			lastContractProps[k] = v
-		}
-		lastContractPropsMutex.Unlock()
-	}
+	chain, effectiveContractAddr, props, err := resolveEffectiveContractProps(deviceAddr, contractAddress, buildProxyToChain, fetchContractPropsFromContract)
 
 	if err != nil {
 		if len(props) == 0 {
@@ -3000,6 +3038,8 @@ func contractSync(cfg *config.Config) error {
 			cfg.Logger.Warn("Partial contract properties: %v", err)
 		}
 	}
+
+	commitEffectiveContractState(cfg, chain, effectiveContractAddr, props)
 
 	applyControlPlaneConfig(cfg, props)
 
