@@ -889,7 +889,7 @@ func buildProxyToChain(deviceAddr util.Address, startContractAddr string) (chain
 		props, fetchErr := getPropertyValuesAt(deviceAddr, current, []string{"proxy_to"})
 		if fetchErr != nil && len(props) == 0 {
 			// Can't even read proxy_to; stop at the last known good contract.
-			return chain, fetchErr
+			return chain, formatProxyToLookupError(deviceAddr, current, fetchErr)
 		}
 
 		proxyTo := ""
@@ -926,6 +926,21 @@ func buildProxyToChain(deviceAddr util.Address, startContractAddr string) (chain
 		cfg.Logger.Warn("proxy_to chain exceeded max depth (%d); stopping at %s", maxProxyToDepth, current)
 	}
 	return chain, err
+}
+
+func formatProxyToLookupError(deviceAddr util.Address, contractAddr string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "execution reverted") {
+		return fmt.Errorf(
+			"asset %s might not be added to perimeter %s (proxy_to lookup reverted: %w)",
+			deviceAddr.HexString(),
+			contractAddr,
+			err,
+		)
+	}
+	return err
 }
 
 func resolveEffectiveContractProps(

@@ -115,6 +115,40 @@ func TestResolveSapphireNetworkRejectsInvalidNetwork(t *testing.T) {
 	}
 }
 
+func TestFormatProxyToLookupErrorExecutionReverted(t *testing.T) {
+	deviceAddr, err := util.DecodeAddress(testContractA)
+	if err != nil {
+		t.Fatalf("DecodeAddress(%q): %v", testContractA, err)
+	}
+
+	formatted := formatProxyToLookupError(
+		deviceAddr,
+		testContractB,
+		errors.New(`batch errors: proxy_to: sapphire rpc eth_call error: {"code":3,"data":"0x","message":"execution reverted"}`),
+	)
+	if formatted == nil {
+		t.Fatal("expected formatted error")
+	}
+	msg := formatted.Error()
+	if !strings.Contains(msg, "might not be added to perimeter") {
+		t.Fatalf("expected human-friendly perimeter hint, got %q", msg)
+	}
+	if !strings.Contains(msg, testContractB) {
+		t.Fatalf("expected contract address in message, got %q", msg)
+	}
+	if !strings.Contains(msg, deviceAddr.HexString()) {
+		t.Fatalf("expected asset address in message, got %q", msg)
+	}
+}
+
+func TestFormatProxyToLookupErrorPassesThroughOtherErrors(t *testing.T) {
+	original := errors.New("temporary disconnect")
+	formatted := formatProxyToLookupError(util.Address{}, testContractB, original)
+	if !errors.Is(formatted, original) {
+		t.Fatalf("expected original error to be preserved, got %v", formatted)
+	}
+}
+
 const (
 	testContractA = "0x1111111111111111111111111111111111111111"
 	testContractB = "0x2222222222222222222222222222222222222222"
