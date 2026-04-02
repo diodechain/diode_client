@@ -262,6 +262,12 @@ curl -fS -o vacation.jpg 'https://mydevice.diode.link:8080/photos/vacation.jpg'
 
 ---
 
+## Companion files (e.g. Diode deploy)
+
+Higher-level tools may use the same **`diode files`** listener for **artifacts plus sidecar files** under **`-fileroot`**. For example, a **Diode deploy** ingest service may accept **`PUT /{uuid}.tar.gz`** and write **`{uuid}.log`** in the same root with deployment status or errors. Clients ( **`diode pull`**, **`diode_file_pull`**, **HTTPS GET**) then use **`GET /{uuid}.log`**. The log may not exist until processing finishes (**404** until then). This contract is between the deploy service and its clients; the **`filetransfer`** handler itself only serves paths that exist.
+
+---
+
 ## Status
 
-Normative specification for the Diode client. **`diode files`**, **`diode push`**, **`diode pull`**, **`publish -files`**, and MCP **`diode_file_push`** / **`diode_file_pull`** share the **`filetransfer`** package (`filetransfer/`).
+Normative specification for the Diode client. **`diode files`**, **`diode push`**, **`diode pull`**, **`publish -files`**, and MCP **`diode_file_push`** / **`diode_file_pull`** / **`diode_deploy`** share the **`filetransfer`** package (`filetransfer/`) where applicable.

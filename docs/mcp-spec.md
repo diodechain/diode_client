@@ -8,19 +8,46 @@ Normative description of **`diode mcp`**: Model Context Protocol server over **s
 
 | Field | Value |
 |-------|--------|
-| **Command** | `diode mcp` (with normal global Diode flags and config as for other subcommands). |
+| **Command** | `diode mcp` (with normal global Diode flags and config as for other subcommands). Optional **tool filters** reduce how many tools are registered (see **Tool selection** below). |
 | **Transport** | Stdio: MCP messages on **stdin** / **stdout**; implementation logging may use **stderr** (see SDK `LoggingTransport`). |
 | **Implementation `name`** | `diode` |
 | **Implementation `title`** | `Diode Network Client` |
 | **`version`** | Same as the `diode` binary build (reported by **`diode_get_version`**). |
 
-**Server instructions** (exposed to hosts such as Cursor): tools cover client version, local identity on the network, address resolution, file **push**/**pull** to a remote **`diode files`** listener, and **`diode_deploy`** for tarball ingest to a Diode deploy host. **`diode_deploy`** requires **`DIODE_MCP_DEPLOY_TARGET`** and **`package_path`**; optional **`DIODE_MCP_DEPLOY_UUID`** fixes the deploy token per project (see **`diode_deploy`** below).
+**Server instructions** (exposed to hosts such as Cursor): tools cover client version, local identity on the network, address resolution, file **push**/**pull** to a remote **`diode files`** listener, and **`diode_deploy`** for tarball ingest to a Diode deploy host. **`diode_deploy`** includes a short preview of the remote **`/{uuid}.log`** when available; **`diode_file_pull`** (included in the **`deploy`** preset) fetches the full log or larger bodies. **`diode_deploy`** requires **`DIODE_MCP_DEPLOY_TARGET`** and **`package_path`**; optional **`DIODE_MCP_DEPLOY_UUID`** fixes the deploy token per project (see **`diode_deploy`** below).
 
 **Runtime:** The process runs **`prepareDiode`**, starts the shared **`app`** (Diode client connected to the fleet), then serves MCP until **SIGINT** / **SIGTERM**. **`EnableUpdate`** is disabled for the MCP command. Tools that need the network return an error if there is **no connected client** (`GetNearestClient() == nil`).
+
+### Tool selection
+
+If **none** of the following are set, **every** tool in **Tools** is registered (backward compatible default).
+
+If **any** of the following are set, the active set is the **union** of all specified names (duplicates ignored):
+
+| Mechanism | Example |
+|-----------|---------|
+| **`-mcp-preset`** | `minimal`, `chain`, `files`, `deploy`, `all` (alias `full`) |
+| **Environment `DIODE_MCP_TOOLS`** | Comma-separated tool names (same as **`-mcp-tools`**) |
+| **`-mcp-tools`** | Comma-separated tool names |
+| **`-mcp-tool`** | Repeat per tool (e.g. `-mcp-tool=diode_deploy -mcp-tool=diode_get_version`) |
+
+**Presets:**
+
+| Preset | Tools included |
+|--------|----------------|
+| **`minimal`** | `diode_get_version`, `diode_get_client_info` |
+| **`chain`** | **`minimal`** + `diode_query_address` |
+| **`files`** | **`minimal`** + `diode_file_push`, `diode_file_pull` |
+| **`deploy`** | **`minimal`** + `diode_deploy`, `diode_file_pull` |
+| **`all`** / **`full`** | All tools |
+
+Unknown preset or unknown tool name → process exits with an error before serving.
 
 ---
 
 ## Tools
+
+**Tool IDs** (for **`-mcp-tool`**, **`-mcp-tools`**, **`DIODE_MCP_TOOLS`**): `diode_get_version`, `diode_get_client_info`, `diode_query_address`, `diode_file_push`, `diode_file_pull`, `diode_deploy`.
 
 Each tool has a **name** (below), a **description** (as registered with the host), and a **JSON object** input schema inferred from the Go types (property names match the **`json`** tags). Successful structured results are returned as JSON objects with the output field names listed.
 
@@ -91,9 +118,10 @@ Each tool has a **name** (below), a **description** (as registered with the host
 | **Description** | Upload a **`.tar.gz`** package to a remote **Diode deploy** ingest **`diode files`** listener. Remote path is always **`PUT /{uuid}.tar.gz`**. **`package_path`** is always required (absolute path to the tarball on the MCP host). |
 | **Input** | `package_path` (string, required) — absolute path to the tarball. `deploy_token` (string, optional if **`DIODE_MCP_DEPLOY_UUID`** is set) — UUID from the user for the target app when the env UUID is **not** set; **required** in that case. If **`DIODE_MCP_DEPLOY_UUID`** is set, `deploy_token` must **match** the env UUID or be **omitted**. |
 | **Environment** | **`DIODE_MCP_DEPLOY_TARGET`** (required): **`diode://<host>:<port>`** (same host forms as **`diode_file_push`**). **`DIODE_MCP_DEPLOY_UUID`** (optional): UUID for this MCP/project; when set, it is the deploy token and the tool **renames** the file at `package_path` to **`{UUID}.tar.gz`** in the same directory if needed (or copies then deletes the source if **rename** crosses devices). If **`{UUID}.tar.gz`** already exists in that directory, the tool errors. When unset, the agent must pass **`deploy_token`** and the tarball must **already** be named **`{deploy_token}.tar.gz`**. |
-| **HTTP** | **PUT** to **`http://{host}:{port}/{uuid}.tar.gz`**, **`Content-Type: application/gzip`**, timeout **15 minutes**. |
-| **Result** | `status_code`, `message`, `remote_path`, `local_path` (path after any rename). Non-2xx HTTP returns structured output with a body snippet when present (same style as **`diode_file_push`**). |
-| **Errors** | Not connected; missing **`package_path`**; **`DIODE_MCP_DEPLOY_TARGET`** unset or invalid; missing **`deploy_token`** when **`DIODE_MCP_DEPLOY_UUID`** unset; **`deploy_token`** mismatch with env; invalid UUID; basename wrong when env UUID unset; rename target exists; unreadable package file; transport or network failure. |
+| **HTTP** | **PUT** to **`http://{host}:{port}/{uuid}.tar.gz`**, **`Content-Type: application/gzip`**, timeout **15 minutes**. After the **PUT** completes (any HTTP status), the tool performs **`GET /{uuid}.log`** on the same listener, retrying on **404** a few times so a just-written log can appear. |
+| **Result** | `status_code`, `message`, `remote_path`, `local_path` (path after any rename). Non-2xx **PUT** still returns structured output with a body snippet when present (same style as **`diode_file_push`**). **Log preview fields** (when the log **GET** runs): `log_peer_host`, `log_port`, `log_remote_path` (for **`diode_file_pull`**), `log_status_code`, `log_content` (up to **2 MiB**), `log_truncated` (**true** if larger), `log_message` (status line or note, e.g. **404** if still missing after retries). |
+| **Errors** | Not connected; missing **`package_path`**; **`DIODE_MCP_DEPLOY_TARGET`** unset or invalid; missing **`deploy_token`** when **`DIODE_MCP_DEPLOY_UUID`** unset; **`deploy_token`** mismatch with env; invalid UUID; basename wrong when env UUID unset; rename target exists; unreadable package file; transport or network failure on **PUT**. Log **GET** failures are reported in **`log_*`** fields and do not fail the tool unless **PUT** itself failed earlier with a transport error. |
+| **Deployment log (remote)** | The **Diode deploy** app (server side) is expected to write **`{uuid}.log`** in its **`diode files`** **`-fileroot`**. Use **`log_content`** from **`diode_deploy`** first; for the full file, **`log_truncated`**, or a higher size limit, call **`diode_file_pull`** with **`log_peer_host`**, **`log_port`**, and **`log_remote_path`**. The **`deploy`** preset registers **`diode_file_pull`** for this. The log may appear only after processing; **404** on **GET** is retried briefly, then surfaced in **`log_message`**. |
 
 ---
 

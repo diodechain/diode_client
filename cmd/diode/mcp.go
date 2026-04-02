@@ -24,7 +24,7 @@ var (
 	mcpCmd = &command.Command{
 		Name:        "mcp",
 		HelpText:    `  Run the Diode client as a Model Context Protocol (MCP) server on stdin/stdout.`,
-		ExampleText: `  diode mcp`,
+		ExampleText: `  diode mcp   diode mcp -mcp-preset=minimal   diode mcp -mcp-tool=diode_deploy`,
 		Run:         mcpHandler,
 		Type:        command.DaemonCommand,
 		// Parent PreRun runs before subcommand hooks; set MCP-only options in mcpHandler before prepareDiode.
@@ -68,11 +68,11 @@ type mcpDeviceTicketOut struct {
 }
 
 type mcpQueryAddressOut struct {
-	Address          string                 `json:"address"`
-	AccountType      string                 `json:"account_type,omitempty"`
-	AccountTypeError string                 `json:"account_type_error,omitempty"`
-	ResolveError     string                 `json:"resolve_error,omitempty"`
-	Devices          []mcpDeviceTicketOut   `json:"devices"`
+	Address          string               `json:"address"`
+	AccountType      string               `json:"account_type,omitempty"`
+	AccountTypeError string               `json:"account_type_error,omitempty"`
+	ResolveError     string               `json:"resolve_error,omitempty"`
+	Devices          []mcpDeviceTicketOut `json:"devices"`
 }
 
 func mcpHandler() error {
@@ -87,32 +87,46 @@ func mcpHandler() error {
 		return err
 	}
 
+	allowed, err := resolveMCPAllowedTools()
+	if err != nil {
+		return err
+	}
+
+	instructions := "Tools for the Diode client: version, local identity, on-chain queries, file push/pull to a remote `diode files` listener, and `diode_deploy` for Diode deploy ingest (env DIODE_MCP_DEPLOY_TARGET; optional DIODE_MCP_DEPLOY_UUID). Deploy responses include a short preview of `/{uuid}.log` when available; use `diode_file_pull` with the returned peer host, port, and path for the full log or larger bodies. See docs/mcp-spec.md. "
+	if allowed != nil {
+		instructions += "This server exposes a subset of tools (see -mcp-preset / -mcp-tools / " + EnvMCPTools + ")."
+	}
+
 	server := mcp.NewServer(&mcp.Implementation{
 		Name:    "diode",
 		Version: version,
 		Title:   "Diode Network Client",
 	}, &mcp.ServerOptions{
-		Instructions: "Tools for the Diode client: version, local identity, on-chain queries, file push/pull to a remote `diode files` listener, and `diode_deploy` for Diode deploy ingest (requires env DIODE_MCP_DEPLOY_TARGET; optional DIODE_MCP_DEPLOY_UUID for per-project deploy token + local rename; see docs/mcp-spec.md).",
+		Instructions: instructions,
 	})
 
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "diode_get_version",
-		Description: "Return the Diode client binary version and build timestamp.",
-	}, mcpToolVersion)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "diode_get_client_info",
-		Description: "Return this client's address, fleet, optional BNS name, and last validated block from the Diode network.",
-	}, mcpToolClientInfo)
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "diode_query_address",
-		Description: "Resolve a Diode address (JSON argument {\"address\":\"0x...\"}): account type when decodable, and device tickets from the network.",
-	}, mcpToolQueryAddress)
+	if mcpToolEnabled(allowed, mcpToolVersion) {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        mcpToolVersion,
+			Description: "Return the Diode client binary version and build timestamp.",
+		}, mcpToolVersionHandler)
+	}
+	if mcpToolEnabled(allowed, mcpToolClientInfo) {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        mcpToolClientInfo,
+			Description: "Return this client's address, fleet, optional BNS name, and last validated block from the Diode network.",
+		}, mcpToolClientInfoHandler)
+	}
+	if mcpToolEnabled(allowed, mcpToolQueryAddr) {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        mcpToolQueryAddr,
+			Description: "Resolve a Diode address (JSON argument {\"address\":\"0x...\"}): account type when decodable, and device tickets from the network.",
+		}, mcpToolQueryAddressHandler)
+	}
 
 	deps := mcptools.Deps{Cfg: config.AppConfig, CM: app.clientManager}
-	mcptools.AddFileTools(server, deps)
-	mcptools.AddDeployTool(server, deps)
+	mcptools.AddFileTools(server, deps, allowed)
+	mcptools.AddDeployTool(server, deps, allowed)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
@@ -121,11 +135,11 @@ func mcpHandler() error {
 	return server.Run(ctx, t)
 }
 
-func mcpToolVersion(_ context.Context, _ *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, mcpVersionOut, error) {
+func mcpToolVersionHandler(_ context.Context, _ *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, mcpVersionOut, error) {
 	return nil, mcpVersionOut{Version: version, BuildTime: buildTime}, nil
 }
 
-func mcpToolClientInfo(_ context.Context, _ *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, mcpClientInfoOut, error) {
+func mcpToolClientInfoHandler(_ context.Context, _ *mcp.CallToolRequest, _ any) (*mcp.CallToolResult, mcpClientInfoOut, error) {
 	cfg := config.AppConfig
 	if cfg == nil {
 		return nil, mcpClientInfoOut{}, fmt.Errorf("config not initialized")
@@ -147,7 +161,7 @@ func mcpToolClientInfo(_ context.Context, _ *mcp.CallToolRequest, _ any) (*mcp.C
 	return nil, out, nil
 }
 
-func mcpToolQueryAddress(_ context.Context, _ *mcp.CallToolRequest, in mcpQueryAddressIn) (*mcp.CallToolResult, mcpQueryAddressOut, error) {
+func mcpToolQueryAddressHandler(_ context.Context, _ *mcp.CallToolRequest, in mcpQueryAddressIn) (*mcp.CallToolResult, mcpQueryAddressOut, error) {
 	if in.Address == "" {
 		return nil, mcpQueryAddressOut{}, fmt.Errorf("address is required")
 	}
