@@ -92,7 +92,7 @@ func mcpHandler() error {
 		Version: version,
 		Title:   "Diode Network Client",
 	}, &mcp.ServerOptions{
-		Instructions: "Tools for the Diode client: version, local identity, on-chain queries, and file push/pull to a remote device running `diode files` (HTTP PUT/GET over the network). Use peer_host such as your BNS host (e.g. mydevice.diode.link).",
+		Instructions: "Tools for the Diode client: version, local identity, on-chain queries, file push/pull to a remote `diode files` listener, and `diode_deploy` for Diode deploy ingest (requires env DIODE_MCP_DEPLOY_TARGET; optional DIODE_MCP_DEPLOY_UUID for per-project deploy token + local rename; see docs/mcp-spec.md).",
 	})
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -110,7 +110,9 @@ func mcpHandler() error {
 		Description: "Resolve a Diode address (JSON argument {\"address\":\"0x...\"}): account type when decodable, and device tickets from the network.",
 	}, mcpToolQueryAddress)
 
-	mcptools.AddFileTools(server, mcptools.Deps{Cfg: config.AppConfig, CM: app.clientManager})
+	deps := mcptools.Deps{Cfg: config.AppConfig, CM: app.clientManager}
+	mcptools.AddFileTools(server, deps)
+	mcptools.AddDeployTool(server, deps)
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()

@@ -14,7 +14,7 @@ Normative description of **`diode mcp`**: Model Context Protocol server over **s
 | **Implementation `title`** | `Diode Network Client` |
 | **`version`** | Same as the `diode` binary build (reported by **`diode_get_version`**). |
 
-**Server instructions** (exposed to hosts such as Cursor): tools cover client version, local identity on the network, address resolution, and file **push**/**pull** to a remote peer running a **`diode files`**-style HTTP listener. For file tools, **`peer_host`** should be a Diode-reachable hostname (e.g. **`mydevice.diode.link`**).
+**Server instructions** (exposed to hosts such as Cursor): tools cover client version, local identity on the network, address resolution, file **push**/**pull** to a remote **`diode files`** listener, and **`diode_deploy`** for tarball ingest to a Diode deploy host. **`diode_deploy`** requires **`DIODE_MCP_DEPLOY_TARGET`** and **`package_path`**; optional **`DIODE_MCP_DEPLOY_UUID`** fixes the deploy token per project (see **`diode_deploy`** below).
 
 **Runtime:** The process runs **`prepareDiode`**, starts the shared **`app`** (Diode client connected to the fleet), then serves MCP until **SIGINT** / **SIGTERM**. **`EnableUpdate`** is disabled for the MCP command. Tools that need the network return an error if there is **no connected client** (`GetNearestClient() == nil`).
 
@@ -81,6 +81,19 @@ Each tool has a **name** (below), a **description** (as registered with the host
 | **File mode** | If `local_path` is set: resolve destination path - trailing **`/`** or **`\`** or an **existing directory** → write **`basename(remote_path)`** inside that directory; otherwise treat `local_path` as the full output file path (non-existent path → new file). Create parent directories with **`0755`** as needed, then stream the body to the file. |
 | **HTTP** | Client timeout **5 minutes**. |
 | **Errors** | Not connected; bad host/port/path; transport failure; non-2xx HTTP (structured like push). Inline mode: body too large for `max_inline_bytes`. |
+
+---
+
+### `diode_deploy`
+
+| | |
+|--|--|
+| **Description** | Upload a **`.tar.gz`** package to a remote **Diode deploy** ingest **`diode files`** listener. Remote path is always **`PUT /{uuid}.tar.gz`**. **`package_path`** is always required (absolute path to the tarball on the MCP host). |
+| **Input** | `package_path` (string, required) — absolute path to the tarball. `deploy_token` (string, optional if **`DIODE_MCP_DEPLOY_UUID`** is set) — UUID from the user for the target app when the env UUID is **not** set; **required** in that case. If **`DIODE_MCP_DEPLOY_UUID`** is set, `deploy_token` must **match** the env UUID or be **omitted**. |
+| **Environment** | **`DIODE_MCP_DEPLOY_TARGET`** (required): **`diode://<host>:<port>`** (same host forms as **`diode_file_push`**). **`DIODE_MCP_DEPLOY_UUID`** (optional): UUID for this MCP/project; when set, it is the deploy token and the tool **renames** the file at `package_path` to **`{UUID}.tar.gz`** in the same directory if needed (or copies then deletes the source if **rename** crosses devices). If **`{UUID}.tar.gz`** already exists in that directory, the tool errors. When unset, the agent must pass **`deploy_token`** and the tarball must **already** be named **`{deploy_token}.tar.gz`**. |
+| **HTTP** | **PUT** to **`http://{host}:{port}/{uuid}.tar.gz`**, **`Content-Type: application/gzip`**, timeout **15 minutes**. |
+| **Result** | `status_code`, `message`, `remote_path`, `local_path` (path after any rename). Non-2xx HTTP returns structured output with a body snippet when present (same style as **`diode_file_push`**). |
+| **Errors** | Not connected; missing **`package_path`**; **`DIODE_MCP_DEPLOY_TARGET`** unset or invalid; missing **`deploy_token`** when **`DIODE_MCP_DEPLOY_UUID`** unset; **`deploy_token`** mismatch with env; invalid UUID; basename wrong when env UUID unset; rename target exists; unreadable package file; transport or network failure. |
 
 ---
 

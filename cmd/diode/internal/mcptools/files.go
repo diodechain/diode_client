@@ -64,21 +64,24 @@ type FilePullOut struct {
 	Message          string `json:"message,omitempty"`
 }
 
-// AddFileTools registers diode_file_push and diode_file_pull on the MCP server.
-func AddFileTools(server *mcp.Server, d Deps) {
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "diode_file_push",
-		Description: "Upload bytes to a remote file listener (diode files): HTTP PUT to http://peer_host:port/remote_path. Provide exactly one of content_base64 or local_file_path.",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, in FilePushIn) (*mcp.CallToolResult, FilePushOut, error) {
-		return toolFilePush(ctx, req, in, d)
-	})
-
-	mcp.AddTool(server, &mcp.Tool{
-		Name:        "diode_file_pull",
-		Description: "Download a file from a remote file listener (diode files): HTTP GET. If local_path is omitted, returns content_base64 when the file is at most max_inline_bytes (default 4MiB). If local_path is set, writes to that path (trailing slash or existing directory = place file using remote basename).",
-	}, func(ctx context.Context, req *mcp.CallToolRequest, in FilePullIn) (*mcp.CallToolResult, FilePullOut, error) {
-		return toolFilePull(ctx, req, in, d)
-	})
+// AddFileTools registers diode_file_push and diode_file_pull when allowed[name] is true or allowed is nil (all).
+func AddFileTools(server *mcp.Server, d Deps, allowed map[string]bool) {
+	if ToolEnabled(allowed, ToolFilePush) {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        ToolFilePush,
+			Description: "Upload bytes to a remote file listener (diode files): HTTP PUT to http://peer_host:port/remote_path. Provide exactly one of content_base64 or local_file_path.",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, in FilePushIn) (*mcp.CallToolResult, FilePushOut, error) {
+			return toolFilePush(ctx, req, in, d)
+		})
+	}
+	if ToolEnabled(allowed, ToolFilePull) {
+		mcp.AddTool(server, &mcp.Tool{
+			Name:        ToolFilePull,
+			Description: "Download a file from a remote file listener (diode files): HTTP GET. If local_path is omitted, returns content_base64 when the file is at most max_inline_bytes (default 4MiB). If local_path is set, writes to that path (trailing slash or existing directory = place file using remote basename).",
+		}, func(ctx context.Context, req *mcp.CallToolRequest, in FilePullIn) (*mcp.CallToolResult, FilePullOut, error) {
+			return toolFilePull(ctx, req, in, d)
+		})
+	}
 }
 
 func (d Deps) newFileHTTPTransport() (*http.Transport, error) {
