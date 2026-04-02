@@ -13,14 +13,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
-	"path"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/diodechain/diode_client/config"
+	"github.com/diodechain/diode_client/filetransfer"
 	"github.com/diodechain/diode_client/rpc"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -106,33 +105,6 @@ func (d Deps) newFileHTTPTransport() (*http.Transport, error) {
 	}, nil
 }
 
-func escapeURLPath(remotePath string) string {
-	p := strings.Trim(remotePath, "/\\")
-	if p == "" {
-		return "/"
-	}
-	segs := strings.Split(p, "/")
-	for i, s := range segs {
-		segs[i] = url.PathEscape(s)
-	}
-	return "/" + strings.Join(segs, "/")
-}
-
-func buildDeviceFileURL(peerHost string, port int, remotePath string) (string, error) {
-	if strings.TrimSpace(peerHost) == "" {
-		return "", fmt.Errorf("peer_host is required")
-	}
-	if port <= 0 || port > 65535 {
-		return "", fmt.Errorf("port must be between 1 and 65535")
-	}
-	u := url.URL{
-		Scheme: "http",
-		Host:   fmt.Sprintf("%s:%d", peerHost, port),
-		Path:   escapeURLPath(remotePath),
-	}
-	return u.String(), nil
-}
-
 func readResponseSnippet(resp *http.Response, limit int) string {
 	if resp == nil {
 		return ""
@@ -165,7 +137,7 @@ func toolFilePush(ctx context.Context, _ *mcp.CallToolRequest, in FilePushIn, d 
 		return nil, FilePushOut{}, fmt.Errorf("one of content_base64 or local_file_path is required")
 	}
 
-	target, err := buildDeviceFileURL(in.PeerHost, in.Port, in.RemotePath)
+	target, err := filetransfer.BuildHTTPURL(in.PeerHost, in.Port, in.RemotePath)
 	if err != nil {
 		return nil, FilePushOut{}, err
 	}
@@ -201,36 +173,6 @@ func toolFilePush(ctx context.Context, _ *mcp.CallToolRequest, in FilePushIn, d 
 	return nil, out, nil
 }
 
-func resolvePullDestination(remotePath, localPath string) (string, error) {
-	rp := strings.TrimSpace(remotePath)
-	if !strings.HasPrefix(rp, "/") {
-		rp = "/" + rp
-	}
-	base := path.Base(rp)
-	if base == "" || base == "." {
-		return "", fmt.Errorf("remote_path has no file name segment")
-	}
-	localPath = strings.TrimSpace(localPath)
-	if localPath == "" {
-		return base, nil
-	}
-	if strings.HasSuffix(localPath, "/") || strings.HasSuffix(localPath, "\\") {
-		dir := strings.TrimRight(strings.TrimRight(localPath, "/"), "\\")
-		return filepath.Join(dir, base), nil
-	}
-	st, err := os.Stat(localPath)
-	if err == nil && st.IsDir() {
-		return filepath.Join(localPath, base), nil
-	}
-	if err != nil && os.IsNotExist(err) {
-		return localPath, nil
-	}
-	if err != nil {
-		return "", err
-	}
-	return localPath, nil
-}
-
 func toolFilePull(ctx context.Context, _ *mcp.CallToolRequest, in FilePullIn, d Deps) (*mcp.CallToolResult, FilePullOut, error) {
 	if d.CM.GetNearestClient() == nil {
 		return nil, FilePullOut{}, fmt.Errorf("not connected to the Diode network")
@@ -240,7 +182,7 @@ func toolFilePull(ctx context.Context, _ *mcp.CallToolRequest, in FilePullIn, d 
 		maxInline = fileDefaultMaxInline
 	}
 
-	target, err := buildDeviceFileURL(in.PeerHost, in.Port, in.RemotePath)
+	target, err := filetransfer.BuildHTTPURL(in.PeerHost, in.Port, in.RemotePath)
 	if err != nil {
 		return nil, FilePullOut{}, err
 	}
@@ -285,7 +227,7 @@ func toolFilePull(ctx context.Context, _ *mcp.CallToolRequest, in FilePullIn, d 
 		return nil, out, nil
 	}
 
-	dest, err := resolvePullDestination(in.RemotePath, localPath)
+	dest, err := filetransfer.ResolvePullDestination(in.RemotePath, localPath)
 	if err != nil {
 		return nil, FilePullOut{}, err
 	}

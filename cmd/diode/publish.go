@@ -35,6 +35,8 @@ var (
 	enableStaticServer = false
 	staticServer       staticserver.StaticHTTPServer
 	scfg               staticserver.Config
+	publishFileSpecs   config.StringValues
+	publishFileFileroot string
 )
 
 func init() {
@@ -52,6 +54,8 @@ func init() {
 	publishCmd.Flag.StringVar(&scfg.Host, "http_host", "127.0.0.1", "the host of http static file server")
 	publishCmd.Flag.IntVar(&scfg.Port, "http_port", 8080, "the port of http static file server")
 	publishCmd.Flag.BoolVar(&scfg.Indexed, "indexed", false, "enable directory indexing in http static file server")
+	publishCmd.Flag.Var(&publishFileSpecs, "files", "HTTP file listener (PUT/GET), same spec as `diode files` (repeatable)")
+	publishCmd.Flag.StringVar(&publishFileFileroot, "fileroot", "", "root for URL paths on all -files listeners (default: cwd; use / for filesystem root; see file-transfer-spec)")
 	// DEPRECATED: maxports is now a global flag - use 'diode -maxports=<value> publish' instead
 	publishCmd.Flag.IntVar(&cfg.MaxPortsPerDevice, "maxports", 0, "DEPRECATED: use global -maxports flag instead (maximum concurrent ports per device, 0 = unlimited)")
 }
@@ -63,6 +67,15 @@ var portPattern = regexp.MustCompile(`^(` + ip + `:)?(\d+)(:(\d*)(:(tcp|tls|udp)
 var accessPattern = regexp.MustCompile(`^0x[a-fA-F0-9]{40}$`)
 
 func parsePorts(portStrings []string, mode int) ([]*config.Port, error) {
+	return parsePortsEx(portStrings, mode, false)
+}
+
+// parseFilesPorts is like parsePorts but allows src port 0 for OS-assigned local bind (files-spec).
+func parseFilesPorts(portStrings []string, mode int) ([]*config.Port, error) {
+	return parsePortsEx(portStrings, mode, true)
+}
+
+func parsePortsEx(portStrings []string, mode int, allowEphemeralSrc bool) ([]*config.Port, error) {
 	ports := []*config.Port{}
 	for _, portString := range portStrings {
 		segments := strings.Split(portString, ",")
@@ -84,12 +97,17 @@ func parsePorts(portStrings []string, mode int) ([]*config.Port, error) {
 				if err != nil {
 					return nil, err
 				}
-				if !util.IsPort(srcPort) {
+				if allowEphemeralSrc && srcPort == 0 {
+					// Caller binds with port 0 and sets Src to the assigned port before dial.
+				} else if !util.IsPort(srcPort) {
 					err = fmt.Errorf("src port number should be bigger than 1 and smaller than 65535")
 					return nil, err
 				}
 				var toPort int
 				if toPortStr == "" {
+					if srcPort == 0 {
+						return nil, fmt.Errorf("src port 0 requires explicit published port (e.g. 0:8080 in files-spec)")
+					}
 					toPort = srcPort
 				} else {
 					toPort, err = strconv.Atoi(toPortStr)
@@ -303,7 +321,48 @@ func publishHandler() (err error) {
 		}
 		portString[service.To] = service
 	}
+
+	fileListenerTos := make(map[int]bool)
+	for _, fs := range publishFileSpecs {
+		fs = strings.TrimSpace(fs)
+		if fs == "" {
+			continue
+		}
+		ps, fmode, e := expandFilesSpec(fs)
+		if e != nil {
+			err = e
+			return
+		}
+		nports, e := parseFilesPorts([]string{ps}, fmode)
+		if e != nil {
+			err = e
+			return
+		}
+		for _, np := range nports {
+			if portString[np.To] != nil {
+				err = fmt.Errorf("port conflict with -files: %v", np.To)
+				return
+			}
+			portString[np.To] = np
+			fileListenerTos[np.To] = true
+		}
+	}
+
+	if publishFileFileroot != "" && len(publishFileSpecs) == 0 {
+		cfg.Logger.Warn("-fileroot without -files is ignored")
+	}
+
 	cfg.PublishedPorts = portString
+
+	for to := range fileListenerTos {
+		p := portString[to]
+		var cleanup func()
+		cleanup, err = startFileListener(p, publishFileFileroot)
+		if err != nil {
+			return
+		}
+		app.Defer(cleanup)
+	}
 
 	if enableStaticServer || len(scfg.RootDirectory) > 0 {
 		// publish the static when user didn't publish 80 port
