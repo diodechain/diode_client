@@ -163,7 +163,7 @@ func (tx *Transaction) Sign(privKey *ecdsa.PrivateKey) (err error) {
 	if err != nil {
 		return err
 	}
-	sig, err := secp256k1.Sign(msgHash, privKey.D.Bytes())
+	sig, err := secp256k1.Sign(msgHash, crypto.Secp256k1ScalarBytes(privKey))
 	if err != nil {
 		return err
 	}
