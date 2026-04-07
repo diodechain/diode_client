@@ -94,6 +94,18 @@ func DerToECDSA(derD []byte) (*ecdsa.PrivateKey, error) {
 	return toECDSA(privKey.PrivateKey, true)
 }
 
+// Secp256k1ScalarBytes returns priv.D as exactly 32 big-endian bytes (leading zeros as needed).
+// go-ethereum's secp256k1.Sign requires len(seckey)==32; big.Int.Bytes() strips leading zeros,
+// which would return ErrInvalidKey ("invalid private key"). FillBytes is the idiomatic fixed-width encoding.
+func Secp256k1ScalarBytes(priv *ecdsa.PrivateKey) []byte {
+	if priv == nil || priv.D == nil {
+		return nil
+	}
+	out := make([]byte, 32)
+	priv.D.FillBytes(out)
+	return out
+}
+
 // ToECDSA creates a private key with the given D value.
 func ToECDSA(d []byte) (*ecdsa.PrivateKey, error) {
 	return toECDSA(d, true)
