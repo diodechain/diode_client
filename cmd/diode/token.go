@@ -67,8 +67,7 @@ func parseUnitAndValue(src string) (val int, unit string) {
 
 func tokenHandler() (err error) {
 	if tokenCfg.CheckBalance {
-		showBalance()
-		return
+		return showBalance()
 	}
 
 	valWei, _ := parseUnitAndValue(tokenCfg.Value)

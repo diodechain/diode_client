@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -87,9 +86,9 @@ func filesHandler() error {
 	cfg := config.AppConfig
 	spec := strings.TrimSpace(filesCmd.Flag.Arg(0))
 	if spec == "" {
-		fmt.Fprintln(os.Stderr, "usage: diode files [-fileroot <path>] <files-spec>")
-		fmt.Fprintln(os.Stderr, "  files-spec: <port> for public, or <port>,<allowlist>... for private")
-		os.Exit(2)
+		stderrln("usage: diode files [-fileroot <path>] <files-spec>")
+		stderrln("  files-spec: <port> for public, or <port>,<allowlist>... for private")
+		return newExitStatusError(2, "missing files publish spec")
 	}
 
 	portStr, mode, err := expandFilesSpec(spec)
@@ -109,12 +108,13 @@ func filesHandler() error {
 	if err := app.Start(); err != nil {
 		return err
 	}
+	beginRuntimeMode("files")
 
 	cleanup, err := startFileListener(p, filesFileroot)
 	if err != nil {
 		return err
 	}
-	app.Defer(cleanup)
+	registerRuntimeCleanup(cleanup)
 
 	portMap := map[int]*config.Port{p.To: p}
 	cfg.PublishedPorts = portMap
@@ -156,6 +156,9 @@ func filesHandler() error {
 		for _, bind := range cfg.Binds {
 			cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
 		}
+	}
+	if isDaemonApplyRequest() {
+		return nil
 	}
 
 	app.Wait()

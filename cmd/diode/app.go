@@ -4,7 +4,9 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"io"
 	"math/rand"
 	"net"
 	"net/http"
@@ -45,45 +47,56 @@ var (
 	}
 )
 
-func init() {
-	cfg := &config.Config{}
-	diodeCmd.Flag.StringVar(&cfg.DBPath, "dbpath", util.DefaultDBPath(), "file path to db file")
-	diodeCmd.Flag.IntVar(&cfg.RetryTimes, "retrytimes", 3, "retry times to connect the remote rpc server")
-	diodeCmd.Flag.DurationVar(&cfg.EdgeE2ETimeout, "e2etimeout", 15*time.Second, "timeout seconds for edge e2e handshake")
-	// should put to httpd or other command
-	diodeCmd.Flag.BoolVar(&cfg.EnableUpdate, "update", true, "enable update when start diode")
-	diodeCmd.Flag.BoolVar(&cfg.EnableMetrics, "metrics", false, "enable metrics stats")
-	diodeCmd.Flag.BoolVar(&cfg.EnableTray, "tray", false, "show a system tray icon")
-	diodeCmd.Flag.BoolVar(&cfg.BlockquickDowngrade, "bqdowngrade", false, "reset blockquick window after repeated validation failures")
-	diodeCmd.Flag.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
-	diodeCmd.Flag.BoolVar(&cfg.EnableAPIServer, "api", false, "turn on the config api")
-	diodeCmd.Flag.StringVar(&cfg.APIServerAddr, "apiaddr", "localhost:1081", "define config api server address")
-	diodeCmd.Flag.IntVar(&cfg.RlimitNofile, "rlimit_nofile", 0, "specify the file descriptor numbers that can be opened by this process")
-	diodeCmd.Flag.StringVar(&cfg.LogFilePath, "logfilepath", "", "absolute path to the log file")
-	diodeCmd.Flag.BoolVar(&cfg.LogDateTime, "logdatetime", false, "show the date time in log")
-	diodeCmd.Flag.StringVar(&cfg.ConfigFilePath, "configpath", "", "yaml file path to config file")
-	diodeCmd.Flag.StringVar(&cfg.CPUProfile, "cpuprofile", "", "file path for cpu profiling")
-	// diodeCmd.Flag.IntVar(&cfg.CPUProfileRate, "cpuprofilerate", 100, "the CPU profiling rate to hz samples per second")
-	diodeCmd.Flag.StringVar(&cfg.MEMProfile, "memprofile", "", "file path for memory profiling")
-	diodeCmd.Flag.IntVar(&cfg.PProfPort, "pprofport", 0, "localhost port for pprof for memory debugging")
-	diodeCmd.Flag.StringVar(&cfg.BlockProfile, "blockprofile", "", "file path for block profiling")
-	diodeCmd.Flag.IntVar(&cfg.BlockProfileRate, "blockprofilerate", 1, "the fraction of goroutine blocking events that are reported in the blocking profile")
-	diodeCmd.Flag.StringVar(&cfg.MutexProfile, "mutexprofile", "", "file path for mutex profiling")
-	diodeCmd.Flag.IntVar(&cfg.MutexProfileRate, "mutexprofilerate", 1, "the fraction of mutex contention events that are reported in the mutex profile")
+func registerRootFlags(fs *flag.FlagSet, cfg *config.Config) {
+	fs.StringVar(&cfg.DBPath, "dbpath", util.DefaultDBPath(), "file path to db file")
+	fs.IntVar(&cfg.RetryTimes, "retrytimes", 3, "retry times to connect the remote rpc server")
+	fs.DurationVar(&cfg.EdgeE2ETimeout, "e2etimeout", 15*time.Second, "timeout seconds for edge e2e handshake")
+	fs.BoolVar(&cfg.EnableUpdate, "update", true, "enable update when start diode")
+	fs.BoolVar(&cfg.EnableMetrics, "metrics", false, "enable metrics stats")
+	fs.BoolVar(&cfg.EnableTray, "tray", false, "show a system tray icon")
+	fs.BoolVar(&cfg.DisableDaemon, "no-daemon", false, "run this command in standalone mode instead of using the diode daemon")
+	fs.BoolVar(&cfg.BlockquickDowngrade, "bqdowngrade", false, "reset blockquick window after repeated validation failures")
+	fs.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
+	fs.BoolVar(&cfg.EnableAPIServer, "api", false, "turn on the config api")
+	fs.StringVar(&cfg.APIServerAddr, "apiaddr", "localhost:1081", "define config api server address")
+	fs.IntVar(&cfg.RlimitNofile, "rlimit_nofile", 0, "specify the file descriptor numbers that can be opened by this process")
+	fs.StringVar(&cfg.LogFilePath, "logfilepath", "", "absolute path to the log file")
+	fs.BoolVar(&cfg.LogDateTime, "logdatetime", false, "show the date time in log")
+	fs.StringVar(&cfg.ConfigFilePath, "configpath", "", "yaml file path to config file")
+	fs.StringVar(&cfg.CPUProfile, "cpuprofile", "", "file path for cpu profiling")
+	fs.StringVar(&cfg.MEMProfile, "memprofile", "", "file path for memory profiling")
+	fs.IntVar(&cfg.PProfPort, "pprofport", 0, "localhost port for pprof for memory debugging")
+	fs.StringVar(&cfg.BlockProfile, "blockprofile", "", "file path for block profiling")
+	fs.IntVar(&cfg.BlockProfileRate, "blockprofilerate", 1, "the fraction of goroutine blocking events that are reported in the blocking profile")
+	fs.StringVar(&cfg.MutexProfile, "mutexprofile", "", "file path for mutex profiling")
+	fs.IntVar(&cfg.MutexProfileRate, "mutexprofilerate", 1, "the fraction of mutex contention events that are reported in the mutex profile")
 
 	var fleetFake string
-	diodeCmd.Flag.StringVar(&fleetFake, "fleet", "", "@deprecated. Use: 'diode config set fleet=0x1234' instead")
+	fs.StringVar(&fleetFake, "fleet", "", "@deprecated. Use: 'diode config set fleet=0x1234' instead")
 
-	diodeCmd.Flag.DurationVar(&cfg.RemoteRPCTimeout, "timeout", 5*time.Second, "timeout seconds to connect to the remote rpc server")
-	diodeCmd.Flag.DurationVar(&cfg.RetryWait, "retrywait", 1*time.Second, "wait seconds before next retry")
-	diodeCmd.Flag.Var(&cfg.RemoteRPCAddrs, "diodeaddrs", "addresses of Diode node server (default: asia.prenet.diode.io:41046, europe.prenet.diode.io:41046, usa.prenet.diode.io:41046)")
-	diodeCmd.Flag.Var(&cfg.SBlockdomains, "blockdomains", "domains (bns names) that are not allowed")
-	diodeCmd.Flag.Var(&cfg.SBlocklists, "blocklists", "addresses are not allowed to connect to published resource (used when allowlists is empty)")
-	diodeCmd.Flag.Var(&cfg.SAllowlists, "allowlists", "addresses are allowed to connect to published resource (used when blocklists is empty)")
-	diodeCmd.Flag.Var(&cfg.SBinds, "bind", "bind a remote port to a local port. -bind <local_port|auto>:<to_address>:<to_port>:(udp|tcp|tls)")
-	diodeCmd.Flag.DurationVar(&cfg.ResolveCacheTime, "resolvecachetime", 10*time.Minute, "time for member and bns resolvers cache. (default: 10 minutes)")
-	diodeCmd.Flag.DurationVar(&cfg.ResolveCacheTime, "bnscachetime", 10*time.Minute, "(Deprecated. Please use resolvecachetime) time for bns address resolve cache. (default: 10 minutes)")
-	diodeCmd.Flag.IntVar(&cfg.MaxPortsPerDevice, "maxports", 0, "maximum concurrent ports per device (0 = unlimited)")
+	fs.DurationVar(&cfg.RemoteRPCTimeout, "timeout", 5*time.Second, "timeout seconds to connect to the remote rpc server")
+	fs.DurationVar(&cfg.RetryWait, "retrywait", 1*time.Second, "wait seconds before next retry")
+	fs.Var(&cfg.RemoteRPCAddrs, "diodeaddrs", "addresses of Diode node server (default: asia.prenet.diode.io:41046, europe.prenet.diode.io:41046, usa.prenet.diode.io:41046)")
+	fs.Var(&cfg.SBlockdomains, "blockdomains", "domains (bns names) that are not allowed")
+	fs.Var(&cfg.SBlocklists, "blocklists", "addresses are not allowed to connect to published resource (used when allowlists is empty)")
+	fs.Var(&cfg.SAllowlists, "allowlists", "addresses are allowed to connect to published resource (used when blocklists is empty)")
+	fs.Var(&cfg.SBinds, "bind", "bind a remote port to a local port. -bind <local_port|auto>:<to_address>:<to_port>:(udp|tcp|tls)")
+	fs.DurationVar(&cfg.ResolveCacheTime, "resolvecachetime", 10*time.Minute, "time for member and bns resolvers cache. (default: 10 minutes)")
+	fs.DurationVar(&cfg.ResolveCacheTime, "bnscachetime", 10*time.Minute, "(Deprecated. Please use resolvecachetime) time for bns address resolve cache. (default: 10 minutes)")
+	fs.IntVar(&cfg.MaxPortsPerDevice, "maxports", 0, "maximum concurrent ports per device (0 = unlimited)")
+}
+
+func newRootConfig() *config.Config {
+	cfg := &config.Config{}
+	fs := flag.NewFlagSet("diode-root-defaults", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	registerRootFlags(fs, cfg)
+	return cfg
+}
+
+func init() {
+	cfg := newRootConfig()
+	registerRootFlags(&diodeCmd.Flag, cfg)
 	config.AppConfig = cfg
 	// Add diode commands
 	diodeCmd.AddSubCommand(bnsCmd)
@@ -212,6 +225,13 @@ type Diode struct {
 	deferals        []func()
 	closeCh         chan struct{}
 	cmd             *command.Command
+	startMu         sync.Mutex
+	started         bool
+	modeMu          sync.Mutex
+	activeMode      string
+	modeDeferals    []func()
+	modeStopCh      chan struct{}
+	modeDoneCh      chan struct{}
 }
 
 // NewDiode return diode application
@@ -255,7 +275,7 @@ func (dio *Diode) Init() error {
 			shouldUpdateDiode = diff.Hours() >= 24
 		}
 		if shouldUpdateDiode {
-			doUpdate()
+			_, _ = doUpdate(updateRestartStandalone)
 		}
 	}
 
@@ -373,22 +393,49 @@ func (dio *Diode) Defer(deferal func()) {
 	dio.deferals = append(dio.deferals, deferal)
 }
 
+// ModeDefer registers cleanup tied to the active daemon mode.
+func (dio *Diode) ModeDefer(deferal func()) {
+	dio.modeDeferals = append(dio.modeDeferals, deferal)
+}
+
+func (dio *Diode) SetCommand(cmd *command.Command) {
+	dio.cmd = cmd
+}
+
+func (dio *Diode) resolveCommand() (*command.Command, error) {
+	if dio.cmd != nil {
+		return dio.cmd, nil
+	}
+	dio.cmd = diodeCmd.SubCommand()
+	if dio.cmd == nil {
+		return nil, fmt.Errorf("could not determine command to start")
+	}
+	return dio.cmd, nil
+}
+
 // Start the diode application
 func (dio *Diode) Start() error {
 	cfg := dio.config
-	dio.cmd = diodeCmd.SubCommand()
-	if dio.cmd == nil {
-		return fmt.Errorf("could not determine command to start")
+	cmd, err := dio.resolveCommand()
+	if err != nil {
+		return err
 	}
-	cfg.PrintLabel("Client address", cfg.ClientAddr.HexString())
-	cfg.PrintLabel("Fleet address", cfg.FleetAddr.HexString())
-	dio.clientManager.Start()
 
-	if dio.cmd.Type == command.EmptyConnectionCommand {
+	dio.startMu.Lock()
+	firstStart := !dio.started
+	if firstStart {
+		cfg.PrintLabel("Client address", cfg.ClientAddr.HexString())
+		cfg.PrintLabel("Fleet address", cfg.FleetAddr.HexString())
+		dio.clientManager.Start()
+		dio.started = true
+	}
+	dio.startMu.Unlock()
+
+	if cmd.Type == command.EmptyConnectionCommand {
 		return nil
 	}
 
-	isOneOffCommand := dio.cmd.Type == command.OneOffCommand
+	isOneOffCommand := cmd.Type == command.OneOffCommand
 	//onlyNeedOne := dio.cmd.SingleConnection || isOneOffCommand
 
 	if len(dio.config.RemoteRPCAddrs) < 1 {
@@ -469,13 +516,76 @@ func (dio *Diode) Wait() {
 	// go func() {
 	// listen to signal
 	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 	sig := <-sigChan
 	switch sig {
-	case syscall.SIGINT:
+	case syscall.SIGINT, syscall.SIGTERM:
 		dio.Close()
 	}
 	// }()
+}
+
+func (dio *Diode) BeginMode(mode string) {
+	dio.modeMu.Lock()
+	defer dio.modeMu.Unlock()
+	dio.activeMode = mode
+	if dio.modeStopCh == nil {
+		dio.modeStopCh = make(chan struct{})
+	}
+}
+
+func (dio *Diode) ModeStopChan() <-chan struct{} {
+	dio.modeMu.Lock()
+	defer dio.modeMu.Unlock()
+	if dio.modeStopCh == nil {
+		dio.modeStopCh = make(chan struct{})
+	}
+	return dio.modeStopCh
+}
+
+func (dio *Diode) SetModeDone(done chan struct{}) {
+	dio.modeMu.Lock()
+	dio.modeDoneCh = done
+	dio.modeMu.Unlock()
+}
+
+func (dio *Diode) StopMode() {
+	dio.modeMu.Lock()
+	stopCh := dio.modeStopCh
+	doneCh := dio.modeDoneCh
+	modeDeferals := dio.modeDeferals
+	dio.modeStopCh = nil
+	dio.modeDoneCh = nil
+	dio.modeDeferals = nil
+	dio.activeMode = ""
+	dio.modeMu.Unlock()
+
+	if stopCh != nil {
+		close(stopCh)
+	}
+	if doneCh != nil {
+		<-doneCh
+	}
+	for _, fun := range modeDeferals {
+		fun()
+	}
+	if dio.socksServer != nil {
+		dio.socksServer.Close()
+		dio.socksServer = nil
+	}
+	if dio.proxyServer != nil {
+		dio.proxyServer.Close()
+		dio.proxyServer = nil
+	}
+	if dio.configAPIServer != nil {
+		dio.configAPIServer.Close()
+		dio.configAPIServer = nil
+	}
+	socksServerStarted = false
+	lastAppliedBindSignature = ""
+	if dio.clientManager != nil {
+		dio.clientManager.GetPool().SetPublishedPorts(map[int]*config.Port{})
+	}
 }
 
 // Closed returns the whether diode application has been closed
@@ -497,6 +607,7 @@ func (dio *Diode) Closed() bool {
 func (dio *Diode) Close() {
 	dio.cd.Do(func() {
 		cfg := config.AppConfig
+		dio.StopMode()
 		for _, fun := range dio.deferals {
 			fun()
 		}

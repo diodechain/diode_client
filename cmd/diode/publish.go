@@ -6,7 +6,6 @@ package main
 import (
 	"fmt"
 	"net"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -32,10 +31,10 @@ var (
 		Type:             command.DaemonCommand,
 		SingleConnection: true,
 	}
-	enableStaticServer = false
-	staticServer       staticserver.StaticHTTPServer
-	scfg               staticserver.Config
-	publishFileSpecs   config.StringValues
+	enableStaticServer  = false
+	staticServer        staticserver.StaticHTTPServer
+	scfg                staticserver.Config
+	publishFileSpecs    config.StringValues
 	publishFileFileroot string
 )
 
@@ -381,7 +380,7 @@ func publishHandler() (err error) {
 					return
 				}
 			}()
-			app.Defer(func() {
+			registerRuntimeCleanup(func() {
 				// Since we didn't use ListenAndServe, call
 				// ln.Close() instead of staticServer.Close()
 				ln.Close()
@@ -397,50 +396,19 @@ func publishHandler() (err error) {
 	}
 
 	if len(cfg.PublishedPorts) == 0 && len(cfg.Binds) == 0 {
-		fmt.Println()
-		fmt.Println("ERROR: Can't run publish without any arguments!")
-		fmt.Println(" HINT: Try 'diode publish -public 8080:80' to publish a local port")
-		fmt.Println(" HINT: Check our docs to learn more about publishing ports: https://diode.io/docs/getting-started.html")
-		fmt.Println(" HINT: Or run 'diode --help' to see all commands")
-		os.Exit(2)
+		stdoutln()
+		stdoutln("ERROR: Can't run publish without any arguments!")
+		stdoutln(" HINT: Try 'diode publish -public 8080:80' to publish a local port")
+		stdoutln(" HINT: Check our docs to learn more about publishing ports: https://diode.io/docs/getting-started.html")
+		stdoutln(" HINT: Or run 'diode --help' to see all commands")
+		return newExitStatusError(2, "publish requires at least one published port or bind")
 	}
 
-	if len(cfg.PublishedPorts) > 0 {
-		cfg.PrintInfo("")
-		name := cfg.ClientAddr.HexString()
-		if cfg.ClientName != "" {
-			name = cfg.ClientName
-		}
-		app.clientManager.GetPool().SetPublishedPorts(cfg.PublishedPorts)
-		for _, port := range cfg.PublishedPorts {
-			if port.Mode == config.PublicPublishedMode {
-				if port.To == httpPort {
-					cfg.PrintLabel("HTTP Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", name))
-				}
-				if (8000 <= port.To && port.To <= 8100) || (8400 <= port.To && port.To <= 8500) {
-					cfg.PrintLabel("HTTP Gateway Enabled", fmt.Sprintf("https://%s.diode.link:%d/", name, port.To))
-				}
-			}
-		}
-		cfg.PrintLabel("Port      <name>", "<extern>     <mode>    <protocol>     <allowlist>")
-		for _, port := range cfg.PublishedPorts {
+	beginRuntimeMode("publish")
 
-			addrs := make([]string, 0, len(port.Allowlist)+len(port.BnsAllowlist))
-			for addr := range port.Allowlist {
-				addrs = append(addrs, addr.HexString())
-			}
-			for bnsName := range port.BnsAllowlist {
-				addrs = append(addrs, bnsName)
-			}
-			for drive := range port.DriveAllowList {
-				addrs = append(addrs, drive.HexString())
-			}
-			for driveMember := range port.DriveMemberAllowList {
-				addrs = append(addrs, driveMember.HexString())
-			}
-			host := publishedPortDisplayHost(port)
-			cfg.PrintLabel(fmt.Sprintf("Port %12s", host), fmt.Sprintf("%8d  %10s       %s        %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol), strings.Join(addrs, ",")))
-		}
+	if len(cfg.PublishedPorts) > 0 {
+		app.clientManager.GetPool().SetPublishedPorts(cfg.PublishedPorts)
+		renderPublishedPortMap(cfg, cfg.PublishedPorts)
 	}
 
 	if cfg.EnableAPIServer {
@@ -471,11 +439,10 @@ func publishHandler() (err error) {
 	if len(cfg.Binds) > 0 {
 		socksServer.SetBinds(cfg.Binds)
 		cfg.Binds = socksServer.GetBinds() // resolve "auto" ports for logs and API
-		cfg.PrintInfo("")
-		cfg.PrintLabel("Bind      <name>", "<mode>     <remote>")
-		for _, bind := range cfg.Binds {
-			cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
-		}
+		renderBindMap(cfg, cfg.Binds)
+	}
+	if isDaemonApplyRequest() {
+		return nil
 	}
 	for {
 		app.Wait()

@@ -37,6 +37,7 @@ func socksdHandler() (err error) {
 	if err != nil {
 		return
 	}
+	beginRuntimeMode("socksd")
 	cfg := config.AppConfig
 	cfg.EnableSocksServer = true
 	cfg.EnableProxyServer = true
@@ -75,6 +76,9 @@ func socksdHandler() (err error) {
 		return
 	}
 	app.SetSocksServer(socksServer)
+	if isDaemonApplyRequest() {
+		return nil
+	}
 	app.Wait()
 	return
 }

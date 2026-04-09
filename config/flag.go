@@ -5,6 +5,7 @@ package config
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strconv"
 	"strings"
@@ -44,6 +45,7 @@ type Config struct {
 	EnableUpdate        bool          `yaml:"update,omitempty" json:"update,omitempty"`
 	EnableMetrics       bool          `yaml:"metrics,omitempty" json:"metrics,omitempty"`
 	EnableTray          bool          `yaml:"tray,omitempty" json:"tray,omitempty"`
+	DisableDaemon       bool          `yaml:"-" json:"-"`
 	BlockquickDowngrade bool          `yaml:"bqdowngrade,omitempty" json:"bqdowngrade,omitempty"`
 	RemoteRPCAddrs      StringValues  `yaml:"diodeaddrs,omitempty" json:"diodeaddrs,omitempty"`
 	RemoteRPCTimeout    time.Duration `yaml:"timeout,omitempty" json:"timeout,omitempty"`
@@ -100,6 +102,8 @@ type Config struct {
 	LogMode                 int              `yaml:"-" json:"-"`
 	LogDateTime             bool             `yaml:"-" json:"-"`
 	Logger                  *Logger          `yaml:"-" json:"-"`
+	StdoutWriter            io.Writer        `yaml:"-" json:"-"`
+	StderrWriter            io.Writer        `yaml:"-" json:"-"`
 	ConfigFilePath          string           `yaml:"-" json:"-"`
 	Binds                   []Bind           `yaml:"-" json:"-"`
 	BNSForce                bool             `yaml:"-" json:"-"`
@@ -228,18 +232,27 @@ func (cfg *Config) Blocklists() map[Address]bool {
 func (cfg *Config) PrintLabel(label string, value string) {
 	msg := fmt.Sprintf("%-20s : %-42s", label, value)
 	msg = strings.Replace(msg, "%", "%%", -1)
+	if cfg.StdoutWriter != nil {
+		fmt.Fprintln(cfg.StdoutWriter, msg)
+	}
 	cfg.Logger.Info("%s", msg)
 }
 
 func (cfg *Config) PrintError(msg string, err error) {
+	text := fmt.Sprintf("%s: <null>", msg)
 	if err != nil {
-		cfg.Logger.Error(fmt.Sprintf("%s: %s", msg, err.Error()))
-	} else {
-		cfg.Logger.Error(fmt.Sprintf("%s: <null>", msg))
+		text = fmt.Sprintf("%s: %s", msg, err.Error())
 	}
+	if cfg.StderrWriter != nil {
+		fmt.Fprintln(cfg.StderrWriter, text)
+	}
+	cfg.Logger.Error(text)
 }
 
 func (cfg *Config) PrintInfo(msg string) {
+	if cfg.StdoutWriter != nil {
+		fmt.Fprintln(cfg.StdoutWriter, msg)
+	}
 	cfg.Logger.Info("%s", msg)
 }
 

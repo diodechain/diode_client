@@ -3082,6 +3082,28 @@ func runContractController(cfg *config.Config) error {
 	}
 }
 
+func runContractControllerUntil(cfg *config.Config, stopCh <-chan struct{}) error {
+	for {
+		select {
+		case <-stopCh:
+			cfg.Logger.Info("Join controller stopped")
+			return nil
+		default:
+		}
+
+		if err := contractSync(cfg); err != nil {
+			cfg.Logger.Warn("Perimeter contract sync failed: %v", err)
+		}
+
+		select {
+		case <-stopCh:
+			cfg.Logger.Info("Join controller stopped")
+			return nil
+		case <-time.After(30 * time.Second):
+		}
+	}
+}
+
 // updatePublishedPorts updates the published ports based on contract configuration
 func updatePublishedPorts(client *rpc.Client, props map[string]string) error {
 	cfg := config.AppConfig
@@ -3243,6 +3265,9 @@ func joinHandler() (err error) {
 	if err != nil {
 		return
 	}
+	if isDaemonApplyRequest() {
+		beginRuntimeMode("join")
+	}
 
 	// Initial contract sync to apply perimeter before starting services
 	if syncErr := runContractControllerOnce(cfg); syncErr != nil {
@@ -3251,6 +3276,15 @@ func joinHandler() (err error) {
 
 	// Dry run mode - just check property values once and exit
 	if dryRun {
+		return nil
+	}
+	if isDaemonApplyRequest() {
+		done := make(chan struct{})
+		app.SetModeDone(done)
+		go func() {
+			defer close(done)
+			_ = runContractControllerUntil(cfg, app.ModeStopChan())
+		}()
 		return nil
 	}
 
