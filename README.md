@@ -27,7 +27,7 @@ All traffic is routed through the Diode network and secured with Diode's client 
 
 ## Requirements
 
-- Go `1.25.3` or newer enough to build the module as checked in
+- Go `1.22.x` or newer enough to build the module as checked in
 - CGO enabled for normal builds
 - OpenSSL build support available locally
 
