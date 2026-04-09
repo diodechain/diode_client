@@ -692,7 +692,7 @@ make seccheck
 
 Useful artifacts and examples:
 
-- Gauge load tool: [cmd/gauge/README.MD](cmd/gauge/README.MD)
+- Gauge load tool: [cmd/gauge/README.md](cmd/gauge/README.md)
 - Client ID example: [examples/client_id/README.md](examples/client_id/README.md)
 
 ## Troubleshooting
