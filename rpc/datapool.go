@@ -6,6 +6,7 @@ package rpc
 import (
 	"fmt"
 	"net"
+	"sync/atomic"
 	"time"
 
 	"github.com/diodechain/diode_client/config"
@@ -20,6 +21,7 @@ type DataPool struct {
 	locks          map[string]bool
 	devices        map[string]*ConnectedPort
 	publishedPorts map[int]*config.Port
+	publishedState atomic.Value
 
 	memoryCache *cache.Cache
 	bnsCache    *cache.Cache
@@ -62,6 +64,7 @@ func NewPool() *DataPool {
 		connectionAttempts:   make(map[Address]int),
 		peerAddrToDeviceID:   make(map[string]Address),
 	}
+	pool.publishedState.Store(make(map[int]*config.Port))
 	if !config.AppConfig.LogDateTime {
 		pool.srv.DeadlockCallback = nil
 	}
@@ -491,7 +494,11 @@ func (p *DataPool) UnregisterConnectionPeer(peerAddr string) {
 }
 
 func (p *DataPool) GetPublishedPort(portnum int) (port *config.Port) {
-	p.srv.Call(func() { port = p.publishedPorts[portnum] })
+	state, _ := p.publishedState.Load().(map[int]*config.Port)
+	if state == nil {
+		return nil
+	}
+	port = state[portnum]
 	return
 }
 
@@ -506,8 +513,13 @@ func (p *DataPool) GetContext() (ctx *openssl.Ctx) {
 }
 
 func (p *DataPool) SetPublishedPorts(ports map[int]*config.Port) {
+	snapshot := make(map[int]*config.Port, len(ports))
+	for portnum, port := range ports {
+		snapshot[portnum] = port
+	}
+	p.publishedState.Store(snapshot)
 	p.srv.Cast(func() {
-		p.publishedPorts = ports
+		p.publishedPorts = snapshot
 	})
 }
 
