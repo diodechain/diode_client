@@ -1,245 +1,746 @@
-# Diode go client
+# Diode Client
+
 [![Build Status](https://travis-ci.com/diodechain/diode_client.svg?branch=master)](https://travis-ci.com/diodechain/diode_client)
 ![CI](https://github.com/diodechain/diode_client/workflows/CI/badge.svg)
 [![Go Report Card](https://goreportcard.com/badge/github.com/diodechain/diode_client)](https://goreportcard.com/report/github.com/diodechain/diode_client)
 
-This is Go client for connecting device through the diodechain mesh network. You can bridge your local resource to the internet with diodechain mesh network. The whole data will be encrypted with ecdh (secp256k1). You can find more details about how diode and its client works in our previous presentations https://github.com/diodechain/presentations and on https://diode.io
+`diode` is the Go CLI for connecting a device or service to the Diode mesh network. It can:
+
+- publish local TCP/TLS/UDP ports to remote Diode clients
+- run a local SOCKS5 proxy for reaching `.diode` services
+- expose files over the network and transfer them with `push` / `pull`
+- resolve BNS names and query network/device information
+- run contract-driven perimeter configuration with `join`
+- act as an MCP server for AI tooling over stdio
+
+All traffic is routed through the Diode network and secured with Diode's client identity and end-to-end encrypted sessions.
 
 ![Conceptual diagram](docs/diode.png)
 
-*Conceptual diagram for diode*
+## What This README Covers
 
+- how to build and run the client
+- what gets created on first run
+- the commands you are most likely to use
+- how to publish ports, browse Diode services, transfer files, use SSH, and run MCP
+- where config lives, how the config API works, and the common pitfalls
 
+## Requirements
 
-# Usage
+- Go `1.25.3` or newer enough to build the module as checked in
+- CGO enabled for normal builds
+- OpenSSL build support available locally
 
-## Command line options
+Optional:
 
-```BASH
-Name
-  diode - Diode network command line interface
+- WireGuard installed if you plan to use `diode join -wireguard`
+- GTK/AppIndicator libraries if you want tray support on Linux
+- OpenSSH client tools if you plan to use `diode ssh`
 
-SYNOPSYS
-  diode [-allowlists=] [-api=false] [-apiaddr=localho...]
-        [-bind=] [-blockdomains=] [-blocklists=]
-        [-blockprofile=] [-blockprofilerate=1]
-        [-bnscachetime=10m0s] [-configpath=] [-cpuprofile=]
-        [-dbpath=<path>] [-debug=false] [-diodeaddrs=]
-        [-e2etimeout=15s] [-fleet=] [-logdatetime=false]
-        [-logfilepath=] [-memprofile=] [-metrics=false]
-        [-mutexprofile=] [-mutexprofilerate=1] [-pprofport=0]
-        [-resolvecachetime=10m0s] [-retrytimes=3] [-retrywait=1s]
-        [-rlimit_nofile=0] [-timeout=5s] [-tray=false] [-update=true] COMMAND <args>
+## Install a Released Binary
 
-COMMANDS
-  bns         Register/Update name service on diode blockchain.
-  config      Manage variables in the local config store.
-  fetch       HTTP client over the Diode Network.
-  gateway     Public gateway server as used by "diode.link".
-  join        Join the Diode Network; watch on-chain properties and optionally manage WireGuard.
-  publish     Publish local ports to the Diode Network.
-  query       Query device/account information from the network.
-  reset       Initialize a new account and fleet contract (DESTRUCTIVE).
-  socksd      Start a local SOCKS5 proxy for browsers/apps.
-  ssh         SSH via Diode network (beta; not on Windows).
-  time        Lookup the current time from blockchain consensus.
-  token       Transfer DIODE tokens to an address.
-  update      Force update the diode client.
-  version     Print the diode client version.
+If you want the packaged CLI instead of building from source, the published CLI docs point to:
 
-Run 'diode COMMAND --help' for command-specific flags and examples.
-```
-
-## Tunnel ssh using your diode socks proxy
-
-On the client:
-
-```BASH
-$ diode socksd
-$ ssh pi@<ADDRESS>.diode -o 'ProxyCommand=nc -X 5 -x localhost:1080 %h %p'
-```
-
-On the destination:
-```BASH
-$ diode publish -public 22:22
-```
-
-## Use cases
-
-### Publish a Local Webserver [Article link](https://support.diode.io/article/ss32engxlq-publish-your-local-webserver)
-
-  Diode is the Swiss army knife of Web3 capabilities! One of the neat things it allows you to do is to publish a local website / webserver to the Internet where anyone can view it. A common reason for doing this is to allow others to see a website that is under development - the development is done locally and can be viewed by collaborators remotely without setting up a staging server and without any IT tools / configuration. 
-
-
-### Develop LINE chatbots [Article link](https://diode.io/diode/How-Diode-Allows-Engineers-to-Develop-LINE-Chatbots-in-a-Decentralized-Way-20252/)
-
-  Diode is the best tool in connecting LINE’s webhook - it allows you to connect LINE’s message API through Diode’s peer-to-peer network and establish your LINE’s webhook within minutes of time. We're giving everyone a better, more secure, fully decentralized option when developing LINE chatbots. 
-
-
-## Enable Proxy Server in Browser
-
-1. Start the socks server
-
-```BASH
-$ diode socksd
-```
-
-2. Configure Firefox
-
-   1. Open Preferences in menu or type `about:preferences` in search bar.
-   2. Goto Network Settings and click `Settings` button.
-   3. Setup `Automatic proxy configuration URL` to the porxy.pac, eg: `file:///Users/Guest/diode_client/proxy.pac`
-   4. Click `reload` then you can proxy request from `*.diode` `*diode.ws` to the go client.
-
-3. Type the website URL and see. You can try `http://betahaus-berlin.diode` or `http://0xc206e1255cbace8ba904daa259d7a5b7f90e2d50.diode` and more general:
-
-```http://(<MODE>-)<DIODE ADDRESS>.diode<:PORT>```
-
-  MODES:
-  * "r" read-only
-  * "w" write-only
-  * "rw" read-write (default)
-  * "rs" read-only shared
-  * "ws" write-only shared
-  * "rws" read-write shared
-
-
-# Development
-
-## Prerequisite
-
-* go <= 1.22
-
-## Setup go environment
-
-### macOS
-
-Before install golang, please ensure your device meets the requirements (https://golang.org/doc/install#requirements).
-
-You can download the latest binary distribution https://golang.org/dl/ or install from the source code https://golang.org/doc/install/source. Here we are going to install golang with [Homebrew](https://brew.sh/).
-
-#### Install Homebrew
-
-```BASH
-$ /usr/bin/ruby -e "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/master/install)"
-```
-
-#### Install Go
-
-```BASH
-$ brew install golang
-```
-
-Then you can check go version meets the requirement (>=1.14).
-
-```BASH
-$ go version
-```
-
-## Install dependencies
-
-```BASH
-$ go mod download
-```
-
-## Run test
-
-```BASH
-$ make test
-```
+- Downloads: <https://diode.io/download>
+- Install script: `curl -Ssf https://diode.io/install.sh | sh`
 
 ## Build
 
-```BASH
-$ make
+```bash
+go mod download
+make openssl
+make
 ```
 
-### System Tray UI
+This builds the main binary as `./diode`.
 
-- Enable the tray UI by passing `-tray=true` to any command that keeps the client running, e.g. `diode -tray=true publish ...`.
-- Windows, macOS, and most Linux desktop environments are supported out of the box.
-- Linux legacy AppIndicator: for older environments that require AppIndicator, build the legacy variant:
-  - `make diode_tray_legacy` (uses `-tags legacy_appindicator`)
-- Linux dependencies: the tray UI loads GTK/AppIndicator on demand. Install `libayatana-appindicator3` and `libgtk-3-0` (or distribution equivalents) if you want the tray; otherwise the binary will continue without a tray when those libraries are missing.
-- WSL: tray support is disabled automatically; the client keeps running without a UI even if `-tray=true` is passed.
+If you only want to run it during development:
+
+```bash
+go run ./cmd/diode --help
+```
+
+## First Run
+
+The client stores local state in a small file database. By default that database is created at:
+
+- Linux: `~/.config/diode/private.db`
+- macOS: `~/Library/Application Support/diode/private.db`
+- Windows: `C:\Users\<yourname>\AppData\Roaming\diode\private.db`
+
+On first start the client automatically creates a secp256k1 private key and derives your Diode client address from it. You can inspect what is stored locally with:
+
+```bash
+./diode -update=false config -list
+```
+
+Important stored values:
+
+- `private`: your client private key
+- `fleet`: the fleet/perimeter address this client uses
+
+If `fleet` has not been configured yet, the client uses the default development fleet until you either:
+
+- run `diode reset` to create a new fleet contract for this client, or
+- set an existing fleet manually with `diode config -set fleet=0x...`
+
+## Quick Start
+
+### 1. Check your identity
+
+```bash
+./diode -update=false config -list
+```
+
+### 2. Publish a local web server
+
+If your app listens on `localhost:8080` and you want it exposed on public Diode port `80`:
+
+```bash
+./diode publish -public 8080:80
+```
+
+If the publish succeeds, the client logs the public gateway URL:
+
+- `http://<name-or-address>.diode.link/` for public port `80`
+- `https://<name-or-address>.diode.link:<port>/` for some public high ports such as `8000-8100`
+
+### 3. Browse Diode services through a local SOCKS proxy
+
+```bash
+./diode socksd
+```
+
+This starts a SOCKS5 proxy on `127.0.0.1:1080`. Point your browser or app at that proxy to reach `.diode` names directly.
+
+### 4. Fetch a Diode URL from the command line
+
+```bash
+./diode fetch -url http://mydevice.diode
+./diode fetch -url https://mydevice.diode.link:8080/file.txt -output file.txt
+```
+
+## Command Overview
+
+Top-level commands:
+
+- `publish`: publish local services to the network
+- `socksd`: run a local SOCKS5 proxy
+- `fetch`: issue HTTP requests to Diode endpoints
+- `files`: run a published HTTP file listener
+- `push` / `pull`: upload or download files from a Diode file listener
+- `ssh`: connect to a Diode target through an auto-managed local SOCKS proxy
+- `join`: apply on-chain perimeter properties and optional WireGuard config
+- `bns`: register, transfer, and resolve BNS names
+- `query`: resolve a Diode address or name and print device tickets
+- `token`: check balance or transfer DIODE
+- `config`: inspect or change local stored values
+- `mcp`: run the client as an MCP server over stdin/stdout
+- `gateway`: run a public HTTP/HTTPS gateway
+- `time`: query consensus time
+- `version`: print build version
+
+One implementation detail that is easy to miss: if you run `diode` with no subcommand, the CLI falls back to `publish`. Use explicit subcommands in scripts and docs.
+
+Another important parser rule: global options must come before the subcommand.
+
+```bash
+./diode -debug=true publish -public 80:80
+```
+
+Not:
+
+```bash
+./diode publish -debug=true -public 80:80
+```
+
+## Publishing Ports
+
+`publish` is the core command for exposing a local service.
+
+```bash
+./diode publish -public 8080:80
+./diode publish -protected 3000:3000
+./diode publish -private 22:22,0xabc...,myfriend
+```
+
+Port mapping forms:
+
+- `<local_port>`: publish the same local and remote port
+- `<local_port>:<remote_port>`: publish local to a different external port
+- `<host>:<local_port>:<remote_port>`: bind to a specific local host
+- append `:tcp`, `:tls`, or `:udp` to force a protocol
+
+Examples:
+
+```bash
+./diode publish -public 8080
+./diode publish -public 127.0.0.1:8080:80:tcp
+./diode publish -public 80:80,2368:8025
+./diode publish -private 22:22:tcp,0x1111111111111111111111111111111111111111
+./diode publish -protected 3000:3000
+```
+
+Publish modes:
+
+- `-public`: anybody can connect
+- `-private`: you must provide at least one allowlisted address or BNS name
+- `-protected`: intended for fleet/perimeter-controlled access
+
+Useful flags:
+
+- `-socksd`: start a SOCKS proxy alongside the publisher
+- `-proxy_host` / `-proxy_port`: configure that proxy
+- `-sshd`: publish the embedded Diode SSH service
+- `-files`: add one or more file listeners to the same long-running publisher
+- `-fileroot`: root path for all `-files` listeners on that command
+
+The simplest static-site workflow from the public docs is:
+
+```bash
+mkdir project
+cd project
+echo "Hello World" > index.html
+../diode publish -http
+```
+
+That starts the built-in static server and publishes it through Diode.
+
+If you run `publish` without any ports, files listeners, or binds, the client exits with an error.
+
+## Files, Push, and Pull
+
+The client includes a simple HTTP file listener and matching upload/download commands.
+
+Start a public file listener on Diode port `8080`:
+
+```bash
+./diode files 8080
+```
+
+Serve files relative to a specific directory:
+
+```bash
+./diode files -fileroot /var/inbox 8080
+```
+
+Private file listener:
+
+```bash
+./diode files -fileroot /var/inbox 8080,mydevice,0x0000000000000000000000000000000000000001
+```
+
+Upload a file:
+
+```bash
+./diode push ./photo.jpg mydevice.diode.link:8080
+./diode push ./photo.jpg mydevice.diode.link:8080:photos/vacation.jpg
+```
+
+Download a file:
+
+```bash
+./diode pull mydevice.diode.link:8080:photos/vacation.jpg
+./diode pull mydevice.diode.link:8080:photos/vacation.jpg ./vacation.jpg
+```
+
+Important behavior:
+
+- if `-fileroot` is omitted, the listener serves relative to the process working directory at startup
+- `diode files` flags must come before the positional `<files-spec>` because Go's `flag` parser stops at the first non-flag argument
+- `push` with only `<peer>:<port>` writes to the basename of the local file on the remote side
+- `pull` without a local destination writes to `./<basename(remote-path)>`
+
+The full contract for file serving and transfer is documented in [docs/file-transfer-spec.md](docs/file-transfer-spec.md).
+
+## SOCKS Proxy and Browser Use
+
+Start a local SOCKS proxy:
+
+```bash
+./diode socksd
+```
+
+Default listener:
+
+- host: `127.0.0.1`
+- port: `1080`
+
+Custom port:
+
+```bash
+./diode socksd -socksd_host 127.0.0.1 -socksd_port 8082
+```
+
+The repo includes a `proxy.pac` file you can use for browser proxy configuration. Typical usage is to send `.diode`, `.diode.link`, and `.diode.ws` traffic through the SOCKS proxy.
+
+Other common SOCKS-based workflows from the CLI docs:
+
+```bash
+curl -x socks5h://localhost:1080 mydevice.diode
+ssh -o "ProxyCommand=nc -X 5 -x localhost:1080 %h %p" user@mydevice.diode
+nc -X 5 -x localhost:1080 mydevice.diode.link 8080
+```
+
+That last pattern is useful for tools like VLC that do not fully support SOCKS hostname resolution on their own.
+
+You can also use a bind rule to open a local port that forwards to a remote Diode service:
+
+```bash
+./diode -bind auto:mydevice.diode:80:tls socksd
+```
+
+`auto` lets the OS choose a local port. The client prints the resolved local port after startup.
+
+This same `-bind` feature is what the public docs use for remote SMB / drive mapping style workflows. Example:
+
+```bash
+./diode -bind 1039:0xREMOTEDEVICEADDRESS:445 socksd
+```
+
+After that, a local app can connect to `localhost:1039` as if it were the remote service.
+
+## SSH
+
+`diode ssh` is a convenience wrapper around OpenSSH. It:
+
+- starts the Diode client
+- spins up a temporary local SOCKS proxy
+- generates a temporary SSH identity
+- launches your local `ssh` binary with the right proxy command
+
+Example:
+
+```bash
+./diode ssh ubuntu@mymachine.diode -p 22
+```
 
 Notes:
-- CGO must be enabled for tray builds (the default in our Makefile). The `diode` binary already includes tray support; no separate tray binary is needed.
 
-## Notes on debugging with pprof
+- the command is marked beta in the client
+- do not put the port in the hostname; use `-p 22`, not `ubuntu@mymachine.diode:22`
+- OpenSSH tools such as `ssh` and `ssh-keygen` must be installed locally
 
-To enable pprof on port 6060 run with `diode -pprofport 6060`
+If you want to expose a normal local SSH daemon over Diode:
 
-## WireGuard Integration (Join Command)
-
-Overview
-- The `diode join` command can read a WireGuard configuration from the device’s on-chain `wireguard` property and configure a local WireGuard interface for the selected Diode network.
-- The on-chain WireGuard config must NOT include a `PrivateKey`. The client generates and stores a private key locally and injects it into the final config file.
-- One interface per Diode network: interface name and config path derive from the network, e.g. `wg-diode-prod` for mainnet and `wg-diode-dev` for testnet.
-- WireGuard peers can be mapped to Diode devices for dynamic UDP relay via `portopen2`. The client will update peer endpoints at runtime using `wg set`.
-
-First Run Key Generation
-- Generate your local WireGuard keypair and print the public key. You can run this with or without a contract address:
-  - With address (normal): `diode join -wireguard <contract_address>`
-  - Without address (key-only mode): `diode join -wireguard`
-- Optional: specify a custom suffix for interface/config names:
-  - `diode join -wireguard -suffix staging <contract_address>`
-  - Works in key-only mode too: `diode join -wireguard -suffix staging`
-- This creates `<iface>.key` in the platform WireGuard directory and prints the public key so you can add it to your on-chain config later. In key-only mode the command exits after printing the key.
-
-Interface Names and Paths
-- Default mapping:
-  - Mainnet: interface `wg-diode-prod`
-  - Testnet: interface `wg-diode-dev`
-  - Local: interface `wg-diode-local`
-- Custom suffix: use `-suffix <name>` to override the default (allowed: letters, digits, `.`, `_`, `-`). Example: `-suffix staging` -> `wg-diode-staging`.
-
-Config file locations by OS
-- Linux: `/etc/wireguard/wg-diode-<net>.conf`
-- macOS: `/usr/local/etc/wireguard/wg-diode-<net>.conf`
-- Windows: `C:\\Program Files\\WireGuard\\Data\\Configurations\\wg-diode-<net>.conf` (or user-local fallback)
-
-Diode Peer Mapping (WireGuard UDP Relay)
-- In each `[Peer]` section, add a Diode device mapping comment:
-  - `# DiodeDevice = 0x<diode_device_address>`
-- The client uses the `Endpoint` port as the Diode port name (no extra port field is required).
-- On startup, the client opens a `portopen2` relay to each mapped peer and updates the WireGuard endpoint to `<relay_ip>:<physical_port>`.
-- On the receiving side, inbound `portopen2` requests update the mapped peer’s endpoint to the relay.
-
-Private Key Handling
-- The client creates a private key on first use and stores it next to the config as `/etc/wireguard/wg-diode-<net>.key` (or the platform’s directory) with `0600` permissions.
-- The client derives the public key and logs it for your reference. Keep the private key file secure.
-  - If key creation fails due to permissions (e.g., Linux system path), run with elevated privileges (e.g., `sudo`).
-
-On-Chain WireGuard Property
-- Property key: `wireguard`
-- Value: the WireGuard config content WITHOUT `PrivateKey`. Example:
-
-```
-[Interface]
-Address = 10.7.0.2/32
-DNS = 1.1.1.1
-
-[Peer]
-PublicKey = <remote-public-key>
-AllowedIPs = 0.0.0.0/0, ::/0
-Endpoint = example.org:51820
-PersistentKeepalive = 25
+```bash
+./diode publish -public 22:22
+./diode publish -private 22:22,0x1111111111111111111111111111111111111111
+./diode publish -protected 22:22
 ```
 
-Notes
-- Omit `PrivateKey` from the on-chain configuration. The client injects a locally generated key automatically.
-- You may include additional fields in `[Interface]` (e.g., `Address`, `DNS`) and in `[Peer]` typically `PublicKey`, `AllowedIPs`, `Endpoint`, and `PersistentKeepalive`.
+If you want to publish the embedded Diode SSH service instead:
 
-Bringing the Interface Up
-- Linux/macOS: the client tries to enable the interface using `wg-quick up` automatically. If it fails due to permissions, run with administrative permissions or run manually:
-  - `sudo wg-quick up /etc/wireguard/wg-diode-<net>.conf`
-- Windows: import and activate the generated config in WireGuard for Windows (GUI), or install it as a service (admin shell):
-  - `"C:\\Program Files\\WireGuard\\wireguard.exe" /installtunnelservice C:\\Program Files\\WireGuard\\Data\\Configurations\\wg-diode-<net>.conf`
+```bash
+./diode publish -sshd protected:2222:ubuntu
+./diode publish -sshd private:2222:ubuntu,0x1111111111111111111111111111111111111111
+```
 
-Updating
-- When the on-chain `wireguard` property changes, the client rewrites the config and attempts to re-enable the interface. Any manual edits will be overwritten; change the config on-chain instead.
+## HTTP Fetching
 
-Security
-- The private key is never stored on-chain.
-- The generated local key is stored with restrictive permissions. Ensure your system backups and access controls protect this file.
+`fetch` is a Diode-aware HTTP client. It only accepts Diode URLs, not arbitrary web2 URLs.
+
+Examples:
+
+```bash
+./diode fetch -url http://myservice.diode
+./diode fetch -url https://myservice.diode.link:8080/api -method POST -data '{"ok":true}' -header 'content-type: application/json'
+./diode fetch -url diode://myservice.diode/path
+```
+
+Supported methods:
+
+- `GET`
+- `POST`
+- `PUT`
+- `DELETE`
+- `OPTION`
+
+`PATCH` is currently not enabled.
+
+## BNS
+
+BNS is the blockchain name service used by Diode names.
+
+Lookup:
+
+```bash
+./diode bns -lookup mydevice
+./diode bns -account mydevice
+```
+
+Register:
+
+```bash
+./diode bns -register mydevice=0x1234...
+```
+
+If you register BNS names with the CLI, the ownership workflow is tied to this client's local wallet. Back up the local `private.db` if you rely on CLI-managed BNS names. If you want one wallet to manage names independently of any single CLI install, the public docs recommend using the Diode Network Explorer with MetaMask instead.
+
+Transfer:
+
+```bash
+./diode bns -transfer mydevice=0xabcd...
+```
+
+Unregister:
+
+```bash
+./diode bns -unregister mydevice
+```
+
+BNS names are lowercase and must be between 7 and 32 characters using `a-z`, `0-9`, and `-`.
+
+## Query and Token Operations
+
+Resolve an address or name to device tickets:
+
+```bash
+./diode query -address 0x1234...
+./diode query -address mydevice
+```
+
+Check your balance:
+
+```bash
+./diode token -balance
+```
+
+Send DIODE:
+
+```bash
+./diode token -to 0x1234... -value 1millidiode -gasprice 10gwei
+./diode token -to mydevice -value 1diode -gasprice 10gwei
+```
+
+## Join and WireGuard
+
+`join` is the command for contract-driven perimeter management. It watches an on-chain property set and applies the resulting local behavior.
+
+Typical use:
+
+```bash
+./diode join 0xB7A5bd0345EF1Cc5E66bf61BdeC17D2461fBd968
+```
+
+Dry-run a single sync:
+
+```bash
+./diode join -dry 0xB7A5bd0345EF1Cc5E66bf61BdeC17D2461fBd968
+```
+
+Choose network:
+
+```bash
+./diode join -network testnet 0xB7A5bd0345EF1Cc5E66bf61BdeC17D2461fBd968
+```
+
+Generate and print a WireGuard public key without fully joining:
+
+```bash
+./diode join -wireguard
+./diode join -wireguard -suffix staging
+```
+
+What `join` can consume from the perimeter/device properties includes:
+
+- published `public`, `private`, and `protected` port definitions
+- `sshd`
+- `wireguard`
+- `socksd`
+- `bind`
+- `debug`
+- `diodeaddrs`
+- `fleet`
+- `extra_config`
+
+WireGuard notes:
+
+- the on-chain `wireguard` property must not contain `PrivateKey`
+- the client generates and stores the private key locally
+- generated config paths are OS-specific
+- bringing interfaces up may require administrator privileges
+- manual edits to generated WireGuard configs are overwritten on the next sync
+
+The current README keeps the essentials here. The implementation details live in the command and are documented inline in the code around [cmd/diode/join.go](cmd/diode/join.go).
+
+## Config Storage
+
+The `config` command works on the local key-value store in the Diode database.
+
+List values:
+
+```bash
+./diode config -list
+```
+
+Show private material too:
+
+```bash
+./diode config -list -unsafe
+```
+
+Set a value:
+
+```bash
+./diode config -set fleet=0x1234...
+```
+
+Delete a value:
+
+```bash
+./diode config -delete fleet
+```
+
+Common keys:
+
+- `fleet`
+- `private`
+
+Be careful with `-unsafe`: it prints private key material.
+
+## Fleet Initialization
+
+Most users should not start with `reset`. Use it when you intentionally want this client to create and own a new fleet contract.
+
+```bash
+./diode reset
+```
+
+What it does:
+
+- deploys a new fleet contract
+- allowlists the current device in that fleet
+- stores the new fleet locally for future commands
+
+Why this is not in quick start:
+
+- it changes persistent client state
+- it is a blockchain write operation, not a read-only setup check
+- many users will connect to an existing fleet or only need client-side tools such as `socksd`, `fetch`, or public publishing
+
+If you already have a fleet address and just want to use it, set it directly instead:
+
+```bash
+./diode config -set fleet=0x1234...
+```
+
+## YAML Config File Mode
+
+The client only loads a YAML config file when you explicitly pass `-configpath`.
+
+Example:
+
+```bash
+cp .diode.yml.example .diode.yml
+./diode -configpath ./.diode.yml socksd
+```
+
+That same flag is also required if you want the config API to save changes back to a YAML file.
+
+Without `-configpath`, the client reads and writes its normal file database instead.
+
+The example config lives at [.diode.yml.example](.diode.yml.example).
+
+## Config API
+
+Daemon-style commands such as `publish`, `socksd`, `gateway`, `files`, and `join` can expose the config API:
+
+```bash
+./diode -api=true -apiaddr=localhost:1081 publish -public 8080:80
+```
+
+Endpoints:
+
+- `GET /` for a basic health check
+- `GET /config` for the current client config summary
+- `PUT /config` to update config-file-backed settings
+- `GET /connection-client-id?peer=<remoteAddr>` to map a published inbound TCP peer to a verified Diode client ID
+
+Important gotcha:
+
+- the current implementation requires `Content-Type: application/json` on requests handled by this API, including `GET /config`
+
+Example:
+
+```bash
+curl -H 'Content-Type: application/json' http://localhost:1081/config
+```
+
+The `connection-client-id` endpoint is used by the example app in [examples/client_id/README.md](examples/client_id/README.md).
+
+## MCP
+
+`diode mcp` runs the client as a Model Context Protocol server over stdio.
+
+Examples:
+
+```bash
+./diode mcp
+./diode mcp -mcp-preset=minimal
+./diode mcp -mcp-tool=diode_deploy
+```
+
+Presets:
+
+- `minimal`
+- `chain`
+- `files`
+- `deploy`
+- `all`
+
+Available tool families include:
+
+- version and client identity
+- address queries
+- file push/pull
+- deploy upload support
+
+Full MCP behavior and tool schemas are documented in [docs/mcp-spec.md](docs/mcp-spec.md).
+
+## Gateway Mode
+
+`gateway` runs an HTTP or HTTPS gateway similar to `diode.link`.
+
+Example:
+
+```bash
+./diode gateway -httpd_port 8080 -httpsd_port 8443 -secure -certpath ./fullchain.pem -privpath ./privkey.pem
+```
+
+Useful options:
+
+- `-socksd`: also start the local SOCKS proxy
+- `-allow_redirect`: redirect HTTP to HTTPS
+- `-edge_acme`: let the gateway manage certificates automatically
+- `-additional_ports`: extra TLS ports
+
+This mode is mainly for operators who want to run their own public-facing Diode gateway.
+
+## Important Global Flags
+
+Common global flags you will actually use:
+
+- `-configpath <file>`: load YAML config from a file
+- `-dbpath <file>`: change the database path
+- `-diodeaddrs <addr>`: override the bootstrap RPC peers
+- `-bind <local>:<remote>:<port>:<proto>`: create a local forward through Diode
+- `-maxports <n>`: cap concurrent ports per device
+- `-tray=true`: show the tray icon on supported platforms
+- `-update=false`: disable auto-update on startup
+- `-debug=true`: enable debug logging
+- `-api=true -apiaddr=host:port`: enable the config API
+- `-pprofport <port>`: enable `net/http/pprof` on localhost
+
+To see every flag and subcommand:
+
+```bash
+./diode --help
+./diode publish --help
+```
+
+## System Tray
+
+Tray support is integrated into the main `diode` binary.
+
+- enable with `-tray=true`
+- supported on Windows, macOS, and most Linux desktop environments
+- automatically disabled under WSL
+
+On Linux you may need runtime packages such as:
+
+- `libgtk-3-0`
+- `libayatana-appindicator3-1`
+
+For older Linux environments that need legacy AppIndicator support:
+
+```bash
+make diode_tray_legacy
+```
+
+## Development
+
+Run tests:
+
+```bash
+make test
+```
+
+Run CI-like checks locally:
+
+```bash
+make ci_test
+```
+
+Format:
+
+```bash
+make format
+```
+
+Lint:
+
+```bash
+make lint
+```
+
+Security checks:
+
+```bash
+make seccheck
+```
+
+Useful artifacts and examples:
+
+- Gauge load tool: [cmd/gauge/README.MD](cmd/gauge/README.MD)
+- Client ID example: [examples/client_id/README.md](examples/client_id/README.md)
+
+## Troubleshooting
+
+### The client cannot connect to the network
+
+- verify outbound access to the configured Diode RPC addresses
+- try `./diode -update=false time`
+- override peers with `-diodeaddrs` if needed
+
+### `publish` started but I do not know how to reach my service
+
+- use `diode config -list` to find your address
+- if reverse BNS is configured, the client logs `Client name`
+- public port `80` maps to `http://<name-or-address>.diode.link/`
+- public ports in the secure gateway ranges log `https://<name-or-address>.diode.link:<port>/`
+- otherwise connect through another Diode client using `.diode` addressing and a SOCKS proxy
+
+### `files` is ignoring `-fileroot`
+
+Put `-fileroot` before the `<files-spec>` argument:
+
+```bash
+./diode files -fileroot /srv/data 8080
+```
+
+Not:
+
+```bash
+./diode files 8080 -fileroot /srv/data
+```
+
+### `fetch` says to use curl for web2 sites
+
+That is expected. `diode fetch` only accepts Diode URLs such as:
+
+- `http://name.diode`
+- `https://name.diode.link:8080`
+- `diode://name.diode/path`
+
+### The config API returns `415 unsupported media type`
+
+Send `Content-Type: application/json`, even on `GET /config`.
+
+### WireGuard setup fails with permissions errors
+
+Run the command with the privileges required to write to the WireGuard config directory or bring the interface up manually after the file is generated.
+
+## License
+
+This project is licensed under the Diode License, Version 1.1. See [LICENSE](LICENSE).
