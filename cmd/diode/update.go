@@ -38,11 +38,25 @@ func writeLastUpdateAt() {
 }
 
 func updateHandler() (err error) {
-	doUpdate()
-	return
+	_, err = doUpdate(updateRestartStandalone)
+	return err
 }
 
-func doUpdate() int {
+type updateRestartMode int
+
+const (
+	updateRestartStandalone updateRestartMode = iota
+	updateRestartDeferred
+)
+
+func runDaemonUpdate(args []string) (string, error) {
+	if len(args) == 0 || args[0] != "update" {
+		return "", newExitStatusError(2, "missing update command")
+	}
+	return doUpdate(updateRestartDeferred)
+}
+
+func doUpdate(restartMode updateRestartMode) (string, error) {
 	cfg := config.AppConfig
 	m := &update.Manager{
 		Command: "diode",
@@ -62,12 +76,15 @@ func doUpdate() int {
 		// Will recheck for an update in 24 hours
 		go func() {
 			time.Sleep(time.Hour * 24)
-			doUpdate()
+			_, _ = doUpdate(updateRestartStandalone)
 		}()
 		if err == nil {
 			writeLastUpdateAt()
 		}
-		return 0
+		if err != nil {
+			return "", newExitStatusError(1, "%s", err.Error())
+		}
+		return "", nil
 	}
 
 	// searching for binary in path
@@ -86,14 +103,17 @@ func doUpdate() int {
 	dir := filepath.Dir(binExe)
 	if err := m.InstallTo(tarball, dir); err != nil {
 		cfg.PrintError("Error installing", err)
-		return 129
+		return "", newExitStatusError(129, "%s", err.Error())
 	}
 
 	cmd := path.Join(dir, m.Command)
-	fmt.Printf("Updated, restarting %s...\n", cmd)
+	stdoutf("Updated, restarting %s...\n", cmd)
 	writeLastUpdateAt()
+	if restartMode == updateRestartDeferred {
+		return cmd, nil
+	}
 	update.Restart(cmd)
-	return 0
+	return "", nil
 }
 
 func download(m *update.Manager) (string, bool, error) {
@@ -127,7 +147,7 @@ func download(m *update.Manager) (string, bool, error) {
 	}
 
 	// whitespace
-	fmt.Println()
+	stdoutln()
 
 	// download tarball to a tmp dir
 	tarball, err := a.DownloadProxy(progress.Reader)

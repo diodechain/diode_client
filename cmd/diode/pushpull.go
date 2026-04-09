@@ -135,9 +135,9 @@ func parsePeerPort(s string) (host string, port int, err error) {
 func pushHandler() error {
 	args := pushCmd.Flag.Args()
 	if len(args) < 2 {
-		fmt.Fprintln(os.Stderr, "usage: diode push <local-file> <peer>:<port>")
-		fmt.Fprintln(os.Stderr, "       diode push <local-file> <peer>:<port>:<remote-path>")
-		os.Exit(2)
+		stderrln("usage: diode push <local-file> <peer>:<port>")
+		stderrln("       diode push <local-file> <peer>:<port>:<remote-path>")
+		return newExitStatusError(2, "missing push arguments")
 	}
 	if len(args) > 2 {
 		return fmt.Errorf("too many arguments (quote <peer>:<port>:<remote-path> as one token)")
@@ -208,15 +208,15 @@ func pushHandler() error {
 		}
 		return fmt.Errorf("push failed: %s", msg)
 	}
-	config.AppConfig.Logger.Info("push ok: %s -> %s", localPath, urlStr)
+	config.AppConfig.PrintInfo(fmt.Sprintf("push ok: %s -> %s", localPath, urlStr))
 	return nil
 }
 
 func pullHandler() error {
 	args := pullCmd.Flag.Args()
 	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: diode pull <peer>:<port>:<remote-path> [<local-path>]")
-		os.Exit(2)
+		stderrln("usage: diode pull <peer>:<port>:<remote-path> [<local-path>]")
+		return newExitStatusError(2, "missing pull arguments")
 	}
 	if len(args) > 2 {
 		return fmt.Errorf("too many arguments (quote paths that contain spaces)")
@@ -288,7 +288,7 @@ func pullHandler() error {
 		if cerr != nil {
 			return cerr
 		}
-		config.AppConfig.Logger.Info("pull ok: %s -> ./%s", urlStr, base)
+		config.AppConfig.PrintInfo(fmt.Sprintf("pull ok: %s -> ./%s", urlStr, base))
 		return nil
 	}
 
@@ -311,6 +311,6 @@ func pullHandler() error {
 	if cerr != nil {
 		return cerr
 	}
-	config.AppConfig.Logger.Info("pull ok: %s -> %s", urlStr, dest)
+	config.AppConfig.PrintInfo(fmt.Sprintf("pull ok: %s -> %s", urlStr, dest))
 	return nil
 }

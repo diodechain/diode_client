@@ -66,12 +66,12 @@ func (fp *fetchProgress) Read(p []byte) (int, error) {
 	if fp.read == 0 {
 		if fp.contentLength > 0 {
 			fp.pointSize = float64(fp.contentLength) / 60
-			fmt.Printf("Downloading %d bytes into '%s'.\n", fp.contentLength, fp.name)
-			fmt.Println("[------------------------------------------------------------]")
-			fmt.Printf("[")
+			stdoutf("Downloading %d bytes into '%s'.\n", fp.contentLength, fp.name)
+			stdoutln("[------------------------------------------------------------]")
+			stdoutf("[")
 		} else {
 			fp.pointSize = 0
-			fmt.Printf("Downloading into '%s'.\n", fp.name)
+			stdoutf("Downloading into '%s'.\n", fp.name)
 		}
 	}
 	n, err := fp.Reader.Read(p)
@@ -79,13 +79,13 @@ func (fp *fetchProgress) Read(p []byte) (int, error) {
 
 	if fp.pointSize > 0 {
 		for int64(float64(fp.read)/fp.pointSize) > fp.points {
-			fmt.Printf("#")
+			stdoutf("#")
 			fp.points++
 		}
 	}
 
 	if err == io.EOF && fp.contentLength > 0 && fp.read == fp.contentLength {
-		fmt.Printf("] Done!\n")
+		stdoutf("] Done!\n")
 	}
 
 	return n, err
@@ -187,16 +187,28 @@ func fetchHandler() (err error) {
 	defer resp.Body.Close()
 
 	var f *os.File
+	var out io.Writer
 	if len(fetchCfg.Output) > 0 {
 		f, err = os.OpenFile(fetchCfg.Output, os.O_CREATE|os.O_WRONLY, 0600)
 		if err != nil {
 			return
 		}
+		out = f
 	} else if fetchCfg.Verbose {
-		f = os.Stdout
+		out = stdoutWriter()
 		src = resp.Body
 	}
 
+	if out != nil {
+		_, err = io.Copy(out, src)
+		if f != nil {
+			f.Close()
+		}
+		if err != nil {
+			return
+		}
+		return
+	}
 	if f != nil {
 		io.Copy(f, src)
 		f.Close()

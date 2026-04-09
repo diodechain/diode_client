@@ -59,11 +59,29 @@ func sshHandler() (err error) {
 	}
 	defer cleanupProxy()
 	cfg.PrintLabel("Using local diode client", proxyAddr)
+	sshIndex := ssh_indexFromArgs(os.Args)
+	if sshIndex == -1 {
+		cfg.PrintError("ssh command not found", errors.New("ssh command not found"))
+		os.Exit(1)
+	}
+	return runSSHWithProxyAddr(proxyAddr, normalizeSSHArgs(os.Args[sshIndex+1:]))
+}
 
+func ssh_indexFromArgs(osArgs []string) int {
+	for i, arg := range osArgs {
+		if arg == sshCommandName {
+			return i
+		}
+	}
+	return -1
+}
+
+func runSSHWithProxyAddr(proxyAddr string, sshArgs []string) error {
+	cfg := config.AppConfig
 	diodeExe, err := os.Executable()
 	if err != nil {
 		cfg.PrintError("Could not determine diode executable path", err)
-		os.Exit(1)
+		return newExitStatusError(1, "%s", err.Error())
 	}
 
 	args := []string{
@@ -71,33 +89,19 @@ func sshHandler() (err error) {
 		"-o", "ProxyCommand=" + buildSSHProxyCommand(runtimeGOOS, diodeExe, proxyAddr),
 		"-o", "StrictHostKeyChecking=accept-new",
 	}
-	os_args := os.Args
-	// Remove all args before the ssh command by finding "ssh" and removing all args before it
-	ssh_index := -1
-	for i, arg := range os_args {
-		if arg == "ssh" {
-			ssh_index = i
-			break
-		}
-	}
-	if ssh_index == -1 {
-		cfg.PrintError("ssh command not found", errors.New("ssh command not found"))
-		os.Exit(1)
-	}
-	sshArgs := normalizeSSHArgs(os_args[ssh_index+1:])
 	args = append(args, sshArgs...)
 
 	if target := extractSSHTarget(sshArgs); target != "" {
 		if err := validateSSHTarget(target); err != nil {
 			cfg.PrintError("Invalid SSH target", err)
-			os.Exit(1)
+			return newExitStatusError(1, "%s", err.Error())
 		}
 	}
 
 	identityFile, cleanup, err := createEphemeralSSHIdentity()
 	if err != nil {
 		cfg.PrintError("Could not create ephemeral ssh identity", err)
-		os.Exit(1)
+		return newExitStatusError(1, "%s", err.Error())
 	}
 	defer cleanup()
 	args = append(args, "-i", identityFile)
@@ -105,7 +109,7 @@ func sshHandler() (err error) {
 	ssh, err := findOpenSSHTool("ssh")
 	if err != nil {
 		cfg.PrintError("ssh not found", err)
-		os.Exit(1)
+		return newExitStatusError(1, "%s", err.Error())
 	}
 	cmd := exec.Command(ssh, args[1:]...)
 	cmd.Stdin = os.Stdin
@@ -116,12 +120,30 @@ func sshHandler() (err error) {
 	if err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			os.Exit(exitErr.ExitCode())
+			return newExitStatusError(exitErr.ExitCode(), "ssh exited with status %d", exitErr.ExitCode())
 		}
 		cfg.PrintError("Could not execute ssh", err)
-		os.Exit(1)
+		return newExitStatusError(1, "%s", err.Error())
 	}
-	return
+	return nil
+}
+
+func runSSHViaDaemonLease(commandArgs []string, resp daemonResponse) int {
+	if len(commandArgs) == 0 {
+		stderrln("missing ssh command arguments")
+		return 1
+	}
+	cfg := config.AppConfig
+	cfg.PrintLabel("Using diode daemon proxy", resp.ProxyAddr)
+	defer func() {
+		if resp.LeaseID != "" {
+			_ = releaseDaemonLease(resp.LeaseID)
+		}
+	}()
+	if err := runSSHWithProxyAddr(resp.ProxyAddr, normalizeSSHArgs(commandArgs[1:])); err != nil {
+		return exitCodeFromError(err)
+	}
+	return 0
 }
 
 func normalizeSSHArgs(args []string) []string {

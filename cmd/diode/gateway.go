@@ -52,6 +52,7 @@ func gatewayHandler() (err error) {
 	if err != nil {
 		return
 	}
+	beginRuntimeMode("gateway")
 	cfg := config.AppConfig
 	cfg.EnableProxyServer = true
 	if cfg.EnableAPIServer {
@@ -107,6 +108,9 @@ func gatewayHandler() (err error) {
 	app.SetProxyServer(proxyServer)
 	if err := proxyServer.Start(); err != nil {
 		cfg.Logger.Error(err.Error())
+	}
+	if isDaemonApplyRequest() {
+		return nil
 	}
 	app.Wait()
 	return
