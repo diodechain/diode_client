@@ -192,11 +192,10 @@ func resetHandler() (err error) {
 		return err
 	}
 	cfg := config.AppConfig
-	client := app.clientManager.GetNearestClient()
-	if cfg.Experimental {
-		err = doInitExp(cfg, client)
-	} else {
-		err = doInit(cfg, client)
-	}
-	return err
+	return app.clientManager.CallWithClientFailover("reset init", func(client *rpc.Client) error {
+		if cfg.Experimental {
+			return doInitExp(cfg, client)
+		}
+		return doInit(cfg, client)
+	})
 }

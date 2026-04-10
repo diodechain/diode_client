@@ -710,6 +710,39 @@ func (cm *ClientManager) GetNearestClient() (client *Client) {
 	return
 }
 
+// CallWithClientFailover runs fn with each connected client in latency order until fn
+// returns nil or a non-transient error. On transient errors (dropped connection, dead
+// genserver, cancelled RPC, timeouts, etc.) it tries the next relay.
+//
+// Prefer this over GetNearestClient for one-off CLI paths where a single bad relay
+// should not doom the command. For long-lived sessions that must stick to one node,
+// use GetNearestClient or GetClient as appropriate.
+func (cm *ClientManager) CallWithClientFailover(op string, fn func(*Client) error) error {
+	clients := cm.ClientsByLatency()
+	if len(clients) == 0 {
+		return fmt.Errorf("no rpc clients available")
+	}
+	var lastErr error
+	for i, c := range clients {
+		err := fn(c)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if !IsTransientRPCError(err) {
+			return err
+		}
+		if i+1 < len(clients) {
+			host, herr := c.Host()
+			if herr != nil {
+				host = "unknown"
+			}
+			cm.Config.Logger.Info("%s: transient RPC error on %q, trying next relay (%d/%d): %v", op, host, i+1, len(clients), err)
+		}
+	}
+	return lastErr
+}
+
 // PeekNearestAddresses is a non-blocking version of GetNearestClient but can return nil
 func (cm *ClientManager) PeekNearestAddresses() (prim *util.Address, secd *util.Address) {
 	primClient, secdClient := cm.PeekNearestClients()

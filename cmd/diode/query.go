@@ -45,14 +45,17 @@ func queryHandler() (err error) {
 	resolverConfig := rpc.Config{}
 	resolver := rpc.NewResolver(resolverConfig, app.clientManager)
 
-	client := app.clientManager.GetNearestClient()
-	addr, err := util.DecodeAddress(cfg.QueryAddress)
-	if err == nil {
-		addrType, err := client.ResolveAccountType(addr)
-		if err != nil {
-			cfg.PrintError("Couldn't resolve account type: ", err)
-		} else {
+	addr, decErr := util.DecodeAddress(cfg.QueryAddress)
+	if decErr == nil {
+		if err = app.clientManager.CallWithClientFailover("query account type", func(client *rpc.Client) error {
+			addrType, e := client.ResolveAccountType(addr)
+			if e != nil {
+				return e
+			}
 			cfg.PrintLabel("Account Type: ", addrType)
+			return nil
+		}); err != nil {
+			cfg.PrintError("Couldn't resolve account type: ", err)
 		}
 	}
 
