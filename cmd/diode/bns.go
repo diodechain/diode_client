@@ -54,7 +54,10 @@ func bnsHandler() (err error) {
 		return
 	}
 	err = app.clientManager.CallWithClientFailover("bns block peak", func(client *rpc.Client) error {
-		bn, _ := client.GetBlockPeak()
+		bn, err := client.GetBlockPeak()
+		if err != nil {
+			return err
+		}
 		if bn == 0 {
 			return fmt.Errorf("not found")
 		}
