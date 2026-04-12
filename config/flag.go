@@ -51,6 +51,7 @@ type Config struct {
 	RetryWait           time.Duration `yaml:"retrywait,omitempty" json:"retrywait,omitempty"`
 	RlimitNofile        int           `yaml:"rlimit_nofile,omitempty" json:"rlimit_nofile,omitempty"`
 	LogFilePath         string        `yaml:"logfilepath,omitempty" json:"logfilepath,omitempty"`
+	LogTarget           string        `yaml:"logtarget,omitempty" json:"logtarget,omitempty"`
 	SBlockdomains       StringValues  `yaml:"blockdomains,omitempty" json:"blockdomains,omitempty"`
 	SBlocklists         StringValues  `yaml:"blocklists,omitempty" json:"blocklists,omitempty"`
 	SAllowlists         StringValues  `yaml:"allowlists,omitempty" json:"allowlists,omitempty"`
@@ -100,6 +101,9 @@ type Config struct {
 	LogMode                 int              `yaml:"-" json:"-"`
 	LogDateTime             bool             `yaml:"-" json:"-"`
 	Logger                  *Logger          `yaml:"-" json:"-"`
+	LogTargetTo             string           `yaml:"-" json:"-"` // parsed device (BNS or hex) for implicit bind
+	LogTargetPort           int              `yaml:"-" json:"-"`
+	LogTargetRemote         interface{} `yaml:"-" json:"-"` // zapcore.WriteSyncer; set before ReloadLogger
 	ConfigFilePath          string           `yaml:"-" json:"-"`
 	Binds                   []Bind           `yaml:"-" json:"-"`
 	BNSForce                bool             `yaml:"-" json:"-"`
