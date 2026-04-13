@@ -15,6 +15,8 @@ import (
 	"github.com/diodechain/zap/zapcore"
 )
 
+// Flag parsing and implicit -bind injection for -logtarget live in cmd/diode/logtarget.go.
+
 const (
 	logTargetQueueDepth = 4096
 	logTargetDialTO     = 8 * time.Second
@@ -49,6 +51,14 @@ func NewAsyncRemoteLog(localPort int) *AsyncRemoteLog {
 		stopCh:  make(chan struct{}),
 		backoff: logTargetMinBackoff,
 	}
+}
+
+// LocalPort returns the localhost port the forwarder dials (0 if unset).
+func (a *AsyncRemoteLog) LocalPort() int {
+	if a == nil {
+		return 0
+	}
+	return a.port
 }
 
 // Start begins the consumer goroutine.
@@ -169,4 +179,44 @@ func (a *AsyncRemoteLog) statusNotConnected(err error) {
 	}
 	a.lastStatus = time.Now()
 	fmt.Fprintf(os.Stderr, "[L] WARN -logtarget: not connected to collector (%v); retrying (localhost:%d)\n", err, a.port)
+}
+
+// SetupLogTargetSink wires remote log shipping after binds have resolved local ports.
+// resolvedBinds should match the SOCKS server's current binds (e.g. copy of def after startBind).
+// Uses AppConfig. Idempotent when the AsyncRemoteLog already matches the bind port.
+func SetupLogTargetSink(resolvedBinds []Bind) {
+	cfg := AppConfig
+	if cfg == nil || cfg.LogTarget == "" {
+		return
+	}
+	var found *Bind
+	for i := range resolvedBinds {
+		b := &resolvedBinds[i]
+		if b.To == cfg.LogTargetTo && b.ToPort == cfg.LogTargetPort {
+			found = b
+			break
+		}
+	}
+	if found == nil || found.LocalPort == 0 {
+		if cfg.Logger != nil {
+			cfg.Logger.Warn("-logtarget: bind not ready; remote log shipping inactive")
+		}
+		return
+	}
+	if existing, ok := cfg.LogTargetRemote.(*AsyncRemoteLog); ok && existing != nil {
+		if existing.LocalPort() == found.LocalPort {
+			return
+		}
+		existing.Stop()
+		cfg.LogTargetRemote = nil
+	}
+	ar := NewAsyncRemoteLog(found.LocalPort)
+	ar.Start()
+	cfg.LogTargetRemote = ar
+	if err := ReloadLogger(cfg); err != nil {
+		if cfg.Logger != nil {
+			cfg.Logger.Warn("-logtarget: logger: %v", err)
+		}
+		cfg.LogTargetRemote = nil
+	}
 }

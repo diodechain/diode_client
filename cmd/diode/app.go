@@ -60,6 +60,7 @@ func init() {
 	diodeCmd.Flag.StringVar(&cfg.APIServerAddr, "apiaddr", "localhost:1081", "define config api server address")
 	diodeCmd.Flag.IntVar(&cfg.RlimitNofile, "rlimit_nofile", 0, "specify the file descriptor numbers that can be opened by this process")
 	diodeCmd.Flag.StringVar(&cfg.LogFilePath, "logfilepath", "", "absolute path to the log file")
+	diodeCmd.Flag.DurationVar(&cfg.LogStats, "logstats", 0, "emit periodic [STATS] host metrics; interval (min 10s; 0=off)")
 	diodeCmd.Flag.StringVar(&cfg.LogTarget, "logtarget", "", "ship logs to a collector at <hex_or_bns>:<port> via implicit bind (tcp); tees with stderr or log file per matrix")
 	diodeCmd.Flag.BoolVar(&cfg.LogDateTime, "logdatetime", false, "show the date time in log")
 	diodeCmd.Flag.StringVar(&cfg.ConfigFilePath, "configpath", "", "yaml file path to config file")
@@ -163,6 +164,8 @@ func prepareDiode() error {
 		cfg.RemoteRPCAddrs[i], cfg.RemoteRPCAddrs[j] = cfg.RemoteRPCAddrs[j], cfg.RemoteRPCAddrs[i]
 	})
 
+	// logtarget has an implicit bind - inject the bind if set
+	injectLogTargetSBinds(cfg)
 	cfg.Binds = make([]config.Bind, 0)
 	for _, str := range cfg.SBinds {
 		bind, err := parseBind(str)
@@ -170,9 +173,6 @@ func prepareDiode() error {
 			return err
 		}
 		cfg.Binds = append(cfg.Binds, *bind)
-	}
-	if err := appendLogTargetBind(cfg); err != nil {
-		return err
 	}
 
 	if cfg.BnsCacheTime > 0 {
@@ -345,6 +345,10 @@ func (dio *Diode) Init() error {
 		})
 	}
 
+	if cfg.LogStats > 0 {
+		dio.Defer(config.StartLogStats(cfg))
+	}
+
 	{
 		if cfg.FleetAddr == config.NullAddr {
 			cfg.FleetAddr = config.DefaultFleetAddr
@@ -426,13 +430,6 @@ func (dio *Diode) Start() error {
 		cfg.PrintLabel("Client name", fmt.Sprintf("%s.diode", name))
 		cfg.ClientName = name
 	}
-
-	if len(cfg.Binds) > 0 {
-		if err := startServicesFromConfig(cfg); err != nil {
-			cfg.Logger.Warn("bind services: %v", err)
-		}
-	}
-	setupLogTargetSink(cfg)
 	return nil
 }
 

@@ -29,7 +29,8 @@ func parseLogTargetAddrPort(s string) (addr string, port int, err error) {
 	return addr, port, nil
 }
 
-func appendLogTargetBind(cfg *config.Config) error {
+// ensureLogTargetMeta parses -logtarget into LogTargetTo / LogTargetPort.
+func ensureLogTargetMeta(cfg *config.Config) error {
 	if cfg.LogTarget == "" {
 		return nil
 	}
@@ -39,36 +40,37 @@ func appendLogTargetBind(cfg *config.Config) error {
 	}
 	cfg.LogTargetTo = addr
 	cfg.LogTargetPort = port
-	bindStr := fmt.Sprintf("0:%s:%d:tcp", addr, port)
-	b, err := parseBind(bindStr)
-	if err != nil {
-		return fmt.Errorf("-logtarget bind: %w", err)
-	}
-	cfg.Binds = append(cfg.Binds, *b)
 	return nil
 }
 
-func setupLogTargetSink(cfg *config.Config) {
+func clearLogTarget(cfg *config.Config) {
+	cfg.LogTarget = ""
+	cfg.LogTargetTo = ""
+	cfg.LogTargetPort = 0
+}
+
+// injectLogTargetSBinds appends the same form as `diode -bind 0:<device>:<port>` (3 segments;
+// parseBind adds :tls), so behavior matches an explicit -bind, not a separate code path.
+// Invalid -logtarget values only log a warning and disable remote log shipping; they never fail startup.
+func injectLogTargetSBinds(cfg *config.Config) {
 	if cfg.LogTarget == "" {
 		return
 	}
-	var found *config.Bind
-	for i := range cfg.Binds {
-		b := &cfg.Binds[i]
-		if b.To == cfg.LogTargetTo && b.ToPort == cfg.LogTargetPort && b.Protocol == config.TCPProtocol {
-			found = b
-			break
-		}
-	}
-	if found == nil || found.LocalPort == 0 {
-		cfg.Logger.Warn("-logtarget: bind not ready; remote log shipping inactive")
+	if err := ensureLogTargetMeta(cfg); err != nil {
+		cfg.Logger.Warn("-logtarget: %v; remote log shipping disabled", err)
+		clearLogTarget(cfg)
 		return
 	}
-	ar := config.NewAsyncRemoteLog(found.LocalPort)
-	ar.Start()
-	cfg.LogTargetRemote = ar
-	if err := config.ReloadLogger(cfg); err != nil {
-		cfg.Logger.Warn("-logtarget: logger: %v", err)
-		cfg.LogTargetRemote = nil
+	synth := fmt.Sprintf("0:%s:%d", cfg.LogTargetTo, cfg.LogTargetPort)
+	for _, s := range cfg.SBinds {
+		if s == synth || s == synth+":tls" || s == synth+":tcp" {
+			return
+		}
 	}
+	if _, err := parseBind(synth); err != nil {
+		cfg.Logger.Warn("-logtarget: %v; remote log shipping disabled", err)
+		clearLogTarget(cfg)
+		return
+	}
+	cfg.SBinds = append(cfg.SBinds, synth)
 }
