@@ -12,11 +12,11 @@ import (
 	"time"
 
 	"github.com/diodechain/diode_client/util"
-	"github.com/shirou/gopsutil/cpu"
-	"github.com/shirou/gopsutil/disk"
-	"github.com/shirou/gopsutil/load"
-	"github.com/shirou/gopsutil/mem"
-	"github.com/shirou/gopsutil/net"
+	"github.com/shirou/gopsutil/v4/cpu"
+	"github.com/shirou/gopsutil/v4/disk"
+	"github.com/shirou/gopsutil/v4/load"
+	"github.com/shirou/gopsutil/v4/mem"
+	"github.com/shirou/gopsutil/v4/net"
 )
 
 // logStatsProcessStart is set in init for accurate uptime in [STATS] lines.
@@ -32,6 +32,45 @@ func SetLogStatsProcessStart(t time.Time) {
 }
 
 const logStatsMinInterval = 10 * time.Second
+
+// LogStatsCLIDefault is the interval when the user passes bare -logstats (no value).
+const LogStatsCLIDefault = 30 * time.Second
+
+// LogStatsFlag implements flag.Value for -logstats. It uses IsBoolFlag so bare -logstats
+// does not consume the next argument (e.g. -logtarget=...). Set("true") applies LogStatsCLIDefault.
+type LogStatsFlag struct {
+	P *time.Duration
+}
+
+func (f *LogStatsFlag) String() string {
+	if f == nil || f.P == nil || *f.P == 0 {
+		return "0"
+	}
+	return f.P.String()
+}
+
+func (f *LogStatsFlag) Set(s string) error {
+	if f == nil || f.P == nil {
+		return fmt.Errorf("LogStatsFlag: nil pointer")
+	}
+	switch strings.ToLower(strings.TrimSpace(s)) {
+	case "true", "1":
+		*f.P = LogStatsCLIDefault
+		return nil
+	case "false", "0":
+		*f.P = 0
+		return nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return err
+	}
+	*f.P = d
+	return nil
+}
+
+// IsBoolFlag implements optional bool-style parsing for -logstats without a value.
+func (f *LogStatsFlag) IsBoolFlag() bool { return true }
 
 // StartLogStats emits one [STATS] line per interval on cfg.Logger when cfg.LogStats > 0.
 // Minimum interval is enforced here (same place as the ticker), not in cmd flag wiring.

@@ -1031,8 +1031,8 @@ func (socksServer *Server) SetBinds(bindDefs []config.Bind) {
 
 	socksServer.binds = newBinds
 
+	// if logtarget used, we need to allow it to setup/update the ephemeral bind it uses
 	if config.AppConfig.LogTarget != "" {
-		// prepare binds for logtarget so it can use potentially a new ephemeral port
 		resolved := make([]config.Bind, len(newBinds))
 		for i := range newBinds {
 			resolved[i] = newBinds[i].def
