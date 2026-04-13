@@ -1,5 +1,5 @@
 // logtarget_listener is a tiny TCP server that prints bytes received on a port.
-// Run it on the machine (Diode device) given in diode's -logtarget=<hex_or_bns>:<port>
+// Run it on the machine (Diode device) given in diode's -logtarget (e.g. <hex_or_bns>:<port> or diode://<host>:<port>)
 // so published clients can ship console-formatted logs through the tunnel.
 package main
 

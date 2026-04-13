@@ -6,27 +6,46 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 
 	"github.com/diodechain/diode_client/config"
 )
 
+// stripLogTargetScheme removes an optional leading diode:// (case-insensitive).
+func stripLogTargetScheme(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) >= 8 && strings.EqualFold(s[:8], "diode://") {
+		return strings.TrimSpace(s[8:])
+	}
+	return s
+}
+
 func parseLogTargetAddrPort(s string) (addr string, port int, err error) {
 	s = strings.TrimSpace(s)
 	if s == "" {
 		return "", 0, fmt.Errorf("empty -logtarget")
 	}
-	i := strings.LastIndex(s, ":")
-	if i <= 0 || i >= len(s)-1 {
-		return "", 0, fmt.Errorf("expected <hex_or_bns>:<port> (e.g. 0x…:1234 or name:1234)")
+	s = stripLogTargetScheme(s)
+	host, portStr, splitErr := net.SplitHostPort(s)
+	if splitErr != nil {
+		i := strings.LastIndex(s, ":")
+		if i <= 0 || i >= len(s)-1 {
+			return "", 0, fmt.Errorf("expected <hex_or_bns>:<port> or diode://<host>:<port> (e.g. 0x…:1234, diode://0x…:1234)")
+		}
+		host = strings.TrimSpace(s[:i])
+		portStr = strings.TrimSpace(s[i+1:])
 	}
-	addr = strings.TrimSpace(s[:i])
-	port, err = strconv.Atoi(strings.TrimSpace(s[i+1:]))
+	port, err = strconv.Atoi(portStr)
 	if err != nil || port < 1 || port > 65535 {
 		return "", 0, fmt.Errorf("invalid port in -logtarget")
 	}
-	return addr, port, nil
+	host = strings.TrimSpace(host)
+	if host == "" {
+		return "", 0, fmt.Errorf("empty host in -logtarget")
+	}
+	return host, port, nil
 }
 
 // ensureLogTargetMeta parses -logtarget into LogTargetTo / LogTargetPort.

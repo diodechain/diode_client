@@ -31,8 +31,8 @@ This document is a **design spec**; behavior matches intent here once implemente
 
 ## Flag syntax
 
-- **Format:** `-logtarget=<clientaddress>:<diodeport>`
-- **`<clientaddress>`:** Target device **must** be specifiable either as a **hex Diode address** (same rules as **`-bind`**) or as a **BNS name** (blockchain name service). BNS must resolve once the client and resolvers are available, using the same resolution path as binds and other features that accept BNS. If a name cannot be resolved when the log-target bind is established, treat that like any other bind failure (retry / degrade per **Bind retry and degraded mode**). Flag help text must state that both forms are supported.
+- **Format:** `-logtarget=<clientaddress>:<diodeport>` **or** `-logtarget=diode://<clientaddress>:<diodeport>` (optional `diode://` scheme, case-insensitive). The URI form leaves room for future schemes or hosts (e.g. URLs or IP literals) while keeping the same host and port semantics after the scheme is stripped.
+- **`<clientaddress>`:** Target device **must** be specifiable either as a **hex Diode address** (same rules as **`-bind`**) or as a **BNS name** (blockchain name service). Bracketed **IPv6** literals are supported in the usual `host:port` form (e.g. `[2001:db8::1]:514`). BNS must resolve once the client and resolvers are available, using the same resolution path as binds and other features that accept BNS. If a name cannot be resolved when the log-target bind is established, treat that like any other bind failure (retry / degrade per **Bind retry and degraded mode**). Flag help text must state that both forms are supported.
 - **`<diodeport>`:** Remote port on that device where a log collector listens (same port namespace as other Diode binds).
 - **Invalid values:** Reject at startup with a clear error (do not silently ignore).
 

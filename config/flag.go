@@ -104,7 +104,7 @@ type Config struct {
 	Logger                  *Logger          `yaml:"-" json:"-"`
 	LogTargetTo             string           `yaml:"-" json:"-"` // parsed device (BNS or hex) for implicit bind
 	LogTargetPort           int              `yaml:"-" json:"-"`
-	LogTargetRemote         interface{} `yaml:"-" json:"-"` // zapcore.WriteSyncer; set before ReloadLogger
+	LogTargetRemote         interface{}      `yaml:"-" json:"-"` // zapcore.WriteSyncer; set before ReloadLogger
 	ConfigFilePath          string           `yaml:"-" json:"-"`
 	Binds                   []Bind           `yaml:"-" json:"-"`
 	BNSForce                bool             `yaml:"-" json:"-"`

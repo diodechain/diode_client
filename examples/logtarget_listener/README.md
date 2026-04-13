@@ -10,7 +10,7 @@ go build -o logtarget_listener ./examples/logtarget_listener
 
 ## Topology: publish/listener vs log sources
 
-- **Log sources** (remote) run the Diode client with **`-logtarget=<collector>:<port>`**. Their logs are forwarded over the network to that address and port.
+- **Log sources** (remote) run the Diode client with **`-logtarget=<collector>:<port>`** or **`-logtarget=diode://<collector>:<port>`** (optional `diode://` prefix). Their logs are forwarded over the network to that address and port.
 - **Collector** (this example) is the machine that **accepts** those connections. In practice it is often the **same host** that **publishes** a port so inbound Diode traffic hits your process:
 
   Publish something like **`-public <local>:<extern>`** (or another scope). Remote **`-logtarget`** flows connect to your published **extern** port (the port in the `-logtarget` flag must match **extern**).
@@ -32,10 +32,10 @@ Bind to the same **port** that appears in **`-logtarget`** (your published **ext
 On each client that should **ship** logs to you:
 
 ```bash
-diode -logtarget=0xYourCollectorDevice…:9999 publish -public 80:80
+diode -logtarget=diode://0xYourCollectorDevice…:9999 publish -public 80:80
 ```
 
-Use the collector’s Diode address and the **same** port your listener uses. After binds come up, log lines appear on the listener’s stdout.
+(`-logtarget=0xYourCollectorDevice…:9999` is equivalent.) Use the collector’s Diode address and the **same** port your listener uses. After binds come up, log lines appear on the listener’s stdout.
 
 ## Resolving which client sent the stream
 

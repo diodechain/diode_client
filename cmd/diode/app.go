@@ -61,7 +61,7 @@ func init() {
 	diodeCmd.Flag.IntVar(&cfg.RlimitNofile, "rlimit_nofile", 0, "specify the file descriptor numbers that can be opened by this process")
 	diodeCmd.Flag.StringVar(&cfg.LogFilePath, "logfilepath", "", "absolute path to the log file")
 	diodeCmd.Flag.Var(&config.LogStatsFlag{P: &cfg.LogStats}, "logstats", "emit periodic [STATS] host metrics; bare -logstats uses "+config.LogStatsCLIDefault.String()+" (min 10s); 0=off")
-	diodeCmd.Flag.StringVar(&cfg.LogTarget, "logtarget", "", "ship logs to a collector at <hex_or_bns>:<port> via implicit bind (tcp); tees with stderr or log file per matrix")
+	diodeCmd.Flag.StringVar(&cfg.LogTarget, "logtarget", "", "ship logs to a collector at [<hex_or_bns>|<host>]:<port> or diode://<host>:<port> via implicit bind (tcp); tees with stderr or log file per matrix")
 	diodeCmd.Flag.BoolVar(&cfg.LogDateTime, "logdatetime", false, "show the date time in log")
 	diodeCmd.Flag.StringVar(&cfg.ConfigFilePath, "configpath", "", "yaml file path to config file")
 	diodeCmd.Flag.StringVar(&cfg.CPUProfile, "cpuprofile", "", "file path for cpu profiling")
