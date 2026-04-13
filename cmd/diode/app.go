@@ -205,6 +205,20 @@ func cleanDiode() error {
 	return nil
 }
 
+// logStatsStop stops the [STATS] ticker started by config.StartLogStats; nil if inactive.
+var logStatsStop func()
+
+// restartLogStatsFromConfig restarts periodic [STATS] after control-plane config changes.
+func restartLogStatsFromConfig(cfg *config.Config) {
+	if logStatsStop != nil {
+		logStatsStop()
+		logStatsStop = nil
+	}
+	if cfg != nil && cfg.LogStats > 0 {
+		logStatsStop = config.StartLogStats(cfg)
+	}
+}
+
 // Diode represents diode application
 type Diode struct {
 	config          *config.Config
@@ -346,8 +360,14 @@ func (dio *Diode) Init() error {
 	}
 
 	if cfg.LogStats > 0 {
-		dio.Defer(config.StartLogStats(cfg))
+		logStatsStop = config.StartLogStats(cfg)
 	}
+	dio.Defer(func() {
+		if logStatsStop != nil {
+			logStatsStop()
+			logStatsStop = nil
+		}
+	})
 
 	{
 		if cfg.FleetAddr == config.NullAddr {

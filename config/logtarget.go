@@ -220,3 +220,17 @@ func SetupLogTargetSink(resolvedBinds []Bind) {
 		cfg.LogTargetRemote = nil
 	}
 }
+
+// ClearLogTargetSink stops remote log shipping and rebuilds the logger without the remote leg.
+func ClearLogTargetSink(cfg *Config) {
+	if cfg == nil {
+		return
+	}
+	if existing, ok := cfg.LogTargetRemote.(*AsyncRemoteLog); ok && existing != nil {
+		existing.Stop()
+	}
+	cfg.LogTargetRemote = nil
+	if err := ReloadLogger(cfg); err != nil && cfg.Logger != nil {
+		cfg.Logger.Warn("-logtarget: logger: %v", err)
+	}
+}
