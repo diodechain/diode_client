@@ -123,27 +123,31 @@ func (a *AsyncRemoteLog) send(addr string, p []byte) {
 		default:
 		}
 		c := a.getConn(addr)
-		if c == nil {
-			time.Sleep(a.backoff)
-			if a.backoff < logTargetMaxBackoff {
-				a.backoff *= 2
-				if a.backoff > logTargetMaxBackoff {
-					a.backoff = logTargetMaxBackoff
-				}
+		if c != nil {
+			if _, err := c.Write(p); err == nil {
+				a.backoff = logTargetMinBackoff
+				return
 			}
-			continue
-		}
-		a.backoff = logTargetMinBackoff
-		if _, err := c.Write(p); err != nil {
 			a.mu.Lock()
 			if a.conn == c {
 				_ = a.conn.Close()
 				a.conn = nil
 			}
 			a.mu.Unlock()
-			continue
 		}
-		return
+
+		select {
+		case <-a.stopCh:
+			return
+		case <-time.After(a.backoff):
+		}
+
+		if a.backoff < logTargetMaxBackoff {
+			a.backoff *= 2
+			if a.backoff > logTargetMaxBackoff {
+				a.backoff = logTargetMaxBackoff
+			}
+		}
 	}
 }
 
