@@ -295,10 +295,6 @@ func publishHandler() (err error) {
 		}
 		portString[port.To] = port
 	}
-	err = app.Start()
-	if err != nil {
-		return
-	}
 	ports, err = parsePorts(cfg.PrivatePublishedPorts, config.PrivatePublishedMode)
 	if err != nil {
 		return
@@ -405,13 +401,21 @@ func publishHandler() (err error) {
 		os.Exit(2)
 	}
 
+	// Register published ports before app.Start() so RPC clients never handle
+	// inbound portopen while publishedPorts in the pool is still empty.
+	if len(cfg.PublishedPorts) > 0 {
+		app.clientManager.GetPool().SetPublishedPorts(cfg.PublishedPorts)
+	}
+	if err = app.Start(); err != nil {
+		return
+	}
+
 	if len(cfg.PublishedPorts) > 0 {
 		cfg.PrintInfo("")
 		name := cfg.ClientAddr.HexString()
 		if cfg.ClientName != "" {
 			name = cfg.ClientName
 		}
-		app.clientManager.GetPool().SetPublishedPorts(cfg.PublishedPorts)
 		for _, port := range cfg.PublishedPorts {
 			if port.Mode == config.PublicPublishedMode {
 				if port.To == httpPort {
