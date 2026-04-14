@@ -8,23 +8,36 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
-	"net/url"
 	"os"
 	"runtime"
 	"strings"
 	"sync"
 	"syscall"
 
+	"github.com/diodechain/diode_client/cmd/diode/internal/control"
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/rpc"
 	"github.com/diodechain/diode_client/util"
-	"github.com/go-playground/validator"
 	"github.com/rs/cors"
 )
 
-var (
-	validate *validator.Validate
-)
+var restartProcess = func(cfg *config.Config) {
+	cfg.Logger.Info("Update config, restarting diode...")
+	if runtime.GOOS != "windows" {
+		exeFile, err := os.Executable()
+		if err != nil {
+			cfg.Logger.Error("Couldn't restart diode: %v", err)
+			os.Exit(1)
+		}
+		err = syscall.Exec(exeFile, os.Args, os.Environ())
+		if err != nil {
+			cfg.Logger.Error("Couldn't restart diode: %v", err)
+		} else {
+			cfg.Logger.Error("Should restart diode manually on Windows")
+		}
+		os.Exit(1)
+	}
+}
 
 type apiResponse struct {
 	Success bool              `json:"success"`
@@ -33,18 +46,33 @@ type apiResponse struct {
 	Config  *configEntry      `json:"config,omitempty"`
 }
 
+type apiBind struct {
+	LocalPort  int    `json:"localPort"`
+	Remote     string `json:"remote"`
+	RemotePort int    `json:"remotePort"`
+	Protocol   string `json:"protocol"`
+}
+
+type apiPort struct {
+	LocalPort  int      `json:"localPort"`
+	ExternPort int      `json:"externPort"`
+	Protocol   string   `json:"protocol"`
+	Mode       string   `json:"mode"`
+	Addresses  []string `json:"addresses,omitempty"`
+}
+
 type configEntry struct {
-	Address              string         `json:"client"`
-	Fleet                string         `json:"fleet"`
-	Version              string         `json:"version"`
-	LastValidBlockNumber uint64         `json:"lastValidBlockNumber"`
-	LastValidBlockHash   string         `json:"lastValidBlockHash"`
-	Binds                []bind         `json:"binds"`
-	Ports                []port         `json:"ports"`
-	EnableSocks          bool           `json:"enableSocks"`
-	EnableProxy          bool           `json:"enableProxy"`
-	EnableSecureProxy    bool           `json:"enableSecureProxy"`
-	Perimeter            *perimeterInfo `json:"perimeter,omitempty"`
+	Address              string      `json:"client"`
+	Fleet                string      `json:"fleet"`
+	Version              string      `json:"version"`
+	LastValidBlockNumber uint64      `json:"lastValidBlockNumber"`
+	LastValidBlockHash   string      `json:"lastValidBlockHash"`
+	Binds                []apiBind   `json:"binds"`
+	Ports                []apiPort   `json:"ports"`
+	EnableSocks          bool        `json:"enableSocks"`
+	EnableProxy          bool        `json:"enableProxy"`
+	EnableSecureProxy    bool        `json:"enableSecureProxy"`
+	Perimeter            interface{} `json:"perimeter,omitempty"`
 }
 
 type perimeterInfo struct {
@@ -54,78 +82,14 @@ type perimeterInfo struct {
 	Properties       []map[string]interface{} `json:"properties,omitempty"`
 }
 
-type bind struct {
-	LocalPort  int    `json:"localPort" validate:"required,port"`
-	Remote     string `json:"remote" validate:"required,subdomain"`
-	RemotePort int    `json:"remotePort" validate:"required,port"`
-	Protocol   string `json:"protocol" validate:"omitempty,protocol"`
-}
-
-type port struct {
-	LocalPort  int      `json:"localPort" validate:"required,port"`
-	ExternPort int      `json:"externPort" validate:"required,port"`
-	Protocol   string   `json:"protocol" validate:"omitempty,protocol"`
-	Mode       string   `json:"mode" validate:"required,mode"`
-	Addresses  []string `json:"addresses,omitempty" validate:"dive,omitempty,address"`
-}
-
 type putConfigRequest struct {
-	Fleet      string   `json:"fleet,omitempty" validate:"omitempty,address"`
-	Registry   string   `json:"registry,omitempty" validate:"omitempty,address"`
-	DiodeAddrs []string `json:"diodeaddrs,omitempty" validate:"dive,omitempty,url"`
-	Blocklists []string `json:"blocklists,omitempty" validate:"dive,omitempty,address"`
-	Allowlists []string `json:"allowlists,omitempty" validate:"dive,omitempty,address"`
-	Binds      []bind   `json:"binds,omitempty" validate:"dive,omitempty"`
-	Ports      []port   `json:"ports,omitempty" validate:"dive,omitempty"`
-}
-
-func isAddress(fl validator.FieldLevel) bool {
-	address := fl.Field().String()
-	return util.IsAddress([]byte(address))
-}
-
-func isSubdomain(fl validator.FieldLevel) bool {
-	address := fl.Field().String()
-	return util.IsSubdomain(address)
-}
-
-func isPort(fl validator.FieldLevel) bool {
-	portNum := fl.Field().Int()
-	return util.IsPort(int(portNum))
-}
-
-func isProtocol(fl validator.FieldLevel) bool {
-	protocol := fl.Field().String()
-	return config.ProtocolIdentifier(protocol) > 0
-}
-
-func isURL(fl validator.FieldLevel) bool {
-	_, err := url.ParseRequestURI(fl.Field().String())
-	return err == nil
-}
-
-func isMode(fl validator.FieldLevel) bool {
-	mode := fl.Field().String()
-	return config.ModeIdentifier(mode) > 0
-}
-
-func init() {
-	validate = validator.New()
-	validate.RegisterValidation("address", isAddress)
-	validate.RegisterValidation("subdomain", isSubdomain)
-	validate.RegisterValidation("port", isPort)
-	validate.RegisterValidation("protocol", isProtocol)
-	validate.RegisterValidation("url", isURL)
-	validate.RegisterValidation("mode", isMode)
-	validate.RegisterStructValidation(portValidation, port{})
-}
-
-func portValidation(sl validator.StructLevel) {
-	port := sl.Current().Interface().(port)
-
-	if config.ModeIdentifier(port.Mode) == config.PrivatePublishedMode && len(port.Addresses) == 0 {
-		sl.ReportError(port.Addresses, "addresses", "Addresses", "addresses", "")
-	}
+	Fleet      *string    `json:"fleet,omitempty"`
+	Registry   *string    `json:"registry,omitempty"`
+	DiodeAddrs *[]string  `json:"diodeaddrs,omitempty"`
+	Blocklists *[]string  `json:"blocklists,omitempty"`
+	Allowlists *[]string  `json:"allowlists,omitempty"`
+	Binds      *[]apiBind `json:"binds,omitempty"`
+	Ports      *[]apiPort `json:"ports,omitempty"`
 }
 
 // ConfigAPIServer struct
@@ -240,45 +204,12 @@ func (configAPIServer *ConfigAPIServer) configResponse(w http.ResponseWriter, me
 		perimeter = configAPIServer.getPerimeterInfo(contractAddr, cfg)
 	}
 
+	entry := buildAPIConfigEntry(cfg, version)
+	entry.Perimeter = perimeter
 	res, _ := json.Marshal(&apiResponse{
 		Success: true,
 		Message: message,
-		Config: &configEntry{
-			Address: cfg.ClientAddr.HexString(),
-			Fleet:   cfg.FleetAddr.HexString(),
-			Version: version,
-			Binds: func(binds []config.Bind) []bind {
-				ret := make([]bind, len(binds))
-				for i, v := range binds {
-					ret[i] = bind{
-						LocalPort:  v.LocalPort,
-						RemotePort: v.ToPort,
-						Remote:     v.To,
-					}
-
-				}
-				return ret
-			}(cfg.Binds),
-			Ports: func(ports map[int]*config.Port) []port {
-				ret := make([]port, len(ports))
-				i := 0
-				for _, v := range ports {
-					ret[i] = port{
-						Protocol:   config.ProtocolName(v.Protocol),
-						Mode:       config.ModeName(v.Mode),
-						LocalPort:  v.Src,
-						ExternPort: v.To,
-					}
-					i++
-				}
-				return ret
-			}(cfg.PublishedPorts),
-
-			EnableSocks:       cfg.EnableSocksServer,
-			EnableProxy:       cfg.EnableProxyServer,
-			EnableSecureProxy: cfg.EnableSProxyServer,
-			Perimeter:         perimeter,
-		},
+		Config:  &entry,
 	})
 
 	w.WriteHeader(http.StatusOK)
@@ -371,192 +302,50 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 			dec := json.NewDecoder(req.Body)
 			dec.DisallowUnknownFields()
 			var c putConfigRequest
-			var err error
-			err = dec.Decode(&c)
+			err := dec.Decode(&c)
 			if err != nil {
 				configAPIServer.appConfig.Logger.Error("Couldn't decode request: %v", err)
 				configAPIServer.serverError(w)
 				return
 			}
-			var isDirty bool
-			// validate put body
-			validationError := make(map[string]string)
-			err = validate.Struct(c)
-			if err != nil {
-				if _, ok := err.(*validator.InvalidValidationError); ok {
-					configAPIServer.appConfig.Logger.Info("Couldn't validate the config struct: %v", err)
+			batch := control.NewBatch(control.SurfaceAPI)
+			if c.Fleet != nil {
+				batch.Add("fleet", strings.TrimSpace(*c.Fleet))
+			}
+			if c.DiodeAddrs != nil {
+				batch.Add("diodeaddrs", *c.DiodeAddrs)
+			}
+			if c.Blocklists != nil {
+				batch.Add("blocklists", *c.Blocklists)
+			}
+			if c.Allowlists != nil {
+				batch.Add("allowlists", *c.Allowlists)
+			}
+			if c.Binds != nil {
+				batch.Add("bind", apiBindsToStrings(*c.Binds))
+			}
+			if c.Ports != nil && len(configAPIServer.appConfig.PublishedPorts) > 0 {
+				publicPorts, privatePorts, protectedPorts, err := apiPortsToValues(*c.Ports)
+				if err != nil {
+					configAPIServer.clientError(w, map[string]string{"ports": err.Error()})
 					return
 				}
-				for _, err := range err.(validator.ValidationErrors) {
-					field := strings.ToLower(err.Field())
-					tagName := err.Tag()
-					validationError[field] = fmt.Sprintf("invalid %s value %s", field, tagName)
-				}
+				batch.Add("public", publicPorts)
+				batch.Add("private", privatePorts)
+				batch.Add("protected", protectedPorts)
 			}
-			if len(validationError) > 0 {
-				configAPIServer.clientError(w, validationError)
+			if len(batch.Ops()) == 0 {
+				configAPIServer.successResponse(w, "ok")
 				return
 			}
-
-			// If valid diodeAddrs entries are provided, replace RemoteRPCAddrs with exactly that list.
-			// Note: if all entries are empty/blank (e.g. "" or " ") applyDiodeAddrs will apply RPC defaults.
-			if len(c.DiodeAddrs) > 0 {
-				applyDiodeAddrs(configAPIServer.appConfig, c.DiodeAddrs)
-				isDirty = true
-			}
-			if len(c.Blocklists) >= 0 {
-				blocklists := []string{}
-				for _, blocklist := range c.Blocklists {
-					if !util.StringsContain(blocklists, blocklist) && !util.StringsContain(configAPIServer.appConfig.SBlocklists, blocklist) {
-						blocklists = append(blocklists, blocklist)
-					}
-				}
-				if len(c.Blocklists) == 0 && len(configAPIServer.appConfig.SBlocklists) > 0 {
-					isDirty = true
-					configAPIServer.appConfig.SBlocklists = blocklists
-				} else if len(blocklists) > 0 {
-					isDirty = true
-					configAPIServer.appConfig.SBlocklists = append(configAPIServer.appConfig.SBlocklists, blocklists...)
-				}
-			}
-			if len(c.Allowlists) >= 0 {
-				allowlists := []string{}
-				for _, allowlist := range c.Allowlists {
-					if !util.StringsContain(allowlists, allowlist) && !util.StringsContain(configAPIServer.appConfig.SAllowlists, allowlist) {
-						allowlists = append(allowlists, allowlist)
-					}
-				}
-				if len(c.Allowlists) == 0 && len(configAPIServer.appConfig.SAllowlists) > 0 {
-					isDirty = true
-					configAPIServer.appConfig.SAllowlists = allowlists
-				} else if len(allowlists) > 0 {
-					isDirty = true
-					configAPIServer.appConfig.SAllowlists = append(configAPIServer.appConfig.SAllowlists, allowlists...)
-				}
-			}
-			if len(c.Blocklists) >= 0 {
-				blocklists := []string{}
-				for _, blocklist := range c.Blocklists {
-					if !util.StringsContain(blocklists, blocklist) && !util.StringsContain(configAPIServer.appConfig.SBlocklists, blocklist) {
-						blocklists = append(blocklists, blocklist)
-					}
-				}
-				if len(c.Blocklists) == 0 && len(configAPIServer.appConfig.SBlocklists) > 0 {
-					isDirty = true
-					configAPIServer.appConfig.SBlocklists = blocklists
-				} else if len(blocklists) > 0 {
-					isDirty = true
-					configAPIServer.appConfig.SBlocklists = append(configAPIServer.appConfig.SBlocklists, blocklists...)
-				}
-			}
-			if len(c.Binds) >= 0 {
-				binds := []string{}
-				bound := make(map[int]map[int]config.Bind)
-				for _, b := range configAPIServer.appConfig.Binds {
-					bound[b.LocalPort] = make(map[int]config.Bind)
-					bound[b.LocalPort][b.Protocol] = b
-				}
-				for _, b := range c.Binds {
-					var bindIden string
-					protocolIden := config.ProtocolIdentifier(b.Protocol)
-					if protocolIden > 0 {
-						if protocolIden == config.AnyProtocol {
-							continue
-						}
-						if bb, ok := bound[b.LocalPort][protocolIden]; ok {
-							if bb.To == b.Remote && bb.ToPort == b.RemotePort {
-								continue
-							}
-						}
-						bindIden = fmt.Sprintf("%d:%s:%d:%s", b.LocalPort, b.Remote, b.RemotePort, b.Protocol)
-					} else {
-						// default is tls
-						protocolIden = config.TLSProtocol
-						bindIden = fmt.Sprintf("%d:%s:%d", b.LocalPort, b.Remote, b.RemotePort)
-					}
-					if protocolIden == config.TCPProtocol {
-						if _, ok := bound[b.LocalPort][config.TLSProtocol]; ok {
-							continue
-						}
-					}
-					if protocolIden == config.TLSProtocol {
-						if _, ok := bound[b.LocalPort][config.TCPProtocol]; ok {
-							continue
-						}
-					}
-					bound[b.LocalPort][protocolIden] = config.Bind{
-						To:        b.Remote,
-						ToPort:    b.RemotePort,
-						LocalPort: b.LocalPort,
-						Protocol:  protocolIden,
-					}
-					if !util.StringsContain(configAPIServer.appConfig.SBinds, bindIden) {
-						binds = append(binds, bindIden)
-					}
-				}
-				if len(c.Binds) == 0 && len(configAPIServer.appConfig.SBinds) > 0 {
-					isDirty = true
-					configAPIServer.appConfig.SBinds = binds
-				} else if len(binds) > 0 {
-					isDirty = true
-					configAPIServer.appConfig.SBinds = binds
-				}
-			}
-			// only updates published ports when user already publish
-			// do we need api authentication for updating ports, eg sign a signature with user private key, or unlock account?
-			if len(c.Ports) >= 0 && len(configAPIServer.appConfig.PublishedPorts) > 0 {
-				ports := make(map[int]bool)
-				for _, p := range c.Ports {
-					if ports[p.ExternPort] {
-						continue
-					}
-					protocol := p.Protocol
-					if len(protocol) > 0 {
-					} else {
-						protocol = "any"
-					}
-					portIden := fmt.Sprintf("%d:%d:%s", p.LocalPort, p.ExternPort, protocol)
-					published := configAPIServer.appConfig.PublishedPorts[p.ExternPort]
-					if published != nil {
-						if published.Src == p.LocalPort &&
-							config.ProtocolIdentifier(p.Protocol) == published.Protocol &&
-							config.ModeIdentifier(p.Mode) == published.Mode {
-							continue
-						}
-						switch published.Mode {
-						case config.PublicPublishedMode:
-							i := findExternPort(configAPIServer.appConfig.PublicPublishedPorts, p.ExternPort)
-							if i >= 0 {
-								configAPIServer.appConfig.PublicPublishedPorts = append(configAPIServer.appConfig.PublicPublishedPorts[:i], configAPIServer.appConfig.PublicPublishedPorts[i+1:]...)
-							}
-						case config.PrivatePublishedMode:
-							i := findExternPort(configAPIServer.appConfig.PrivatePublishedPorts, p.ExternPort)
-							if i >= 0 {
-								configAPIServer.appConfig.PrivatePublishedPorts = append(configAPIServer.appConfig.PrivatePublishedPorts[:i], configAPIServer.appConfig.PrivatePublishedPorts[i+1:]...)
-							}
-						case config.ProtectedPublishedMode:
-							i := findExternPort(configAPIServer.appConfig.ProtectedPublishedPorts, p.ExternPort)
-							if i >= 0 {
-								configAPIServer.appConfig.ProtectedPublishedPorts = append(configAPIServer.appConfig.ProtectedPublishedPorts[:i], configAPIServer.appConfig.ProtectedPublishedPorts[i+1:]...)
-							}
-						}
-					}
-					switch config.ModeIdentifier(p.Mode) {
-					case config.PublicPublishedMode:
-						configAPIServer.appConfig.PublicPublishedPorts = append(configAPIServer.appConfig.PublicPublishedPorts, portIden)
-						isDirty = true
-					case config.PrivatePublishedMode:
-						portIden = fmt.Sprintf("%s,%s", portIden, strings.Join(p.Addresses, ","))
-						configAPIServer.appConfig.PrivatePublishedPorts = append(configAPIServer.appConfig.PrivatePublishedPorts, portIden)
-						isDirty = true
-					case config.ProtectedPublishedMode:
-						configAPIServer.appConfig.ProtectedPublishedPorts = append(configAPIServer.appConfig.ProtectedPublishedPorts, portIden)
-						isDirty = true
-					}
-				}
-			}
-			if !isDirty {
-				configAPIServer.successResponse(w, "ok")
+			err = getControlRegistry().Apply(&control.ApplyContext{
+				Surface:               control.SurfaceAPI,
+				Config:                configAPIServer.appConfig,
+				DefaultRemoteRPCAddrs: defaultRemoteRPCAddrs(),
+				Resolver:              currentControlResolver(),
+			}, batch)
+			if err != nil {
+				configAPIServer.clientError(w, map[string]string{"config": err.Error()})
 				return
 			}
 			// write to yaml config
@@ -567,24 +356,9 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 				return
 			}
 			configAPIServer.successResponse(w, "ok")
+			restartFn := restartProcess
 			go func() {
-				// restart diode go client
-				// TODO: gracefully restart go client
-				configAPIServer.appConfig.Logger.Info("Update config, restarting diode...")
-				if runtime.GOOS != "windows" {
-					exeFile, err := os.Executable()
-					if err != nil {
-						configAPIServer.appConfig.Logger.Error("Couldn't restart diode: %v", err)
-						os.Exit(1)
-					}
-					err = syscall.Exec(exeFile, os.Args, os.Environ())
-					if err != nil {
-						configAPIServer.appConfig.Logger.Error("Couldn't restart diode: %v", err)
-					} else {
-						configAPIServer.appConfig.Logger.Error("Should restart diode manually on Windows")
-					}
-					os.Exit(1)
-				}
+				restartFn(configAPIServer.appConfig)
 			}()
 			return
 		}
@@ -592,15 +366,72 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 	}
 }
 
-func findExternPort(ports []string, externPort int) (index int) {
-	format := fmt.Sprintf(":%d", externPort)
-	for i, port := range ports {
-		if strings.Contains(port, format) {
-			index = i
-			return
+func buildAPIConfigEntry(cfg *config.Config, version string) configEntry {
+	entry := configEntry{
+		Address:           cfg.ClientAddr.HexString(),
+		Fleet:             cfg.FleetAddr.HexString(),
+		Version:           version,
+		EnableSocks:       cfg.EnableSocksServer,
+		EnableProxy:       cfg.EnableProxyServer,
+		EnableSecureProxy: cfg.EnableSProxyServer,
+	}
+	for _, v := range cfg.Binds {
+		entry.Binds = append(entry.Binds, apiBind{
+			LocalPort:  v.LocalPort,
+			Remote:     v.To,
+			RemotePort: v.ToPort,
+			Protocol:   config.ProtocolName(v.Protocol),
+		})
+	}
+	for _, v := range cfg.PublishedPorts {
+		entry.Ports = append(entry.Ports, apiPort{
+			Protocol:   config.ProtocolName(v.Protocol),
+			Mode:       config.ModeName(v.Mode),
+			LocalPort:  v.Src,
+			ExternPort: v.To,
+		})
+	}
+	return entry
+}
+
+func apiBindsToStrings(items []apiBind) []string {
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		protocol := strings.TrimSpace(item.Protocol)
+		if protocol == "" || protocol == "tls" {
+			out = append(out, fmt.Sprintf("%d:%s:%d", item.LocalPort, item.Remote, item.RemotePort))
+			continue
+		}
+		out = append(out, fmt.Sprintf("%d:%s:%d:%s", item.LocalPort, item.Remote, item.RemotePort, protocol))
+	}
+	return out
+}
+
+func apiPortsToValues(items []apiPort) (publicPorts, privatePorts, protectedPorts []string, err error) {
+	for _, item := range items {
+		protocol := strings.TrimSpace(item.Protocol)
+		if protocol == "" {
+			protocol = "any"
+		}
+		value := fmt.Sprintf("%d:%d:%s", item.LocalPort, item.ExternPort, protocol)
+		switch item.Mode {
+		case "public":
+			publicPorts = append(publicPorts, value)
+		case "private":
+			if len(item.Addresses) > 0 {
+				value = fmt.Sprintf("%s,%s", value, strings.Join(item.Addresses, ","))
+			}
+			privatePorts = append(privatePorts, value)
+		case "protected":
+			if len(item.Addresses) > 0 {
+				value = fmt.Sprintf("%s,%s", value, strings.Join(item.Addresses, ","))
+			}
+			protectedPorts = append(protectedPorts, value)
+		default:
+			return nil, nil, nil, fmt.Errorf("invalid port mode %q", item.Mode)
 		}
 	}
-	return -1
+	return publicPorts, privatePorts, protectedPorts, nil
 }
 
 func (configAPIServer *ConfigAPIServer) rootHandleFunc() func(w http.ResponseWriter, req *http.Request) {

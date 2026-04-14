@@ -8,15 +8,14 @@ import (
 	"net"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
+	"github.com/diodechain/diode_client/cmd/diode/internal/control"
 	"github.com/diodechain/diode_client/command"
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/rpc"
 	"github.com/diodechain/diode_client/staticserver"
-	"github.com/diodechain/diode_client/util"
 )
 
 const (
@@ -37,18 +36,23 @@ var (
 	scfg                staticserver.Config
 	publishFileSpecs    config.StringValues
 	publishFileFileroot string
+	publishControlBatch = control.NewBatch(control.SurfaceCLI)
 )
 
 func init() {
 	cfg := config.AppConfig
 
-	publishCmd.Flag.Var(&cfg.PublicPublishedPorts, "public", "expose ports to public users, so that user could connect to")
-	publishCmd.Flag.Var(&cfg.ProtectedPublishedPorts, "protected", "expose ports to protected users (in fleet contract), so that user could connect to")
-	publishCmd.Flag.Var(&cfg.PrivatePublishedPorts, "private", "expose ports to private users, so that user could connect to")
-	publishCmd.Flag.Var(&cfg.SSHPublishedServices, "sshd", "publish an embedded Diode SSH service: private|protected:<extern_port>:<local_user>[,<allowlist...>]")
+	registerControlStringFlag(&publishCmd.Flag, publishControlBatch, "public", "publish a public port rule (repeatable)", "public")
+	registerControlStringFlag(&publishCmd.Flag, publishControlBatch, "private", "publish a private port rule (repeatable)", "private")
+	registerControlStringFlag(&publishCmd.Flag, publishControlBatch, "protected", "publish a protected port rule (repeatable)", "protected")
+	registerControlStringFlag(&publishCmd.Flag, publishControlBatch, "sshd", "publish an SSH service rule (repeatable)", "sshd")
+	registerControlStringFlag(&publishCmd.Flag, publishControlBatch, "bind", "bind a local port to a diode service (repeatable)", "bind")
+	registerControlBoolFlag(&publishCmd.Flag, publishControlBatch, "socksd", "enable the local socks proxy", "socksd")
+	registerControlBoolFlag(&publishCmd.Flag, publishControlBatch, "api", "enable the local config api server", "api")
+	registerControlStringFlag(&publishCmd.Flag, publishControlBatch, "apiaddr", "config api listen address", "apiaddr")
+	registerControlBoolFlag(&publishCmd.Flag, publishControlBatch, "debug", "enable debug logging", "debug")
 	publishCmd.Flag.StringVar(&cfg.SocksServerHost, "proxy_host", "127.0.0.1", "host of socksd proxy server")
 	publishCmd.Flag.IntVar(&cfg.SocksServerPort, "proxy_port", 1080, "port of socksd proxy server")
-	publishCmd.Flag.BoolVar(&cfg.EnableSocksServer, "socksd", false, "enable socksd proxy server")
 	publishCmd.Flag.BoolVar(&enableStaticServer, "http", false, "enable http static file server")
 	publishCmd.Flag.StringVar(&scfg.RootDirectory, "http_dir", "", "the root directory of http static file server")
 	publishCmd.Flag.StringVar(&scfg.Host, "http_host", "127.0.0.1", "the host of http static file server")
@@ -67,259 +71,30 @@ var portPattern = regexp.MustCompile(`^(` + ip + `:)?(\d+)(:(\d*)(:(tcp|tls|udp)
 var accessPattern = regexp.MustCompile(`^0x[a-fA-F0-9]{40}$`)
 
 func parsePorts(portStrings []string, mode int) ([]*config.Port, error) {
-	return parsePortsEx(portStrings, mode, false)
+	return control.ParsePorts(portStrings, mode, false, currentControlResolver())
 }
 
 // parseFilesPorts is like parsePorts but allows src port 0 for OS-assigned local bind (files-spec).
 func parseFilesPorts(portStrings []string, mode int) ([]*config.Port, error) {
-	return parsePortsEx(portStrings, mode, true)
-}
-
-func parsePortsEx(portStrings []string, mode int, allowEphemeralSrc bool) ([]*config.Port, error) {
-	ports := []*config.Port{}
-	for _, portString := range portStrings {
-		segments := strings.Split(portString, ",")
-		allowlist := make(map[util.Address]bool)
-		bnsAllowlist := make(map[string]bool)
-		driveAllowlist := make(map[util.Address]bool)
-		driveMemberAllowlist := make(map[util.Address]bool)
-		for _, segment := range segments {
-			portDef := portPattern.FindStringSubmatch(segment)
-			if len(portDef) == 8 {
-				srcHostStr, srcPortStr, toPortStr, protocol := portDef[2], portDef[3], portDef[5], portDef[7]
-
-				if srcHostStr == "" {
-					srcHostStr = "localhost"
-				}
-				srcHostStr = strings.Trim(srcHostStr, "[]")
-
-				srcPort, err := strconv.Atoi(srcPortStr)
-				if err != nil {
-					return nil, err
-				}
-				if allowEphemeralSrc && srcPort == 0 {
-					// Caller binds with port 0 and sets Src to the assigned port before dial.
-				} else if !util.IsPort(srcPort) {
-					err = fmt.Errorf("src port number should be bigger than 1 and smaller than 65535")
-					return nil, err
-				}
-				var toPort int
-				if toPortStr == "" {
-					if srcPort == 0 {
-						return nil, fmt.Errorf("src port 0 requires explicit published port (e.g. 0:8080 in files-spec)")
-					}
-					toPort = srcPort
-				} else {
-					toPort, err = strconv.Atoi(toPortStr)
-					if err != nil {
-						err = fmt.Errorf("to port number expected but got: %v in %v", portDef[3], segment)
-						return nil, err
-					}
-					if !util.IsPort(toPort) {
-						err = fmt.Errorf("to port number should be bigger than 1 and smaller than 65535")
-						return nil, err
-					}
-				}
-
-				port := &config.Port{
-					SrcHost:              srcHostStr,
-					Src:                  srcPort,
-					To:                   toPort,
-					Mode:                 mode,
-					Protocol:             config.AnyProtocol,
-					Allowlist:            allowlist,
-					BnsAllowlist:         bnsAllowlist,
-					DriveAllowList:       driveAllowlist,
-					DriveMemberAllowList: driveMemberAllowlist,
-				}
-
-				switch protocol {
-				case "tls":
-					port.Protocol = config.TLSProtocol
-				case "tcp":
-					port.Protocol = config.TCPProtocol
-				case "udp":
-					port.Protocol = config.UDPProtocol
-				case "any":
-					port.Protocol = config.AnyProtocol
-				case "":
-					port.Protocol = config.AnyProtocol
-				default:
-					err = fmt.Errorf("port unknown protocol %v in: %v", protocol, segment)
-					return nil, err
-				}
-				ports = append(ports, port)
-			} else {
-				client := app.clientManager.GetNearestClient()
-				access := accessPattern.FindString(segment)
-				if access == "" {
-					bnsName := bnsPattern.FindString(segment)
-					if bnsName != "" && isValidBNS(bnsName) {
-						bnsAllowlist[bnsName] = true
-						_, err := client.GetCacheOrResolvePeers(bnsName)
-						if err != nil {
-							err = fmt.Errorf("port format couldn't resolve BNS name: %v", segment)
-							return nil, err
-						}
-						continue
-					}
-					err := fmt.Errorf("port format expected (<from_ip>:)<from_port>(:<to_port>:<protocol>) or <address> but got: %v", segment)
-					return nil, err
-				}
-
-				addr, err := util.DecodeAddress(access)
-				if err != nil {
-					err = fmt.Errorf("port format couldn't parse port address: %v", segment)
-					return nil, err
-				}
-				addrType, err := client.ResolveAccountType(addr)
-				if err != nil {
-					err = fmt.Errorf("port format couldn't resolve account type: %v", segment)
-					return nil, err
-				}
-				//Add to the list and initialize cache for drive member and drive
-				//config.AppConfig.Logger.Info("Account type of the address: %s is %v\n", addr.HexString(), addrType)
-				if addrType == "driveMember" {
-					driveMemberAllowlist[addr] = true
-					config.AppConfig.Logger.Info("Resolving members of the Device: %s\n", addr.HexString())
-					_, err := client.GetCacheOrResolveAllPeersOfAddrs(addr)
-					if err != nil {
-						err = fmt.Errorf("port format couldn't resolve Device: %v", segment)
-						return nil, err
-					}
-					config.AppConfig.Logger.Info("Resolved members of the Device: %s\n", addr.HexString())
-				} else if addrType == "drive" {
-					driveAllowlist[addr] = true
-					config.AppConfig.Logger.Info("Resolving members and peers of the Drive: %s\n", addr.HexString())
-					_, err := client.GetCacheOrResolveAllPeersOfAddrs(addr)
-					if err != nil {
-						err = fmt.Errorf("port format couldn't resolve drive: %v", segment)
-						return nil, err
-					}
-					config.AppConfig.Logger.Info("Resolved members and peers of the Drive: %s\n", addr.HexString())
-				} else {
-					allowlist[addr] = true
-				}
-
-			}
-		}
-	}
-
-	for _, v := range ports {
-		if mode == config.PublicPublishedMode && (len(v.Allowlist) > 0 || len(v.BnsAllowlist) > 0) {
-			err := fmt.Errorf("public port publishing does not support providing addresses")
-			return nil, err
-		}
-		if mode == config.PrivatePublishedMode && (len(v.Allowlist) == 0 && len(v.BnsAllowlist) == 0 && len(v.DriveAllowList) == 0 && len(v.DriveMemberAllowList) == 0) {
-			err := fmt.Errorf("private port publishing requires providing at least one address")
-			return nil, err
-		}
-		// limit fleet address size when publish protected port
-		if mode == config.ProtectedPublishedMode && (len(v.Allowlist) > 5 || len(v.BnsAllowlist) > 5) {
-			err := fmt.Errorf("fleet address size should not exceeds 5 when publish protected port")
-			return nil, err
-		}
-	}
-
-	return ports, nil
+	return control.ParsePorts(portStrings, mode, true, currentControlResolver())
 }
 
 func parseBind(bind string) (*config.Bind, error) {
-	elements := strings.Split(bind, ":")
-	if len(elements) == 3 {
-		elements = append(elements, "tls")
-	}
-	if len(elements) != 4 {
-		return nil, fmt.Errorf("bind format expected <local_port>:<to_address>:<to_port>:(udp|tcp|tls) but got: %v", bind)
-	}
-
-	var err error
-	ret := &config.Bind{
-		To: elements[1],
-	}
-	if strings.EqualFold(elements[0], "auto") || elements[0] == "0" {
-		ret.LocalPort = 0 // OS will assign ephemeral port at listen time
-	} else {
-		ret.LocalPort, err = strconv.Atoi(elements[0])
-		if err != nil {
-			return nil, fmt.Errorf("bind local_port should be a number or 'auto' but is: %v in: %v", elements[0], bind)
-		}
-	}
-
-	if !util.IsSubdomain(ret.To) {
-		return nil, fmt.Errorf("bind format to_address should be valid diode domain but got: %v", ret.To)
-	}
-
-	ret.ToPort, err = strconv.Atoi(elements[2])
-	if err != nil {
-		return nil, fmt.Errorf("bind to_port should be a number but is: %v in: %v", elements[2], bind)
-	}
-
-	if elements[3] == "tls" {
-		ret.Protocol = config.TLSProtocol
-	} else if elements[3] == "tcp" {
-		ret.Protocol = config.TCPProtocol
-	} else if elements[3] == "udp" {
-		ret.Protocol = config.UDPProtocol
-	} else {
-		return nil, fmt.Errorf("bind protocol should be 'tls', 'tcp', 'udp' but is: %v in: %v", elements[3], bind)
-	}
-
-	return ret, nil
+	return control.ParseBind(bind)
 }
 
 func publishHandler() (err error) {
 	cfg := config.AppConfig
-	portString := make(map[int]*config.Port)
-
-	// copy to config
-	ports, err := parsePorts(cfg.PublicPublishedPorts, config.PublicPublishedMode)
-	if err != nil {
-		return
-	}
-	for _, port := range ports {
-		if portString[port.To] != nil {
-			err = fmt.Errorf("public port specified twice: %v", port.To)
-			return
-		}
-		portString[port.To] = port
-	}
-	ports, err = parsePorts(cfg.ProtectedPublishedPorts, config.ProtectedPublishedMode)
-	if err != nil {
-		return
-	}
-	for _, port := range ports {
-		if portString[port.To] != nil {
-			err = fmt.Errorf("port conflict between public and protected port: %v", port.To)
-			return
-		}
-		portString[port.To] = port
-	}
 	err = app.Start()
 	if err != nil {
 		return
 	}
-	ports, err = parsePorts(cfg.PrivatePublishedPorts, config.PrivatePublishedMode)
-	if err != nil {
+	if err = applyControlBatch(control.SurfaceCLI, publishControlBatch); err != nil {
 		return
 	}
-	for _, port := range ports {
-		if portString[port.To] != nil {
-			err = fmt.Errorf("port conflict with private port: %v", port.To)
-			return
-		}
-		portString[port.To] = port
-	}
-	sshServices, err := parseSSHServices(cfg.SSHPublishedServices)
+	portString, err := control.BuildPublishedPortMap(cfg, currentControlResolver())
 	if err != nil {
 		return
-	}
-	for _, service := range sshServices {
-		if portString[service.To] != nil {
-			err = fmt.Errorf("port conflict with ssh service: %v", service.To)
-			return
-		}
-		portString[service.To] = service
 	}
 
 	fileListenerTos := make(map[int]bool)
@@ -443,39 +218,8 @@ func publishHandler() (err error) {
 		}
 	}
 
-	if cfg.EnableAPIServer {
-		configAPIServer := NewConfigAPIServer(cfg, app.clientManager)
-		configAPIServer.ListenAndServe()
-		app.SetConfigAPIServer(configAPIServer)
-	}
-	socksCfg := rpc.Config{
-		Addr:            cfg.SocksServerAddr(),
-		FleetAddr:       cfg.FleetAddr,
-		Blocklists:      cfg.Blocklists(),
-		Allowlists:      cfg.Allowlists,
-		EnableProxy:     true,
-		ProxyServerAddr: cfg.ProxyServerAddr(),
-		Fallback:        cfg.SocksFallback,
-	}
-	socksServer, err := rpc.NewSocksServer(socksCfg, app.clientManager)
-	if err != nil {
+	if err = startServicesFromConfig(cfg); err != nil {
 		return err
-	}
-	if cfg.EnableSocksServer {
-		app.SetSocksServer(socksServer)
-		if err = socksServer.Start(); err != nil {
-			cfg.Logger.Error(err.Error())
-			return
-		}
-	}
-	if len(cfg.Binds) > 0 {
-		socksServer.SetBinds(cfg.Binds)
-		cfg.Binds = socksServer.GetBinds() // resolve "auto" ports for logs and API
-		cfg.PrintInfo("")
-		cfg.PrintLabel("Bind      <name>", "<mode>     <remote>")
-		for _, bind := range cfg.Binds {
-			cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
-		}
 	}
 	for {
 		app.Wait()

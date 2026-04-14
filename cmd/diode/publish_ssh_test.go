@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/diodechain/diode_client/cmd/diode/internal/control"
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/util"
 )
@@ -91,11 +92,15 @@ func TestParseSSHPropertyValueMultipleRules(t *testing.T) {
 }
 
 func TestBuildPublishedPortMapRejectsSSHCollision(t *testing.T) {
-	_, sshPorts, err := parseSSHPropertyValue("protected:80:ubuntu")
+	sshDefs, _, err := parseSSHPropertyValue("protected:80:ubuntu")
 	if err != nil {
 		t.Fatalf("parseSSHPropertyValue returned error: %v", err)
 	}
-	_, err = buildPublishedPortMap([]string{"8080:80"}, nil, nil, sshPorts)
+	cfg := &config.Config{
+		PublicPublishedPorts: config.StringValues{"8080:80"},
+		SSHPublishedServices: config.StringValues(sshDefs),
+	}
+	_, err = control.BuildPublishedPortMap(cfg, nil)
 	if err == nil {
 		t.Fatal("expected SSH port collision to be rejected")
 	}

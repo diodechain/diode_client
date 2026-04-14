@@ -19,6 +19,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/diodechain/diode_client/cmd/diode/internal/control"
 	"github.com/diodechain/diode_client/command"
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/crypto"
@@ -43,31 +44,42 @@ var (
 		"diode://0x937c492a77ae90de971986d003ffbc5f8bb2232c@eu1.prenet.diode.io:41046",
 		"diode://0xae699211c62156b8f29ce17be47d2f069a27f2a6@eu2.prenet.diode.io:41046",
 	}
+	rootControlBatch = control.NewBatch(control.SurfaceCLI)
 )
 
 func init() {
 	cfg := &config.Config{}
-	diodeCmd.Flag.StringVar(&cfg.DBPath, "dbpath", util.DefaultDBPath(), "file path to db file")
+	cfg.DBPath = util.DefaultDBPath()
+	cfg.EdgeE2ETimeout = 15 * time.Second
+	cfg.APIServerAddr = "localhost:1081"
+	cfg.ResolveCacheTime = 10 * time.Minute
+	cfg.BnsCacheTime = 10 * time.Minute
+	cfg.BlockProfileRate = 1
+	diodeCmd.Flag.StringVar(&cfg.ConfigFilePath, "configpath", "", "yaml file path to config file")
+	registerControlStringFlag(&diodeCmd.Flag, rootControlBatch, "diodeaddrs", "remote diode node address (repeatable)", "diodeaddrs")
+	registerControlStringFlag(&diodeCmd.Flag, rootControlBatch, "allowlists", "allowlisted client address (repeatable)", "allowlists")
+	registerControlStringFlag(&diodeCmd.Flag, rootControlBatch, "blocklists", "blocked client address (repeatable)", "blocklists")
+	registerControlStringFlag(&diodeCmd.Flag, rootControlBatch, "blockdomains", "blocked domain (repeatable)", "blockdomains")
+	registerControlBoolFlag(&diodeCmd.Flag, rootControlBatch, "debug", "enable debug logging", "debug")
+	registerControlStringFlag(&diodeCmd.Flag, rootControlBatch, "resolvecachetime", "BNS resolve cache duration", "resolvecachetime")
+	registerControlStringFlag(&diodeCmd.Flag, rootControlBatch, "bnscachetime", "deprecated alias for resolvecachetime", "resolvecachetime")
+	registerControlStringFlag(&diodeCmd.Flag, rootControlBatch, "dbpath", "path to the local database", "dbpath")
+	registerControlStringFlag(&diodeCmd.Flag, rootControlBatch, "e2etimeout", "edge end-to-end timeout", "e2etimeout")
+	registerControlBoolFlag(&diodeCmd.Flag, rootControlBatch, "logdatetime", "include timestamps in log output", "logdatetime")
+	registerControlStringFlag(&diodeCmd.Flag, rootControlBatch, "logfilepath", "absolute path to the log file", "logfilepath")
+	registerControlStringFlag(&diodeCmd.Flag, rootControlBatch, "blockprofile", "file path for block profile output", "blockprofile")
+	registerControlStringFlag(&diodeCmd.Flag, rootControlBatch, "blockprofilerate", "block profiling rate", "blockprofilerate")
+	registerControlStringFlag(&diodeCmd.Flag, rootControlBatch, "cpuprofile", "file path for cpu profile output", "cpuprofile")
 	diodeCmd.Flag.IntVar(&cfg.RetryTimes, "retrytimes", 3, "retry times to connect the remote rpc server")
-	diodeCmd.Flag.DurationVar(&cfg.EdgeE2ETimeout, "e2etimeout", 15*time.Second, "timeout seconds for edge e2e handshake")
 	// should put to httpd or other command
 	diodeCmd.Flag.BoolVar(&cfg.EnableUpdate, "update", true, "enable update when start diode")
 	diodeCmd.Flag.BoolVar(&cfg.EnableMetrics, "metrics", false, "enable metrics stats")
 	diodeCmd.Flag.BoolVar(&cfg.EnableTray, "tray", false, "show a system tray icon")
 	diodeCmd.Flag.BoolVar(&cfg.BlockquickDowngrade, "bqdowngrade", false, "reset blockquick window after repeated validation failures")
-	diodeCmd.Flag.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
-	diodeCmd.Flag.BoolVar(&cfg.EnableAPIServer, "api", false, "turn on the config api")
-	diodeCmd.Flag.StringVar(&cfg.APIServerAddr, "apiaddr", "localhost:1081", "define config api server address")
 	diodeCmd.Flag.IntVar(&cfg.RlimitNofile, "rlimit_nofile", 0, "specify the file descriptor numbers that can be opened by this process")
-	diodeCmd.Flag.StringVar(&cfg.LogFilePath, "logfilepath", "", "absolute path to the log file")
-	diodeCmd.Flag.BoolVar(&cfg.LogDateTime, "logdatetime", false, "show the date time in log")
-	diodeCmd.Flag.StringVar(&cfg.ConfigFilePath, "configpath", "", "yaml file path to config file")
-	diodeCmd.Flag.StringVar(&cfg.CPUProfile, "cpuprofile", "", "file path for cpu profiling")
 	// diodeCmd.Flag.IntVar(&cfg.CPUProfileRate, "cpuprofilerate", 100, "the CPU profiling rate to hz samples per second")
 	diodeCmd.Flag.StringVar(&cfg.MEMProfile, "memprofile", "", "file path for memory profiling")
 	diodeCmd.Flag.IntVar(&cfg.PProfPort, "pprofport", 0, "localhost port for pprof for memory debugging")
-	diodeCmd.Flag.StringVar(&cfg.BlockProfile, "blockprofile", "", "file path for block profiling")
-	diodeCmd.Flag.IntVar(&cfg.BlockProfileRate, "blockprofilerate", 1, "the fraction of goroutine blocking events that are reported in the blocking profile")
 	diodeCmd.Flag.StringVar(&cfg.MutexProfile, "mutexprofile", "", "file path for mutex profiling")
 	diodeCmd.Flag.IntVar(&cfg.MutexProfileRate, "mutexprofilerate", 1, "the fraction of mutex contention events that are reported in the mutex profile")
 
@@ -76,13 +88,6 @@ func init() {
 
 	diodeCmd.Flag.DurationVar(&cfg.RemoteRPCTimeout, "timeout", 5*time.Second, "timeout seconds to connect to the remote rpc server")
 	diodeCmd.Flag.DurationVar(&cfg.RetryWait, "retrywait", 1*time.Second, "wait seconds before next retry")
-	diodeCmd.Flag.Var(&cfg.RemoteRPCAddrs, "diodeaddrs", "addresses of Diode node server (default: [eu,us,as][12].prenet.diode.io:41046)")
-	diodeCmd.Flag.Var(&cfg.SBlockdomains, "blockdomains", "domains (bns names) that are not allowed")
-	diodeCmd.Flag.Var(&cfg.SBlocklists, "blocklists", "addresses are not allowed to connect to published resource (used when allowlists is empty)")
-	diodeCmd.Flag.Var(&cfg.SAllowlists, "allowlists", "addresses are allowed to connect to published resource (used when blocklists is empty)")
-	diodeCmd.Flag.Var(&cfg.SBinds, "bind", "bind a remote port to a local port. -bind <local_port|auto>:<to_address>:<to_port>:(udp|tcp|tls)")
-	diodeCmd.Flag.DurationVar(&cfg.ResolveCacheTime, "resolvecachetime", 10*time.Minute, "time for member and bns resolvers cache. (default: 10 minutes)")
-	diodeCmd.Flag.DurationVar(&cfg.ResolveCacheTime, "bnscachetime", 10*time.Minute, "(Deprecated. Please use resolvecachetime) time for bns address resolve cache. (default: 10 minutes)")
 	diodeCmd.Flag.IntVar(&cfg.MaxPortsPerDevice, "maxports", 0, "maximum concurrent ports per device (0 = unlimited)")
 	config.AppConfig = cfg
 	// Add diode commands
@@ -116,6 +121,10 @@ func prepareDiode() error {
 				cfg.LoadFromFile = true
 			}
 		}
+	}
+
+	if err := applyControlBatch(control.SurfaceCLI, rootControlBatch); err != nil {
+		return err
 	}
 
 	if len(cfg.LogFilePath) > 0 {

@@ -6,6 +6,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/diodechain/diode_client/cmd/diode/internal/control"
 	"github.com/diodechain/diode_client/command"
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/rpc"
@@ -19,16 +20,21 @@ var (
 		Run:         gatewayHandler,
 		Type:        command.DaemonCommand,
 	}
-	edgeACME           = false
-	edgeACMEEmail      = ""
-	edgeACMEAddtlCerts = ""
+	edgeACME            = false
+	edgeACMEEmail       = ""
+	edgeACMEAddtlCerts  = ""
+	gatewayControlBatch = control.NewBatch(control.SurfaceCLI)
 )
 
 func init() {
 	cfg := config.AppConfig
 	gatewayCmd.Flag.StringVar(&cfg.SocksServerHost, "proxy_host", "127.0.0.1", "host of socksd proxy server")
 	gatewayCmd.Flag.IntVar(&cfg.SocksServerPort, "proxy_port", 1080, "port of socksd proxy server")
-	gatewayCmd.Flag.BoolVar(&cfg.EnableSocksServer, "socksd", false, "enable socksd proxy server")
+	registerControlBoolFlag(&gatewayCmd.Flag, gatewayControlBatch, "socksd", "enable the local socks proxy", "socksd")
+	registerControlBoolFlag(&gatewayCmd.Flag, gatewayControlBatch, "api", "enable the local config api server", "api")
+	registerControlStringFlag(&gatewayCmd.Flag, gatewayControlBatch, "apiaddr", "config api listen address", "apiaddr")
+	registerControlStringFlag(&gatewayCmd.Flag, gatewayControlBatch, "bind", "bind a local port to a diode service (repeatable)", "bind")
+	registerControlBoolFlag(&gatewayCmd.Flag, gatewayControlBatch, "debug", "enable debug logging", "debug")
 	gatewayCmd.Flag.StringVar(&cfg.SocksFallback, "fallback", "localhost", "how to resolve web2 addresses")
 	gatewayCmd.Flag.StringVar(&cfg.ProxyServerHost, "httpd_host", "127.0.0.1", "host of httpd server listening to")
 	gatewayCmd.Flag.IntVar(&cfg.ProxyServerPort, "httpd_port", 80, "port of httpd server listening to")
@@ -50,6 +56,9 @@ func init() {
 func gatewayHandler() (err error) {
 	err = app.Start()
 	if err != nil {
+		return
+	}
+	if err = applyControlBatch(control.SurfaceCLI, gatewayControlBatch); err != nil {
 		return
 	}
 	cfg := config.AppConfig
