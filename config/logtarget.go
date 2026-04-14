@@ -91,7 +91,7 @@ func (a *AsyncRemoteLog) Write(p []byte) (n int, err error) {
 		return 0, io.ErrClosedPipe
 	}
 	select {
-	case a.ch <- p:
+	case a.ch <- append([]byte(nil), p...):
 		return len(p), nil
 	default:
 		return len(p), nil
