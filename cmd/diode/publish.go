@@ -32,10 +32,10 @@ var (
 		Type:             command.DaemonCommand,
 		SingleConnection: true,
 	}
-	enableStaticServer = false
-	staticServer       staticserver.StaticHTTPServer
-	scfg               staticserver.Config
-	publishFileSpecs   config.StringValues
+	enableStaticServer  = false
+	staticServer        staticserver.StaticHTTPServer
+	scfg                staticserver.Config
+	publishFileSpecs    config.StringValues
 	publishFileFileroot string
 )
 
