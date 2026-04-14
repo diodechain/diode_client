@@ -51,8 +51,7 @@ func newZapLoggerLegacy(cfg *Config) (logger *zap.Logger, err error) {
 	zapCfg.Encoding = "consoleraw"
 	zapCfg.EncoderConfig.ConsoleSeparator = " "
 	zapCfg.EncoderConfig.LevelKey = "[L]"
-	logger, _ = zapCfg.Build()
-	return logger, nil
+	return zapCfg.Build()
 }
 
 func newZapLogger(cfg *Config) (logger *zap.Logger, err error) {
