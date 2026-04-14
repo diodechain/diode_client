@@ -15,6 +15,9 @@ import (
 
 var (
 	errOutdatedDeviceTicket = errors.New("outdated device ticket")
+
+	// testHookFetchAndValidate, when set, replaces fetchAndValidate in unit tests (nil = normal behavior).
+	testHookFetchAndValidate func(resolver *Resolver, client *Client, deviceID Address) (*edge.DeviceTicket, error)
 )
 
 // Resolver represents the bns name resolver of device
@@ -182,6 +185,9 @@ func uniqueClients(list []*Client) []*Client {
 }
 
 func (resolver *Resolver) fetchAndValidate(client *Client, deviceID Address) (*edge.DeviceTicket, error) {
+	if testHookFetchAndValidate != nil {
+		return testHookFetchAndValidate(resolver, client, deviceID)
+	}
 	device, err := client.GetObject(deviceID)
 	if err != nil {
 		return nil, err
