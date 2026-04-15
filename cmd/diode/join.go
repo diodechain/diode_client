@@ -1421,6 +1421,26 @@ func applyConfigKey(cfg *config.Config, key string, value interface{}) error {
 			return err
 		}
 		cfg.LogFilePath = str
+	case "logtarget":
+		str, err := stringFromValue(value)
+		if err != nil {
+			return err
+		}
+		str = strings.TrimSpace(str)
+		removeImplicitLogTargetBind(cfg)
+		if str == "" {
+			clearLogTarget(cfg)
+			config.ClearLogTargetSink(cfg)
+			return nil
+		}
+		cfg.LogTarget = str
+		injectLogTargetSBinds(cfg)
+	case "logstats":
+		dur, err := durationFromValue(value)
+		if err != nil {
+			return err
+		}
+		cfg.LogStats = dur
 	default:
 		return nil
 	}
@@ -1444,6 +1464,24 @@ func reloadLoggerIfNeeded(cfg *config.Config, oldDebug bool, oldLogDatetime bool
 	cfg.Logger = &logger
 }
 
+func syncConfigBindsFromSBinds(cfg *config.Config) {
+	cfg.Binds = make([]config.Bind, 0, len(cfg.SBinds))
+	for _, str := range cfg.SBinds {
+		trimmed := strings.TrimSpace(str)
+		if trimmed == "" {
+			continue
+		}
+		bind, err := parseBind(trimmed)
+		if err != nil {
+			if cfg.Logger != nil {
+				cfg.Logger.Warn("Skipping invalid bind %q: %v", trimmed, err)
+			}
+			continue
+		}
+		cfg.Binds = append(cfg.Binds, *bind)
+	}
+}
+
 func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 	if props == nil {
 		return
@@ -1452,6 +1490,7 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 	oldDebug := cfg.Debug
 	oldLogDatetime := cfg.LogDateTime
 	oldLogFilePath := cfg.LogFilePath
+	oldLogStats := cfg.LogStats
 
 	// If diodeaddrs is not in the perimeter at all, re-apply default RPCs so refill has candidates.
 	// Note: this shouldn't really happen in practice but we may change how the keys are seeded in the future.
@@ -1497,6 +1536,17 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 			continue
 		}
 
+		if strings.EqualFold(key, "logtarget") && trimmed == "" {
+			removeImplicitLogTargetBind(cfg)
+			clearLogTarget(cfg)
+			config.ClearLogTargetSink(cfg)
+			continue
+		}
+		if strings.EqualFold(key, "logstats") && trimmed == "" {
+			cfg.LogStats = 0
+			continue
+		}
+
 		if trimmed == "" {
 			continue
 		}
@@ -1520,6 +1570,11 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 				}
 			}
 		}
+	}
+
+	syncConfigBindsFromSBinds(cfg)
+	if cfg.LogStats != oldLogStats {
+		restartLogStatsFromConfig(cfg)
 	}
 
 	reloadLoggerIfNeeded(cfg, oldDebug, oldLogDatetime, oldLogFilePath)

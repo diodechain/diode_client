@@ -60,6 +60,8 @@ func init() {
 	diodeCmd.Flag.StringVar(&cfg.APIServerAddr, "apiaddr", "localhost:1081", "define config api server address")
 	diodeCmd.Flag.IntVar(&cfg.RlimitNofile, "rlimit_nofile", 0, "specify the file descriptor numbers that can be opened by this process")
 	diodeCmd.Flag.StringVar(&cfg.LogFilePath, "logfilepath", "", "absolute path to the log file")
+	diodeCmd.Flag.Var(&config.LogStatsFlag{P: &cfg.LogStats}, "logstats", "emit periodic [STATS] host metrics; bare -logstats uses "+config.LogStatsCLIDefault.String()+" (min 10s); 0=off")
+	diodeCmd.Flag.StringVar(&cfg.LogTarget, "logtarget", "", "ship logs to a collector at [<hex_or_bns>|<host>]:<port> or diode://<host>:<port> via implicit bind (tcp); tees with stderr or log file per matrix")
 	diodeCmd.Flag.BoolVar(&cfg.LogDateTime, "logdatetime", false, "show the date time in log")
 	diodeCmd.Flag.StringVar(&cfg.ConfigFilePath, "configpath", "", "yaml file path to config file")
 	diodeCmd.Flag.StringVar(&cfg.CPUProfile, "cpuprofile", "", "file path for cpu profiling")
@@ -162,6 +164,8 @@ func prepareDiode() error {
 		cfg.RemoteRPCAddrs[i], cfg.RemoteRPCAddrs[j] = cfg.RemoteRPCAddrs[j], cfg.RemoteRPCAddrs[i]
 	})
 
+	// logtarget has an implicit bind - inject the bind if set
+	injectLogTargetSBinds(cfg)
 	cfg.Binds = make([]config.Bind, 0)
 	for _, str := range cfg.SBinds {
 		bind, err := parseBind(str)
@@ -200,6 +204,20 @@ func cleanDiode() error {
 	// close diode application
 	app.Close()
 	return nil
+}
+
+// logStatsStop stops the [STATS] ticker started by config.StartLogStats; nil if inactive.
+var logStatsStop func()
+
+// restartLogStatsFromConfig restarts periodic [STATS] after control-plane config changes.
+func restartLogStatsFromConfig(cfg *config.Config) {
+	if logStatsStop != nil {
+		logStatsStop()
+		logStatsStop = nil
+	}
+	if cfg != nil && cfg.LogStats > 0 {
+		logStatsStop = config.StartLogStats(cfg)
+	}
 }
 
 // Diode represents diode application
@@ -341,6 +359,16 @@ func (dio *Diode) Init() error {
 			fd.Close()
 		})
 	}
+
+	if cfg.LogStats > 0 {
+		logStatsStop = config.StartLogStats(cfg)
+	}
+	dio.Defer(func() {
+		if logStatsStop != nil {
+			logStatsStop()
+			logStatsStop = nil
+		}
+	})
 
 	{
 		if cfg.FleetAddr == config.NullAddr {
