@@ -12,7 +12,6 @@ import (
 	"github.com/diodechain/diode_client/command"
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/edge"
-	"github.com/diodechain/diode_client/rpc"
 	"github.com/diodechain/diode_client/util"
 )
 
@@ -93,42 +92,42 @@ func tokenHandler() (err error) {
 		return
 	}
 	appCfg := config.AppConfig
-	err = app.clientManager.CallWithClientFailover("token transfer", func(client *rpc.Client) error {
-		oaccount, err := client.GetValidAccount(0, appCfg.ClientAddr)
+	client := app.clientManager.GetNearestClient()
+	oaccount, err := client.GetValidAccount(0, appCfg.ClientAddr)
+	if err != nil {
+		return
+	}
+	var toAddr util.Address
+	if !util.IsAddress([]byte(tokenCfg.To)) {
+		var lookupAddrs []util.Address
+		lookupAddrs, err = client.ResolveBNS(tokenCfg.To)
 		if err != nil {
-			return err
+			return
 		}
-		var toAddr util.Address
-		if !util.IsAddress([]byte(tokenCfg.To)) {
-			var lookupAddrs []util.Address
-			lookupAddrs, err = client.ResolveBNS(tokenCfg.To)
-			if err != nil {
-				return err
-			}
-			if len(lookupAddrs) <= 0 {
-				return fmt.Errorf("that BNS was not found")
-			}
-			if len(lookupAddrs) > 1 {
-				return fmt.Errorf("that BNS name is backed by multiple addresses. Please select only one")
-			}
-			toAddr = lookupAddrs[0]
-		} else {
-			toAddr, err = util.DecodeAddress(tokenCfg.To)
-			if err != nil {
-				return err
-			}
+		if len(lookupAddrs) <= 0 {
+			err = fmt.Errorf("that BNS was not found")
+			return
 		}
-		tx := edge.NewTransaction(uint64(oaccount.Nonce), uint64(gasPriceWei), uint64(gasWei), toAddr, uint64(valWei), data, 0)
-		_, err = client.SendTransaction(tx)
+		if len(lookupAddrs) > 1 {
+			err = fmt.Errorf("that BNS name is backed by multiple addresses. Please select only one")
+			return
+		}
+		toAddr = lookupAddrs[0]
+	} else {
+		toAddr, err = util.DecodeAddress(tokenCfg.To)
 		if err != nil {
-			appCfg.PrintError("Cannot transfer DIODEs: ", err)
-			return err
+			return
 		}
-		wait(client, func() bool {
-			naccount, err := client.GetValidAccount(0, appCfg.ClientAddr)
-			return err == nil && !bytes.Equal(naccount.StateRoot(), oaccount.StateRoot())
-		})
-		return nil
+	}
+	tx := edge.NewTransaction(uint64(oaccount.Nonce), uint64(gasPriceWei), uint64(gasWei), toAddr, uint64(valWei), data, 0)
+	_, err = client.SendTransaction(tx)
+	if err != nil {
+		appCfg.PrintError("Cannot transfer DIODEs: ", err)
+		return
+	}
+	wait(client, func() bool {
+		naccount, err := client.GetValidAccount(0, appCfg.ClientAddr)
+		return err == nil && !bytes.Equal(naccount.StateRoot(), oaccount.StateRoot())
 	})
 	return
 }
@@ -139,12 +138,11 @@ func showBalance() (err error) {
 		return
 	}
 	appCfg := config.AppConfig
-	return app.clientManager.CallWithClientFailover("token balance", func(client *rpc.Client) error {
-		oaccount, err := client.GetValidAccount(0, appCfg.ClientAddr)
-		if err != nil {
-			return err
-		}
-		appCfg.PrintLabel("Your Balance", util.ToString(oaccount.Balance))
-		return nil
-	})
+	client := app.clientManager.GetNearestClient()
+	oaccount, err := client.GetValidAccount(0, appCfg.ClientAddr)
+	if err != nil {
+		return err
+	}
+	appCfg.PrintLabel("Your Balance", util.ToString(oaccount.Balance))
+	return nil
 }
