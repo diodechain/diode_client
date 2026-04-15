@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"regexp"
 	"strings"
 	"time"
 
@@ -63,12 +62,6 @@ func init() {
 	// DEPRECATED: maxports is now a global flag - use 'diode -maxports=<value> publish' instead
 	publishCmd.Flag.IntVar(&cfg.MaxPortsPerDevice, "maxports", 0, "DEPRECATED: use global -maxports flag instead (maximum concurrent ports per device, 0 = unlimited)")
 }
-
-// Supporting ipv6 if sorrounded by [] otherwise assuming domain or ip4
-const ip = `(\[?[0-9A-Fa-f:]*:[0-9A-Fa-f:]+(?:%[a-zA-Z0-9]+)?\]?|[0-9A-Za-z-]+\.[0-9A-Za-z\.-]+[0-9A-Za-z])`
-
-var portPattern = regexp.MustCompile(`^(` + ip + `:)?(\d+)(:(\d*)(:(tcp|tls|udp))?)?$`)
-var accessPattern = regexp.MustCompile(`^0x[a-fA-F0-9]{40}$`)
 
 func parsePorts(portStrings []string, mode int) ([]*config.Port, error) {
 	return control.ParsePorts(portStrings, mode, false, currentControlResolver())
