@@ -53,11 +53,18 @@ func bnsHandler() (err error) {
 	if err != nil {
 		return
 	}
-	client := app.clientManager.GetNearestClient()
-	// register bns record
-	bn, _ := client.GetBlockPeak()
-	if bn == 0 {
-		cfg.PrintError("Cannot find block peak: ", fmt.Errorf("not found"))
+	err = app.clientManager.CallWithClientFailover("bns block peak", func(client *rpc.Client) error {
+		bn, err := client.GetBlockPeak()
+		if err != nil {
+			return err
+		}
+		if bn == 0 {
+			return fmt.Errorf("not found")
+		}
+		return nil
+	})
+	if err != nil {
+		cfg.PrintError("Cannot find block peak: ", err)
 		return
 	}
 
@@ -93,8 +100,11 @@ func handleLookup() (done bool, err error) {
 
 	var obnsAddr []util.Address
 	var ownerAddr util.Address
-	client := app.clientManager.GetNearestClient()
-	obnsAddr, err = client.ResolveBNS(lookupName)
+	err = app.clientManager.CallWithClientFailover("bns lookup", func(client *rpc.Client) error {
+		var e error
+		obnsAddr, e = client.ResolveBNS(lookupName)
+		return e
+	})
 	if err != nil {
 		cfg.PrintError("Lookup error: ", err)
 		return
@@ -102,7 +112,11 @@ func handleLookup() (done bool, err error) {
 	for _, addr := range obnsAddr {
 		cfg.PrintLabel("Lookup result: ", fmt.Sprintf("%s=0x%s", lookupName, addr.Hex()))
 	}
-	ownerAddr, err = client.ResolveBNSOwner(lookupName)
+	err = app.clientManager.CallWithClientFailover("bns owner", func(client *rpc.Client) error {
+		var e error
+		ownerAddr, e = client.ResolveBNSOwner(lookupName)
+		return e
+	})
 	if err != nil {
 		cfg.PrintError("Couldn't lookup owner: ", err)
 		return
@@ -121,24 +135,37 @@ func handleLookupAccount() (done bool, err error) {
 
 	var obnsAddr []util.Address
 	var ownerAddr util.Address
-	client := app.clientManager.GetNearestClient()
-	obnsAddr, err = client.ResolveBNS(lookupName)
+	err = app.clientManager.CallWithClientFailover("bns lookup", func(client *rpc.Client) error {
+		var e error
+		obnsAddr, e = client.ResolveBNS(lookupName)
+		return e
+	})
 	if err != nil {
 		cfg.PrintError("Lookup error: ", err)
 		return
 	}
 	for _, addr := range obnsAddr {
 		cfg.PrintLabel("Lookup result: ", fmt.Sprintf("%s=0x%s", lookupName, addr.Hex()))
-		lvbn, _ := client.LastValid()
-		account, err := client.GetValidAccount(lvbn, addr)
+		err = app.clientManager.CallWithClientFailover("bns account", func(client *rpc.Client) error {
+			lvbn, _ := client.LastValid()
+			account, e := client.GetValidAccount(lvbn, addr)
+			if e != nil {
+				return e
+			}
+			cfg.PrintLabel("Nonce: ", fmt.Sprintf("%d", account.Nonce))
+			cfg.PrintLabel("Code: ", util.EncodeToString(account.Code))
+			cfg.PrintLabel("Balance: ", fmt.Sprintf("%d (wei)", account.Balance))
+			return nil
+		})
 		if err != nil {
 			cfg.PrintError("Couldn't lookup the account: ", err)
 		}
-		cfg.PrintLabel("Nonce: ", fmt.Sprintf("%d", account.Nonce))
-		cfg.PrintLabel("Code: ", util.EncodeToString(account.Code))
-		cfg.PrintLabel("Balance: ", fmt.Sprintf("%d (wei)", account.Balance))
 	}
-	ownerAddr, err = client.ResolveBNSOwner(lookupName)
+	err = app.clientManager.CallWithClientFailover("bns owner", func(client *rpc.Client) error {
+		var e error
+		ownerAddr, e = client.ResolveBNSOwner(lookupName)
+		return e
+	})
 	if err != nil {
 		cfg.PrintError("Couldn't lookup owner: ", err)
 		return

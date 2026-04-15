@@ -99,7 +99,6 @@ func tokenHandler() (err error) {
 	}
 	var toAddr util.Address
 	if !util.IsAddress([]byte(tokenCfg.To)) {
-		// lookup the bns name
 		var lookupAddrs []util.Address
 		lookupAddrs, err = client.ResolveBNS(tokenCfg.To)
 		if err != nil {
@@ -128,8 +127,6 @@ func tokenHandler() (err error) {
 	}
 	wait(client, func() bool {
 		naccount, err := client.GetValidAccount(0, appCfg.ClientAddr)
-		// Check state root in case the transaction is self transfer
-		// isSelfTx := appCfg.ClientAddr == toAddr
 		return err == nil && !bytes.Equal(naccount.StateRoot(), oaccount.StateRoot())
 	})
 	return
@@ -144,8 +141,8 @@ func showBalance() (err error) {
 	client := app.clientManager.GetNearestClient()
 	oaccount, err := client.GetValidAccount(0, appCfg.ClientAddr)
 	if err != nil {
-		return
+		return err
 	}
 	appCfg.PrintLabel("Your Balance", util.ToString(oaccount.Balance))
-	return
+	return nil
 }
