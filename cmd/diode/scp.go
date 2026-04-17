@@ -38,7 +38,7 @@ func scpHandler() error {
 // -l (bandwidth), -P (port; scp uses uppercase), and -S (ssh program).
 var scpOptsWithArg = map[string]bool{
 	"o": true, "c": true, "F": true, "i": true, "J": true,
-	"l": true, "P": true, "S": true,
+	"l": true, "P": true, "S": true, "D": true,
 }
 
 // extractSCPRemoteSpecs returns the set of scp remote specifications from
