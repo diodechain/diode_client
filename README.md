@@ -130,6 +130,7 @@ Top-level commands:
 - `files`: run a published HTTP file listener
 - `push` / `pull`: upload or download files from a Diode file listener
 - `ssh`: connect to a Diode target through an auto-managed local SOCKS proxy
+- `scp`: copy files to/from a Diode target through an auto-managed local SOCKS proxy
 - `join`: apply on-chain perimeter properties and optional WireGuard config
 - `bns`: register, transfer, and resolve BNS names
 - `query`: resolve a Diode address or name and print device tickets
@@ -320,6 +321,30 @@ Notes:
 - the command is marked beta in the client
 - do not put the port in the hostname; use `-p 22`, not `ubuntu@mymachine.diode:22`
 - OpenSSH tools such as `ssh` and `ssh-keygen` must be installed locally
+
+## SCP
+
+`diode scp` is the file-copy counterpart to `diode ssh`. It wraps the local
+`scp` binary using the same auto-managed Diode SOCKS proxy, ephemeral SSH
+identity, and `ProxyCommand` wiring, so remote paths that target a `.diode`
+host (or raw Diode address) get tunnelled through the Diode network.
+
+Examples:
+
+```bash
+./diode scp ./photo.jpg ubuntu@mymachine.diode:/tmp/photo.jpg
+./diode scp -P 22 ubuntu@mymachine.diode:/etc/hostname ./hostname
+./diode scp -r ./dir ubuntu@mymachine.diode:/tmp/dir
+```
+
+Notes:
+
+- same BETA status as `diode ssh`; flags may still change
+- just like `diode ssh`, do not put a port in the hostname; use `-P PORT`
+  (uppercase, as scp expects it)
+- OpenSSH tools (`scp`, `ssh`, `ssh-keygen`) must be installed locally
+- arguments after `scp` are passed through to the system scp, so standard
+  flags such as `-r`, `-p`, `-C`, `-o`, `-P`, etc. all work
 
 If you want to expose a normal local SSH daemon over Diode:
 
