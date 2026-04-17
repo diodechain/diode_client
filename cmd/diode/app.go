@@ -101,6 +101,7 @@ func init() {
 	diodeCmd.AddSubCommand(tokenCmd)
 	diodeCmd.AddSubCommand(sshCmd)
 	diodeCmd.AddSubCommand(sshProxyCmd)
+	diodeCmd.AddSubCommand(scpCmd)
 	diodeCmd.AddSubCommand(versionCmd)
 	diodeCmd.AddSubCommand(updateCmd)
 	diodeCmd.AddSubCommand(mcpCmd)

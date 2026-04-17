@@ -44,9 +44,46 @@ var (
 
 var runtimeGOOS = runtime.GOOS
 
-func sshHandler() (err error) {
+func sshHandler() error {
+	return runSSHLikeTool(sshLikeToolOptions{
+		commandName:   sshCommandName,
+		toolName:      "ssh",
+		validateLabel: "Invalid SSH target",
+		validateArgs: func(args []string) error {
+			if target := extractSSHTarget(args); target != "" {
+				return validateSSHTarget(target)
+			}
+			return nil
+		},
+	})
+}
+
+// sshLikeToolOptions configures runSSHLikeTool for a specific OpenSSH-based
+// diode subcommand (e.g. `diode ssh`, `diode scp`).
+type sshLikeToolOptions struct {
+	// commandName is the diode subcommand name as it appears on the command
+	// line (for example "ssh" or "scp").
+	commandName string
+	// toolName is the external OpenSSH tool to exec (for example "ssh" or
+	// "scp"). It defaults to commandName when empty.
+	toolName string
+	// validateArgs is an optional validator for the pass-through arguments.
+	validateArgs func(args []string) error
+	// validateLabel is used as the error label if validateArgs returns an
+	// error.
+	validateLabel string
+}
+
+// runSSHLikeTool runs an OpenSSH tool (ssh, scp) over a temporary local
+// SOCKS proxy that bridges into the Diode network, using an ephemeral
+// identity and a ProxyCommand that tunnels via `diode ssh-proxy`.
+func runSSHLikeTool(opts sshLikeToolOptions) error {
 	cfg := config.AppConfig
-	cfg.Logger.Warn("ssh command is still BETA, parameters may change")
+	toolName := opts.toolName
+	if toolName == "" {
+		toolName = opts.commandName
+	}
+	cfg.Logger.Warn("%s command is still BETA, parameters may change", opts.commandName)
 
 	if err := app.Start(); err != nil {
 		cfg.PrintError("Could not start local Diode client", err)
@@ -66,30 +103,28 @@ func sshHandler() (err error) {
 		os.Exit(1)
 	}
 
-	args := []string{
-		"ssh",
-		"-o", "ProxyCommand=" + buildSSHProxyCommand(runtimeGOOS, diodeExe, proxyAddr),
-		"-o", "StrictHostKeyChecking=accept-new",
-	}
 	os_args := os.Args
-	// Remove all args before the ssh command by finding "ssh" and removing all args before it
-	ssh_index := -1
+	cmdIndex := -1
 	for i, arg := range os_args {
-		if arg == "ssh" {
-			ssh_index = i
+		if arg == opts.commandName {
+			cmdIndex = i
 			break
 		}
 	}
-	if ssh_index == -1 {
-		cfg.PrintError("ssh command not found", errors.New("ssh command not found"))
+	if cmdIndex == -1 {
+		msg := fmt.Sprintf("%s command not found", opts.commandName)
+		cfg.PrintError(msg, errors.New(msg))
 		os.Exit(1)
 	}
-	sshArgs := normalizeSSHArgs(os_args[ssh_index+1:])
-	args = append(args, sshArgs...)
+	passArgs := normalizeSSHArgs(os_args[cmdIndex+1:])
 
-	if target := extractSSHTarget(sshArgs); target != "" {
-		if err := validateSSHTarget(target); err != nil {
-			cfg.PrintError("Invalid SSH target", err)
+	if opts.validateArgs != nil {
+		if err := opts.validateArgs(passArgs); err != nil {
+			label := opts.validateLabel
+			if label == "" {
+				label = fmt.Sprintf("Invalid %s argument", opts.commandName)
+			}
+			cfg.PrintError(label, err)
 			os.Exit(1)
 		}
 	}
@@ -100,28 +135,43 @@ func sshHandler() (err error) {
 		os.Exit(1)
 	}
 	defer cleanup()
-	args = append(args, "-i", identityFile)
 
-	ssh, err := findOpenSSHTool("ssh")
+	toolPath, err := findOpenSSHTool(toolName)
 	if err != nil {
-		cfg.PrintError("ssh not found", err)
+		cfg.PrintError(fmt.Sprintf("%s not found", toolName), err)
 		os.Exit(1)
 	}
-	cmd := exec.Command(ssh, args[1:]...)
+
+	args := buildSSHLikeToolArgs(runtimeGOOS, diodeExe, proxyAddr, identityFile, passArgs)
+
+	cmd := exec.Command(toolPath, args...)
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Env = os.Environ()
-	err = cmd.Run()
-	if err != nil {
+	if err := cmd.Run(); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
 			os.Exit(exitErr.ExitCode())
 		}
-		cfg.PrintError("Could not execute ssh", err)
+		cfg.PrintError(fmt.Sprintf("Could not execute %s", toolName), err)
 		os.Exit(1)
 	}
-	return
+	return nil
+}
+
+// buildSSHLikeToolArgs builds the argv (excluding argv[0]) for an OpenSSH
+// tool launched by diode. The user's pass-through args are placed *after*
+// the diode-injected flags so positional arguments (e.g. scp's source/
+// destination) keep their meaning. Putting -i after the user args breaks
+// scp because the identity path looks like an extra positional.
+func buildSSHLikeToolArgs(goos string, diodeExe string, proxyAddr string, identityFile string, passArgs []string) []string {
+	args := []string{
+		"-o", "ProxyCommand=" + buildSSHProxyCommand(goos, diodeExe, proxyAddr),
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-i", identityFile,
+	}
+	return append(args, passArgs...)
 }
 
 func normalizeSSHArgs(args []string) []string {
