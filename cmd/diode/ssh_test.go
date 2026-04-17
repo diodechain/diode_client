@@ -106,6 +106,33 @@ func TestBuildSSHProxyCommand(t *testing.T) {
 	}
 }
 
+func TestBuildSSHLikeToolArgsKeepsUserArgsLast(t *testing.T) {
+	passArgs := []string{
+		"openssl-1.1.1w.tar.gz",
+		"ubuntu@miner2023.diode:/home/ubuntu/test.tgz",
+	}
+	got := buildSSHLikeToolArgs("linux", "/usr/local/bin/diode", "127.0.0.1:1080", "/tmp/diode-ssh-1/id_ed25519", passArgs)
+
+	// The user's pass-through args must be the trailing args so that
+	// scp's source/destination positionals keep their meaning. -i and the
+	// other diode-injected flags must come before them.
+	want := []string{
+		"-o", "ProxyCommand=/usr/local/bin/diode ssh-proxy -proxy-addr 127.0.0.1:1080 %h %p",
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-i", "/tmp/diode-ssh-1/id_ed25519",
+		"openssl-1.1.1w.tar.gz",
+		"ubuntu@miner2023.diode:/home/ubuntu/test.tgz",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("buildSSHLikeToolArgs() len = %d, want %d (got=%v)", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("buildSSHLikeToolArgs()[%d] = %q, want %q (full=%v)", i, got[i], want[i], got)
+		}
+	}
+}
+
 func TestFindOpenSSHToolWindowsInstallHelp(t *testing.T) {
 	origLookPath := lookPath
 	origGOOS := runtimeGOOS

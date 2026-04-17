@@ -142,12 +142,7 @@ func runSSHLikeTool(opts sshLikeToolOptions) error {
 		os.Exit(1)
 	}
 
-	args := []string{
-		"-o", "ProxyCommand=" + buildSSHProxyCommand(runtimeGOOS, diodeExe, proxyAddr),
-		"-o", "StrictHostKeyChecking=accept-new",
-	}
-	args = append(args, passArgs...)
-	args = append(args, "-i", identityFile)
+	args := buildSSHLikeToolArgs(runtimeGOOS, diodeExe, proxyAddr, identityFile, passArgs)
 
 	cmd := exec.Command(toolPath, args...)
 	cmd.Stdin = os.Stdin
@@ -163,6 +158,20 @@ func runSSHLikeTool(opts sshLikeToolOptions) error {
 		os.Exit(1)
 	}
 	return nil
+}
+
+// buildSSHLikeToolArgs builds the argv (excluding argv[0]) for an OpenSSH
+// tool launched by diode. The user's pass-through args are placed *after*
+// the diode-injected flags so positional arguments (e.g. scp's source/
+// destination) keep their meaning. Putting -i after the user args breaks
+// scp because the identity path looks like an extra positional.
+func buildSSHLikeToolArgs(goos string, diodeExe string, proxyAddr string, identityFile string, passArgs []string) []string {
+	args := []string{
+		"-o", "ProxyCommand=" + buildSSHProxyCommand(goos, diodeExe, proxyAddr),
+		"-o", "StrictHostKeyChecking=accept-new",
+		"-i", identityFile,
+	}
+	return append(args, passArgs...)
 }
 
 func normalizeSSHArgs(args []string) []string {
