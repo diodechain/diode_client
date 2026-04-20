@@ -615,6 +615,16 @@ func (cm *ClientManager) connect(nodeID util.Address, host string) (ret *Client,
 		return false
 	}, 15*time.Second)
 
+	if err != nil {
+		waiters := -1
+		cm.srv.Call(func() {
+			if req := cm.waitingNode[nodeID]; req != nil {
+				waiters = len(req.waiting)
+			}
+		})
+		cm.Config.Logger.Warn("ClientManager.connect: timeout or failure nodeID=%s host=%s waiter_depth=%d", nodeID.HexString(), host, waiters)
+	}
+
 	return
 }
 

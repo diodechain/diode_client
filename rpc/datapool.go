@@ -496,12 +496,16 @@ func (p *DataPool) GetPublishedPort(portnum int) (port *config.Port) {
 }
 
 func (p *DataPool) GetContext() (ctx *openssl.Ctx) {
+	t0 := time.Now()
 	p.srv.Call(func() {
 		if p.ctx == nil {
 			p.ctx = initSSLCtx(config.AppConfig)
 		}
 		ctx = p.ctx
 	})
+	if d := time.Since(t0); d > 100*time.Millisecond {
+		config.AppConfig.Logger.Debug("DataPool.GetContext slow: %s (possible DataPool GenServer backlog)", d)
+	}
 	return
 }
 

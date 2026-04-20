@@ -75,8 +75,8 @@ type Client struct {
 	// close event
 	OnClose func()
 
-	isClosed bool
-	closing  uint32 // set before Close() callback runs; allows GetNearestClient to exclude client earlier
+	closed  atomic.Bool // set true when fully closed (atomic: read from any goroutine e.g. Start/recv loops)
+	closing uint32      // set before Close() callback runs; allows GetNearestClient to exclude client earlier
 	srv      *genserver.GenServer
 	timer    *Timer
 
@@ -131,36 +131,75 @@ func (client *Client) addLatencyMeasurement(latency time.Duration) {
 	client.latencyCount++
 }
 
-func (client *Client) doConnect() (err error) {
-	err = client.doDial()
-	if err != nil {
-		// client.Log().Error("Failed to connect: (%v)", err)
-		// Retry to connect
-		isOk := false
-		for i := 1; i <= client.config.RetryTimes; i++ {
-			dur := client.backoff.Duration()
-			client.Log().Info("Retry to connect (%d/%d), waiting %s", i, client.config.RetryTimes, dur.String())
-			time.Sleep(dur)
-			err = client.doDial()
-			if err == nil {
-				isOk = true
-				break
-			}
-			// client.Log().Warn("Failed to connect: (%v)", err)
-		}
-		if !isOk {
-			return fmt.Errorf("failed to connect to host: %s", client.host)
-		}
+// testHookBeforeDialContext, when non-nil, runs in dialNewSession after GetContext and before
+// DialContext (used by tests to simulate a slow connect without depending on TLS timing).
+var testHookBeforeDialContext func()
+
+// dialNewSession performs TCP/TLS dial off the Client GenServer loop so insertCall and other
+// actor work are not starved during slow connects (see gateway lockup investigation).
+func (client *Client) dialNewSession() (s *SSL, dialDuration time.Duration, err error) {
+	host := normalizeHostPort(client.host)
+	t0 := time.Now()
+	ctxAt := time.Now()
+	ctx := client.pool.GetContext()
+	getCtxLatency := time.Since(ctxAt)
+	dialAt := time.Now()
+	if testHookBeforeDialContext != nil {
+		testHookBeforeDialContext()
 	}
-	return err
+	s, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification)
+	dialDuration = time.Since(dialAt)
+	total := time.Since(t0)
+	if err != nil {
+		client.Log().Debug("Client dial failed: host=%s get_context=%v dial=%v total=%v err=%v", host, getCtxLatency, dialDuration, total, err)
+		return nil, 0, err
+	}
+	if total > 500*time.Millisecond {
+		client.Log().Debug("Client dial slow: host=%s get_context=%v dial=%v total=%v", host, getCtxLatency, dialDuration, total)
+	}
+	return s, dialDuration, nil
 }
 
-func (client *Client) doDial() (err error) {
-	start := time.Now()
-	host := normalizeHostPort(client.host)
-	client.s, err = DialContext(client.pool.GetContext(), host, openssl.InsecureSkipHostVerification)
-	client.addLatencyMeasurement(time.Since(start))
-	return
+func (client *Client) connectWithRetries() (s *SSL, lastDialDuration time.Duration, err error) {
+	s, lastDialDuration, err = client.dialNewSession()
+	if err == nil {
+		return s, lastDialDuration, nil
+	}
+	for i := 1; i <= client.config.RetryTimes; i++ {
+		dur := client.backoff.Duration()
+		client.Log().Info("Retry to connect (%d/%d), waiting %s", i, client.config.RetryTimes, dur.String())
+		time.Sleep(dur)
+		s, lastDialDuration, err = client.dialNewSession()
+		if err == nil {
+			return s, lastDialDuration, nil
+		}
+	}
+	return nil, 0, fmt.Errorf("failed to connect to host: %s", client.host)
+}
+
+func (client *Client) installConnection(s *SSL, lastDialDuration time.Duration) (err error) {
+	defer func() {
+		if err != nil && s != nil {
+			s.Close()
+		}
+	}()
+	var installErr error
+	callErr := client.srv.Call(func() {
+		if client.closed.Load() {
+			installErr = fmt.Errorf("client closed during connect")
+			return
+		}
+		client.s = s
+		client.addLatencyMeasurement(lastDialDuration)
+		go client.recvMessageLoop()
+		client.cm.SendCallPtr = client.sendCall
+	})
+	if callErr != nil {
+		err = callErr
+		return err
+	}
+	err = installErr
+	return err
 }
 
 // Info logs to logger in Info level
@@ -276,7 +315,7 @@ func (client *Client) CastContext(sender *ConnectedPort, method string, args ...
 
 func (client *Client) insertCall(call *Call) (err error) {
 	timeout := client.callTimeout(func() {
-		if client.isClosed {
+		if client.closed.Load() {
 			err = errClientClosed
 			return
 		}
@@ -593,7 +632,7 @@ func (client *Client) greet() error {
 // SubmitTicketForUsage submits a ticket covering at least minBytes.
 func (client *Client) SubmitTicketForUsage(minBytes *big.Int) {
 	client.srv.Cast(func() {
-		if client.bq == nil || client.isClosed || client.s == nil {
+		if client.bq == nil || client.closed.Load() || client.s == nil {
 			return
 		}
 		if minBytes == nil {
@@ -1458,13 +1497,13 @@ func (client *Client) IsDeviceAllowlisted(fleetAddr Address, clientAddr Address)
 
 // Closed returns whether client had closed
 func (client *Client) Closed() bool {
-	return client.isClosed
+	return client.closed.Load()
 }
 
 // Closing returns true if the client is closed or in the process of closing (flag set before Close callback runs).
 // Used by ClientManager to avoid returning a client that is about to be closed.
 func (client *Client) Closing() bool {
-	return atomic.LoadUint32(&client.closing) == 1 || client.isClosed
+	return atomic.LoadUint32(&client.closing) == 1 || client.closed.Load()
 }
 
 // Close rpc client
@@ -1475,11 +1514,11 @@ func (client *Client) Close() {
 	}
 	doCleanup := true
 	timeout := client.callTimeout(func() {
-		if client.isClosed {
+		if client.closed.Load() {
 			doCleanup = false
 			return
 		}
-		client.isClosed = true
+		client.closed.Store(true)
 		// remove existing calls
 		client.cm.RemoveCalls()
 		if client.OnClose != nil {
@@ -1510,18 +1549,16 @@ func (client *Client) Socket() (ssl *SSL) {
 
 // Start process rpc inbound message and outbound message
 func (client *Client) Start() {
-	client.srv.Cast(func() {
+	go func() {
 		if err := client.doStart(); err != nil {
-			if !client.isClosed {
+			if !client.closed.Load() {
 				client.Log().Warn("Client connect failed: %v", err)
 			}
 			client.srv.Shutdown(0)
+			return
 		}
-	})
-
-	go func() {
 		if err := client.initialize(); err != nil {
-			if !client.isClosed {
+			if !client.closed.Load() {
 				if strings.Contains(err.Error(), "block header chain mismatch") {
 					msg := "Startup chain check failed: relay returned non-contiguous block headers. This relay will be skipped; other relays can still validate the network."
 					if atomic.CompareAndSwapUint32(&startupBlockMismatchWarned, 0, 1) {
@@ -1539,12 +1576,11 @@ func (client *Client) Start() {
 }
 
 func (client *Client) doStart() (err error) {
-	if err = client.doConnect(); err != nil {
-		return
+	s, dialDur, err := client.connectWithRetries()
+	if err != nil {
+		return err
 	}
-	go client.recvMessageLoop()
-	client.cm.SendCallPtr = client.sendCall
-	return
+	return client.installConnection(s, dialDur)
 }
 
 // watchLatestBlock keep downloading the latest blockheaders and
