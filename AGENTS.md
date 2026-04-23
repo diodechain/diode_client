@@ -32,6 +32,7 @@ Place code according to ownership:
 - `command/`: shared command framework used by `cmd/diode`
 - `config/`: global configuration, flag types, logging, and process-wide runtime behavior
 - `rpc/`: relay transport, connection lifecycle, actor-style concurrency, SOCKS/proxy behavior, and networking internals
+- `blockquick/`: implementation of the Blockquick light-client validation protocol
 - `filetransfer/`: file listener behavior, path handling, URL building, and shared file transfer helpers
 - `contract/`: contract-facing logic
 - `edge/`: protocol and network object/data structures
