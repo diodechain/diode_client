@@ -24,7 +24,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"runtime"
 	"sort"
@@ -1487,11 +1486,6 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 		return
 	}
 
-	oldDebug := cfg.Debug
-	oldLogDatetime := cfg.LogDateTime
-	oldLogFilePath := cfg.LogFilePath
-	oldLogStats := cfg.LogStats
-
 	// If diodeaddrs is not in the perimeter at all, re-apply default RPCs so refill has candidates.
 	// Note: this shouldn't really happen in practice but we may change how the keys are seeded in the future.
 	if _, hasDiodeAddrs := props["diodeaddrs"]; !hasDiodeAddrs {
@@ -1550,7 +1544,7 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 		if trimmed == "" {
 			continue
 		}
-		if err := applyConfigKey(cfg, key, trimmed); err != nil {
+		if _, err := applySharedControlValue(cfg, key, trimmed); err != nil {
 			cfg.Logger.Warn("Ignoring %s from control plane: %v", key, err)
 		}
 	}
@@ -1565,7 +1559,7 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 				if val == nil {
 					continue
 				}
-				if err := applyConfigKey(cfg, key, val); err != nil {
+				if _, err := applySharedControlValue(cfg, key, val); err != nil {
 					cfg.Logger.Warn("Ignoring %s from extra_config: %v", key, err)
 				}
 			}
@@ -1573,143 +1567,11 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 	}
 
 	syncConfigBindsFromSBinds(cfg)
-	if cfg.LogStats != oldLogStats {
-		restartLogStatsFromConfig(cfg)
-	}
-
-	reloadLoggerIfNeeded(cfg, oldDebug, oldLogDatetime, oldLogFilePath)
 }
 
-func startServicesFromConfig(cfg *config.Config) error {
-	if cfg.EnableAPIServer && app.configAPIServer == nil {
-		configAPIServer := NewConfigAPIServer(cfg, app.clientManager)
-		configAPIServer.ListenAndServe()
-		app.SetConfigAPIServer(configAPIServer)
-	}
-
-	sig := bindSignature(cfg.SBinds)
-	needServer := cfg.EnableSocksServer || cfg.EnableProxyServer || cfg.EnableSProxyServer || len(cfg.Binds) > 0
-	if !needServer {
-		applyAndLogBinds(&app, cfg, sig)
-		return nil
-	}
-
-	if app.socksServer == nil {
-		socksCfg := rpc.Config{
-			Addr:            cfg.SocksServerAddr(),
-			FleetAddr:       cfg.FleetAddr,
-			Blocklists:      cfg.Blocklists(),
-			Allowlists:      cfg.Allowlists,
-			EnableProxy:     cfg.EnableProxyServer,
-			ProxyServerAddr: cfg.ProxyServerAddr(),
-			Fallback:        cfg.SocksFallback,
-		}
-		socksServer, err := rpc.NewSocksServer(socksCfg, app.clientManager)
-		if err != nil {
-			return err
-		}
-		app.SetSocksServer(socksServer)
-		lastAppliedBindSignature = ""
-	}
-
-	applyAndLogBinds(&app, cfg, sig)
-
-	shouldStartSocks := cfg.EnableSocksServer || cfg.EnableProxyServer || cfg.EnableSProxyServer
-	if shouldStartSocks && !socksServerStarted {
-		if err := app.socksServer.Start(); err != nil {
-			cfg.Logger.Error(err.Error())
-			return err
-		}
-		socksServerStarted = true
-	}
-
-	if (cfg.EnableProxyServer || cfg.EnableSProxyServer) && app.proxyServer == nil {
-		proxyCfg := rpc.ProxyConfig{
-			EnableSProxy:      cfg.EnableSProxyServer,
-			ProxyServerAddr:   cfg.ProxyServerAddr(),
-			SProxyServerAddr:  cfg.SProxyServerAddr(),
-			SProxyServerPorts: cfg.SProxyAdditionalPorts(),
-			CertPath:          cfg.SProxyServerCertPath,
-			PrivPath:          cfg.SProxyServerPrivPath,
-			AllowRedirect:     cfg.AllowRedirectToSProxy,
-		}
-		proxyServer, err := rpc.NewProxyServer(proxyCfg, app.socksServer)
-		if err != nil {
-			return err
-		}
-		app.SetProxyServer(proxyServer)
-		if err := proxyServer.Start(); err != nil {
-			cfg.Logger.Error(err.Error())
-			return err
-		}
-	}
-	return nil
-}
-
-func applyAndLogBinds(app *Diode, cfg *config.Config, sig string) {
-	if app.socksServer != nil {
-		if sig != lastAppliedBindSignature {
-			app.socksServer.SetBinds(cfg.Binds)
-			lastAppliedBindSignature = sig
-		}
-		// Always refresh cfg.Binds from the socks server when we have binds, so the API
-		// and logs see resolved ports (e.g. "0" -> 56510). After a contract sync we
-		// overwrite cfg.Binds with parsed strings (LocalPort 0); without this refresh
-		// the signature would be unchanged and we'd never call GetBinds(), so the API
-		// would keep returning 0 for auto binds.
-		if len(cfg.Binds) > 0 {
-			cfg.Binds = app.socksServer.GetBinds()
-		}
-	}
-	logBindSummary(cfg, sig)
-}
-
-func logBindSummary(cfg *config.Config, sig string) {
-	// No change in bind configuration, nothing to report.
-	if sig == lastBindSignature {
-		return
-	}
-
-	// Binds have been cleared since the last update.
-	if sig == "" {
-		if lastBindSignature != "" {
-			cfg.PrintInfo("")
-			cfg.PrintInfo("All binds have been removed from contract")
-		}
-		lastBindSignature = ""
-		return
-	}
-
-	// New/updated binds detected, print a fresh summary.
-	lastBindSignature = sig
-	cfg.PrintInfo("")
-	cfg.PrintLabel("Bind      <name>", "<mode>     <remote>")
-	for _, bind := range cfg.Binds {
-		bindHost := net.JoinHostPort(bind.To, strconv.Itoa(bind.ToPort))
-		cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %s", config.ProtocolName(bind.Protocol), bindHost))
-	}
-}
-
-func bindSignature(binds config.StringValues) string {
-	if len(binds) == 0 {
-		return ""
-	}
-	items := make([]string, len(binds))
-	copy(items, binds)
-	sort.Strings(items)
-	return strings.Join(items, "|")
-}
-
-var lastPublicPorts []string
-var lastPrivatePorts []string
-var lastProtectedPorts []string
-var lastSSHPublishedServices []string
 var lastWGConfigHash string
 var lastWGPublicKey string
 var wgPrivateKeyMigrationWarnOnce sync.Once
-var lastBindSignature string
-var lastAppliedBindSignature string
-var socksServerStarted bool
 var lastEffectiveContract string
 var lastProxyToChain string
 var lastContractProps map[string]string     // Cache for last fetched contract properties (used by API server)
@@ -3097,17 +2959,20 @@ func contractSync(cfg *config.Config) error {
 	commitEffectiveContractState(cfg, chain, effectiveContractAddr, props)
 
 	applyControlPlaneConfig(cfg, props)
+	if err := applyPublishedControlsFromContract(cfg, props); err != nil {
+		return err
+	}
 
 	// After applying contract config, check for new diodeaddrs and add clients for them
 	if app.clientManager != nil {
 		app.clientManager.AddNewAddresses()
 	}
 
-	if err := startServicesFromConfig(cfg); err != nil {
+	if err := app.ReconcileControlServices(); err != nil {
 		return err
 	}
 
-	if err := updatePublishedPorts(client, props); err != nil {
+	if err := app.ReconcilePublishedPorts(); err != nil {
 		return err
 	}
 
@@ -3137,104 +3002,22 @@ func runContractController(cfg *config.Config) error {
 	}
 }
 
-// updatePublishedPorts updates the published ports based on contract configuration
-func updatePublishedPorts(client *rpc.Client, props map[string]string) error {
-	cfg := config.AppConfig
-	deviceAddr := cfg.ClientAddr
-
-	// Track whether there were any published ports before this update so we
-	// can notify the user when the configuration is cleared.
-	previousHadPorts := len(lastPublicPorts) > 0 || len(lastPrivatePorts) > 0 || len(lastProtectedPorts) > 0 || len(lastSSHPublishedServices) > 0
-
-	publicPorts, privatePorts, protectedPorts, err := updatePortsFromContract(deviceAddr, props)
+func applyPublishedControlsFromContract(cfg *config.Config, props map[string]string) error {
+	publicPorts, privatePorts, protectedPorts, err := updatePortsFromContract(cfg.ClientAddr, props)
 	if err != nil {
 		cfg.Logger.Error("Failed to update ports from contract: %v", err)
 		return err
 	}
-	sshServices, sshPorts, err := updateSSHServicesFromContract(props)
+	sshServices, _, err := updateSSHServicesFromContract(props)
 	if err != nil {
 		cfg.Logger.Error("Failed to update ssh services from contract: %v", err)
 		return err
 	}
 
-	if reflect.DeepEqual(lastPublicPorts, publicPorts) &&
-		reflect.DeepEqual(lastPrivatePorts, privatePorts) &&
-		reflect.DeepEqual(lastProtectedPorts, protectedPorts) &&
-		reflect.DeepEqual(lastSSHPublishedServices, sshServices) {
-		return nil
-	}
-
-	lastPublicPorts = publicPorts
-	lastPrivatePorts = privatePorts
-	lastProtectedPorts = protectedPorts
-	lastSSHPublishedServices = sshServices
-
-	// Debug output for port configurations
-	cfg.Logger.Debug("Public Ports: %s", strings.Join(publicPorts, ","))
-	cfg.Logger.Debug("Private Ports: %s", strings.Join(privatePorts, ","))
-	cfg.Logger.Debug("Protected Ports: %s", strings.Join(protectedPorts, ","))
-	cfg.Logger.Debug("SSH Services: %s", strings.Join(sshServices, ","))
-
-	// Update the config with new port settings
 	cfg.PublicPublishedPorts = publicPorts
 	cfg.PrivatePublishedPorts = privatePorts
 	cfg.ProtectedPublishedPorts = protectedPorts
 	cfg.SSHPublishedServices = config.StringValues(sshServices)
-
-	portString, err := buildPublishedPortMap(publicPorts, privatePorts, protectedPorts, sshPorts)
-	if err != nil {
-		return err
-	}
-
-	// Update the published ports
-	cfg.PublishedPorts = portString
-
-	// Always push the latest published ports set (including empty) to the pool
-	// so removed ports are actually cleared.
-	app.clientManager.GetPool().SetPublishedPorts(cfg.PublishedPorts)
-
-	// Log user-facing summary for changes.
-	if len(cfg.PublishedPorts) > 0 {
-		cfg.PrintInfo("Updated port configurations from contract")
-		name := cfg.ClientAddr.HexString()
-		if cfg.ClientName != "" {
-			name = cfg.ClientName
-		}
-
-		for _, port := range cfg.PublishedPorts {
-			if port.Mode == config.PublicPublishedMode {
-				if port.To == httpPort {
-					cfg.PrintLabel("HTTP Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", name))
-				}
-				if (8000 <= port.To && port.To <= 8100) || (8400 <= port.To && port.To <= 8500) {
-					cfg.PrintLabel("HTTP Gateway Enabled", fmt.Sprintf("https://%s.diode.link:%d/", name, port.To))
-				}
-			}
-		}
-
-		cfg.PrintLabel("Port      <name>", "<extern>     <mode>    <protocol>     <allowlist>")
-		for _, port := range cfg.PublishedPorts {
-			addrs := make([]string, 0, len(port.Allowlist)+len(port.BnsAllowlist))
-			for addr := range port.Allowlist {
-				addrs = append(addrs, addr.HexString())
-			}
-			for bnsName := range port.BnsAllowlist {
-				addrs = append(addrs, bnsName)
-			}
-			for drive := range port.DriveAllowList {
-				addrs = append(addrs, drive.HexString())
-			}
-			for driveMember := range port.DriveMemberAllowList {
-				addrs = append(addrs, driveMember.HexString())
-			}
-			host := publishedPortDisplayHost(port)
-			cfg.PrintLabel(fmt.Sprintf("Port %12s", host), fmt.Sprintf("%8d  %10s       %s        %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol), strings.Join(addrs, ",")))
-		}
-	} else if previousHadPorts {
-		// Transition from having published ports to none: inform the user.
-		cfg.PrintInfo("All published ports have been removed from contract")
-	}
-
 	return nil
 }
 

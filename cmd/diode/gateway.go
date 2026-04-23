@@ -4,11 +4,8 @@
 package main
 
 import (
-	"fmt"
-
 	"github.com/diodechain/diode_client/command"
 	"github.com/diodechain/diode_client/config"
-	"github.com/diodechain/diode_client/rpc"
 )
 
 var (
@@ -54,59 +51,8 @@ func gatewayHandler() (err error) {
 	}
 	cfg := config.AppConfig
 	cfg.EnableProxyServer = true
-	if cfg.EnableAPIServer {
-		configAPIServer := NewConfigAPIServer(cfg, app.clientManager)
-		configAPIServer.ListenAndServe()
-		app.SetConfigAPIServer(configAPIServer)
-	}
-	socksCfg := rpc.Config{
-		Addr:            cfg.SocksServerAddr(),
-		FleetAddr:       cfg.FleetAddr,
-		Blocklists:      cfg.Blocklists(),
-		Allowlists:      cfg.Allowlists,
-		EnableProxy:     true,
-		ProxyServerAddr: cfg.ProxyServerAddr(),
-		Fallback:        cfg.SocksFallback,
-	}
-	socksServer, err := rpc.NewSocksServer(socksCfg, app.clientManager)
-	if err != nil {
+	if err := app.ReconcileControlServices(); err != nil {
 		return err
-	}
-	if len(cfg.Binds) > 0 {
-		socksServer.SetBinds(cfg.Binds)
-		cfg.Binds = socksServer.GetBinds() // resolve "auto" ports for logs and API
-		cfg.PrintInfo("")
-		cfg.PrintLabel("Bind      <name>", "<mode>     <remote>")
-		for _, bind := range cfg.Binds {
-			cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
-		}
-	}
-	app.SetSocksServer(socksServer)
-	if err = socksServer.Start(); err != nil {
-		cfg.Logger.Error(err.Error())
-		return
-	}
-	proxyCfg := rpc.ProxyConfig{
-		EnableSProxy:       cfg.EnableSProxyServer,
-		ProxyServerAddr:    cfg.ProxyServerAddr(),
-		SProxyServerAddr:   cfg.SProxyServerAddr(),
-		SProxyServerPorts:  cfg.SProxyAdditionalPorts(),
-		CertPath:           cfg.SProxyServerCertPath,
-		PrivPath:           cfg.SProxyServerPrivPath,
-		AllowRedirect:      cfg.AllowRedirectToSProxy,
-		EdgeACME:           edgeACME,
-		EdgeACMEEmail:      edgeACMEEmail,
-		EdgeACMEAddtlCerts: edgeACMEAddtlCerts,
-	}
-	var proxyServer *rpc.ProxyServer
-	proxyServer, err = rpc.NewProxyServer(proxyCfg, socksServer)
-	if err != nil {
-		return
-	}
-	// Start proxy server
-	app.SetProxyServer(proxyServer)
-	if err := proxyServer.Start(); err != nil {
-		cfg.Logger.Error(err.Error())
 	}
 	app.Wait()
 	return

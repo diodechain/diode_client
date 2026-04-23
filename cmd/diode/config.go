@@ -43,9 +43,25 @@ func configHandler() (err error) {
 	}
 	cfg := config.AppConfig
 	activity := false
+	changedSharedKeys := []string{}
+	publishedChanged := false
 	if len(cfg.ConfigDelete) > 0 {
 		activity = true
 		for _, deleteKey := range cfg.ConfigDelete {
+			if strings.EqualFold(strings.TrimSpace(deleteKey), "private") {
+				db.DB.Del(deleteKey)
+				cfg.PrintLabel("Deleted:", deleteKey)
+				continue
+			}
+			if resetSharedControlValue(cfg, deleteKey) && isPersistedSharedControlKey(deleteKey) {
+				changedSharedKeys = append(changedSharedKeys, deleteKey)
+				switch canonicalSharedControlKey(deleteKey) {
+				case "public", "private", "protected", "sshd":
+					publishedChanged = true
+				}
+				cfg.PrintLabel("Deleted:", canonicalSharedControlKey(deleteKey))
+				continue
+			}
 			db.DB.Del(deleteKey)
 			cfg.PrintLabel("Deleted:", deleteKey)
 		}
@@ -53,8 +69,25 @@ func configHandler() (err error) {
 	if len(cfg.ConfigSet) > 0 {
 		activity = true
 		for _, configSet := range cfg.ConfigSet {
-			list := strings.Split(configSet, "=")
+			list := strings.SplitN(configSet, "=", 2)
 			if len(list) == 2 {
+				if !strings.EqualFold(strings.TrimSpace(list[0]), "private") {
+					recognized, sharedErr := applySharedControlValue(cfg, list[0], list[1])
+					if sharedErr != nil {
+						cfg.PrintError("Couldn't set value", sharedErr)
+						return sharedErr
+					}
+					if recognized && isPersistedSharedControlKey(list[0]) {
+						changedSharedKeys = append(changedSharedKeys, list[0])
+						switch canonicalSharedControlKey(list[0]) {
+						case "public", "private", "protected", "sshd":
+							publishedChanged = true
+						}
+						cfg.PrintLabel("Set:", canonicalSharedControlKey(list[0]))
+						continue
+					}
+				}
+
 				value := []byte(list[1])
 				if util.IsHex(value) {
 					value, err = util.DecodeString(list[1])
@@ -80,6 +113,20 @@ func configHandler() (err error) {
 				cfg.PrintError("Couldn't set value", fmt.Errorf("expected -set name=value format"))
 				return
 			}
+		}
+	}
+
+	syncConfigBindsFromSBinds(cfg)
+	if publishedChanged {
+		if err := rebuildPublishedPortState(cfg); err != nil {
+			cfg.PrintError("Couldn't set published ports", err)
+			return err
+		}
+	}
+	if len(changedSharedKeys) > 0 {
+		if err := persistSharedControlState(cfg, changedSharedKeys); err != nil {
+			cfg.PrintError("Couldn't persist config", err)
+			return err
 		}
 	}
 

@@ -24,6 +24,7 @@ All traffic is routed through the Diode network and secured with Diode's client 
 - the commands you are most likely to use
 - how to publish ports, browse Diode services, transfer files, use SSH, and run MCP
 - where config lives, how the config API works, and the common pitfalls
+- how shared CLI/API/join controls are wired for maintainers
 
 ## Requirements
 
@@ -154,6 +155,8 @@ Not:
 ```bash
 ./diode publish -debug=true -public 80:80
 ```
+
+If you plan to contribute code, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Publishing Ports
 
@@ -579,7 +582,7 @@ Endpoints:
 
 - `GET /` for a basic health check
 - `GET /config` for the current client config summary
-- `PUT /config` to update config-file-backed settings
+- `PUT /config` to update supported runtime config settings
 - `GET /connection-client-id?peer=<remoteAddr>` to map a published inbound TCP peer to a verified Diode client ID
 
 Important gotcha:
@@ -593,6 +596,23 @@ curl -H 'Content-Type: application/json' http://localhost:1081/config
 ```
 
 The `connection-client-id` endpoint is used by the example app in [examples/client_id/README.md](examples/client_id/README.md).
+
+## Shared Control Path
+
+The overlapping runtime controls used by `diode config`, the config API, and `join` are centralized in [cmd/diode/control_shared.go](cmd/diode/control_shared.go).
+
+When you add a new shared control:
+
+1. Add the canonical key in `applySharedControlValue()` and `resetSharedControlValue()`.
+2. If it should persist, add it to `persistedSharedControlKeys` and implement serialization in `sharedControlDBValue()`.
+3. If it should survive YAML config files, make sure the backing field in [config/flag.go](config/flag.go) has the correct YAML tag.
+4. If it changes live runtime behavior, update `ReconcileControlServices()` or `ReconcilePublishedPorts()`.
+5. Keep adapters thin: map CLI config changes in [cmd/diode/config.go](cmd/diode/config.go), API request fields in [cmd/diode/config_server.go](cmd/diode/config_server.go), and contract properties in [cmd/diode/join.go](cmd/diode/join.go) into the same shared key instead of reimplementing the behavior in each file.
+6. Add focused regression tests in [cmd/diode/control_shared_test.go](cmd/diode/control_shared_test.go).
+
+Compatibility matters here. Some DB keys already have older meanings, such as `private` for the client private key. If a new shared control would collide with an existing store key, keep the canonical runtime key and map persistence separately through `sharedControlStorageKey()` instead of changing the old DB meaning.
+
+For broader contributor workflow and package ownership, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## MCP
 

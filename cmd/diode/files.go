@@ -16,7 +16,6 @@ import (
 	"github.com/diodechain/diode_client/command"
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/filetransfer"
-	"github.com/diodechain/diode_client/rpc"
 )
 
 var (
@@ -122,40 +121,8 @@ func filesHandler() error {
 
 	printFilePublishBanner(cfg, p)
 
-	if cfg.EnableAPIServer {
-		configAPIServer := NewConfigAPIServer(cfg, app.clientManager)
-		configAPIServer.ListenAndServe()
-		app.SetConfigAPIServer(configAPIServer)
-	}
-
-	socksCfg := rpc.Config{
-		Addr:            cfg.SocksServerAddr(),
-		FleetAddr:       cfg.FleetAddr,
-		Blocklists:      cfg.Blocklists(),
-		Allowlists:      cfg.Allowlists,
-		EnableProxy:     true,
-		ProxyServerAddr: cfg.ProxyServerAddr(),
-		Fallback:        cfg.SocksFallback,
-	}
-	socksServer, err := rpc.NewSocksServer(socksCfg, app.clientManager)
-	if err != nil {
+	if err := app.ReconcileControlServices(); err != nil {
 		return err
-	}
-	if cfg.EnableSocksServer {
-		app.SetSocksServer(socksServer)
-		if err = socksServer.Start(); err != nil {
-			cfg.Logger.Error(err.Error())
-			return err
-		}
-	}
-	if len(cfg.Binds) > 0 {
-		socksServer.SetBinds(cfg.Binds)
-		cfg.Binds = socksServer.GetBinds()
-		cfg.PrintInfo("")
-		cfg.PrintLabel("Bind      <name>", "<mode>     <remote>")
-		for _, bind := range cfg.Binds {
-			cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
-		}
 	}
 
 	app.Wait()

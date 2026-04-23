@@ -228,6 +228,8 @@ type Diode struct {
 	socksServer     *rpc.Server
 	proxyServer     *rpc.ProxyServer
 	configAPIServer *ConfigAPIServer
+	controlRuntime  controlRuntimeState
+	controlsLoaded  bool
 	cd              sync.Once
 	deferals        []func()
 	closeCh         chan struct{}
@@ -409,6 +411,9 @@ func (dio *Diode) Start() error {
 	dio.cmd = diodeCmd.SubCommand()
 	if dio.cmd == nil {
 		return fmt.Errorf("could not determine command to start")
+	}
+	if err := dio.loadPersistedSharedControls(); err != nil {
+		return err
 	}
 	cfg.PrintLabel("Client address", cfg.ClientAddr.HexString())
 	cfg.PrintLabel("Fleet address", cfg.FleetAddr.HexString())
