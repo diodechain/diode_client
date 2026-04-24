@@ -399,6 +399,16 @@ func (dio *Diode) Start() error {
 	cfg.PrintLabel("Fleet address", cfg.FleetAddr.HexString())
 	dio.clientManager.Start()
 
+	// socksd waits for a validated client inside Start(); reconcile the SOCKS listener here so
+	// local integration tests (and scripts like ci_test.sh) can probe the port while the
+	// network handshake is still in progress.
+	if dio.cmd.Name == "socksd" {
+		cfg.EnableSocksServer = true
+		if err := dio.ReconcileControlServices(); err != nil {
+			return err
+		}
+	}
+
 	if dio.cmd.Type == command.EmptyConnectionCommand {
 		return nil
 	}
