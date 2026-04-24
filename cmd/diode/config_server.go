@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -633,10 +634,11 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 				if err := app.ReconcileControlServices(); err != nil {
 					configAPIServer.appConfig.Logger.Error("Couldn't reconcile control services: %v", err)
 				}
-				if result.PublishedChanged() {
-					if err := app.ReconcilePublishedPorts(); err != nil {
-						configAPIServer.appConfig.Logger.Error("Couldn't reconcile published ports: %v", err)
-					}
+				if !result.PublishedChanged() {
+					return
+				}
+				if err := app.ReconcilePublishedPorts(); err != nil {
+					configAPIServer.appConfig.Logger.Error("Couldn't reconcile published ports: %v", err)
 				}
 			}()
 			return
@@ -712,24 +714,31 @@ func (configAPIServer *ConfigAPIServer) connectionClientIDHandleFunc() func(http
 	}
 }
 
-// ListenAndServe start config api server
-func (configAPIServer *ConfigAPIServer) ListenAndServe() {
+// ListenAndServe binds the TCP address, starts the HTTP server in a background goroutine, and
+// returns any synchronous bind error (e.g. address already in use) before callers record success.
+func (configAPIServer *ConfigAPIServer) ListenAndServe() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/connection-client-id", configAPIServer.connectionClientIDHandleFunc())
 	mux.HandleFunc("/config", configAPIServer.apiHandleFunc())
 	mux.HandleFunc("/", configAPIServer.rootHandleFunc())
 	handler := cors.New(configAPIServer.corsOptions).Handler(mux)
 	handler = configAPIServer.requireJSON(handler)
-	configAPIServer.httpServer = &http.Server{Addr: configAPIServer.addr, Handler: handler}
+	ln, err := net.Listen("tcp", configAPIServer.addr)
+	if err != nil {
+		return err
+	}
+	configAPIServer.addr = ln.Addr().String()
+	configAPIServer.appConfig.APIServerAddr = configAPIServer.addr
+	configAPIServer.httpServer = &http.Server{Handler: handler}
 	configAPIServer.appConfig.Logger.Info("Start config api server %s", configAPIServer.addr)
 	go func() {
-		if err := configAPIServer.httpServer.ListenAndServe(); err != nil {
-			configAPIServer.httpServer = nil
+		if err := configAPIServer.httpServer.Serve(ln); err != nil {
 			if err != http.ErrServerClosed {
 				configAPIServer.appConfig.Logger.Info("Couldn't start config api: %v", err)
 			}
 		}
 	}()
+	return nil
 }
 
 // Close config api server

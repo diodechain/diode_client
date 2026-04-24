@@ -172,6 +172,7 @@ func prepareDiode() error {
 	// initialize diode application
 	app = NewDiode(cfg)
 	if err := app.Init(); err != nil {
+		app = nil
 		return err
 	}
 	return nil
@@ -192,22 +193,10 @@ func isValidRPCAddress(address string) (isValid bool) {
 
 func cleanDiode() error {
 	// close diode application
-	app.Close()
+	if app != nil {
+		app.Close()
+	}
 	return nil
-}
-
-// logStatsStop stops the [STATS] ticker started by config.StartLogStats; nil if inactive.
-var logStatsStop func()
-
-// restartLogStatsFromConfig restarts periodic [STATS] after control-plane config changes.
-func restartLogStatsFromConfig(cfg *config.Config) {
-	if logStatsStop != nil {
-		logStatsStop()
-		logStatsStop = nil
-	}
-	if cfg != nil && cfg.LogStats > 0 {
-		logStatsStop = config.StartLogStats(cfg)
-	}
 }
 
 // Diode represents diode application
@@ -220,14 +209,16 @@ type Diode struct {
 	controlRuntime  controlRuntimeState
 	controlsLoaded  bool
 	cd              sync.Once
+	mu              sync.Mutex
+	logStatsStop    func()
 	deferals        []func()
 	closeCh         chan struct{}
 	cmd             *command.Command
 }
 
 // NewDiode return diode application
-func NewDiode(cfg *config.Config) Diode {
-	return Diode{
+func NewDiode(cfg *config.Config) *Diode {
+	return &Diode{
 		config:        cfg,
 		clientManager: rpc.NewClientManager(cfg),
 		closeCh:       make(chan struct{}),
@@ -353,12 +344,12 @@ func (dio *Diode) Init() error {
 	}
 
 	if cfg.LogStats > 0 {
-		logStatsStop = config.StartLogStats(cfg)
+		dio.logStatsStop = config.StartLogStats(cfg)
 	}
 	dio.Defer(func() {
-		if logStatsStop != nil {
-			logStatsStop()
-			logStatsStop = nil
+		if dio.logStatsStop != nil {
+			dio.logStatsStop()
+			dio.logStatsStop = nil
 		}
 	})
 
@@ -519,6 +510,8 @@ func (dio *Diode) Closed() bool {
 
 // Close shut down diode application
 func (dio *Diode) Close() {
+	dio.mu.Lock()
+	defer dio.mu.Unlock()
 	dio.cd.Do(func() {
 		cfg := config.AppConfig
 		for _, fun := range dio.deferals {

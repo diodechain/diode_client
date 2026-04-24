@@ -44,6 +44,7 @@ type controlRuntimeState struct {
 	socksSignature       string
 	proxySignature       string
 	apiSignature         string
+	logSignature         string
 }
 
 type controlValueKind string
@@ -984,7 +985,7 @@ var sharedControlFlagByName = buildSharedControlFlagByName()
 var persistedSharedControlKeys = buildPersistedSharedControlKeys()
 
 func currentControlClient() *rpc.Client {
-	if app.clientManager == nil {
+	if app == nil || app.clientManager == nil {
 		return nil
 	}
 	clients := app.clientManager.ClientsByLatency()
@@ -1540,7 +1541,27 @@ func apiServerSignature(cfg *config.Config) string {
 	return cfg.APIServerAddr
 }
 
+func loggerSignature(cfg *config.Config) string {
+	remote := ""
+	if cfg.LogTargetRemote != nil {
+		remote = fmt.Sprintf("%p", cfg.LogTargetRemote)
+	}
+	return strings.Join([]string{
+		strconv.Itoa(cfg.LogMode),
+		cfg.LogFilePath,
+		strconv.FormatBool(cfg.Debug),
+		strconv.FormatBool(cfg.LogDateTime),
+		remote,
+	}, "|")
+}
+
 func (dio *Diode) ReconcileControlServices() error {
+	dio.mu.Lock()
+	defer dio.mu.Unlock()
+	return dio.reconcileControlServicesLocked()
+}
+
+func (dio *Diode) reconcileControlServicesLocked() error {
 	cfg := dio.config
 
 	if len(cfg.LogFilePath) > 0 {
@@ -1548,17 +1569,21 @@ func (dio *Diode) ReconcileControlServices() error {
 	} else {
 		cfg.LogMode = config.LogToConsole
 	}
-	logger, err := config.NewLogger(cfg)
-	if err != nil {
-		return err
+	desiredLogSig := loggerSignature(cfg)
+	if dio.controlRuntime.logSignature != desiredLogSig {
+		logger, err := config.NewLogger(cfg)
+		if err != nil {
+			return err
+		}
+		cfg.Logger = &logger
+		dio.controlRuntime.logSignature = desiredLogSig
 	}
-	cfg.Logger = &logger
-	if logStatsStop != nil {
-		logStatsStop()
-		logStatsStop = nil
+	if dio.logStatsStop != nil {
+		dio.logStatsStop()
+		dio.logStatsStop = nil
 	}
 	if cfg.LogStats > 0 {
-		logStatsStop = config.StartLogStats(cfg)
+		dio.logStatsStop = config.StartLogStats(cfg)
 	}
 
 	desiredAPISig := apiServerSignature(cfg)
@@ -1573,7 +1598,10 @@ func (dio *Diode) ReconcileControlServices() error {
 			dio.configAPIServer.Close()
 		}
 		configAPIServer := NewConfigAPIServer(cfg, dio.clientManager)
-		configAPIServer.ListenAndServe()
+		if err := configAPIServer.ListenAndServe(); err != nil {
+			dio.controlRuntime.apiSignature = ""
+			return err
+		}
 		dio.SetConfigAPIServer(configAPIServer)
 		dio.controlRuntime.apiSignature = desiredAPISig
 	}
@@ -1603,10 +1631,6 @@ func (dio *Diode) ReconcileControlServices() error {
 			dio.proxyServer = nil
 			dio.controlRuntime.proxySignature = ""
 		}
-		if dio.socksServer != nil {
-			dio.socksServer.Close()
-			dio.socksServer = nil
-		}
 
 		socksCfg := rpc.Config{
 			Addr:       cfg.SocksServerAddr(),
@@ -1620,9 +1644,14 @@ func (dio *Diode) ReconcileControlServices() error {
 			return err
 		}
 		if err := socksServer.Start(); err != nil {
+			socksServer.Close()
 			return err
 		}
+		prev := dio.socksServer
 		dio.SetSocksServer(socksServer)
+		if prev != nil {
+			prev.Close()
+		}
 		dio.controlRuntime.socksSignature = desiredSocksSig
 		dio.controlRuntime.appliedBindSignature = ""
 		socksRecreated = true
@@ -1664,6 +1693,7 @@ func (dio *Diode) ReconcileControlServices() error {
 			return err
 		}
 		if err := proxyServer.Start(); err != nil {
+			proxyServer.Close()
 			return err
 		}
 		dio.SetProxyServer(proxyServer)
@@ -1674,6 +1704,12 @@ func (dio *Diode) ReconcileControlServices() error {
 }
 
 func (dio *Diode) ReconcilePublishedPorts() error {
+	dio.mu.Lock()
+	defer dio.mu.Unlock()
+	return dio.reconcilePublishedPortsLocked()
+}
+
+func (dio *Diode) reconcilePublishedPortsLocked() error {
 	cfg := dio.config
 	state := currentPublishedControlState(cfg)
 	if err := rebuildPublishedPortState(cfg); err != nil {
