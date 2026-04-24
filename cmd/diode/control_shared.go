@@ -1400,29 +1400,6 @@ func applyPublishedPortsFromAPI(cfg *config.Config, ports []port) error {
 	return nil
 }
 
-func publishedPortSummary(cfg *config.Config) []string {
-	lines := make([]string, 0, len(cfg.PublishedPorts))
-	for _, port := range cfg.PublishedPorts {
-		addrs := make([]string, 0, len(port.Allowlist)+len(port.BnsAllowlist)+len(port.DriveAllowList)+len(port.DriveMemberAllowList))
-		for addr := range port.Allowlist {
-			addrs = append(addrs, addr.HexString())
-		}
-		for bnsName := range port.BnsAllowlist {
-			addrs = append(addrs, bnsName)
-		}
-		for drive := range port.DriveAllowList {
-			addrs = append(addrs, drive.HexString())
-		}
-		for driveMember := range port.DriveMemberAllowList {
-			addrs = append(addrs, driveMember.HexString())
-		}
-		host := publishedPortDisplayHost(port)
-		lines = append(lines, fmt.Sprintf("%12s|%8d|%10s|%s|%s", host, port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol), strings.Join(addrs, ",")))
-	}
-	sort.Strings(lines)
-	return lines
-}
-
 func logPublishedPortSummary(cfg *config.Config) {
 	if len(cfg.PublishedPorts) == 0 {
 		return
