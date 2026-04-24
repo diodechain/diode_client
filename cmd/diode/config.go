@@ -44,7 +44,7 @@ func configHandler() (err error) {
 	cfg := config.AppConfig
 	activity := false
 	changedSharedKeys := []string{}
-	publishedChanged := false
+	effects := controlEffect(0)
 	if len(cfg.ConfigDelete) > 0 {
 		activity = true
 		for _, deleteKey := range cfg.ConfigDelete {
@@ -54,12 +54,12 @@ func configHandler() (err error) {
 				continue
 			}
 			if resetSharedControlValue(cfg, deleteKey) && isPersistedSharedControlKey(deleteKey) {
-				changedSharedKeys = append(changedSharedKeys, deleteKey)
-				switch canonicalSharedControlKey(deleteKey) {
-				case "public", "private", "protected", "sshd":
-					publishedChanged = true
+				canonical := canonicalSharedControlKey(deleteKey)
+				changedSharedKeys = append(changedSharedKeys, canonical)
+				if spec, ok := sharedControlSpec(canonical); ok {
+					effects |= spec.Effects
 				}
-				cfg.PrintLabel("Deleted:", canonicalSharedControlKey(deleteKey))
+				cfg.PrintLabel("Deleted:", canonical)
 				continue
 			}
 			db.DB.Del(deleteKey)
@@ -72,19 +72,21 @@ func configHandler() (err error) {
 			list := strings.SplitN(configSet, "=", 2)
 			if len(list) == 2 {
 				if !strings.EqualFold(strings.TrimSpace(list[0]), "private") {
-					recognized, sharedErr := applySharedControlValue(cfg, list[0], list[1])
-					if sharedErr != nil {
-						cfg.PrintError("Couldn't set value", sharedErr)
-						return sharedErr
-					}
-					if recognized && isPersistedSharedControlKey(list[0]) {
-						changedSharedKeys = append(changedSharedKeys, list[0])
-						switch canonicalSharedControlKey(list[0]) {
-						case "public", "private", "protected", "sshd":
-							publishedChanged = true
+					if _, ok := sharedControlSpec(list[0]); ok {
+						patch := ControlPatch{}
+						patch.Add(list[0], list[0], list[1])
+						result := ApplyControlPatch(cfg, patch)
+						if result.HasValidationErrors() {
+							sharedErr := fmt.Errorf("%s", result.ValidationErrors[list[0]])
+							cfg.PrintError("Couldn't set value", sharedErr)
+							return sharedErr
 						}
-						cfg.PrintLabel("Set:", canonicalSharedControlKey(list[0]))
-						continue
+						if isPersistedSharedControlKey(list[0]) {
+							changedSharedKeys = append(changedSharedKeys, result.PersistKeys...)
+							effects |= result.Effects
+							cfg.PrintLabel("Set:", canonicalSharedControlKey(list[0]))
+							continue
+						}
 					}
 				}
 
@@ -117,7 +119,7 @@ func configHandler() (err error) {
 	}
 
 	syncConfigBindsFromSBinds(cfg)
-	if publishedChanged {
+	if effects&controlEffectPublished != 0 {
 		if err := rebuildPublishedPortState(cfg); err != nil {
 			cfg.PrintError("Couldn't set published ports", err)
 			return err

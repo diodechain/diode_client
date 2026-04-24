@@ -1,6 +1,8 @@
 package main
 
 import (
+	"encoding/json"
+	"flag"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -95,6 +97,41 @@ func TestApplySharedControlValueAndReset(t *testing.T) {
 	}
 	if len(cfg.PublicPublishedPorts) != 0 {
 		t.Fatalf("expected public ports to be cleared, got %#v", cfg.PublicPublishedPorts)
+	}
+}
+
+func TestSharedControlRegistryMetadata(t *testing.T) {
+	if got := canonicalSharedControlKey("proxy_host"); got != "socksd_host" {
+		t.Fatalf("canonical proxy_host = %q", got)
+	}
+	if got := canonicalSharedControlKey("published_public_ports"); got != "public" {
+		t.Fatalf("canonical published_public_ports = %q", got)
+	}
+	if got := sharedControlStorageKey("public"); got != "published_public_ports" {
+		t.Fatalf("storage public = %q", got)
+	}
+	if !isPersistedSharedControlKey("sshd") {
+		t.Fatal("expected sshd to be persisted")
+	}
+	spec, ok := sharedControlSpec("private")
+	if !ok {
+		t.Fatal("expected private published-port control spec")
+	}
+	if spec.Effects&controlEffectPublished == 0 {
+		t.Fatalf("expected private to mark published changes, effects=%v", spec.Effects)
+	}
+
+	cfg := newSharedControlTestConfig(t)
+	cfg.EnableAPIServer = true
+	value, remove, err := sharedControlDBValue(cfg, "api")
+	if err != nil {
+		t.Fatalf("sharedControlDBValue(api): %v", err)
+	}
+	if remove || string(value) != "true" {
+		t.Fatalf("unexpected api DB value value=%q remove=%v", string(value), remove)
+	}
+	if !resetSharedControlValue(cfg, "api") || cfg.EnableAPIServer {
+		t.Fatal("expected api reset to disable API server")
 	}
 }
 
@@ -283,6 +320,157 @@ func TestConfigAPIPutUsesSharedPersistenceWithoutRestart(t *testing.T) {
 	}
 	if len(raw) == 0 || raw[0] != '[' {
 		t.Fatalf("expected ssh definitions to be persisted as JSON array, got %q", string(raw))
+	}
+}
+
+func TestConfigAPIPutControlsMapUsesSharedPersistence(t *testing.T) {
+	cfg := newSharedControlTestConfig(t)
+	cfg.APIServerAddr = "127.0.0.1:0"
+	setupSharedControlTestEnv(t, cfg)
+
+	server := NewConfigAPIServer(cfg, app.clientManager)
+	body := `{"controls":{"api":true,"socksd_host":"0.0.0.0","public":["8080:80"],"sshd":["protected:22:root"]}}`
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/config", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+
+	server.apiHandleFunc()(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d with body %q", recorder.Code, recorder.Body.String())
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	if !cfg.EnableAPIServer {
+		t.Fatal("expected api control to be applied")
+	}
+	if cfg.SocksServerHost != "0.0.0.0" {
+		t.Fatalf("unexpected socks host: %q", cfg.SocksServerHost)
+	}
+	if !reflect.DeepEqual(cfg.PublicPublishedPorts, config.StringValues{"8080:80"}) {
+		t.Fatalf("unexpected public ports: %#v", cfg.PublicPublishedPorts)
+	}
+
+	raw, err := db.DB.Get("published_public_ports")
+	if err != nil {
+		t.Fatalf("db.Get(published_public_ports): %v", err)
+	}
+	if len(raw) == 0 || raw[0] != '[' {
+		t.Fatalf("expected public ports JSON persistence, got %q", string(raw))
+	}
+}
+
+func TestConfigAPIPutRejectsDuplicateLegacyAndControls(t *testing.T) {
+	cfg := newSharedControlTestConfig(t)
+	setupSharedControlTestEnv(t, cfg)
+
+	server := NewConfigAPIServer(cfg, app.clientManager)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/config", strings.NewReader(`{"api":true,"controls":{"api":false}}`))
+	request.Header.Set("Content-Type", "application/json")
+
+	server.apiHandleFunc()(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d with body %q", recorder.Code, recorder.Body.String())
+	}
+	if cfg.EnableAPIServer {
+		t.Fatal("duplicate request should not apply api mutation")
+	}
+}
+
+func TestConfigAPIGetIncludesControlsMap(t *testing.T) {
+	cfg := newSharedControlTestConfig(t)
+	cfg.EnableAPIServer = true
+	cfg.PublicPublishedPorts = config.StringValues{"8080:80"}
+	if err := rebuildPublishedPortState(cfg); err != nil {
+		t.Fatalf("rebuildPublishedPortState(): %v", err)
+	}
+	setupSharedControlTestEnv(t, cfg)
+
+	server := NewConfigAPIServer(cfg, app.clientManager)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/config", nil)
+
+	server.apiHandleFunc()(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("expected 200 OK, got %d with body %q", recorder.Code, recorder.Body.String())
+	}
+	var response apiResponse
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("json.Unmarshal(): %v", err)
+	}
+	if response.Config == nil {
+		t.Fatal("expected config response")
+	}
+	if response.Config.Controls["api"] != true {
+		t.Fatalf("expected controls.api=true, got %#v", response.Config.Controls["api"])
+	}
+	if response.Config.EnableSocks {
+		t.Fatal("legacy fields should remain present and unchanged")
+	}
+}
+
+func TestSharedControlFlagRegistration(t *testing.T) {
+	for name, fs := range map[string]interface{ Lookup(string) *flag.Flag }{
+		"global":  &diodeCmd.Flag,
+		"publish": &publishCmd.Flag,
+		"gateway": &gatewayCmd.Flag,
+		"socksd":  &socksdCmd.Flag,
+		"files":   &filesCmd.Flag,
+	} {
+		switch name {
+		case "global":
+			if fs.Lookup("resolvecachetime") == nil || fs.Lookup("bnscachetime") == nil {
+				t.Fatalf("%s missing resolver cache flags", name)
+			}
+		case "publish":
+			if fs.Lookup("public") == nil || fs.Lookup("proxy_host") == nil {
+				t.Fatalf("%s missing shared publish flags", name)
+			}
+		case "gateway":
+			if fs.Lookup("secure") == nil || fs.Lookup("allow_redirect") == nil {
+				t.Fatalf("%s missing shared gateway flags", name)
+			}
+		case "socksd":
+			if fs.Lookup("socksd_host") == nil || fs.Lookup("fallback") == nil {
+				t.Fatalf("%s missing shared socksd flags", name)
+			}
+		case "files":
+			if fs.Lookup("proxy_port") == nil || fs.Lookup("socksd") == nil {
+				t.Fatalf("%s missing shared files flags", name)
+			}
+		}
+	}
+	if keys := sharedControlFlagKeys("proxy_host"); !reflect.DeepEqual(keys, []string{"socksd_host"}) {
+		t.Fatalf("unexpected proxy_host shared keys: %#v", keys)
+	}
+}
+
+func TestApplyControlPlaneConfigEmptyValuesUseSharedReset(t *testing.T) {
+	cfg := newSharedControlTestConfig(t)
+	cfg.RemoteRPCAddrs = config.StringValues{"diode://custom.example:41046"}
+	cfg.SBinds = config.StringValues{"0:Helloworld:80"}
+	cfg.Binds = []config.Bind{{LocalPort: 1, To: "Helloworld", ToPort: 80}}
+	cfg.LogTarget = "collector:1234"
+	cfg.LogStats = time.Minute
+
+	applyControlPlaneConfig(cfg, map[string]string{
+		"bind":       "",
+		"diodeaddrs": "",
+		"logtarget":  "",
+		"logstats":   "",
+	})
+
+	if len(cfg.SBinds) != 0 || len(cfg.Binds) != 0 {
+		t.Fatalf("expected bind reset, got SBinds=%#v Binds=%#v", cfg.SBinds, cfg.Binds)
+	}
+	if !reflect.DeepEqual(cfg.RemoteRPCAddrs, getDefaultRemoteRPCAddrs()) {
+		t.Fatalf("expected diodeaddrs reset, got %#v", cfg.RemoteRPCAddrs)
+	}
+	if cfg.LogTarget != "" || cfg.LogStats != 0 {
+		t.Fatalf("expected log controls reset, got target=%q stats=%v", cfg.LogTarget, cfg.LogStats)
 	}
 }
 

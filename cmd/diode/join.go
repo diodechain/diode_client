@@ -1071,129 +1071,6 @@ func buildPublishedPortMap(publicPorts, privatePorts, protectedPorts []string, s
 	return portString, nil
 }
 
-// normalizeList trims whitespace, drops empties, and keeps order
-func normalizeList(items []string) []string {
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		trimmed := strings.TrimSpace(item)
-		if trimmed == "" {
-			continue
-		}
-		out = append(out, trimmed)
-	}
-	return out
-}
-
-func stringFromValue(val interface{}) (string, error) {
-	switch v := val.(type) {
-	case string:
-		return strings.TrimSpace(v), nil
-	case fmt.Stringer:
-		return strings.TrimSpace(v.String()), nil
-	default:
-		return strings.TrimSpace(fmt.Sprint(v)), nil
-	}
-}
-
-func stringSliceFromValue(val interface{}) ([]string, error) {
-	switch v := val.(type) {
-	case nil:
-		return nil, nil
-	case string:
-		s := strings.TrimSpace(v)
-		if s == "" {
-			return nil, nil
-		}
-		// Allow JSON-style arrays, e.g. ["bind1","bind2"]
-		if strings.HasPrefix(s, "[") {
-			var strItems []string
-			if err := json.Unmarshal([]byte(s), &strItems); err == nil {
-				return normalizeList(strItems), nil
-			}
-			var genericItems []interface{}
-			if err := json.Unmarshal([]byte(s), &genericItems); err == nil {
-				items := make([]string, 0, len(genericItems))
-				for _, item := range genericItems {
-					items = append(items, fmt.Sprint(item))
-				}
-				return normalizeList(items), nil
-			}
-		}
-		// Fallback format: split on any whitespace and commas so that
-		// contract-side concatenation using spaces produces multiple
-		// logical entries (e.g. "bind1 bind2", "addr1 addr2").
-		fields := strings.Fields(s)
-		parts := make([]string, 0, len(fields))
-		for _, f := range fields {
-			parts = append(parts, strings.Split(f, ",")...)
-		}
-		return normalizeList(parts), nil
-	case []interface{}:
-		items := make([]string, 0, len(v))
-		for _, item := range v {
-			items = append(items, fmt.Sprint(item))
-		}
-		return normalizeList(items), nil
-	case []string:
-		return normalizeList(v), nil
-	default:
-		return nil, fmt.Errorf("unsupported list type %T", val)
-	}
-}
-
-func boolFromValue(val interface{}) (bool, error) {
-	switch v := val.(type) {
-	case bool:
-		return v, nil
-	case string:
-		switch strings.ToLower(strings.TrimSpace(v)) {
-		case "1", "true", "yes", "y", "on", "t":
-			return true, nil
-		case "0", "false", "no", "n", "off", "f":
-			return false, nil
-		case "":
-			return false, fmt.Errorf("empty bool string")
-		default:
-			return false, fmt.Errorf("invalid bool value: %s", v)
-		}
-	case float64:
-		return v != 0, nil
-	case int:
-		return v != 0, nil
-	default:
-		return false, fmt.Errorf("unsupported bool type %T", val)
-	}
-}
-
-func durationFromValue(val interface{}) (time.Duration, error) {
-	switch v := val.(type) {
-	case string:
-		return time.ParseDuration(strings.TrimSpace(v))
-	case float64:
-		return time.Duration(v) * time.Second, nil
-	case int:
-		return time.Duration(v) * time.Second, nil
-	default:
-		return 0, fmt.Errorf("unsupported duration type %T", val)
-	}
-}
-
-func intFromValue(val interface{}) (int, error) {
-	switch v := val.(type) {
-	case string:
-		if strings.TrimSpace(v) == "" {
-			return 0, fmt.Errorf("empty int value")
-		}
-		return strconv.Atoi(strings.TrimSpace(v))
-	case float64:
-		return int(v), nil
-	case int:
-		return v, nil
-	default:
-		return 0, fmt.Errorf("unsupported int type %T", val)
-	}
-}
-
 // getDefaultRemoteRPCAddrs returns the default relay list
 func getDefaultRemoteRPCAddrs() config.StringValues {
 	defaultAddrs := make([]string, len(bootDiodeAddrs))
@@ -1286,183 +1163,6 @@ func applyBlocklist(cfg *config.Config, blocklists []string) {
 	}
 }
 
-func applyConfigKey(cfg *config.Config, key string, value interface{}) error {
-	switch strings.ToLower(key) {
-	case "socksd":
-		b, err := boolFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.EnableSocksServer = b
-	case "gateway":
-		b, err := boolFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.EnableProxyServer = b
-		if b {
-			cfg.EnableSocksServer = true
-		}
-	case "bind":
-		items, err := stringSliceFromValue(value)
-		if err != nil {
-			return err
-		}
-		applyBinds(cfg, items)
-	case "debug":
-		b, err := boolFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.Debug = b
-	case "diodeaddrs":
-		items, err := stringSliceFromValue(value)
-		if err != nil {
-			cfg.Logger.Warn("Failed to parse diodeaddrs value %v: %v", value, err)
-			return err
-		}
-		applyDiodeAddrs(cfg, items)
-	case "fleet":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return err
-		}
-		if str == "" {
-			return nil
-		}
-		addr, err := util.DecodeAddress(str)
-		if err != nil {
-			return fmt.Errorf("invalid fleet address %q: %w", str, err)
-		}
-		cfg.FleetAddr = addr
-	case "bnscachetime", "resolvecachetime":
-		dur, err := durationFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.ResolveCacheTime = dur
-		cfg.BnsCacheTime = dur
-	case "allowlists":
-		items, err := stringSliceFromValue(value)
-		if err != nil {
-			return err
-		}
-		applyAllowlist(cfg, items)
-	case "api":
-		b, err := boolFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.EnableAPIServer = b
-	case "apiaddr":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.APIServerAddr = str
-	case "blockdomains":
-		items, err := stringSliceFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.SBlockdomains = config.StringValues(items)
-	case "blocklists":
-		items, err := stringSliceFromValue(value)
-		if err != nil {
-			return err
-		}
-		applyBlocklist(cfg, items)
-	case "blockprofile":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.BlockProfile = str
-	case "blockproliferate", "blockprofilerate":
-		val, err := intFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.BlockProfileRate = val
-	case "configpath":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.ConfigFilePath = str
-	case "cpuprofile":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.CPUProfile = str
-	case "dbpath":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.DBPath = str
-	case "e2etimeout":
-		dur, err := durationFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.EdgeE2ETimeout = dur
-	case "logdatetime":
-		b, err := boolFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.LogDateTime = b
-	case "logfilepath":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.LogFilePath = str
-	case "logtarget":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return err
-		}
-		str = strings.TrimSpace(str)
-		removeImplicitLogTargetBind(cfg)
-		if str == "" {
-			clearLogTarget(cfg)
-			config.ClearLogTargetSink(cfg)
-			return nil
-		}
-		cfg.LogTarget = str
-		injectLogTargetSBinds(cfg)
-	case "logstats":
-		dur, err := durationFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.LogStats = dur
-	default:
-		return nil
-	}
-	return nil
-}
-
-func reloadLoggerIfNeeded(cfg *config.Config, oldDebug bool, oldLogDatetime bool, oldLogFilePath string) {
-	if cfg.Debug == oldDebug && cfg.LogDateTime == oldLogDatetime && cfg.LogFilePath == oldLogFilePath {
-		return
-	}
-	if len(cfg.LogFilePath) > 0 {
-		cfg.LogMode = config.LogToFile
-	} else {
-		cfg.LogMode = config.LogToConsole
-	}
-	logger, err := config.NewLogger(cfg)
-	if err != nil {
-		cfg.PrintError("Could not reload logger with control plane config", err)
-		return
-	}
-	cfg.Logger = &logger
-}
-
 func syncConfigBindsFromSBinds(cfg *config.Config) {
 	cfg.Binds = make([]config.Bind, 0, len(cfg.SBinds))
 	for _, str := range cfg.SBinds {
@@ -1492,61 +1192,12 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 		cfg.RemoteRPCAddrs = getDefaultRemoteRPCAddrs()
 	}
 
+	patch := ControlPatch{}
 	for key, val := range props {
 		if key == "extra_config" {
 			continue
 		}
-		trimmed := strings.TrimSpace(val)
-
-		// For non-combinable keys coming directly from the contract,
-		// discard anything after the first whitespace. Multi-value
-		// keys like bind/diodeaddrs are handled separately via
-		// stringSliceFromValue, and wireguard is processed elsewhere.
-		switch strings.ToLower(key) {
-		case "socksd", "debug", "fleet":
-			if idx := strings.IndexAny(trimmed, " \t\r\n"); idx >= 0 {
-				trimmed = trimmed[:idx]
-			}
-		}
-
-		// Special handling for bind: an empty bind value in the control plane
-		// should clear all existing binds derived from the contract so that
-		// removed binds are reflected in the running client.
-		if key == "bind" && trimmed == "" {
-			if len(cfg.SBinds) > 0 || len(cfg.Binds) > 0 {
-				cfg.SBinds = config.StringValues{}
-				cfg.Binds = []config.Bind{}
-			}
-			continue
-		}
-
-		// Special handling for diodeaddrs: an empty diodeaddrs value in the control plane
-		// should set defaults so we don't drain the connection pool.  Instead of just ignoring
-		// the empty value, we need to proactively set defaults because this commonly happens
-		// if a perimeter diodeaddrs value was initially set, and then the value was cleared/unset.
-		// The intent of an unset diodeaddrs is to return to using defaults.
-		if key == "diodeaddrs" && trimmed == "" {
-			cfg.RemoteRPCAddrs = getDefaultRemoteRPCAddrs()
-			continue
-		}
-
-		if strings.EqualFold(key, "logtarget") && trimmed == "" {
-			removeImplicitLogTargetBind(cfg)
-			clearLogTarget(cfg)
-			config.ClearLogTargetSink(cfg)
-			continue
-		}
-		if strings.EqualFold(key, "logstats") && trimmed == "" {
-			cfg.LogStats = 0
-			continue
-		}
-
-		if trimmed == "" {
-			continue
-		}
-		if _, err := applySharedControlValue(cfg, key, trimmed); err != nil {
-			cfg.Logger.Warn("Ignoring %s from control plane: %v", key, err)
-		}
+		applyContractControlValue(cfg, &patch, key, val)
 	}
 
 	extraRaw := strings.TrimSpace(props["extra_config"])
@@ -1559,13 +1210,15 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 				if val == nil {
 					continue
 				}
-				if _, err := applySharedControlValue(cfg, key, val); err != nil {
-					cfg.Logger.Warn("Ignoring %s from extra_config: %v", key, err)
-				}
+				patch.Add(key, key, val)
 			}
 		}
 	}
 
+	result := ApplyControlPatch(cfg, patch)
+	for key, errText := range result.ValidationErrors {
+		cfg.Logger.Warn("Ignoring %s from control plane: %v", key, errText)
+	}
 	syncConfigBindsFromSBinds(cfg)
 }
 

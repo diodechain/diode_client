@@ -34,9 +34,7 @@ func init() {
 		SingleConnection: true,
 	}
 	filesCmd.Flag.StringVar(&filesFileroot, "fileroot", "", "root for URL paths (default: cwd); use / for filesystem root (see file-transfer-spec)")
-	filesCmd.Flag.StringVar(&cfg.SocksServerHost, "proxy_host", "127.0.0.1", "host of socksd proxy server")
-	filesCmd.Flag.IntVar(&cfg.SocksServerPort, "proxy_port", 1080, "port of socksd proxy server")
-	filesCmd.Flag.BoolVar(&cfg.EnableSocksServer, "socksd", false, "enable socksd proxy server")
+	registerSharedControlFlags(&filesCmd.Flag, cfg, "proxy_host", "proxy_port", "socksd")
 	filesCmd.Flag.IntVar(&cfg.MaxPortsPerDevice, "maxports", 0, "DEPRECATED: use global -maxports flag instead (maximum concurrent ports per device, 0 = unlimited)")
 	diodeCmd.AddSubCommand(filesCmd)
 }

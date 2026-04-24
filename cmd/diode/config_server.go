@@ -31,18 +31,19 @@ type apiResponse struct {
 }
 
 type configEntry struct {
-	Address              string         `json:"client"`
-	Fleet                string         `json:"fleet"`
-	Version              string         `json:"version"`
-	LastValidBlockNumber uint64         `json:"lastValidBlockNumber"`
-	LastValidBlockHash   string         `json:"lastValidBlockHash"`
-	Binds                []bind         `json:"binds"`
-	Ports                []port         `json:"ports"`
-	SSHD                 []string       `json:"sshd,omitempty"`
-	EnableSocks          bool           `json:"enableSocks"`
-	EnableProxy          bool           `json:"enableProxy"`
-	EnableSecureProxy    bool           `json:"enableSecureProxy"`
-	Perimeter            *perimeterInfo `json:"perimeter,omitempty"`
+	Address              string                 `json:"client"`
+	Fleet                string                 `json:"fleet"`
+	Version              string                 `json:"version"`
+	LastValidBlockNumber uint64                 `json:"lastValidBlockNumber"`
+	LastValidBlockHash   string                 `json:"lastValidBlockHash"`
+	Binds                []bind                 `json:"binds"`
+	Ports                []port                 `json:"ports"`
+	SSHD                 []string               `json:"sshd,omitempty"`
+	Controls             map[string]interface{} `json:"controls,omitempty"`
+	EnableSocks          bool                   `json:"enableSocks"`
+	EnableProxy          bool                   `json:"enableProxy"`
+	EnableSecureProxy    bool                   `json:"enableSecureProxy"`
+	Perimeter            *perimeterInfo         `json:"perimeter,omitempty"`
 }
 
 type perimeterInfo struct {
@@ -68,37 +69,38 @@ type port struct {
 }
 
 type putConfigRequest struct {
-	Fleet            *string   `json:"fleet,omitempty"`
-	Registry         *string   `json:"registry,omitempty"`
-	DiodeAddrs       *[]string `json:"diodeaddrs,omitempty"`
-	Blocklists       *[]string `json:"blocklists,omitempty"`
-	Allowlists       *[]string `json:"allowlists,omitempty"`
-	Blockdomains     *[]string `json:"blockdomains,omitempty"`
-	Binds            *[]bind   `json:"binds,omitempty"`
-	Ports            *[]port   `json:"ports,omitempty"`
-	SSHD             *[]string `json:"sshd,omitempty"`
-	API              *bool     `json:"api,omitempty"`
-	APIAddr          *string   `json:"apiaddr,omitempty"`
-	Socksd           *bool     `json:"socksd,omitempty"`
-	SocksdHost       *string   `json:"socksd_host,omitempty"`
-	SocksdPort       *int      `json:"socksd_port,omitempty"`
-	Gateway          *bool     `json:"gateway,omitempty"`
-	Fallback         *string   `json:"fallback,omitempty"`
-	HTTPDHost        *string   `json:"httpd_host,omitempty"`
-	HTTPDPort        *int      `json:"httpd_port,omitempty"`
-	Secure           *bool     `json:"secure,omitempty"`
-	HTTPSDHost       *string   `json:"httpsd_host,omitempty"`
-	HTTPSDPort       *int      `json:"httpsd_port,omitempty"`
-	AdditionalPorts  *string   `json:"additional_ports,omitempty"`
-	CertPath         *string   `json:"certpath,omitempty"`
-	PrivPath         *string   `json:"privpath,omitempty"`
-	AllowRedirect    *bool     `json:"allow_redirect,omitempty"`
-	Debug            *bool     `json:"debug,omitempty"`
-	LogDateTime      *bool     `json:"logdatetime,omitempty"`
-	LogFilePath      *string   `json:"logfilepath,omitempty"`
-	LogStats         *string   `json:"logstats,omitempty"`
-	LogTarget        *string   `json:"logtarget,omitempty"`
-	ResolveCacheTime *string   `json:"resolvecachetime,omitempty"`
+	Fleet            *string                `json:"fleet,omitempty"`
+	Registry         *string                `json:"registry,omitempty"`
+	DiodeAddrs       *[]string              `json:"diodeaddrs,omitempty"`
+	Blocklists       *[]string              `json:"blocklists,omitempty"`
+	Allowlists       *[]string              `json:"allowlists,omitempty"`
+	Blockdomains     *[]string              `json:"blockdomains,omitempty"`
+	Binds            *[]bind                `json:"binds,omitempty"`
+	Ports            *[]port                `json:"ports,omitempty"`
+	SSHD             *[]string              `json:"sshd,omitempty"`
+	API              *bool                  `json:"api,omitempty"`
+	APIAddr          *string                `json:"apiaddr,omitempty"`
+	Socksd           *bool                  `json:"socksd,omitempty"`
+	SocksdHost       *string                `json:"socksd_host,omitempty"`
+	SocksdPort       *int                   `json:"socksd_port,omitempty"`
+	Gateway          *bool                  `json:"gateway,omitempty"`
+	Fallback         *string                `json:"fallback,omitempty"`
+	HTTPDHost        *string                `json:"httpd_host,omitempty"`
+	HTTPDPort        *int                   `json:"httpd_port,omitempty"`
+	Secure           *bool                  `json:"secure,omitempty"`
+	HTTPSDHost       *string                `json:"httpsd_host,omitempty"`
+	HTTPSDPort       *int                   `json:"httpsd_port,omitempty"`
+	AdditionalPorts  *string                `json:"additional_ports,omitempty"`
+	CertPath         *string                `json:"certpath,omitempty"`
+	PrivPath         *string                `json:"privpath,omitempty"`
+	AllowRedirect    *bool                  `json:"allow_redirect,omitempty"`
+	Debug            *bool                  `json:"debug,omitempty"`
+	LogDateTime      *bool                  `json:"logdatetime,omitempty"`
+	LogFilePath      *string                `json:"logfilepath,omitempty"`
+	LogStats         *string                `json:"logstats,omitempty"`
+	LogTarget        *string                `json:"logtarget,omitempty"`
+	ResolveCacheTime *string                `json:"resolvecachetime,omitempty"`
+	Controls         map[string]interface{} `json:"controls,omitempty"`
 }
 
 func isAddress(fl validator.FieldLevel) bool {
@@ -385,7 +387,8 @@ func (configAPIServer *ConfigAPIServer) configResponse(w http.ResponseWriter, me
 				}
 				return ret
 			}(cfg.PublishedPorts),
-			SSHD: cloneStrings(cfg.SSHPublishedServices),
+			SSHD:     cloneStrings(cfg.SSHPublishedServices),
+			Controls: sharedControlHTTPValues(cfg),
 
 			EnableSocks:       cfg.EnableSocksServer,
 			EnableProxy:       cfg.EnableProxyServer,
@@ -493,132 +496,133 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 			}
 
 			cfg := configAPIServer.appConfig
-			changedKeys := []string{}
-			publishedChanged := false
-			applyKey := func(field string, value interface{}) {
-				recognized, err := applySharedControlValue(cfg, field, value)
-				if err != nil {
-					validationError[field] = err.Error()
-					return
-				}
-				if recognized {
-					changedKeys = append(changedKeys, field)
-				}
+			patch := ControlPatch{}
+			applyKey := func(field string, key string, value interface{}) {
+				patch.AddRejectingDuplicate(field, key, value, validationError)
 			}
 
 			if c.Fleet != nil {
-				applyKey("fleet", *c.Fleet)
+				applyKey("fleet", "fleet", *c.Fleet)
 			}
 			if c.DiodeAddrs != nil {
-				applyKey("diodeaddrs", *c.DiodeAddrs)
+				applyKey("diodeaddrs", "diodeaddrs", *c.DiodeAddrs)
 			}
 			if c.Blocklists != nil {
-				applyKey("blocklists", *c.Blocklists)
+				applyKey("blocklists", "blocklists", *c.Blocklists)
 			}
 			if c.Allowlists != nil {
-				applyKey("allowlists", *c.Allowlists)
+				applyKey("allowlists", "allowlists", *c.Allowlists)
 			}
 			if c.Blockdomains != nil {
-				applyKey("blockdomains", *c.Blockdomains)
+				applyKey("blockdomains", "blockdomains", *c.Blockdomains)
 			}
 			if c.Binds != nil {
-				applyKey("bind", bindDefinitionsFromAPI(*c.Binds))
+				applyKey("binds", "bind", bindDefinitionsFromAPI(*c.Binds))
 			}
 			if c.Ports != nil {
-				if err := applyPublishedPortsFromAPI(cfg, *c.Ports); err != nil {
+				publicPorts, privatePorts, protectedPorts, err := publishedPortDefinitionsFromAPI(*c.Ports)
+				if err != nil {
 					validationError["ports"] = err.Error()
 				} else {
-					changedKeys = append(changedKeys, "public", "private", "protected")
-					publishedChanged = true
+					applyKey("ports.public", "public", publicPorts)
+					applyKey("ports.private", "private", privatePorts)
+					applyKey("ports.protected", "protected", protectedPorts)
 				}
 			}
 			if c.SSHD != nil {
-				applyKey("sshd", *c.SSHD)
-				publishedChanged = true
+				applyKey("sshd", "sshd", *c.SSHD)
 			}
 			if c.API != nil {
-				applyKey("api", *c.API)
+				applyKey("api", "api", *c.API)
 			}
 			if c.APIAddr != nil {
-				applyKey("apiaddr", *c.APIAddr)
+				applyKey("apiaddr", "apiaddr", *c.APIAddr)
 			}
 			if c.Socksd != nil {
-				applyKey("socksd", *c.Socksd)
+				applyKey("socksd", "socksd", *c.Socksd)
 			}
 			if c.SocksdHost != nil {
-				applyKey("socksd_host", *c.SocksdHost)
+				applyKey("socksd_host", "socksd_host", *c.SocksdHost)
 			}
 			if c.SocksdPort != nil {
-				applyKey("socksd_port", *c.SocksdPort)
+				applyKey("socksd_port", "socksd_port", *c.SocksdPort)
 			}
 			if c.Gateway != nil {
-				applyKey("gateway", *c.Gateway)
+				applyKey("gateway", "gateway", *c.Gateway)
 			}
 			if c.Fallback != nil {
-				applyKey("fallback", *c.Fallback)
+				applyKey("fallback", "fallback", *c.Fallback)
 			}
 			if c.HTTPDHost != nil {
-				applyKey("httpd_host", *c.HTTPDHost)
+				applyKey("httpd_host", "httpd_host", *c.HTTPDHost)
 			}
 			if c.HTTPDPort != nil {
-				applyKey("httpd_port", *c.HTTPDPort)
+				applyKey("httpd_port", "httpd_port", *c.HTTPDPort)
 			}
 			if c.Secure != nil {
-				applyKey("secure", *c.Secure)
+				applyKey("secure", "secure", *c.Secure)
 			}
 			if c.HTTPSDHost != nil {
-				applyKey("httpsd_host", *c.HTTPSDHost)
+				applyKey("httpsd_host", "httpsd_host", *c.HTTPSDHost)
 			}
 			if c.HTTPSDPort != nil {
-				applyKey("httpsd_port", *c.HTTPSDPort)
+				applyKey("httpsd_port", "httpsd_port", *c.HTTPSDPort)
 			}
 			if c.AdditionalPorts != nil {
-				applyKey("additional_ports", *c.AdditionalPorts)
+				applyKey("additional_ports", "additional_ports", *c.AdditionalPorts)
 			}
 			if c.CertPath != nil {
-				applyKey("certpath", *c.CertPath)
+				applyKey("certpath", "certpath", *c.CertPath)
 			}
 			if c.PrivPath != nil {
-				applyKey("privpath", *c.PrivPath)
+				applyKey("privpath", "privpath", *c.PrivPath)
 			}
 			if c.AllowRedirect != nil {
-				applyKey("allow_redirect", *c.AllowRedirect)
+				applyKey("allow_redirect", "allow_redirect", *c.AllowRedirect)
 			}
 			if c.Debug != nil {
-				applyKey("debug", *c.Debug)
+				applyKey("debug", "debug", *c.Debug)
 			}
 			if c.LogDateTime != nil {
-				applyKey("logdatetime", *c.LogDateTime)
+				applyKey("logdatetime", "logdatetime", *c.LogDateTime)
 			}
 			if c.LogFilePath != nil {
-				applyKey("logfilepath", *c.LogFilePath)
+				applyKey("logfilepath", "logfilepath", *c.LogFilePath)
 			}
 			if c.LogStats != nil {
-				applyKey("logstats", *c.LogStats)
+				applyKey("logstats", "logstats", *c.LogStats)
 			}
 			if c.LogTarget != nil {
-				applyKey("logtarget", *c.LogTarget)
+				applyKey("logtarget", "logtarget", *c.LogTarget)
 			}
 			if c.ResolveCacheTime != nil {
-				applyKey("resolvecachetime", *c.ResolveCacheTime)
+				applyKey("resolvecachetime", "resolvecachetime", *c.ResolveCacheTime)
+			}
+			for key, value := range c.Controls {
+				applyKey("controls."+key, key, value)
 			}
 
-			syncConfigBindsFromSBinds(cfg)
 			if len(validationError) > 0 {
 				configAPIServer.clientError(w, validationError)
 				return
 			}
-			if publishedChanged {
+			result := ApplyControlPatch(cfg, patch)
+			if result.HasValidationErrors() {
+				configAPIServer.clientError(w, result.ValidationErrors)
+				return
+			}
+			syncConfigBindsFromSBinds(cfg)
+			if result.PublishedChanged() {
 				if err := rebuildPublishedPortState(cfg); err != nil {
 					configAPIServer.clientError(w, map[string]string{"ports": err.Error()})
 					return
 				}
 			}
-			if len(changedKeys) == 0 {
+			if len(result.ChangedKeys) == 0 {
 				configAPIServer.successResponse(w, "ok")
 				return
 			}
-			err = persistSharedControlState(cfg, changedKeys)
+			err = persistSharedControlState(cfg, result.PersistKeys)
 			if err != nil {
 				configAPIServer.appConfig.Logger.Error("Couldn't persist config: %v", err)
 				configAPIServer.serverError(w)
@@ -629,7 +633,7 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 				if err := app.ReconcileControlServices(); err != nil {
 					configAPIServer.appConfig.Logger.Error("Couldn't reconcile control services: %v", err)
 				}
-				if publishedChanged {
+				if result.PublishedChanged() {
 					if err := app.ReconcilePublishedPorts(); err != nil {
 						configAPIServer.appConfig.Logger.Error("Couldn't reconcile published ports: %v", err)
 					}

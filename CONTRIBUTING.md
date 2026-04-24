@@ -36,27 +36,23 @@ If you change CLI or network behavior, also run isolated manual checks with sepa
 
 ## Adding A Shared Control
 
-The overlapping control path for CLI config changes, the config API, and `join` is centralized in [cmd/diode/control_shared.go](cmd/diode/control_shared.go).
+The overlapping control path for CLI flags, CLI config changes, the config API, and `join` is centralized in the descriptor registry in [cmd/diode/control_shared.go](cmd/diode/control_shared.go).
 
 When adding a new shared control:
 
-1. Add the canonical key to `applySharedControlValue()` and `resetSharedControlValue()`.
-2. If the value should persist, add it to `persistedSharedControlKeys` and implement DB serialization in `sharedControlDBValue()`.
-3. If it should survive YAML config files, reuse an existing `config.Config` field when possible and ensure it has the correct YAML tag in [config/flag.go](config/flag.go).
-4. If the setting changes live runtime behavior, extend `ReconcileControlServices()` or `ReconcilePublishedPorts()`.
-5. Adapt each interface into the shared key instead of reimplementing the behavior:
-   - CLI config mutations: [cmd/diode/config.go](cmd/diode/config.go)
-   - Config API: [cmd/diode/config_server.go](cmd/diode/config_server.go)
-   - Contract-driven join path: [cmd/diode/join.go](cmd/diode/join.go)
-6. Add focused regression coverage in [cmd/diode/control_shared_test.go](cmd/diode/control_shared_test.go).
+1. Add one `ControlSpec` with the canonical key, aliases, value kind, apply/reset behavior, persistence serializer, effects, HTTP exposure, and any shared CLI flag definitions.
+2. If it should survive YAML config files, reuse an existing `config.Config` field when possible and ensure it has the correct YAML tag in [config/flag.go](config/flag.go).
+3. If the setting changes live runtime behavior beyond existing service or published-port effects, extend `ReconcileControlServices()` or `ReconcilePublishedPorts()`.
+4. Keep adapters thin: use `ControlPatch`/`ApplyControlPatch` from CLI config mutations, config API request fields, and contract properties instead of reimplementing behavior in each file.
+5. Add focused regression coverage in [cmd/diode/control_shared_test.go](cmd/diode/control_shared_test.go).
 
-The expected outcome is that a new shared control usually needs one canonical implementation, one persistence change if needed, one reconciler change if it affects runtime state, and only thin adapter changes per interface.
+The expected outcome is that a new shared control usually needs one descriptor plus focused tests. Persistence keys, aliases, HTTP controls, and shared CLI flags should come from that descriptor.
 
 ## Compatibility Rules
 
 - Do not duplicate shared-control behavior separately in `config.go`, `config_server.go`, and `join.go`.
 - Keep long-standing DB meanings stable. For example, `private` already means the client private key in the local store.
-- If a new shared control would collide with an existing DB key, keep the canonical runtime key and map persistence separately through `sharedControlStorageKey()`.
+- If a new shared control would collide with an existing DB key, keep the canonical runtime key and set the descriptor `StorageKey` to the compatible persisted name.
 - Reuse existing helpers such as bind parsing, published-port parsing, logger reload, and log-stats restart.
 
 ## Style Expectations

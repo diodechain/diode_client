@@ -20,9 +20,7 @@ var (
 
 func init() {
 	cfg := config.AppConfig
-	socksdCmd.Flag.StringVar(&cfg.SocksServerHost, "socksd_host", "127.0.0.1", "host of socks server listening to")
-	socksdCmd.Flag.IntVar(&cfg.SocksServerPort, "socksd_port", 1080, "port of socks server listening to")
-	socksdCmd.Flag.StringVar(&cfg.SocksFallback, "fallback", "localhost", "how to resolve web2 addresses")
+	registerSharedControlFlags(&socksdCmd.Flag, cfg, "socksd_host", "socksd_port", "fallback")
 	// DEPRECATED: maxports is now a global flag - use 'diode -maxports=<value> socksd' instead
 	socksdCmd.Flag.IntVar(&cfg.MaxPortsPerDevice, "maxports", 0, "DEPRECATED: use global -maxports flag instead (maximum concurrent ports per device, 0 = unlimited)")
 }

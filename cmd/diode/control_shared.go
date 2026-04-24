@@ -46,39 +46,942 @@ type controlRuntimeState struct {
 	apiSignature         string
 }
 
-var persistedSharedControlKeys = []string{
-	"allow_redirect",
-	"allowlists",
-	"api",
-	"apiaddr",
-	"bind",
-	"blockdomains",
-	"blocklists",
-	"certpath",
-	"debug",
-	"diodeaddrs",
-	"fallback",
-	"gateway",
-	"httpd_host",
-	"httpd_port",
-	"httpsd_host",
-	"httpsd_port",
-	"logdatetime",
-	"logfilepath",
-	"logstats",
-	"logtarget",
-	"private",
-	"protected",
-	"public",
-	"resolvecachetime",
-	"secure",
-	"socksd",
-	"socksd_host",
-	"socksd_port",
-	"sshd",
-	"additional_ports",
-	"privpath",
+type controlValueKind string
+
+const (
+	controlBool      controlValueKind = "bool"
+	controlString    controlValueKind = "string"
+	controlInt       controlValueKind = "int"
+	controlDuration  controlValueKind = "duration"
+	controlStringSet controlValueKind = "string_set"
+)
+
+type controlEffect uint
+
+const (
+	controlEffectPersist controlEffect = 1 << iota
+	controlEffectServices
+	controlEffectPublished
+)
+
+type controlFlagSpec struct {
+	Name     string
+	Usage    string
+	Register func(*flag.FlagSet, *config.Config, string)
 }
+
+type ControlSpec struct {
+	Key        string
+	Aliases    []string
+	StorageKey string
+	Kind       controlValueKind
+	Effects    controlEffect
+	ExposeHTTP bool
+	Flags      []controlFlagSpec
+	Apply      func(*config.Config, interface{}) error
+	Reset      func(*config.Config) bool
+	DBValue    func(*config.Config) ([]byte, bool, error)
+	HTTPValue  func(*config.Config) interface{}
+}
+
+func controlBoolFlag(ptr func(*config.Config) *bool, usage string) controlFlagSpec {
+	return controlFlagSpec{
+		Usage: usage,
+		Register: func(fs *flag.FlagSet, cfg *config.Config, name string) {
+			fs.BoolVar(ptr(cfg), name, false, usage)
+		},
+	}
+}
+
+func controlStringFlag(ptr func(*config.Config) *string, def string, usage string) controlFlagSpec {
+	return controlFlagSpec{
+		Usage: usage,
+		Register: func(fs *flag.FlagSet, cfg *config.Config, name string) {
+			fs.StringVar(ptr(cfg), name, def, usage)
+		},
+	}
+}
+
+func controlIntFlag(ptr func(*config.Config) *int, def int, usage string) controlFlagSpec {
+	return controlFlagSpec{
+		Usage: usage,
+		Register: func(fs *flag.FlagSet, cfg *config.Config, name string) {
+			fs.IntVar(ptr(cfg), name, def, usage)
+		},
+	}
+}
+
+func controlDurationFlag(ptr func(*config.Config) *time.Duration, def time.Duration, usage string) controlFlagSpec {
+	return controlFlagSpec{
+		Usage: usage,
+		Register: func(fs *flag.FlagSet, cfg *config.Config, name string) {
+			fs.DurationVar(ptr(cfg), name, def, usage)
+		},
+	}
+}
+
+func controlVarFlag(value func(*config.Config) flag.Value, usage string) controlFlagSpec {
+	return controlFlagSpec{
+		Usage: usage,
+		Register: func(fs *flag.FlagSet, cfg *config.Config, name string) {
+			fs.Var(value(cfg), name, usage)
+		},
+	}
+}
+
+func controlLogStatsFlag(usage string) controlFlagSpec {
+	return controlFlagSpec{
+		Usage: usage,
+		Register: func(fs *flag.FlagSet, cfg *config.Config, name string) {
+			fs.Var(&config.LogStatsFlag{P: &cfg.LogStats}, name, usage)
+		},
+	}
+}
+
+func boolControlDBValue(get func(*config.Config) bool) func(*config.Config) ([]byte, bool, error) {
+	return func(cfg *config.Config) ([]byte, bool, error) {
+		if !get(cfg) {
+			return nil, true, nil
+		}
+		return []byte("true"), false, nil
+	}
+}
+
+func stringControlDBValue(get func(*config.Config) string, def string) func(*config.Config) ([]byte, bool, error) {
+	return func(cfg *config.Config) ([]byte, bool, error) {
+		value := get(cfg)
+		if strings.TrimSpace(value) == "" || value == def {
+			return nil, true, nil
+		}
+		return []byte(value), false, nil
+	}
+}
+
+func intControlDBValue(get func(*config.Config) int, def int) func(*config.Config) ([]byte, bool, error) {
+	return func(cfg *config.Config) ([]byte, bool, error) {
+		value := get(cfg)
+		if value == 0 || value == def {
+			return nil, true, nil
+		}
+		return []byte(strconv.Itoa(value)), false, nil
+	}
+}
+
+func durationControlDBValue(get func(*config.Config) time.Duration, def time.Duration) func(*config.Config) ([]byte, bool, error) {
+	return func(cfg *config.Config) ([]byte, bool, error) {
+		value := get(cfg)
+		if value <= 0 || value == def {
+			return nil, true, nil
+		}
+		return []byte(value.String()), false, nil
+	}
+}
+
+func listControlDBValue(get func(*config.Config) []string) func(*config.Config) ([]byte, bool, error) {
+	return func(cfg *config.Config) ([]byte, bool, error) {
+		items := normalizeList(get(cfg))
+		if len(items) == 0 {
+			return nil, true, nil
+		}
+		value, err := json.Marshal(items)
+		return value, false, err
+	}
+}
+
+func diodeAddrsDBValue(cfg *config.Config) ([]byte, bool, error) {
+	if sameStringSet(cfg.RemoteRPCAddrs, getDefaultRemoteRPCAddrs()) {
+		return nil, true, nil
+	}
+	value, err := json.Marshal(normalizeList(cfg.RemoteRPCAddrs))
+	return value, false, err
+}
+
+func stringSliceHTTPValue(get func(*config.Config) []string) func(*config.Config) interface{} {
+	return func(cfg *config.Config) interface{} {
+		items := cloneStrings(get(cfg))
+		if items == nil {
+			return []string{}
+		}
+		return items
+	}
+}
+
+func durationHTTPValue(get func(*config.Config) time.Duration) func(*config.Config) interface{} {
+	return func(cfg *config.Config) interface{} {
+		return get(cfg).String()
+	}
+}
+
+func sharedControlEffects(effects controlEffect) controlEffect {
+	return effects | controlEffectPersist
+}
+
+var sharedControlSpecs = []*ControlSpec{
+	{
+		Key:        "allow_redirect",
+		Kind:       controlBool,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlBoolFlag(func(cfg *config.Config) *bool { return &cfg.AllowRedirectToSProxy }, "allow redirect all http transmission to httpsd"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			b, err := boolFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.AllowRedirectToSProxy = b
+			return nil
+		},
+		Reset:   func(cfg *config.Config) bool { cfg.AllowRedirectToSProxy = false; return true },
+		DBValue: boolControlDBValue(func(cfg *config.Config) bool { return cfg.AllowRedirectToSProxy }),
+		HTTPValue: func(cfg *config.Config) interface{} {
+			return cfg.AllowRedirectToSProxy
+		},
+	},
+	{
+		Key:        "allowlists",
+		Kind:       controlStringSet,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlVarFlag(func(cfg *config.Config) flag.Value { return &cfg.SAllowlists }, "addresses are allowed to connect to published resource (used when blocklists is empty)"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			items, err := stringSliceFromValue(value)
+			if err != nil {
+				return err
+			}
+			applyAllowlist(cfg, items)
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { applyAllowlist(cfg, nil); return true },
+		DBValue:   listControlDBValue(func(cfg *config.Config) []string { return cfg.SAllowlists }),
+		HTTPValue: stringSliceHTTPValue(func(cfg *config.Config) []string { return cfg.SAllowlists }),
+	},
+	{
+		Key:        "api",
+		Kind:       controlBool,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlBoolFlag(func(cfg *config.Config) *bool { return &cfg.EnableAPIServer }, "turn on the config api"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			b, err := boolFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.EnableAPIServer = b
+			return nil
+		},
+		Reset:   func(cfg *config.Config) bool { cfg.EnableAPIServer = false; return true },
+		DBValue: boolControlDBValue(func(cfg *config.Config) bool { return cfg.EnableAPIServer }),
+		HTTPValue: func(cfg *config.Config) interface{} {
+			return cfg.EnableAPIServer
+		},
+	},
+	{
+		Key:        "apiaddr",
+		Kind:       controlString,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlStringFlag(func(cfg *config.Config) *string { return &cfg.APIServerAddr }, defaultAPIServerAddr, "define config api server address"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			str, err := stringFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.APIServerAddr = str
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { cfg.APIServerAddr = defaultAPIServerAddr; return true },
+		DBValue:   stringControlDBValue(func(cfg *config.Config) string { return cfg.APIServerAddr }, defaultAPIServerAddr),
+		HTTPValue: func(cfg *config.Config) interface{} { return cfg.APIServerAddr },
+	},
+	{
+		Key:        "bind",
+		Kind:       controlStringSet,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlVarFlag(func(cfg *config.Config) flag.Value { return &cfg.SBinds }, "bind a remote port to a local port. -bind <local_port|auto>:<to_address>:<to_port>:(udp|tcp|tls)"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			items, err := stringSliceFromValue(value)
+			if err != nil {
+				return err
+			}
+			applyBinds(cfg, items)
+			return nil
+		},
+		Reset: func(cfg *config.Config) bool {
+			cfg.SBinds = config.StringValues{}
+			cfg.Binds = []config.Bind{}
+			return true
+		},
+		DBValue:   listControlDBValue(func(cfg *config.Config) []string { return cfg.SBinds }),
+		HTTPValue: stringSliceHTTPValue(func(cfg *config.Config) []string { return cfg.SBinds }),
+	},
+	{
+		Key:        "blockdomains",
+		Kind:       controlStringSet,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlVarFlag(func(cfg *config.Config) flag.Value { return &cfg.SBlockdomains }, "domains (bns names) that are not allowed"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			items, err := stringSliceFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.SBlockdomains = config.StringValues(items)
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { cfg.SBlockdomains = config.StringValues{}; return true },
+		DBValue:   listControlDBValue(func(cfg *config.Config) []string { return cfg.SBlockdomains }),
+		HTTPValue: stringSliceHTTPValue(func(cfg *config.Config) []string { return cfg.SBlockdomains }),
+	},
+	{
+		Key:        "blocklists",
+		Kind:       controlStringSet,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlVarFlag(func(cfg *config.Config) flag.Value { return &cfg.SBlocklists }, "addresses are not allowed to connect to published resource (used when allowlists is empty)"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			items, err := stringSliceFromValue(value)
+			if err != nil {
+				return err
+			}
+			applyBlocklist(cfg, items)
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { applyBlocklist(cfg, nil); return true },
+		DBValue:   listControlDBValue(func(cfg *config.Config) []string { return cfg.SBlocklists }),
+		HTTPValue: stringSliceHTTPValue(func(cfg *config.Config) []string { return cfg.SBlocklists }),
+	},
+	{
+		Key:        "certpath",
+		Kind:       controlString,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlStringFlag(func(cfg *config.Config) *string { return &cfg.SProxyServerCertPath }, defaultSecureProxyCertPath, "Pem format of certificate file path of httpsd secure server"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			str, err := stringFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.SProxyServerCertPath = str
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { cfg.SProxyServerCertPath = defaultSecureProxyCertPath; return true },
+		DBValue:   stringControlDBValue(func(cfg *config.Config) string { return cfg.SProxyServerCertPath }, defaultSecureProxyCertPath),
+		HTTPValue: func(cfg *config.Config) interface{} { return cfg.SProxyServerCertPath },
+	},
+	{
+		Key:        "debug",
+		Kind:       controlBool,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlBoolFlag(func(cfg *config.Config) *bool { return &cfg.Debug }, "turn on debug mode"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			b, err := boolFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.Debug = b
+			return nil
+		},
+		Reset:   func(cfg *config.Config) bool { cfg.Debug = false; return true },
+		DBValue: boolControlDBValue(func(cfg *config.Config) bool { return cfg.Debug }),
+		HTTPValue: func(cfg *config.Config) interface{} {
+			return cfg.Debug
+		},
+	},
+	{
+		Key:        "diodeaddrs",
+		Kind:       controlStringSet,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlVarFlag(func(cfg *config.Config) flag.Value { return &cfg.RemoteRPCAddrs }, "addresses of Diode node server (default: [eu,us,as][12].prenet.diode.io:41046)"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			items, err := stringSliceFromValue(value)
+			if err != nil {
+				cfg.Logger.Warn("Failed to parse diodeaddrs value %v: %v", value, err)
+				return err
+			}
+			applyDiodeAddrs(cfg, items)
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { cfg.RemoteRPCAddrs = getDefaultRemoteRPCAddrs(); return true },
+		DBValue:   diodeAddrsDBValue,
+		HTTPValue: stringSliceHTTPValue(func(cfg *config.Config) []string { return cfg.RemoteRPCAddrs }),
+	},
+	{
+		Key:        "fallback",
+		Kind:       controlString,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlStringFlag(func(cfg *config.Config) *string { return &cfg.SocksFallback }, defaultSocksFallback, "how to resolve web2 addresses"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			str, err := stringFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.SocksFallback = str
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { cfg.SocksFallback = defaultSocksFallback; return true },
+		DBValue:   stringControlDBValue(func(cfg *config.Config) string { return cfg.SocksFallback }, defaultSocksFallback),
+		HTTPValue: func(cfg *config.Config) interface{} { return cfg.SocksFallback },
+	},
+	{
+		Key:        "gateway",
+		Kind:       controlBool,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Apply: func(cfg *config.Config, value interface{}) error {
+			b, err := boolFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.EnableProxyServer = b
+			if b {
+				cfg.EnableSocksServer = true
+			}
+			return nil
+		},
+		Reset:   func(cfg *config.Config) bool { cfg.EnableProxyServer = false; return true },
+		DBValue: boolControlDBValue(func(cfg *config.Config) bool { return cfg.EnableProxyServer }),
+		HTTPValue: func(cfg *config.Config) interface{} {
+			return cfg.EnableProxyServer
+		},
+	},
+	{
+		Key:        "httpd_host",
+		Kind:       controlString,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlStringFlag(func(cfg *config.Config) *string { return &cfg.ProxyServerHost }, defaultProxyServerHost, "host of httpd server listening to"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			str, err := stringFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.ProxyServerHost = str
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { cfg.ProxyServerHost = defaultProxyServerHost; return true },
+		DBValue:   stringControlDBValue(func(cfg *config.Config) string { return cfg.ProxyServerHost }, defaultProxyServerHost),
+		HTTPValue: func(cfg *config.Config) interface{} { return cfg.ProxyServerHost },
+	},
+	{
+		Key:        "httpd_port",
+		Kind:       controlInt,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlIntFlag(func(cfg *config.Config) *int { return &cfg.ProxyServerPort }, defaultProxyServerPort, "port of httpd server listening to"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			val, err := intFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.ProxyServerPort = val
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { cfg.ProxyServerPort = defaultProxyServerPort; return true },
+		DBValue:   intControlDBValue(func(cfg *config.Config) int { return cfg.ProxyServerPort }, defaultProxyServerPort),
+		HTTPValue: func(cfg *config.Config) interface{} { return cfg.ProxyServerPort },
+	},
+	{
+		Key:        "httpsd_host",
+		Kind:       controlString,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlStringFlag(func(cfg *config.Config) *string { return &cfg.SProxyServerHost }, defaultSecureProxyHost, "host of httpsd server listening to"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			str, err := stringFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.SProxyServerHost = str
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { cfg.SProxyServerHost = defaultSecureProxyHost; return true },
+		DBValue:   stringControlDBValue(func(cfg *config.Config) string { return cfg.SProxyServerHost }, defaultSecureProxyHost),
+		HTTPValue: func(cfg *config.Config) interface{} { return cfg.SProxyServerHost },
+	},
+	{
+		Key:        "httpsd_port",
+		Kind:       controlInt,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlIntFlag(func(cfg *config.Config) *int { return &cfg.SProxyServerPort }, defaultSecureProxyPort, "port of httpsd server listening to"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			val, err := intFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.SProxyServerPort = val
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { cfg.SProxyServerPort = defaultSecureProxyPort; return true },
+		DBValue:   intControlDBValue(func(cfg *config.Config) int { return cfg.SProxyServerPort }, defaultSecureProxyPort),
+		HTTPValue: func(cfg *config.Config) interface{} { return cfg.SProxyServerPort },
+	},
+	{
+		Key:        "logdatetime",
+		Kind:       controlBool,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlBoolFlag(func(cfg *config.Config) *bool { return &cfg.LogDateTime }, "show the date time in log"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			b, err := boolFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.LogDateTime = b
+			return nil
+		},
+		Reset:   func(cfg *config.Config) bool { cfg.LogDateTime = false; return true },
+		DBValue: boolControlDBValue(func(cfg *config.Config) bool { return cfg.LogDateTime }),
+		HTTPValue: func(cfg *config.Config) interface{} {
+			return cfg.LogDateTime
+		},
+	},
+	{
+		Key:        "logfilepath",
+		Kind:       controlString,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlStringFlag(func(cfg *config.Config) *string { return &cfg.LogFilePath }, "", "absolute path to the log file"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			str, err := stringFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.LogFilePath = str
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { cfg.LogFilePath = ""; return true },
+		DBValue:   stringControlDBValue(func(cfg *config.Config) string { return cfg.LogFilePath }, ""),
+		HTTPValue: func(cfg *config.Config) interface{} { return cfg.LogFilePath },
+	},
+	{
+		Key:        "logstats",
+		Kind:       controlDuration,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlLogStatsFlag("emit periodic [STATS] host metrics; bare -logstats uses " + config.LogStatsCLIDefault.String() + " (min 10s); 0=off"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			dur, err := durationFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.LogStats = dur
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { cfg.LogStats = 0; return true },
+		DBValue:   durationControlDBValue(func(cfg *config.Config) time.Duration { return cfg.LogStats }, 0),
+		HTTPValue: durationHTTPValue(func(cfg *config.Config) time.Duration { return cfg.LogStats }),
+	},
+	{
+		Key:        "logtarget",
+		Kind:       controlString,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlStringFlag(func(cfg *config.Config) *string { return &cfg.LogTarget }, "", "ship logs to a collector at [<hex_or_bns>|<host>]:<port> or diode://<host>:<port> via implicit bind (tcp); tees with stderr or log file per matrix"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			str, err := stringFromValue(value)
+			if err != nil {
+				return err
+			}
+			str = strings.TrimSpace(str)
+			removeImplicitLogTargetBind(cfg)
+			if str == "" {
+				clearLogTarget(cfg)
+				config.ClearLogTargetSink(cfg)
+				return nil
+			}
+			cfg.LogTarget = str
+			injectLogTargetSBinds(cfg)
+			return nil
+		},
+		Reset: func(cfg *config.Config) bool {
+			removeImplicitLogTargetBind(cfg)
+			clearLogTarget(cfg)
+			config.ClearLogTargetSink(cfg)
+			return true
+		},
+		DBValue:   stringControlDBValue(func(cfg *config.Config) string { return cfg.LogTarget }, ""),
+		HTTPValue: func(cfg *config.Config) interface{} { return cfg.LogTarget },
+	},
+	{
+		Key:        "private",
+		Aliases:    []string{"published_private_ports"},
+		StorageKey: "published_private_ports",
+		Kind:       controlStringSet,
+		Effects:    sharedControlEffects(controlEffectPublished),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlVarFlag(func(cfg *config.Config) flag.Value { return &cfg.PrivatePublishedPorts }, "expose ports to private users, so that user could connect to"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			items, err := stringSliceFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.PrivatePublishedPorts = config.StringValues(items)
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { cfg.PrivatePublishedPorts = config.StringValues{}; return true },
+		DBValue:   listControlDBValue(func(cfg *config.Config) []string { return cfg.PrivatePublishedPorts }),
+		HTTPValue: stringSliceHTTPValue(func(cfg *config.Config) []string { return cfg.PrivatePublishedPorts }),
+	},
+	{
+		Key:        "protected",
+		Aliases:    []string{"published_protected_ports"},
+		StorageKey: "published_protected_ports",
+		Kind:       controlStringSet,
+		Effects:    sharedControlEffects(controlEffectPublished),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlVarFlag(func(cfg *config.Config) flag.Value { return &cfg.ProtectedPublishedPorts }, "expose ports to protected users (in fleet contract), so that user could connect to"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			items, err := stringSliceFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.ProtectedPublishedPorts = config.StringValues(items)
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { cfg.ProtectedPublishedPorts = config.StringValues{}; return true },
+		DBValue:   listControlDBValue(func(cfg *config.Config) []string { return cfg.ProtectedPublishedPorts }),
+		HTTPValue: stringSliceHTTPValue(func(cfg *config.Config) []string { return cfg.ProtectedPublishedPorts }),
+	},
+	{
+		Key:        "public",
+		Aliases:    []string{"published_public_ports"},
+		StorageKey: "published_public_ports",
+		Kind:       controlStringSet,
+		Effects:    sharedControlEffects(controlEffectPublished),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlVarFlag(func(cfg *config.Config) flag.Value { return &cfg.PublicPublishedPorts }, "expose ports to public users, so that user could connect to"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			items, err := stringSliceFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.PublicPublishedPorts = config.StringValues(items)
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { cfg.PublicPublishedPorts = config.StringValues{}; return true },
+		DBValue:   listControlDBValue(func(cfg *config.Config) []string { return cfg.PublicPublishedPorts }),
+		HTTPValue: stringSliceHTTPValue(func(cfg *config.Config) []string { return cfg.PublicPublishedPorts }),
+	},
+	{
+		Key:        "resolvecachetime",
+		Aliases:    []string{"bnscachetime"},
+		Kind:       controlDuration,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlDurationFlag(func(cfg *config.Config) *time.Duration { return &cfg.ResolveCacheTime }, defaultResolveCacheTime, "time for member and bns resolvers cache. (default: 10 minutes)"),
+			{
+				Name:  "bnscachetime",
+				Usage: "(Deprecated. Please use resolvecachetime) time for bns address resolve cache. (default: 10 minutes)",
+				Register: func(fs *flag.FlagSet, cfg *config.Config, name string) {
+					fs.DurationVar(&cfg.ResolveCacheTime, name, defaultResolveCacheTime, "(Deprecated. Please use resolvecachetime) time for bns address resolve cache. (default: 10 minutes)")
+				},
+			},
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			dur, err := durationFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.ResolveCacheTime = dur
+			cfg.BnsCacheTime = dur
+			return nil
+		},
+		Reset: func(cfg *config.Config) bool {
+			cfg.ResolveCacheTime = defaultResolveCacheTime
+			cfg.BnsCacheTime = defaultResolveCacheTime
+			return true
+		},
+		DBValue:   durationControlDBValue(func(cfg *config.Config) time.Duration { return cfg.ResolveCacheTime }, defaultResolveCacheTime),
+		HTTPValue: durationHTTPValue(func(cfg *config.Config) time.Duration { return cfg.ResolveCacheTime }),
+	},
+	{
+		Key:        "secure",
+		Kind:       controlBool,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlBoolFlag(func(cfg *config.Config) *bool { return &cfg.EnableSProxyServer }, "enable httpsd server"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			b, err := boolFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.EnableSProxyServer = b
+			if b {
+				cfg.EnableSocksServer = true
+			}
+			return nil
+		},
+		Reset:   func(cfg *config.Config) bool { cfg.EnableSProxyServer = false; return true },
+		DBValue: boolControlDBValue(func(cfg *config.Config) bool { return cfg.EnableSProxyServer }),
+		HTTPValue: func(cfg *config.Config) interface{} {
+			return cfg.EnableSProxyServer
+		},
+	},
+	{
+		Key:        "socksd",
+		Kind:       controlBool,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlBoolFlag(func(cfg *config.Config) *bool { return &cfg.EnableSocksServer }, "enable socksd proxy server"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			b, err := boolFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.EnableSocksServer = b
+			return nil
+		},
+		Reset:   func(cfg *config.Config) bool { cfg.EnableSocksServer = false; return true },
+		DBValue: boolControlDBValue(func(cfg *config.Config) bool { return cfg.EnableSocksServer }),
+		HTTPValue: func(cfg *config.Config) interface{} {
+			return cfg.EnableSocksServer
+		},
+	},
+	{
+		Key:        "socksd_host",
+		Aliases:    []string{"proxy_host"},
+		Kind:       controlString,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlStringFlag(func(cfg *config.Config) *string { return &cfg.SocksServerHost }, defaultSocksServerHost, "host of socks server listening to"),
+			{
+				Name:  "proxy_host",
+				Usage: "host of socksd proxy server",
+				Register: func(fs *flag.FlagSet, cfg *config.Config, name string) {
+					fs.StringVar(&cfg.SocksServerHost, name, defaultSocksServerHost, "host of socksd proxy server")
+				},
+			},
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			str, err := stringFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.SocksServerHost = str
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { cfg.SocksServerHost = defaultSocksServerHost; return true },
+		DBValue:   stringControlDBValue(func(cfg *config.Config) string { return cfg.SocksServerHost }, defaultSocksServerHost),
+		HTTPValue: func(cfg *config.Config) interface{} { return cfg.SocksServerHost },
+	},
+	{
+		Key:        "socksd_port",
+		Aliases:    []string{"proxy_port"},
+		Kind:       controlInt,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlIntFlag(func(cfg *config.Config) *int { return &cfg.SocksServerPort }, defaultSocksServerPort, "port of socks server listening to"),
+			{
+				Name:  "proxy_port",
+				Usage: "port of socksd proxy server",
+				Register: func(fs *flag.FlagSet, cfg *config.Config, name string) {
+					fs.IntVar(&cfg.SocksServerPort, name, defaultSocksServerPort, "port of socksd proxy server")
+				},
+			},
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			val, err := intFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.SocksServerPort = val
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { cfg.SocksServerPort = defaultSocksServerPort; return true },
+		DBValue:   intControlDBValue(func(cfg *config.Config) int { return cfg.SocksServerPort }, defaultSocksServerPort),
+		HTTPValue: func(cfg *config.Config) interface{} { return cfg.SocksServerPort },
+	},
+	{
+		Key:        "sshd",
+		Aliases:    []string{"ssh_services"},
+		StorageKey: "ssh_services",
+		Kind:       controlStringSet,
+		Effects:    sharedControlEffects(controlEffectPublished),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlVarFlag(func(cfg *config.Config) flag.Value { return &cfg.SSHPublishedServices }, "publish an embedded Diode SSH service: private|protected:<extern_port>:<local_user>[,<allowlist...]"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			items, err := stringSliceFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.SSHPublishedServices = config.StringValues(items)
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { cfg.SSHPublishedServices = config.StringValues{}; return true },
+		DBValue:   listControlDBValue(func(cfg *config.Config) []string { return cfg.SSHPublishedServices }),
+		HTTPValue: stringSliceHTTPValue(func(cfg *config.Config) []string { return cfg.SSHPublishedServices }),
+	},
+	{
+		Key:        "additional_ports",
+		Kind:       controlString,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlStringFlag(func(cfg *config.Config) *string { return &cfg.SProxyServerPorts }, "", "httpsd secure server ports"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			str, err := stringFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.SProxyServerPorts = str
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { cfg.SProxyServerPorts = ""; return true },
+		DBValue:   stringControlDBValue(func(cfg *config.Config) string { return cfg.SProxyServerPorts }, ""),
+		HTTPValue: func(cfg *config.Config) interface{} { return cfg.SProxyServerPorts },
+	},
+	{
+		Key:        "privpath",
+		Kind:       controlString,
+		Effects:    sharedControlEffects(controlEffectServices),
+		ExposeHTTP: true,
+		Flags: []controlFlagSpec{
+			controlStringFlag(func(cfg *config.Config) *string { return &cfg.SProxyServerPrivPath }, defaultSecureProxyPrivPath, "Pem format of private key file path of httpsd secure server"),
+		},
+		Apply: func(cfg *config.Config, value interface{}) error {
+			str, err := stringFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.SProxyServerPrivPath = str
+			return nil
+		},
+		Reset:     func(cfg *config.Config) bool { cfg.SProxyServerPrivPath = defaultSecureProxyPrivPath; return true },
+		DBValue:   stringControlDBValue(func(cfg *config.Config) string { return cfg.SProxyServerPrivPath }, defaultSecureProxyPrivPath),
+		HTTPValue: func(cfg *config.Config) interface{} { return cfg.SProxyServerPrivPath },
+	},
+	{
+		Key:  "fleet",
+		Kind: controlString,
+		Apply: func(cfg *config.Config, value interface{}) error {
+			str, err := stringFromValue(value)
+			if err != nil {
+				return err
+			}
+			if str == "" {
+				return nil
+			}
+			addr, err := util.DecodeAddress(str)
+			if err != nil {
+				return fmt.Errorf("invalid fleet address %q: %w", str, err)
+			}
+			cfg.FleetAddr = addr
+			return nil
+		},
+	},
+	{
+		Key:  "blockprofile",
+		Kind: controlString,
+		Apply: func(cfg *config.Config, value interface{}) error {
+			str, err := stringFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.BlockProfile = str
+			return nil
+		},
+	},
+	{
+		Key:     "blockprofilerate",
+		Aliases: []string{"blockproliferate"},
+		Kind:    controlInt,
+		Apply: func(cfg *config.Config, value interface{}) error {
+			val, err := intFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.BlockProfileRate = val
+			return nil
+		},
+	},
+	{
+		Key:  "cpuprofile",
+		Kind: controlString,
+		Apply: func(cfg *config.Config, value interface{}) error {
+			str, err := stringFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.CPUProfile = str
+			return nil
+		},
+	},
+	{
+		Key:  "e2etimeout",
+		Kind: controlDuration,
+		Apply: func(cfg *config.Config, value interface{}) error {
+			dur, err := durationFromValue(value)
+			if err != nil {
+				return err
+			}
+			cfg.EdgeE2ETimeout = dur
+			return nil
+		},
+	},
+}
+
+var sharedControlByKey = buildSharedControlByKey()
+var sharedControlFlagByName = buildSharedControlFlagByName()
+var persistedSharedControlKeys = buildPersistedSharedControlKeys()
 
 func currentControlClient() *rpc.Client {
 	if app.clientManager == nil {
@@ -91,69 +994,109 @@ func currentControlClient() *rpc.Client {
 	return clients[0]
 }
 
-func canonicalSharedControlKey(key string) string {
-	switch strings.ToLower(strings.TrimSpace(key)) {
-	case "bnscachetime":
-		return "resolvecachetime"
-	case "published_public_ports":
-		return "public"
-	case "published_private_ports":
-		return "private"
-	case "published_protected_ports":
-		return "protected"
-	case "proxy_host":
-		return "socksd_host"
-	case "proxy_port":
-		return "socksd_port"
-	case "ssh_services":
-		return "sshd"
-	case "blockproliferate":
-		return "blockprofilerate"
-	default:
-		return strings.ToLower(strings.TrimSpace(key))
+func buildSharedControlByKey() map[string]*ControlSpec {
+	out := map[string]*ControlSpec{}
+	for _, spec := range sharedControlSpecs {
+		if spec.StorageKey == "" {
+			spec.StorageKey = spec.Key
+		}
+		out[spec.Key] = spec
+		for i := range spec.Flags {
+			if spec.Flags[i].Name == "" {
+				spec.Flags[i].Name = spec.Key
+			}
+		}
+		for _, alias := range spec.Aliases {
+			out[strings.ToLower(strings.TrimSpace(alias))] = spec
+		}
 	}
+	return out
+}
+
+func buildSharedControlFlagByName() map[string]*ControlSpec {
+	out := map[string]*ControlSpec{}
+	for _, spec := range sharedControlSpecs {
+		for _, flagSpec := range spec.Flags {
+			name := flagSpec.Name
+			if name == "" {
+				name = spec.Key
+			}
+			out[name] = spec
+		}
+	}
+	return out
+}
+
+func buildPersistedSharedControlKeys() []string {
+	keys := make([]string, 0, len(sharedControlSpecs))
+	for _, spec := range sharedControlSpecs {
+		if spec.Effects&controlEffectPersist != 0 && spec.DBValue != nil {
+			keys = append(keys, spec.Key)
+		}
+	}
+	return keys
+}
+
+func sharedControlSpec(key string) (*ControlSpec, bool) {
+	spec, ok := sharedControlByKey[strings.ToLower(strings.TrimSpace(key))]
+	return spec, ok
+}
+
+func canonicalSharedControlKey(key string) string {
+	if spec, ok := sharedControlSpec(key); ok {
+		return spec.Key
+	}
+	return strings.ToLower(strings.TrimSpace(key))
 }
 
 func sharedControlStorageKey(key string) string {
-	switch canonicalSharedControlKey(key) {
-	case "public":
-		return "published_public_ports"
-	case "private":
-		return "published_private_ports"
-	case "protected":
-		return "published_protected_ports"
-	case "sshd":
-		return "ssh_services"
-	default:
-		return canonicalSharedControlKey(key)
+	if spec, ok := sharedControlSpec(key); ok {
+		return spec.StorageKey
 	}
+	return canonicalSharedControlKey(key)
 }
 
 func sharedControlFlagKeys(name string) []string {
-	switch name {
-	case "proxy_host":
-		return []string{"socksd_host"}
-	case "proxy_port":
-		return []string{"socksd_port"}
-	case "bnscachetime":
-		return []string{"resolvecachetime"}
-	default:
-		key := canonicalSharedControlKey(name)
-		if isPersistedSharedControlKey(key) {
-			return []string{key}
-		}
-		return nil
+	if spec, ok := sharedControlFlagByName[name]; ok && isPersistedSharedControlKey(spec.Key) {
+		return []string{spec.Key}
 	}
+	return nil
 }
 
 func isPersistedSharedControlKey(key string) bool {
-	key = canonicalSharedControlKey(key)
-	for _, item := range persistedSharedControlKeys {
-		if item == key {
-			return true
+	spec, ok := sharedControlSpec(key)
+	return ok && spec.Effects&controlEffectPersist != 0 && spec.DBValue != nil
+}
+
+func registerSharedControlFlags(fs *flag.FlagSet, cfg *config.Config, names ...string) {
+	for _, name := range names {
+		spec, ok := sharedControlFlagByName[name]
+		if !ok {
+			panic(fmt.Sprintf("unknown shared control flag %s", name))
+		}
+		for _, flagSpec := range spec.Flags {
+			flagName := flagSpec.Name
+			if flagName == "" {
+				flagName = spec.Key
+			}
+			if flagName != name {
+				continue
+			}
+			flagSpec.Register(fs, cfg, flagName)
+			break
 		}
 	}
-	return false
+}
+
+func sharedControlHTTPValues(cfg *config.Config) map[string]interface{} {
+	values := map[string]interface{}{}
+	for _, spec := range sharedControlSpecs {
+		if !spec.ExposeHTTP || spec.HTTPValue == nil {
+			continue
+		}
+		values[spec.Key] = spec.HTTPValue(cfg)
+	}
+	return values
 }
 
 func cloneStrings(items []string) []string {
@@ -225,495 +1168,27 @@ func (dio *Diode) loadPersistedSharedControls() error {
 }
 
 func applySharedControlValue(cfg *config.Config, key string, value interface{}) (bool, error) {
-	switch canonicalSharedControlKey(key) {
-	case "socksd":
-		b, err := boolFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.EnableSocksServer = b
-	case "gateway":
-		b, err := boolFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.EnableProxyServer = b
-		if b {
-			cfg.EnableSocksServer = true
-		}
-	case "secure":
-		b, err := boolFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.EnableSProxyServer = b
-		if b {
-			cfg.EnableSocksServer = true
-		}
-	case "bind":
-		items, err := stringSliceFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		applyBinds(cfg, items)
-	case "debug":
-		b, err := boolFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.Debug = b
-	case "diodeaddrs":
-		items, err := stringSliceFromValue(value)
-		if err != nil {
-			cfg.Logger.Warn("Failed to parse diodeaddrs value %v: %v", value, err)
-			return true, err
-		}
-		applyDiodeAddrs(cfg, items)
-	case "fleet":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		if str == "" {
-			return true, nil
-		}
-		addr, err := util.DecodeAddress(str)
-		if err != nil {
-			return true, fmt.Errorf("invalid fleet address %q: %w", str, err)
-		}
-		cfg.FleetAddr = addr
-	case "resolvecachetime":
-		dur, err := durationFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.ResolveCacheTime = dur
-		cfg.BnsCacheTime = dur
-	case "allowlists":
-		items, err := stringSliceFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		applyAllowlist(cfg, items)
-	case "api":
-		b, err := boolFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.EnableAPIServer = b
-	case "apiaddr":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.APIServerAddr = str
-	case "blockdomains":
-		items, err := stringSliceFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.SBlockdomains = config.StringValues(items)
-	case "blocklists":
-		items, err := stringSliceFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		applyBlocklist(cfg, items)
-	case "blockprofile":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.BlockProfile = str
-	case "blockprofilerate":
-		val, err := intFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.BlockProfileRate = val
-	case "cpuprofile":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.CPUProfile = str
-	case "e2etimeout":
-		dur, err := durationFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.EdgeE2ETimeout = dur
-	case "logdatetime":
-		b, err := boolFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.LogDateTime = b
-	case "logfilepath":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.LogFilePath = str
-	case "logtarget":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		str = strings.TrimSpace(str)
-		removeImplicitLogTargetBind(cfg)
-		if str == "" {
-			clearLogTarget(cfg)
-			config.ClearLogTargetSink(cfg)
-			return true, nil
-		}
-		cfg.LogTarget = str
-		injectLogTargetSBinds(cfg)
-	case "logstats":
-		dur, err := durationFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.LogStats = dur
-	case "socksd_host":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.SocksServerHost = str
-	case "socksd_port":
-		val, err := intFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.SocksServerPort = val
-	case "fallback":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.SocksFallback = str
-	case "httpd_host":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.ProxyServerHost = str
-	case "httpd_port":
-		val, err := intFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.ProxyServerPort = val
-	case "httpsd_host":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.SProxyServerHost = str
-	case "httpsd_port":
-		val, err := intFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.SProxyServerPort = val
-	case "additional_ports":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.SProxyServerPorts = str
-	case "certpath":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.SProxyServerCertPath = str
-	case "privpath":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.SProxyServerPrivPath = str
-	case "allow_redirect":
-		b, err := boolFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.AllowRedirectToSProxy = b
-	case "public":
-		items, err := stringSliceFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.PublicPublishedPorts = config.StringValues(items)
-	case "private":
-		items, err := stringSliceFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.PrivatePublishedPorts = config.StringValues(items)
-	case "protected":
-		items, err := stringSliceFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.ProtectedPublishedPorts = config.StringValues(items)
-	case "sshd":
-		items, err := stringSliceFromValue(value)
-		if err != nil {
-			return true, err
-		}
-		cfg.SSHPublishedServices = config.StringValues(items)
-	default:
+	spec, ok := sharedControlSpec(key)
+	if !ok || spec.Apply == nil {
 		return false, nil
 	}
-	return true, nil
+	return true, spec.Apply(cfg, value)
 }
 
 func resetSharedControlValue(cfg *config.Config, key string) bool {
-	switch canonicalSharedControlKey(key) {
-	case "socksd":
-		cfg.EnableSocksServer = false
-	case "gateway":
-		cfg.EnableProxyServer = false
-	case "secure":
-		cfg.EnableSProxyServer = false
-	case "bind":
-		cfg.SBinds = config.StringValues{}
-		cfg.Binds = []config.Bind{}
-	case "debug":
-		cfg.Debug = false
-	case "diodeaddrs":
-		cfg.RemoteRPCAddrs = getDefaultRemoteRPCAddrs()
-	case "resolvecachetime":
-		cfg.ResolveCacheTime = defaultResolveCacheTime
-		cfg.BnsCacheTime = defaultResolveCacheTime
-	case "allowlists":
-		applyAllowlist(cfg, nil)
-	case "api":
-		cfg.EnableAPIServer = false
-	case "apiaddr":
-		cfg.APIServerAddr = defaultAPIServerAddr
-	case "blockdomains":
-		cfg.SBlockdomains = config.StringValues{}
-	case "blocklists":
-		applyBlocklist(cfg, nil)
-	case "logdatetime":
-		cfg.LogDateTime = false
-	case "logfilepath":
-		cfg.LogFilePath = ""
-	case "logtarget":
-		removeImplicitLogTargetBind(cfg)
-		clearLogTarget(cfg)
-		config.ClearLogTargetSink(cfg)
-	case "logstats":
-		cfg.LogStats = 0
-	case "socksd_host":
-		cfg.SocksServerHost = defaultSocksServerHost
-	case "socksd_port":
-		cfg.SocksServerPort = defaultSocksServerPort
-	case "fallback":
-		cfg.SocksFallback = defaultSocksFallback
-	case "httpd_host":
-		cfg.ProxyServerHost = defaultProxyServerHost
-	case "httpd_port":
-		cfg.ProxyServerPort = defaultProxyServerPort
-	case "httpsd_host":
-		cfg.SProxyServerHost = defaultSecureProxyHost
-	case "httpsd_port":
-		cfg.SProxyServerPort = defaultSecureProxyPort
-	case "additional_ports":
-		cfg.SProxyServerPorts = ""
-	case "certpath":
-		cfg.SProxyServerCertPath = defaultSecureProxyCertPath
-	case "privpath":
-		cfg.SProxyServerPrivPath = defaultSecureProxyPrivPath
-	case "allow_redirect":
-		cfg.AllowRedirectToSProxy = false
-	case "public":
-		cfg.PublicPublishedPorts = config.StringValues{}
-	case "private":
-		cfg.PrivatePublishedPorts = config.StringValues{}
-	case "protected":
-		cfg.ProtectedPublishedPorts = config.StringValues{}
-	case "sshd":
-		cfg.SSHPublishedServices = config.StringValues{}
-	default:
+	spec, ok := sharedControlSpec(key)
+	if !ok || spec.Reset == nil {
 		return false
 	}
-	return true
+	return spec.Reset(cfg)
 }
 
 func sharedControlDBValue(cfg *config.Config, key string) ([]byte, bool, error) {
-	switch canonicalSharedControlKey(key) {
-	case "api":
-		if !cfg.EnableAPIServer {
-			return nil, true, nil
-		}
-		return []byte("true"), false, nil
-	case "apiaddr":
-		if cfg.APIServerAddr == "" || cfg.APIServerAddr == defaultAPIServerAddr {
-			return nil, true, nil
-		}
-		return []byte(cfg.APIServerAddr), false, nil
-	case "socksd":
-		if !cfg.EnableSocksServer {
-			return nil, true, nil
-		}
-		return []byte("true"), false, nil
-	case "gateway":
-		if !cfg.EnableProxyServer {
-			return nil, true, nil
-		}
-		return []byte("true"), false, nil
-	case "secure":
-		if !cfg.EnableSProxyServer {
-			return nil, true, nil
-		}
-		return []byte("true"), false, nil
-	case "allow_redirect":
-		if !cfg.AllowRedirectToSProxy {
-			return nil, true, nil
-		}
-		return []byte("true"), false, nil
-	case "debug":
-		if !cfg.Debug {
-			return nil, true, nil
-		}
-		return []byte("true"), false, nil
-	case "logdatetime":
-		if !cfg.LogDateTime {
-			return nil, true, nil
-		}
-		return []byte("true"), false, nil
-	case "socksd_host":
-		if cfg.SocksServerHost == "" || cfg.SocksServerHost == defaultSocksServerHost {
-			return nil, true, nil
-		}
-		return []byte(cfg.SocksServerHost), false, nil
-	case "socksd_port":
-		if cfg.SocksServerPort == 0 || cfg.SocksServerPort == defaultSocksServerPort {
-			return nil, true, nil
-		}
-		return []byte(strconv.Itoa(cfg.SocksServerPort)), false, nil
-	case "fallback":
-		if cfg.SocksFallback == "" || cfg.SocksFallback == defaultSocksFallback {
-			return nil, true, nil
-		}
-		return []byte(cfg.SocksFallback), false, nil
-	case "httpd_host":
-		if cfg.ProxyServerHost == "" || cfg.ProxyServerHost == defaultProxyServerHost {
-			return nil, true, nil
-		}
-		return []byte(cfg.ProxyServerHost), false, nil
-	case "httpd_port":
-		if cfg.ProxyServerPort == 0 || cfg.ProxyServerPort == defaultProxyServerPort {
-			return nil, true, nil
-		}
-		return []byte(strconv.Itoa(cfg.ProxyServerPort)), false, nil
-	case "httpsd_host":
-		if cfg.SProxyServerHost == "" || cfg.SProxyServerHost == defaultSecureProxyHost {
-			return nil, true, nil
-		}
-		return []byte(cfg.SProxyServerHost), false, nil
-	case "httpsd_port":
-		if cfg.SProxyServerPort == 0 || cfg.SProxyServerPort == defaultSecureProxyPort {
-			return nil, true, nil
-		}
-		return []byte(strconv.Itoa(cfg.SProxyServerPort)), false, nil
-	case "additional_ports":
-		if strings.TrimSpace(cfg.SProxyServerPorts) == "" {
-			return nil, true, nil
-		}
-		return []byte(cfg.SProxyServerPorts), false, nil
-	case "certpath":
-		if cfg.SProxyServerCertPath == "" || cfg.SProxyServerCertPath == defaultSecureProxyCertPath {
-			return nil, true, nil
-		}
-		return []byte(cfg.SProxyServerCertPath), false, nil
-	case "privpath":
-		if cfg.SProxyServerPrivPath == "" || cfg.SProxyServerPrivPath == defaultSecureProxyPrivPath {
-			return nil, true, nil
-		}
-		return []byte(cfg.SProxyServerPrivPath), false, nil
-	case "diodeaddrs":
-		if sameStringSet(cfg.RemoteRPCAddrs, getDefaultRemoteRPCAddrs()) {
-			return nil, true, nil
-		}
-		value, err := json.Marshal(normalizeList(cfg.RemoteRPCAddrs))
-		return value, false, err
-	case "allowlists":
-		if len(cfg.SAllowlists) == 0 {
-			return nil, true, nil
-		}
-		value, err := json.Marshal(normalizeList(cfg.SAllowlists))
-		return value, false, err
-	case "bind":
-		if len(cfg.SBinds) == 0 {
-			return nil, true, nil
-		}
-		value, err := json.Marshal(normalizeList(cfg.SBinds))
-		return value, false, err
-	case "blockdomains":
-		if len(cfg.SBlockdomains) == 0 {
-			return nil, true, nil
-		}
-		value, err := json.Marshal(normalizeList(cfg.SBlockdomains))
-		return value, false, err
-	case "blocklists":
-		if len(cfg.SBlocklists) == 0 {
-			return nil, true, nil
-		}
-		value, err := json.Marshal(normalizeList(cfg.SBlocklists))
-		return value, false, err
-	case "public":
-		if len(cfg.PublicPublishedPorts) == 0 {
-			return nil, true, nil
-		}
-		value, err := json.Marshal(normalizeList(cfg.PublicPublishedPorts))
-		return value, false, err
-	case "private":
-		if len(cfg.PrivatePublishedPorts) == 0 {
-			return nil, true, nil
-		}
-		value, err := json.Marshal(normalizeList(cfg.PrivatePublishedPorts))
-		return value, false, err
-	case "protected":
-		if len(cfg.ProtectedPublishedPorts) == 0 {
-			return nil, true, nil
-		}
-		value, err := json.Marshal(normalizeList(cfg.ProtectedPublishedPorts))
-		return value, false, err
-	case "sshd":
-		if len(cfg.SSHPublishedServices) == 0 {
-			return nil, true, nil
-		}
-		value, err := json.Marshal(normalizeList(cfg.SSHPublishedServices))
-		return value, false, err
-	case "logfilepath":
-		if strings.TrimSpace(cfg.LogFilePath) == "" {
-			return nil, true, nil
-		}
-		return []byte(cfg.LogFilePath), false, nil
-	case "logtarget":
-		if strings.TrimSpace(cfg.LogTarget) == "" {
-			return nil, true, nil
-		}
-		return []byte(cfg.LogTarget), false, nil
-	case "logstats":
-		if cfg.LogStats <= 0 {
-			return nil, true, nil
-		}
-		return []byte(cfg.LogStats.String()), false, nil
-	case "resolvecachetime":
-		if cfg.ResolveCacheTime <= 0 || cfg.ResolveCacheTime == defaultResolveCacheTime {
-			return nil, true, nil
-		}
-		return []byte(cfg.ResolveCacheTime.String()), false, nil
-	default:
+	spec, ok := sharedControlSpec(key)
+	if !ok || spec.DBValue == nil {
 		return nil, false, fmt.Errorf("unsupported persisted shared control %s", key)
 	}
+	return spec.DBValue(cfg)
 }
 
 func persistSharedControlState(cfg *config.Config, keys []string) error {
@@ -746,6 +1221,104 @@ func persistSharedControlState(cfg *config.Config, keys []string) error {
 		}
 	}
 	return nil
+}
+
+type ControlPatchEntry struct {
+	Field string
+	Key   string
+	Value interface{}
+}
+
+type ControlPatch struct {
+	Entries     []ControlPatchEntry
+	sourceByKey map[string]string
+}
+
+type ControlPatchResult struct {
+	ChangedKeys      []string
+	PersistKeys      []string
+	Effects          controlEffect
+	ValidationErrors map[string]string
+}
+
+func (patch *ControlPatch) Add(field string, key string, value interface{}) {
+	patch.Entries = append(patch.Entries, ControlPatchEntry{
+		Field: field,
+		Key:   key,
+		Value: value,
+	})
+}
+
+func (patch *ControlPatch) AddRejectingDuplicate(field string, key string, value interface{}, validationErrors map[string]string) {
+	canonical := canonicalSharedControlKey(key)
+	if patch.sourceByKey == nil {
+		patch.sourceByKey = map[string]string{}
+	}
+	if previous, ok := patch.sourceByKey[canonical]; ok {
+		validationErrors[field] = fmt.Sprintf("duplicate control %s also set by %s", canonical, previous)
+		return
+	}
+	patch.sourceByKey[canonical] = field
+	patch.Add(field, key, value)
+}
+
+func ApplyControlPatch(cfg *config.Config, patch ControlPatch) ControlPatchResult {
+	result := ControlPatchResult{
+		ValidationErrors: map[string]string{},
+	}
+	seen := map[string]bool{}
+	for _, entry := range patch.Entries {
+		spec, ok := sharedControlSpec(entry.Key)
+		if !ok || spec.Apply == nil {
+			result.ValidationErrors[entry.Field] = fmt.Sprintf("unknown control %s", entry.Key)
+			continue
+		}
+		if err := spec.Apply(cfg, entry.Value); err != nil {
+			result.ValidationErrors[entry.Field] = err.Error()
+			continue
+		}
+		if !seen[spec.Key] {
+			seen[spec.Key] = true
+			result.ChangedKeys = append(result.ChangedKeys, spec.Key)
+			result.Effects |= spec.Effects
+			if spec.Effects&controlEffectPersist != 0 {
+				result.PersistKeys = append(result.PersistKeys, spec.Key)
+			}
+		}
+	}
+	return result
+}
+
+func (result ControlPatchResult) HasValidationErrors() bool {
+	return len(result.ValidationErrors) > 0
+}
+
+func (result ControlPatchResult) PublishedChanged() bool {
+	return result.Effects&controlEffectPublished != 0
+}
+
+func (result ControlPatchResult) ServicesChanged() bool {
+	return result.Effects&controlEffectServices != 0
+}
+
+func applyContractControlValue(cfg *config.Config, patch *ControlPatch, key string, value string) {
+	trimmed := strings.TrimSpace(value)
+	switch strings.ToLower(key) {
+	case "socksd", "debug", "fleet":
+		if idx := strings.IndexAny(trimmed, " \t\r\n"); idx >= 0 {
+			trimmed = trimmed[:idx]
+		}
+	}
+	if trimmed == "" {
+		switch canonicalSharedControlKey(key) {
+		case "bind", "diodeaddrs", "logtarget", "logstats":
+			if resetSharedControlValue(cfg, key) {
+				return
+			}
+		}
+		return
+	}
+	patch.Add(key, key, trimmed)
 }
 
 func rebuildPublishedPortState(cfg *config.Config) error {
@@ -784,7 +1357,7 @@ func publishedPortDefinitionFromAPI(p port) (string, error) {
 	return base, nil
 }
 
-func applyPublishedPortsFromAPI(cfg *config.Config, ports []port) error {
+func publishedPortDefinitionsFromAPI(ports []port) (config.StringValues, config.StringValues, config.StringValues, error) {
 	publicPorts := make([]string, 0, len(ports))
 	privatePorts := make([]string, 0, len(ports))
 	protectedPorts := make([]string, 0, len(ports))
@@ -798,7 +1371,7 @@ func applyPublishedPortsFromAPI(cfg *config.Config, ports []port) error {
 
 		definition, err := publishedPortDefinitionFromAPI(p)
 		if err != nil {
-			return err
+			return nil, nil, nil, err
 		}
 		switch config.ModeIdentifier(p.Mode) {
 		case config.PublicPublishedMode:
@@ -808,10 +1381,18 @@ func applyPublishedPortsFromAPI(cfg *config.Config, ports []port) error {
 		case config.ProtectedPublishedMode:
 			protectedPorts = append(protectedPorts, definition)
 		default:
-			return fmt.Errorf("invalid port mode: %s", p.Mode)
+			return nil, nil, nil, fmt.Errorf("invalid port mode: %s", p.Mode)
 		}
 	}
 
+	return config.StringValues(publicPorts), config.StringValues(privatePorts), config.StringValues(protectedPorts), nil
+}
+
+func applyPublishedPortsFromAPI(cfg *config.Config, ports []port) error {
+	publicPorts, privatePorts, protectedPorts, err := publishedPortDefinitionsFromAPI(ports)
+	if err != nil {
+		return err
+	}
 	cfg.PublicPublishedPorts = config.StringValues(publicPorts)
 	cfg.PrivatePublishedPorts = config.StringValues(privatePorts)
 	cfg.ProtectedPublishedPorts = config.StringValues(protectedPorts)
@@ -959,28 +1540,8 @@ func apiServerSignature(cfg *config.Config) string {
 	return cfg.APIServerAddr
 }
 
-func (dio *Diode) reconcileLogConfig(cfg *config.Config) {
-	oldDebug := cfg.Debug
-	oldLogDatetime := cfg.LogDateTime
-	oldLogFilePath := cfg.LogFilePath
-	oldLogStats := cfg.LogStats
-	_ = oldDebug
-	_ = oldLogDatetime
-	_ = oldLogFilePath
-	_ = oldLogStats
-}
-
 func (dio *Diode) ReconcileControlServices() error {
 	cfg := dio.config
-
-	oldLogStats := cfg.LogStats
-	oldDebug := cfg.Debug
-	oldLogDatetime := cfg.LogDateTime
-	oldLogFilePath := cfg.LogFilePath
-	_ = oldLogStats
-	_ = oldDebug
-	_ = oldLogDatetime
-	_ = oldLogFilePath
 
 	if len(cfg.LogFilePath) > 0 {
 		cfg.LogMode = config.LogToFile

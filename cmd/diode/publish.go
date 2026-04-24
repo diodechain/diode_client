@@ -42,13 +42,7 @@ var (
 func init() {
 	cfg := config.AppConfig
 
-	publishCmd.Flag.Var(&cfg.PublicPublishedPorts, "public", "expose ports to public users, so that user could connect to")
-	publishCmd.Flag.Var(&cfg.ProtectedPublishedPorts, "protected", "expose ports to protected users (in fleet contract), so that user could connect to")
-	publishCmd.Flag.Var(&cfg.PrivatePublishedPorts, "private", "expose ports to private users, so that user could connect to")
-	publishCmd.Flag.Var(&cfg.SSHPublishedServices, "sshd", "publish an embedded Diode SSH service: private|protected:<extern_port>:<local_user>[,<allowlist...>]")
-	publishCmd.Flag.StringVar(&cfg.SocksServerHost, "proxy_host", "127.0.0.1", "host of socksd proxy server")
-	publishCmd.Flag.IntVar(&cfg.SocksServerPort, "proxy_port", 1080, "port of socksd proxy server")
-	publishCmd.Flag.BoolVar(&cfg.EnableSocksServer, "socksd", false, "enable socksd proxy server")
+	registerSharedControlFlags(&publishCmd.Flag, cfg, "public", "protected", "private", "sshd", "proxy_host", "proxy_port", "socksd")
 	publishCmd.Flag.BoolVar(&enableStaticServer, "http", false, "enable http static file server")
 	publishCmd.Flag.StringVar(&scfg.RootDirectory, "http_dir", "", "the root directory of http static file server")
 	publishCmd.Flag.StringVar(&scfg.Host, "http_host", "127.0.0.1", "the host of http static file server")

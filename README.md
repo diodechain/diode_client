@@ -599,18 +599,17 @@ The `connection-client-id` endpoint is used by the example app in [examples/clie
 
 ## Shared Control Path
 
-The overlapping runtime controls used by `diode config`, the config API, and `join` are centralized in [cmd/diode/control_shared.go](cmd/diode/control_shared.go).
+The overlapping runtime controls used by shared CLI flags, `diode config`, the config API, and `join` are centralized in the descriptor registry in [cmd/diode/control_shared.go](cmd/diode/control_shared.go).
 
 When you add a new shared control:
 
-1. Add the canonical key in `applySharedControlValue()` and `resetSharedControlValue()`.
-2. If it should persist, add it to `persistedSharedControlKeys` and implement serialization in `sharedControlDBValue()`.
-3. If it should survive YAML config files, make sure the backing field in [config/flag.go](config/flag.go) has the correct YAML tag.
-4. If it changes live runtime behavior, update `ReconcileControlServices()` or `ReconcilePublishedPorts()`.
-5. Keep adapters thin: map CLI config changes in [cmd/diode/config.go](cmd/diode/config.go), API request fields in [cmd/diode/config_server.go](cmd/diode/config_server.go), and contract properties in [cmd/diode/join.go](cmd/diode/join.go) into the same shared key instead of reimplementing the behavior in each file.
-6. Add focused regression tests in [cmd/diode/control_shared_test.go](cmd/diode/control_shared_test.go).
+1. Add one `ControlSpec` with the canonical key, aliases, value kind, apply/reset behavior, persistence serializer, effects, HTTP exposure, and shared CLI flag definitions.
+2. If it should survive YAML config files, make sure the backing field in [config/flag.go](config/flag.go) has the correct YAML tag.
+3. If it changes live runtime behavior beyond existing service or published-port effects, update `ReconcileControlServices()` or `ReconcilePublishedPorts()`.
+4. Keep adapters thin: route CLI config changes, API request fields, and contract properties through `ControlPatch`/`ApplyControlPatch`.
+5. Add focused regression tests in [cmd/diode/control_shared_test.go](cmd/diode/control_shared_test.go).
 
-Compatibility matters here. Some DB keys already have older meanings, such as `private` for the client private key. If a new shared control would collide with an existing store key, keep the canonical runtime key and map persistence separately through `sharedControlStorageKey()` instead of changing the old DB meaning.
+Compatibility matters here. Some DB keys already have older meanings, such as `private` for the client private key. If a new shared control would collide with an existing store key, keep the canonical runtime key and set the descriptor `StorageKey` to the compatible persisted name instead of changing the old DB meaning.
 
 For broader contributor workflow and package ownership, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
