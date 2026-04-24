@@ -16,7 +16,6 @@ import (
 	"github.com/diodechain/diode_client/command"
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/filetransfer"
-	"github.com/diodechain/diode_client/rpc"
 )
 
 var (
@@ -35,9 +34,7 @@ func init() {
 		SingleConnection: true,
 	}
 	filesCmd.Flag.StringVar(&filesFileroot, "fileroot", "", "root for URL paths (default: cwd); use / for filesystem root (see file-transfer-spec)")
-	filesCmd.Flag.StringVar(&cfg.SocksServerHost, "proxy_host", "127.0.0.1", "host of socksd proxy server")
-	filesCmd.Flag.IntVar(&cfg.SocksServerPort, "proxy_port", 1080, "port of socksd proxy server")
-	filesCmd.Flag.BoolVar(&cfg.EnableSocksServer, "socksd", false, "enable socksd proxy server")
+	registerSharedControlFlags(&filesCmd.Flag, cfg, "proxy_host", "proxy_port", "socksd")
 	filesCmd.Flag.IntVar(&cfg.MaxPortsPerDevice, "maxports", 0, "DEPRECATED: use global -maxports flag instead (maximum concurrent ports per device, 0 = unlimited)")
 	diodeCmd.AddSubCommand(filesCmd)
 }
@@ -122,40 +119,8 @@ func filesHandler() error {
 
 	printFilePublishBanner(cfg, p)
 
-	if cfg.EnableAPIServer {
-		configAPIServer := NewConfigAPIServer(cfg, app.clientManager)
-		configAPIServer.ListenAndServe()
-		app.SetConfigAPIServer(configAPIServer)
-	}
-
-	socksCfg := rpc.Config{
-		Addr:            cfg.SocksServerAddr(),
-		FleetAddr:       cfg.FleetAddr,
-		Blocklists:      cfg.Blocklists(),
-		Allowlists:      cfg.Allowlists,
-		EnableProxy:     true,
-		ProxyServerAddr: cfg.ProxyServerAddr(),
-		Fallback:        cfg.SocksFallback,
-	}
-	socksServer, err := rpc.NewSocksServer(socksCfg, app.clientManager)
-	if err != nil {
+	if err := app.ReconcileControlServices(); err != nil {
 		return err
-	}
-	if cfg.EnableSocksServer {
-		app.SetSocksServer(socksServer)
-		if err = socksServer.Start(); err != nil {
-			cfg.Logger.Error(err.Error())
-			return err
-		}
-	}
-	if len(cfg.Binds) > 0 {
-		socksServer.SetBinds(cfg.Binds)
-		cfg.Binds = socksServer.GetBinds()
-		cfg.PrintInfo("")
-		cfg.PrintLabel("Bind      <name>", "<mode>     <remote>")
-		for _, bind := range cfg.Binds {
-			cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
-		}
 	}
 
 	app.Wait()

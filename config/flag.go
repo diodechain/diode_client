@@ -70,22 +70,22 @@ type Config struct {
 	ClientAddr              Address          `yaml:"-" json:"-"`
 	ClientName              string           `yaml:"-" json:"-"`
 	RegistryAddr            Address          `yaml:"-" json:"-"`
-	ProxyServerHost         string           `yaml:"-" json:"-"`
-	ProxyServerPort         int              `yaml:"-" json:"-"`
-	SProxyServerHost        string           `yaml:"-" json:"-"`
-	SProxyServerPort        int              `yaml:"-" json:"-"`
-	SProxyServerPorts       string           `yaml:"-" json:"-"`
-	SProxyServerCertPath    string           `yaml:"-" json:"-"`
-	SProxyServerPrivPath    string           `yaml:"-" json:"-"`
-	AllowRedirectToSProxy   bool             `yaml:"-" json:"-"`
-	APIServerAddr           string           `yaml:"-" json:"-"`
-	EnableAPIServer         bool             `yaml:"-" json:"-"`
-	EnableProxyServer       bool             `yaml:"-" json:"-"`
-	EnableSProxyServer      bool             `yaml:"-" json:"-"`
-	EnableSocksServer       bool             `yaml:"-" json:"-"`
-	SocksServerHost         string           `yaml:"-" json:"-"`
-	SocksServerPort         int              `yaml:"-" json:"-"`
-	SocksFallback           string           `yaml:"-" json:"-"`
+	ProxyServerHost         string           `yaml:"httpd_host,omitempty" json:"httpd_host,omitempty"`
+	ProxyServerPort         int              `yaml:"httpd_port,omitempty" json:"httpd_port,omitempty"`
+	SProxyServerHost        string           `yaml:"httpsd_host,omitempty" json:"httpsd_host,omitempty"`
+	SProxyServerPort        int              `yaml:"httpsd_port,omitempty" json:"httpsd_port,omitempty"`
+	SProxyServerPorts       string           `yaml:"additional_ports,omitempty" json:"additional_ports,omitempty"`
+	SProxyServerCertPath    string           `yaml:"certpath,omitempty" json:"certpath,omitempty"`
+	SProxyServerPrivPath    string           `yaml:"privpath,omitempty" json:"privpath,omitempty"`
+	AllowRedirectToSProxy   bool             `yaml:"allow_redirect,omitempty" json:"allow_redirect,omitempty"`
+	APIServerAddr           string           `yaml:"apiaddr,omitempty" json:"apiaddr,omitempty"`
+	EnableAPIServer         bool             `yaml:"api,omitempty" json:"api,omitempty"`
+	EnableProxyServer       bool             `yaml:"gateway,omitempty" json:"gateway,omitempty"`
+	EnableSProxyServer      bool             `yaml:"secure,omitempty" json:"secure,omitempty"`
+	EnableSocksServer       bool             `yaml:"socksd,omitempty" json:"socksd,omitempty"`
+	SocksServerHost         string           `yaml:"socksd_host,omitempty" json:"socksd_host,omitempty"`
+	SocksServerPort         int              `yaml:"socksd_port,omitempty" json:"socksd_port,omitempty"`
+	SocksFallback           string           `yaml:"fallback,omitempty" json:"fallback,omitempty"`
 	ConfigUnsafe            bool             `yaml:"-" json:"-"`
 	ConfigList              bool             `yaml:"-" json:"-"`
 	ConfigDelete            StringValues     `yaml:"-" json:"-"`
@@ -96,11 +96,11 @@ type Config struct {
 	PrivatePublishedPorts   StringValues     `yaml:"published_private_ports,omitempty" json:"-"`
 	SSHPublishedServices    StringValues     `yaml:"ssh_services,omitempty" json:"-"`
 	blocklists              map[Address]bool `yaml:"-" json:"-"`
-	ResolveCacheTime        time.Duration    `yaml:"-" json:"-"` // BNS cache time
-	BnsCacheTime            time.Duration    `yaml:"-" json:"-"` // BNS cache time
+	ResolveCacheTime        time.Duration    `yaml:"resolvecachetime,omitempty" json:"resolvecachetime,omitempty"` // BNS cache time
+	BnsCacheTime            time.Duration    `yaml:"bnscachetime,omitempty" json:"bnscachetime,omitempty"`         // BNS cache time
 	Allowlists              map[Address]bool `yaml:"-" json:"-"`
 	LogMode                 int              `yaml:"-" json:"-"`
-	LogDateTime             bool             `yaml:"-" json:"-"`
+	LogDateTime             bool             `yaml:"logdatetime,omitempty" json:"logdatetime,omitempty"`
 	Logger                  *Logger          `yaml:"-" json:"-"`
 	LogTargetTo             string           `yaml:"-" json:"-"` // parsed device (BNS or hex) for implicit bind
 	LogTargetPort           int              `yaml:"-" json:"-"`
