@@ -609,6 +609,34 @@ When you add a new shared control:
 4. Keep adapters thin: route CLI config changes, API request fields, and contract properties through `ControlPatch`/`ApplyControlPatch`.
 5. Add focused regression tests in [cmd/diode/control_shared_test.go](cmd/diode/control_shared_test.go).
 
+Commands should not directly mutate shared runtime fields such as `EnableSocksServer`, `EnableProxyServer`, `PublishedPorts`, shared bind lists, or published-port lists. A command handler should parse command-only inputs, convert them into a `ControlPatch`, and apply it through the app runtime:
+
+```go
+patch := ControlPatch{}
+patch.Add("my-command", "my_control", value)
+
+result := app.ApplyControlPatch(patch, controlPatchApplyOptions{Reconcile: true})
+if result.HasValidationErrors() {
+	return fmt.Errorf("couldn't apply controls: %v", result.ValidationErrors)
+}
+```
+
+Use `registerSharedControlFlags(&someCmd.Flag, cfg, "my_control")` when a command should expose an existing shared flag. If a command needs to generate published ports internally, append the generated definitions to the shared `public`, `protected`, `private`, or `sshd` controls and let `ReconcilePublishedPorts()` rebuild the runtime map and update the relay pool.
+
+`PUT /config` supports exposed controls through both the `controls` object and compatible top-level fields:
+
+```json
+{"controls":{"my_control":"value"}}
+```
+
+```json
+{"my_control":"value"}
+```
+
+Adding an exposed control should not require adding another top-level API struct field or manual field mapping. Only legacy aggregate shapes, such as `ports`, should need a small adapter that converts the request into shared control keys.
+
+For `join`, contract property keys should match the `ControlSpec` key or one of its aliases. Normal contract properties and `extra_config` are applied through `ControlPatch` by default. If a contract property has a special wire shape, keep the conversion local to the join adapter and emit shared control keys from there.
+
 Compatibility matters here. Some DB keys already have older meanings, such as `private` for the client private key. If a new shared control would collide with an existing store key, keep the canonical runtime key and set the descriptor `StorageKey` to the compatible persisted name instead of changing the old DB meaning.
 
 For broader contributor workflow and package ownership, see [CONTRIBUTING.md](CONTRIBUTING.md).
