@@ -6,6 +6,7 @@ package rpc
 import (
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/diodechain/diode_client/config"
@@ -15,6 +16,8 @@ import (
 	"github.com/diodechain/openssl"
 	"github.com/dominicletz/genserver"
 )
+
+const resolveMembersConcurrency = 8
 
 type DataPool struct {
 	locks          map[string]bool
@@ -240,36 +243,53 @@ func (p *DataPool) updateCacheResolveBNS(deviceName string, client *Client) {
 }
 
 func resolveAllPeersOfAddrs(members []Address, client *Client) (peers []Address) {
-	for _, maybePeerAddr := range members {
-		members, new_err := client.ResolveMembers(maybePeerAddr)
-		if new_err == nil {
-			//if member count is 1 and member is itself, it is a peer.
-			if len(members) == 1 && members[0] == maybePeerAddr {
-				peers = append(peers, maybePeerAddr)
-				continue
-			}
-			// check if members list includes itself to prevent infinite loop. If so, delete itself from members list
-			for i, member := range members {
-				if member == maybePeerAddr {
-					members = append(members[:i], members[i+1:]...)
-					break
-				}
-			}
-			// smart contract, might need to recurse
-			peers = append(peers, resolveAllPeersOfAddrs(members, client)...)
-		} else {
-			// not a smart contract, instead a real (device) peer
-			peers = append(peers, maybePeerAddr)
-			// log peers
-			peersString := "["
-			for _, peer := range peers {
-				peersString += peer.HexString() + ", "
-			}
-			peersString = peersString[:len(peersString)-2] + "]"
-			client.Log().Debug("Resolved all peers of %s. Peers list is %v", maybePeerAddr.HexString(), peersString)
-		}
+	sem := make(chan struct{}, resolveMembersConcurrency)
+	return resolveAllPeersOfAddrsWithLimit(members, client, sem)
+}
+
+func resolveAllPeersOfAddrsWithLimit(members []Address, client *Client, sem chan struct{}) (peers []Address) {
+	if len(members) == 0 {
+		return nil
+	}
+
+	resolved := make([][]Address, len(members))
+	var wg sync.WaitGroup
+	for i, maybePeerAddr := range members {
+		wg.Add(1)
+		go func(i int, maybePeerAddr Address) {
+			defer wg.Done()
+			resolved[i] = resolvePeerAddr(maybePeerAddr, client, sem)
+		}(i, maybePeerAddr)
+	}
+	wg.Wait()
+
+	for _, addrs := range resolved {
+		peers = append(peers, addrs...)
 	}
 	return peers
+}
+
+func resolvePeerAddr(maybePeerAddr Address, client *Client, sem chan struct{}) []Address {
+	sem <- struct{}{}
+	members, err := client.ResolveMembers(maybePeerAddr)
+	<-sem
+
+	if err != nil {
+		return []Address{maybePeerAddr}
+	}
+	// If member count is 1 and member is itself, it is a peer.
+	if len(members) == 1 && members[0] == maybePeerAddr {
+		return []Address{maybePeerAddr}
+	}
+	// Check if members list includes itself to prevent infinite recursion.
+	for i, member := range members {
+		if member == maybePeerAddr {
+			members = append(members[:i], members[i+1:]...)
+			break
+		}
+	}
+	// Smart contract, might need to recurse.
+	return resolveAllPeersOfAddrsWithLimit(members, client, sem)
 }
 
 func (p *DataPool) Lock(name string) {

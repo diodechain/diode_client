@@ -77,8 +77,8 @@ type Client struct {
 
 	closed  atomic.Bool // set true when fully closed (atomic: read from any goroutine e.g. Start/recv loops)
 	closing uint32      // set before Close() callback runs; allows GetNearestClient to exclude client earlier
-	srv      *genserver.GenServer
-	timer    *Timer
+	srv     *genserver.GenServer
+	timer   *Timer
 
 	portOpen2Handler atomic.Value
 }
@@ -1066,6 +1066,25 @@ func (client *Client) GetMoonAccountValueRaw(account [20]byte, rawKey []byte) ([
 	return nil, nil
 }
 
+func (client *Client) getMoonAccountValuesRaw(account [20]byte, rawKeys [][]byte) ([][]byte, []error) {
+	raws := make([][]byte, len(rawKeys))
+	errs := make([]error, len(rawKeys))
+	if len(rawKeys) == 0 {
+		return raws, errs
+	}
+
+	var wg sync.WaitGroup
+	for i, rawKey := range rawKeys {
+		wg.Add(1)
+		go func(i int, rawKey []byte) {
+			defer wg.Done()
+			raws[i], errs[i] = client.GetMoonAccountValueRaw(account, rawKey)
+		}(i, rawKey)
+	}
+	wg.Wait()
+	return raws, errs
+}
+
 func (client *Client) GetMoonAccountValueInt(addr [20]byte, key []byte) *big.Int {
 	raw, err := client.GetMoonAccountValueRaw(addr, key)
 	ret := big.NewInt(0)
@@ -1134,6 +1153,70 @@ func (client *Client) GetAccountValueRaw(blockNumber uint64, addr [20]byte, key 
 		return NullData, err
 	}
 	return raw, nil
+}
+
+func (client *Client) getAccountValuesRaw(blockNumber uint64, addr [20]byte, rawKeys [][]byte) ([][]byte, []error) {
+	if blockNumber <= 0 {
+		bn, _ := client.LastValid()
+		blockNumber = uint64(bn)
+	}
+	raws := make([][]byte, len(rawKeys))
+	errs := make([]error, len(rawKeys))
+	if len(rawKeys) == 0 {
+		return raws, errs
+	}
+
+	keys := make([][]byte, len(rawKeys))
+	values := make([]*edge.AccountValue, len(rawKeys))
+	var roots *edge.AccountRoots
+	var rootsErr error
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		roots, rootsErr = client.GetAccountRoots(blockNumber, addr)
+	}()
+
+	for i, rawKey := range rawKeys {
+		keys[i] = util.PaddingBytesPrefix(rawKey, 0, 32)
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			values[i], errs[i] = client.GetAccountValue(blockNumber, addr, keys[i])
+		}(i)
+	}
+	wg.Wait()
+
+	for i, acv := range values {
+		if errs[i] != nil {
+			raws[i] = NullData
+			continue
+		}
+		if rootsErr != nil {
+			raws[i] = NullData
+			errs[i] = rootsErr
+			continue
+		}
+		if acv == nil || roots == nil {
+			raws[i] = NullData
+			errs[i] = fmt.Errorf("empty account value")
+			continue
+		}
+		acvTree := acv.AccountTree()
+		// Verify the calculated proof value matches the specific known root.
+		if roots.Find(acv.AccountRoot()) != int(acvTree.Modulo) {
+			client.config.Logger.Error("Received wrong merkle proof %v != %v", roots.Find(acv.AccountRoot()), int(acvTree.Modulo))
+			errs[i] = fmt.Errorf("wrong merkle proof")
+			raws[i] = NullData
+			continue
+		}
+		raws[i], errs[i] = acvTree.Get(keys[i])
+		if errs[i] != nil {
+			raws[i] = NullData
+		}
+	}
+	return raws, errs
 }
 
 // GetAccountRoots returns account state roots
@@ -1383,12 +1466,23 @@ func (client *Client) ResolveMembers(members Address) (addr []Address, err error
 func (client *Client) ResolveDiodeMembers(members Address) (addr []Address, err error) {
 	blockNumber, _ := client.LastValid()
 
-	owner := client.GetAccountValueAddress(blockNumber, members, contract.OwnerLocation())
+	raws, errs := client.getAccountValuesRaw(blockNumber, members, [][]byte{
+		contract.OwnerLocation(),
+		contract.MemberIndex(),
+	})
+
+	var owner Address
+	if errs[0] == nil {
+		copy(owner[:], raws[0][12:])
+	}
 	if owner != [20]byte{} {
 		addr = append(addr, owner)
 	}
 
-	size := int(client.GetAccountValueInt(blockNumber, members, contract.MemberIndex()).Uint64())
+	size := 0
+	if errs[1] == nil {
+		size = int(new(big.Int).SetBytes(raws[1]).Uint64())
+	}
 
 	// Safety belt, to protect against unreasonable allocation.
 	if size > 128 {
@@ -1396,8 +1490,16 @@ func (client *Client) ResolveDiodeMembers(members Address) (addr []Address, err 
 		size = 0
 	}
 
+	keys := make([][]byte, size)
+	for i := range keys {
+		keys[i] = contract.MemberLocation(i)
+	}
+	raws, errs = client.getAccountValuesRaw(blockNumber, members, keys)
 	for i := 0; i < size; i++ {
-		address := client.GetAccountValueAddress(blockNumber, members, contract.MemberLocation(i))
+		var address Address
+		if errs[i] == nil {
+			copy(address[:], raws[i][12:])
+		}
 		if address != owner && address != [20]byte{} {
 			addr = append(addr, address)
 		}
@@ -1406,12 +1508,23 @@ func (client *Client) ResolveDiodeMembers(members Address) (addr []Address, err 
 }
 
 func (client *Client) ResolveMoonMembers(members Address) (addr []Address, err error) {
-	owner := client.GetMoonAccountValueAddress(members, contract.OwnerLocation())
+	raws, errs := client.getMoonAccountValuesRaw(members, [][]byte{
+		contract.OwnerLocation(),
+		contract.MemberIndex(),
+	})
+
+	var owner Address
+	if errs[0] == nil {
+		copy(owner[:], raws[0][12:])
+	}
 	if owner != [20]byte{} {
 		addr = append(addr, owner)
 	}
 
-	size := int(client.GetMoonAccountValueInt(members, contract.MemberIndex()).Uint64())
+	size := 0
+	if errs[1] == nil {
+		size = int(new(big.Int).SetBytes(raws[1]).Uint64())
+	}
 
 	// Safety belt, to protect against unreasonable allocation.
 	if size > 128 {
@@ -1419,8 +1532,16 @@ func (client *Client) ResolveMoonMembers(members Address) (addr []Address, err e
 		size = 0
 	}
 
+	keys := make([][]byte, size)
+	for i := range keys {
+		keys[i] = contract.MemberLocation(i)
+	}
+	raws, errs = client.getMoonAccountValuesRaw(members, keys)
 	for i := 0; i < size; i++ {
-		address := client.GetMoonAccountValueAddress(members, contract.MemberLocation(i))
+		var address Address
+		if errs[i] == nil {
+			copy(address[:], raws[i][12:])
+		}
 		if address != owner && address != [20]byte{} {
 			addr = append(addr, address)
 		}
