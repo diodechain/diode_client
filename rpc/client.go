@@ -77,8 +77,8 @@ type Client struct {
 
 	closed  atomic.Bool // set true when fully closed (atomic: read from any goroutine e.g. Start/recv loops)
 	closing uint32      // set before Close() callback runs; allows GetNearestClient to exclude client earlier
-	srv      *genserver.GenServer
-	timer    *Timer
+	srv     *genserver.GenServer
+	timer   *Timer
 
 	portOpen2Handler atomic.Value
 }

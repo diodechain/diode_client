@@ -118,7 +118,10 @@ func configHandler() (err error) {
 		}
 	}
 
-	syncConfigBindsFromSBinds(cfg)
+	if err := syncConfigBindsFromSBinds(cfg); err != nil {
+		cfg.PrintError("Couldn't set binds", err)
+		return err
+	}
 	if effects&controlEffectPublished != 0 {
 		if err := rebuildPublishedPortState(cfg); err != nil {
 			cfg.PrintError("Couldn't set published ports", err)

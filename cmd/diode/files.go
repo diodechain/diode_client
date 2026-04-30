@@ -113,9 +113,24 @@ func filesHandler() error {
 	}
 	app.Defer(cleanup)
 
-	portMap := map[int]*config.Port{p.To: p}
-	cfg.PublishedPorts = portMap
-	app.clientManager.GetPool().SetPublishedPorts(portMap)
+	publicPorts, privatePorts, protectedPorts, err := appendPublishedControlDefinition(nil, nil, nil, p)
+	if err != nil {
+		return err
+	}
+	patch := ControlPatch{}
+	if len(publicPorts) > 0 {
+		patch.Add("files.public", "public", publicPorts)
+	}
+	if len(privatePorts) > 0 {
+		patch.Add("files.private", "private", privatePorts)
+	}
+	if len(protectedPorts) > 0 {
+		patch.Add("files.protected", "protected", protectedPorts)
+	}
+	result := app.ApplyControlPatch(patch, controlPatchApplyOptions{Reconcile: true})
+	if result.HasValidationErrors() {
+		return fmt.Errorf("couldn't apply file publish controls: %v", result.ValidationErrors)
+	}
 
 	printFilePublishBanner(cfg, p)
 

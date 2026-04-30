@@ -275,11 +275,10 @@ func publishHandler() (err error) {
 	if err != nil {
 		return
 	}
-	if err := rebuildPublishedPortState(cfg); err != nil {
-		return err
-	}
-
-	fileListenerTos := make(map[int]bool)
+	publicPorts := cloneStrings(cfg.PublicPublishedPorts)
+	privatePorts := cloneStrings(cfg.PrivatePublishedPorts)
+	protectedPorts := cloneStrings(cfg.ProtectedPublishedPorts)
+	fileListeners := []*config.Port{}
 	for _, fs := range publishFileSpecs {
 		fs = strings.TrimSpace(fs)
 		if fs == "" {
@@ -295,33 +294,37 @@ func publishHandler() (err error) {
 			err = e
 			return
 		}
-		for _, np := range nports {
-			if cfg.PublishedPorts[np.To] != nil {
-				err = fmt.Errorf("port conflict with -files: %v", np.To)
-				return
-			}
-			cfg.PublishedPorts[np.To] = np
-			fileListenerTos[np.To] = true
-		}
+		fileListeners = append(fileListeners, nports...)
 	}
 
 	if publishFileFileroot != "" && len(publishFileSpecs) == 0 {
 		cfg.Logger.Warn("-fileroot without -files is ignored")
 	}
 
-	for to := range fileListenerTos {
-		p := cfg.PublishedPorts[to]
+	for _, p := range fileListeners {
 		var cleanup func()
 		cleanup, err = startFileListener(p, publishFileFileroot)
 		if err != nil {
 			return
 		}
 		app.Defer(cleanup)
+		publicPorts, privatePorts, protectedPorts, err = appendPublishedControlDefinition(publicPorts, privatePorts, protectedPorts, p)
+		if err != nil {
+			return err
+		}
 	}
 
 	if enableStaticServer || len(scfg.RootDirectory) > 0 {
 		// publish the static when user didn't publish 80 port
-		if _, ok := cfg.PublishedPorts[httpPort]; !ok {
+		sshPorts, e := parseSSHServices(cfg.SSHPublishedServices)
+		if e != nil {
+			return e
+		}
+		currentPorts, e := buildPublishedPortMap(publicPorts, privatePorts, protectedPorts, sshPorts)
+		if e != nil {
+			return e
+		}
+		if _, ok := currentPorts[httpPort]; !ok {
 			staticServer = staticserver.NewStaticHTTPServer(scfg)
 			var ln net.Listener
 			ln, err = net.Listen("tcp", staticServer.Addr)
@@ -342,16 +345,19 @@ func publishHandler() (err error) {
 				ln.Close()
 			})
 
-			cfg.PublishedPorts[httpPort] = &config.Port{
+			publicPorts, privatePorts, protectedPorts, err = appendPublishedControlDefinition(publicPorts, privatePorts, protectedPorts, &config.Port{
 				Src:      scfg.Port,
 				To:       httpPort,
 				Mode:     config.PublicPublishedMode,
 				Protocol: config.AnyProtocol,
+			})
+			if err != nil {
+				return err
 			}
 		}
 	}
 
-	if len(cfg.PublishedPorts) == 0 && len(cfg.Binds) == 0 {
+	if len(publicPorts) == 0 && len(privatePorts) == 0 && len(protectedPorts) == 0 && len(cfg.SSHPublishedServices) == 0 && len(cfg.Binds) == 0 {
 		fmt.Println()
 		fmt.Println("ERROR: Can't run publish without any arguments!")
 		fmt.Println(" HINT: Try 'diode publish -public 8080:80' to publish a local port")
@@ -360,10 +366,13 @@ func publishHandler() (err error) {
 		os.Exit(2)
 	}
 
-	if len(cfg.PublishedPorts) > 0 {
-		cfg.PrintInfo("")
-		app.clientManager.GetPool().SetPublishedPorts(cfg.PublishedPorts)
-		logPublishedPortSummary(cfg)
+	patch := ControlPatch{}
+	patch.Add("publish.public", "public", publicPorts)
+	patch.Add("publish.private", "private", privatePorts)
+	patch.Add("publish.protected", "protected", protectedPorts)
+	result := app.ApplyControlPatch(patch, controlPatchApplyOptions{Reconcile: true})
+	if result.HasValidationErrors() {
+		return fmt.Errorf("couldn't apply publish controls: %v", result.ValidationErrors)
 	}
 
 	if err := app.ReconcileControlServices(); err != nil {

@@ -30,12 +30,6 @@ func socksdHandler() (err error) {
 	if err != nil {
 		return
 	}
-	cfg := config.AppConfig
-	cfg.EnableSocksServer = true
-	cfg.ProxyServerPort = 8080
-	if err := app.ReconcileControlServices(); err != nil {
-		return err
-	}
 	app.Wait()
 	return
 }

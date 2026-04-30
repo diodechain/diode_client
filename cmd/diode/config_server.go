@@ -69,41 +69,6 @@ type port struct {
 	Addresses  []string `json:"addresses,omitempty" validate:"dive,omitempty,address"`
 }
 
-type putConfigRequest struct {
-	Fleet            *string                `json:"fleet,omitempty"`
-	Registry         *string                `json:"registry,omitempty"`
-	DiodeAddrs       *[]string              `json:"diodeaddrs,omitempty"`
-	Blocklists       *[]string              `json:"blocklists,omitempty"`
-	Allowlists       *[]string              `json:"allowlists,omitempty"`
-	Blockdomains     *[]string              `json:"blockdomains,omitempty"`
-	Binds            *[]bind                `json:"binds,omitempty"`
-	Ports            *[]port                `json:"ports,omitempty"`
-	SSHD             *[]string              `json:"sshd,omitempty"`
-	API              *bool                  `json:"api,omitempty"`
-	APIAddr          *string                `json:"apiaddr,omitempty"`
-	Socksd           *bool                  `json:"socksd,omitempty"`
-	SocksdHost       *string                `json:"socksd_host,omitempty"`
-	SocksdPort       *int                   `json:"socksd_port,omitempty"`
-	Gateway          *bool                  `json:"gateway,omitempty"`
-	Fallback         *string                `json:"fallback,omitempty"`
-	HTTPDHost        *string                `json:"httpd_host,omitempty"`
-	HTTPDPort        *int                   `json:"httpd_port,omitempty"`
-	Secure           *bool                  `json:"secure,omitempty"`
-	HTTPSDHost       *string                `json:"httpsd_host,omitempty"`
-	HTTPSDPort       *int                   `json:"httpsd_port,omitempty"`
-	AdditionalPorts  *string                `json:"additional_ports,omitempty"`
-	CertPath         *string                `json:"certpath,omitempty"`
-	PrivPath         *string                `json:"privpath,omitempty"`
-	AllowRedirect    *bool                  `json:"allow_redirect,omitempty"`
-	Debug            *bool                  `json:"debug,omitempty"`
-	LogDateTime      *bool                  `json:"logdatetime,omitempty"`
-	LogFilePath      *string                `json:"logfilepath,omitempty"`
-	LogStats         *string                `json:"logstats,omitempty"`
-	LogTarget        *string                `json:"logtarget,omitempty"`
-	ResolveCacheTime *string                `json:"resolvecachetime,omitempty"`
-	Controls         map[string]interface{} `json:"controls,omitempty"`
-}
-
 func isAddress(fl validator.FieldLevel) bool {
 	address := fl.Field().String()
 	return util.IsAddress([]byte(address))
@@ -153,83 +118,6 @@ func portValidation(sl validator.StructLevel) {
 	}
 }
 
-func validatePutConfigRequest(c putConfigRequest) map[string]string {
-	validationError := make(map[string]string)
-
-	validateStringPtr := func(field string, value *string, tag string) {
-		if value == nil {
-			return
-		}
-		if err := validate.Var(*value, tag); err != nil {
-			validationError[field] = fmt.Sprintf("invalid %s value %s", field, tag)
-		}
-	}
-	validateSlicePtr := func(field string, values *[]string, tag string) {
-		if values == nil {
-			return
-		}
-		for _, value := range *values {
-			if err := validate.Var(value, tag); err != nil {
-				validationError[field] = fmt.Sprintf("invalid %s value %s", field, tag)
-				return
-			}
-		}
-	}
-	validatePortPtr := func(field string, value *int) {
-		if value == nil {
-			return
-		}
-		if !util.IsPort(*value) {
-			validationError[field] = fmt.Sprintf("invalid %s value port", field)
-		}
-	}
-
-	validateStringPtr("fleet", c.Fleet, "address")
-	validateStringPtr("registry", c.Registry, "address")
-	validateSlicePtr("diodeaddrs", c.DiodeAddrs, "url")
-	validateSlicePtr("blocklists", c.Blocklists, "address")
-	validateSlicePtr("allowlists", c.Allowlists, "address")
-
-	if c.Binds != nil {
-		for _, b := range *c.Binds {
-			if err := validate.Struct(b); err != nil {
-				validationError["binds"] = "invalid binds value"
-				break
-			}
-		}
-	}
-	if c.Ports != nil {
-		for _, p := range *c.Ports {
-			if err := validate.Struct(p); err != nil {
-				validationError["ports"] = "invalid ports value"
-				break
-			}
-		}
-	}
-	if c.SSHD != nil {
-		if _, err := parseSSHServices(*c.SSHD); err != nil {
-			validationError["sshd"] = err.Error()
-		}
-	}
-
-	validatePortPtr("socksd_port", c.SocksdPort)
-	validatePortPtr("httpd_port", c.HTTPDPort)
-	validatePortPtr("httpsd_port", c.HTTPSDPort)
-
-	if c.LogStats != nil {
-		if _, err := durationFromValue(*c.LogStats); err != nil {
-			validationError["logstats"] = "invalid logstats value duration"
-		}
-	}
-	if c.ResolveCacheTime != nil {
-		if _, err := durationFromValue(*c.ResolveCacheTime); err != nil {
-			validationError["resolvecachetime"] = "invalid resolvecachetime value duration"
-		}
-	}
-
-	return validationError
-}
-
 func bindDefinitionsFromAPI(binds []bind) []string {
 	definitions := make([]string, 0, len(binds))
 	for _, b := range binds {
@@ -243,6 +131,120 @@ func bindDefinitionsFromAPI(binds []bind) []string {
 	return definitions
 }
 
+func rawConfigValue(raw json.RawMessage) (interface{}, error) {
+	var value interface{}
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec.UseNumber()
+	if err := dec.Decode(&value); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+func addRawControlValue(patch *ControlPatch, validationErrors map[string]string, field string, key string, raw json.RawMessage) {
+	value, err := rawConfigValue(raw)
+	if err != nil {
+		validationErrors[field] = err.Error()
+		return
+	}
+	patch.AddRejectingDuplicate(field, key, value, validationErrors)
+}
+
+func buildConfigRequestPatch(raw map[string]json.RawMessage) (ControlPatch, map[string]string) {
+	validationErrors := map[string]string{}
+	patch := ControlPatch{}
+
+	for field, value := range raw {
+		switch field {
+		case "controls":
+			var controls map[string]json.RawMessage
+			if err := json.Unmarshal(value, &controls); err != nil {
+				validationErrors[field] = err.Error()
+				continue
+			}
+			for key, rawValue := range controls {
+				spec, ok := sharedControlSpec(key)
+				if !ok || !spec.ExposeHTTP {
+					validationErrors["controls."+key] = fmt.Sprintf("unknown control %s", key)
+					continue
+				}
+				addRawControlValue(&patch, validationErrors, "controls."+key, key, rawValue)
+			}
+		case "binds":
+			var binds []bind
+			if err := json.Unmarshal(value, &binds); err != nil {
+				validationErrors[field] = err.Error()
+				continue
+			}
+			for _, b := range binds {
+				if err := validate.Struct(b); err != nil {
+					validationErrors[field] = "invalid binds value"
+					break
+				}
+			}
+			if validationErrors[field] == "" {
+				patch.AddRejectingDuplicate(field, "bind", bindDefinitionsFromAPI(binds), validationErrors)
+			}
+		case "ports":
+			var ports []port
+			if err := json.Unmarshal(value, &ports); err != nil {
+				validationErrors[field] = err.Error()
+				continue
+			}
+			for _, p := range ports {
+				if err := validate.Struct(p); err != nil {
+					validationErrors[field] = "invalid ports value"
+					break
+				}
+			}
+			if validationErrors[field] != "" {
+				continue
+			}
+			publicPorts, privatePorts, protectedPorts, err := publishedPortDefinitionsFromAPI(ports)
+			if err != nil {
+				validationErrors[field] = err.Error()
+				continue
+			}
+			patch.AddRejectingDuplicate("ports.public", "public", publicPorts, validationErrors)
+			patch.AddRejectingDuplicate("ports.private", "private", privatePorts, validationErrors)
+			patch.AddRejectingDuplicate("ports.protected", "protected", protectedPorts, validationErrors)
+		case "sshd":
+			var sshd []string
+			if err := json.Unmarshal(value, &sshd); err != nil {
+				validationErrors[field] = err.Error()
+				continue
+			}
+			if _, err := parseSSHServices(sshd); err != nil {
+				validationErrors[field] = err.Error()
+				continue
+			}
+			patch.AddRejectingDuplicate(field, "sshd", sshd, validationErrors)
+		case "registry":
+			// Accepted for compatibility with previous API shape; it is not a shared runtime control.
+			var registry string
+			if err := json.Unmarshal(value, &registry); err != nil {
+				validationErrors[field] = err.Error()
+			} else if !util.IsAddress([]byte(registry)) {
+				validationErrors[field] = "invalid registry value address"
+			}
+		default:
+			spec, ok := sharedControlSpec(field)
+			if !ok || (!spec.ExposeHTTP && spec.Key != "fleet") {
+				validationErrors[field] = fmt.Sprintf("unknown config field %s", field)
+				continue
+			}
+			addRawControlValue(&patch, validationErrors, field, field, value)
+		}
+	}
+
+	for key, value := range validationErrors {
+		if value == "" {
+			delete(validationErrors, key)
+		}
+	}
+	return patch, validationErrors
+}
+
 // ConfigAPIServer struct
 type ConfigAPIServer struct {
 	appConfig     *config.Config
@@ -250,7 +252,9 @@ type ConfigAPIServer struct {
 	addr          string
 	corsOptions   cors.Options
 	httpServer    *http.Server
+	listener      net.Listener
 	cd            sync.Once
+	listenerClose sync.Once
 }
 
 // NewConfigAPIServer return ConfigAPIServer. clientManager may be nil; if set, enables GET /connection-client-id.
@@ -347,6 +351,10 @@ func (configAPIServer *ConfigAPIServer) successResponse(w http.ResponseWriter, m
 
 func (configAPIServer *ConfigAPIServer) configResponse(w http.ResponseWriter, message string) {
 	cfg := configAPIServer.appConfig
+	if app != nil {
+		app.mu.Lock()
+		defer app.mu.Unlock()
+	}
 
 	// Get perimeter information if configured
 	var perimeter *perimeterInfo
@@ -482,165 +490,28 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 			req.Body = http.MaxBytesReader(w, req.Body, 1048576)
 			dec := json.NewDecoder(req.Body)
 			dec.DisallowUnknownFields()
-			var c putConfigRequest
-			var err error
-			err = dec.Decode(&c)
-			if err != nil {
+			var raw map[string]json.RawMessage
+			if err := dec.Decode(&raw); err != nil {
 				configAPIServer.appConfig.Logger.Error("Couldn't decode request: %v", err)
 				configAPIServer.serverError(w)
 				return
 			}
-			validationError := validatePutConfigRequest(c)
-			if len(validationError) > 0 {
-				configAPIServer.clientError(w, validationError)
+			patch, validationErrors := buildConfigRequestPatch(raw)
+			if len(validationErrors) > 0 {
+				configAPIServer.clientError(w, validationErrors)
 				return
 			}
-
-			cfg := configAPIServer.appConfig
-			patch := ControlPatch{}
-			applyKey := func(field string, key string, value interface{}) {
-				patch.AddRejectingDuplicate(field, key, value, validationError)
-			}
-
-			if c.Fleet != nil {
-				applyKey("fleet", "fleet", *c.Fleet)
-			}
-			if c.DiodeAddrs != nil {
-				applyKey("diodeaddrs", "diodeaddrs", *c.DiodeAddrs)
-			}
-			if c.Blocklists != nil {
-				applyKey("blocklists", "blocklists", *c.Blocklists)
-			}
-			if c.Allowlists != nil {
-				applyKey("allowlists", "allowlists", *c.Allowlists)
-			}
-			if c.Blockdomains != nil {
-				applyKey("blockdomains", "blockdomains", *c.Blockdomains)
-			}
-			if c.Binds != nil {
-				applyKey("binds", "bind", bindDefinitionsFromAPI(*c.Binds))
-			}
-			if c.Ports != nil {
-				publicPorts, privatePorts, protectedPorts, err := publishedPortDefinitionsFromAPI(*c.Ports)
-				if err != nil {
-					validationError["ports"] = err.Error()
-				} else {
-					applyKey("ports.public", "public", publicPorts)
-					applyKey("ports.private", "private", privatePorts)
-					applyKey("ports.protected", "protected", protectedPorts)
-				}
-			}
-			if c.SSHD != nil {
-				applyKey("sshd", "sshd", *c.SSHD)
-			}
-			if c.API != nil {
-				applyKey("api", "api", *c.API)
-			}
-			if c.APIAddr != nil {
-				applyKey("apiaddr", "apiaddr", *c.APIAddr)
-			}
-			if c.Socksd != nil {
-				applyKey("socksd", "socksd", *c.Socksd)
-			}
-			if c.SocksdHost != nil {
-				applyKey("socksd_host", "socksd_host", *c.SocksdHost)
-			}
-			if c.SocksdPort != nil {
-				applyKey("socksd_port", "socksd_port", *c.SocksdPort)
-			}
-			if c.Gateway != nil {
-				applyKey("gateway", "gateway", *c.Gateway)
-			}
-			if c.Fallback != nil {
-				applyKey("fallback", "fallback", *c.Fallback)
-			}
-			if c.HTTPDHost != nil {
-				applyKey("httpd_host", "httpd_host", *c.HTTPDHost)
-			}
-			if c.HTTPDPort != nil {
-				applyKey("httpd_port", "httpd_port", *c.HTTPDPort)
-			}
-			if c.Secure != nil {
-				applyKey("secure", "secure", *c.Secure)
-			}
-			if c.HTTPSDHost != nil {
-				applyKey("httpsd_host", "httpsd_host", *c.HTTPSDHost)
-			}
-			if c.HTTPSDPort != nil {
-				applyKey("httpsd_port", "httpsd_port", *c.HTTPSDPort)
-			}
-			if c.AdditionalPorts != nil {
-				applyKey("additional_ports", "additional_ports", *c.AdditionalPorts)
-			}
-			if c.CertPath != nil {
-				applyKey("certpath", "certpath", *c.CertPath)
-			}
-			if c.PrivPath != nil {
-				applyKey("privpath", "privpath", *c.PrivPath)
-			}
-			if c.AllowRedirect != nil {
-				applyKey("allow_redirect", "allow_redirect", *c.AllowRedirect)
-			}
-			if c.Debug != nil {
-				applyKey("debug", "debug", *c.Debug)
-			}
-			if c.LogDateTime != nil {
-				applyKey("logdatetime", "logdatetime", *c.LogDateTime)
-			}
-			if c.LogFilePath != nil {
-				applyKey("logfilepath", "logfilepath", *c.LogFilePath)
-			}
-			if c.LogStats != nil {
-				applyKey("logstats", "logstats", *c.LogStats)
-			}
-			if c.LogTarget != nil {
-				applyKey("logtarget", "logtarget", *c.LogTarget)
-			}
-			if c.ResolveCacheTime != nil {
-				applyKey("resolvecachetime", "resolvecachetime", *c.ResolveCacheTime)
-			}
-			for key, value := range c.Controls {
-				applyKey("controls."+key, key, value)
-			}
-
-			if len(validationError) > 0 {
-				configAPIServer.clientError(w, validationError)
-				return
-			}
-			result := ApplyControlPatch(cfg, patch)
+			result := app.ApplyControlPatch(patch, controlPatchApplyOptions{Persist: true, Reconcile: true})
 			if result.HasValidationErrors() {
+				if result.ValidationErrors["runtime"] != "" || result.ValidationErrors["persist"] != "" {
+					configAPIServer.appConfig.Logger.Error("Couldn't apply config: %v", result.ValidationErrors)
+					configAPIServer.serverError(w)
+					return
+				}
 				configAPIServer.clientError(w, result.ValidationErrors)
 				return
 			}
-			syncConfigBindsFromSBinds(cfg)
-			if result.PublishedChanged() {
-				if err := rebuildPublishedPortState(cfg); err != nil {
-					configAPIServer.clientError(w, map[string]string{"ports": err.Error()})
-					return
-				}
-			}
-			if len(result.ChangedKeys) == 0 {
-				configAPIServer.successResponse(w, "ok")
-				return
-			}
-			err = persistSharedControlState(cfg, result.PersistKeys)
-			if err != nil {
-				configAPIServer.appConfig.Logger.Error("Couldn't persist config: %v", err)
-				configAPIServer.serverError(w)
-				return
-			}
 			configAPIServer.successResponse(w, "ok")
-			go func() {
-				if err := app.ReconcileControlServices(); err != nil {
-					configAPIServer.appConfig.Logger.Error("Couldn't reconcile control services: %v", err)
-				}
-				if !result.PublishedChanged() {
-					return
-				}
-				if err := app.ReconcilePublishedPorts(); err != nil {
-					configAPIServer.appConfig.Logger.Error("Couldn't reconcile published ports: %v", err)
-				}
-			}()
 			return
 		}
 		configAPIServer.notFoundError(w)
@@ -730,6 +601,7 @@ func (configAPIServer *ConfigAPIServer) ListenAndServe() error {
 	configAPIServer.addr = ln.Addr().String()
 	configAPIServer.appConfig.APIServerAddr = configAPIServer.addr
 	configAPIServer.httpServer = &http.Server{Handler: handler}
+	configAPIServer.listener = ln
 	configAPIServer.appConfig.Logger.Info("Start config api server %s", configAPIServer.addr)
 	go func() {
 		if err := configAPIServer.httpServer.Serve(ln); err != nil {
@@ -741,9 +613,19 @@ func (configAPIServer *ConfigAPIServer) ListenAndServe() error {
 	return nil
 }
 
+// StopAccepting closes the listener without closing active HTTP requests.
+func (configAPIServer *ConfigAPIServer) StopAccepting() {
+	configAPIServer.listenerClose.Do(func() {
+		if configAPIServer.listener != nil {
+			configAPIServer.listener.Close()
+		}
+	})
+}
+
 // Close config api server
 func (configAPIServer *ConfigAPIServer) Close() {
 	configAPIServer.cd.Do(func() {
+		configAPIServer.StopAccepting()
 		if configAPIServer.httpServer != nil {
 			configAPIServer.httpServer.Close()
 		}

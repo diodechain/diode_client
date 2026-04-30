@@ -100,6 +100,12 @@ func boolFromValue(val interface{}) (bool, error) {
 		return v != 0, nil
 	case int:
 		return v != 0, nil
+	case json.Number:
+		i, err := v.Int64()
+		if err != nil {
+			return false, err
+		}
+		return i != 0, nil
 	default:
 		return false, fmt.Errorf("unsupported bool type %T", val)
 	}
@@ -113,6 +119,12 @@ func durationFromValue(val interface{}) (time.Duration, error) {
 		return time.Duration(v) * time.Second, nil
 	case int:
 		return time.Duration(v) * time.Second, nil
+	case json.Number:
+		i, err := v.Int64()
+		if err != nil {
+			return 0, err
+		}
+		return time.Duration(i) * time.Second, nil
 	default:
 		return 0, fmt.Errorf("unsupported duration type %T", val)
 	}
@@ -129,6 +141,12 @@ func intFromValue(val interface{}) (int, error) {
 		return int(v), nil
 	case int:
 		return v, nil
+	case json.Number:
+		i, err := v.Int64()
+		if err != nil {
+			return 0, err
+		}
+		return int(i), nil
 	default:
 		return 0, fmt.Errorf("unsupported int type %T", val)
 	}

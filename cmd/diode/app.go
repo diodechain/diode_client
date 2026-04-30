@@ -403,9 +403,11 @@ func (dio *Diode) Start() error {
 	// local integration tests (and scripts like ci_test.sh) can probe the port while the
 	// network handshake is still in progress.
 	if dio.cmd.Name == "socksd" {
-		cfg.EnableSocksServer = true
-		if err := dio.ReconcileControlServices(); err != nil {
-			return err
+		patch := ControlPatch{}
+		patch.Add("socksd", "socksd", true)
+		result := dio.ApplyControlPatch(patch, controlPatchApplyOptions{Reconcile: true})
+		if result.HasValidationErrors() {
+			return fmt.Errorf("couldn't apply socksd controls: %v", result.ValidationErrors)
 		}
 	}
 

@@ -4,6 +4,8 @@
 package main
 
 import (
+	"fmt"
+
 	"github.com/diodechain/diode_client/command"
 	"github.com/diodechain/diode_client/config"
 )
@@ -40,10 +42,11 @@ func gatewayHandler() (err error) {
 	if err != nil {
 		return
 	}
-	cfg := config.AppConfig
-	cfg.EnableProxyServer = true
-	if err := app.ReconcileControlServices(); err != nil {
-		return err
+	patch := ControlPatch{}
+	patch.Add("gateway", "gateway", true)
+	result := app.ApplyControlPatch(patch, controlPatchApplyOptions{Reconcile: true})
+	if result.HasValidationErrors() {
+		return fmt.Errorf("couldn't apply gateway controls: %v", result.ValidationErrors)
 	}
 	app.Wait()
 	return

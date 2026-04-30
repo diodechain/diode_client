@@ -3,11 +3,13 @@ package main
 import (
 	"encoding/json"
 	"flag"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -97,6 +99,25 @@ func TestApplySharedControlValueAndReset(t *testing.T) {
 	}
 	if len(cfg.PublicPublishedPorts) != 0 {
 		t.Fatalf("expected public ports to be cleared, got %#v", cfg.PublicPublishedPorts)
+	}
+}
+
+func TestApplyControlPatchRejectsAtomically(t *testing.T) {
+	cfg := newSharedControlTestConfig(t)
+
+	patch := ControlPatch{}
+	patch.Add("api", "api", true)
+	patch.Add("socksd_port", "socksd_port", 70000)
+
+	result := ApplyControlPatch(cfg, patch)
+	if !result.HasValidationErrors() {
+		t.Fatal("expected validation error")
+	}
+	if cfg.EnableAPIServer {
+		t.Fatal("api mutation should not be committed when a later control is invalid")
+	}
+	if cfg.SocksServerPort != defaultSocksServerPort {
+		t.Fatalf("unexpected socks port after rejected patch: %d", cfg.SocksServerPort)
 	}
 }
 
@@ -276,6 +297,20 @@ func TestReconcileControlServicesReusesSocksServerForBindOnlyChanges(t *testing.
 	if err := app.ReconcileControlServices(); err != nil {
 		t.Fatalf("ReconcileControlServices() after fallback change: %v", err)
 	}
+	if app.socksServer != first {
+		t.Fatal("expected fallback-only change to reuse socks server")
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen(): %v", err)
+	}
+	nextPort := ln.Addr().(*net.TCPAddr).Port
+	ln.Close()
+	cfg.SocksServerPort = nextPort
+	if err := app.ReconcileControlServices(); err != nil {
+		t.Fatalf("ReconcileControlServices() after listener change: %v", err)
+	}
 	if app.socksServer == first {
 		t.Fatal("expected listener-level change to replace socks server")
 	}
@@ -379,6 +414,89 @@ func TestConfigAPIPutRejectsDuplicateLegacyAndControls(t *testing.T) {
 	}
 }
 
+func TestConfigAPIPutRejectsUnknownTopLevelField(t *testing.T) {
+	cfg := newSharedControlTestConfig(t)
+	setupSharedControlTestEnv(t, cfg)
+
+	server := NewConfigAPIServer(cfg, app.clientManager)
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/config", strings.NewReader(`{"not_a_control":true}`))
+	request.Header.Set("Content-Type", "application/json")
+
+	server.apiHandleFunc()(recorder, request)
+
+	if recorder.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 Bad Request, got %d with body %q", recorder.Code, recorder.Body.String())
+	}
+	if cfg.EnableAPIServer {
+		t.Fatal("unknown request should not apply mutations")
+	}
+}
+
+func TestConfigAPIPutRuntimeFailureDoesNotPersistOrMutate(t *testing.T) {
+	cfg := newSharedControlTestConfig(t)
+	setupSharedControlTestEnv(t, cfg)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen(): %v", err)
+	}
+	defer ln.Close()
+
+	server := NewConfigAPIServer(cfg, app.clientManager)
+	body := `{"api":true,"apiaddr":` + strconv.Quote(ln.Addr().String()) + `}`
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPut, "/config", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+
+	server.apiHandleFunc()(recorder, request)
+
+	if recorder.Code != http.StatusInternalServerError {
+		t.Fatalf("expected 500 Internal Server Error, got %d with body %q", recorder.Code, recorder.Body.String())
+	}
+	if cfg.EnableAPIServer {
+		t.Fatal("failed runtime reconciliation should roll back api flag")
+	}
+	if _, err := db.DB.Get("api"); err == nil {
+		t.Fatal("failed runtime reconciliation should not persist api")
+	}
+}
+
+func TestAPIReplacementKeepsOldListenerOnBindFailure(t *testing.T) {
+	cfg := newSharedControlTestConfig(t)
+	cfg.EnableAPIServer = true
+	cfg.APIServerAddr = "127.0.0.1:0"
+	setupSharedControlTestEnv(t, cfg)
+
+	if err := app.ReconcileControlServices(); err != nil {
+		t.Fatalf("ReconcileControlServices(): %v", err)
+	}
+	oldServer := app.configAPIServer
+	oldAddr := cfg.APIServerAddr
+	if oldServer == nil {
+		t.Fatal("expected initial API server")
+	}
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("Listen(): %v", err)
+	}
+	defer ln.Close()
+
+	patch := ControlPatch{}
+	patch.Add("apiaddr", "apiaddr", ln.Addr().String())
+	result := app.ApplyControlPatch(patch, controlPatchApplyOptions{Reconcile: true})
+	if !result.HasValidationErrors() || result.ValidationErrors["runtime"] == "" {
+		t.Fatalf("expected runtime validation error, got %#v", result.ValidationErrors)
+	}
+	if app.configAPIServer != oldServer {
+		t.Fatal("old API server should remain installed after replacement bind failure")
+	}
+	if cfg.APIServerAddr != oldAddr {
+		t.Fatalf("expected API addr rollback to %q, got %q", oldAddr, cfg.APIServerAddr)
+	}
+}
+
 func TestConfigAPIGetIncludesControlsMap(t *testing.T) {
 	cfg := newSharedControlTestConfig(t)
 	cfg.EnableAPIServer = true
@@ -471,6 +589,30 @@ func TestApplyControlPlaneConfigEmptyValuesUseSharedReset(t *testing.T) {
 	}
 	if cfg.LogTarget != "" || cfg.LogStats != 0 {
 		t.Fatalf("expected log controls reset, got target=%q stats=%v", cfg.LogTarget, cfg.LogStats)
+	}
+}
+
+func TestApplyControlPlaneConfigRoutesPublishedControlsThroughPatch(t *testing.T) {
+	cfg := newSharedControlTestConfig(t)
+
+	result := applyControlPlaneConfig(cfg, map[string]string{
+		"public": "8080:80",
+		"sshd":   "protected:22:root",
+	})
+	if result.HasValidationErrors() {
+		t.Fatalf("applyControlPlaneConfig errors: %#v", result.ValidationErrors)
+	}
+	if !reflect.DeepEqual(cfg.PublicPublishedPorts, config.StringValues{"8080:80"}) {
+		t.Fatalf("unexpected public ports: %#v", cfg.PublicPublishedPorts)
+	}
+	if !reflect.DeepEqual(cfg.SSHPublishedServices, config.StringValues{"protected:22:root"}) {
+		t.Fatalf("unexpected ssh services: %#v", cfg.SSHPublishedServices)
+	}
+	if _, ok := cfg.PublishedPorts[80]; !ok {
+		t.Fatalf("expected published port map to be rebuilt, got %#v", cfg.PublishedPorts)
+	}
+	if _, ok := cfg.PublishedPorts[22]; !ok {
+		t.Fatalf("expected ssh published port map entry, got %#v", cfg.PublishedPorts)
 	}
 }
 

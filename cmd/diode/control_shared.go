@@ -253,10 +253,9 @@ var sharedControlSpecs = []*ControlSpec{
 			if err != nil {
 				return err
 			}
-			applyAllowlist(cfg, items)
-			return nil
+			return applyAllowlist(cfg, items)
 		},
-		Reset:     func(cfg *config.Config) bool { applyAllowlist(cfg, nil); return true },
+		Reset:     func(cfg *config.Config) bool { _ = applyAllowlist(cfg, nil); return true },
 		DBValue:   listControlDBValue(func(cfg *config.Config) []string { return cfg.SAllowlists }),
 		HTTPValue: stringSliceHTTPValue(func(cfg *config.Config) []string { return cfg.SAllowlists }),
 	},
@@ -315,8 +314,7 @@ var sharedControlSpecs = []*ControlSpec{
 			if err != nil {
 				return err
 			}
-			applyBinds(cfg, items)
-			return nil
+			return applyBinds(cfg, items)
 		},
 		Reset: func(cfg *config.Config) bool {
 			cfg.SBinds = config.StringValues{}
@@ -359,10 +357,9 @@ var sharedControlSpecs = []*ControlSpec{
 			if err != nil {
 				return err
 			}
-			applyBlocklist(cfg, items)
-			return nil
+			return applyBlocklist(cfg, items)
 		},
-		Reset:     func(cfg *config.Config) bool { applyBlocklist(cfg, nil); return true },
+		Reset:     func(cfg *config.Config) bool { _ = applyBlocklist(cfg, nil); return true },
 		DBValue:   listControlDBValue(func(cfg *config.Config) []string { return cfg.SBlocklists }),
 		HTTPValue: stringSliceHTTPValue(func(cfg *config.Config) []string { return cfg.SBlocklists }),
 	},
@@ -419,11 +416,9 @@ var sharedControlSpecs = []*ControlSpec{
 		Apply: func(cfg *config.Config, value interface{}) error {
 			items, err := stringSliceFromValue(value)
 			if err != nil {
-				cfg.Logger.Warn("Failed to parse diodeaddrs value %v: %v", value, err)
 				return err
 			}
-			applyDiodeAddrs(cfg, items)
-			return nil
+			return applyDiodeAddrs(cfg, items)
 		},
 		Reset:     func(cfg *config.Config) bool { cfg.RemoteRPCAddrs = getDefaultRemoteRPCAddrs(); return true },
 		DBValue:   diodeAddrsDBValue,
@@ -504,6 +499,9 @@ var sharedControlSpecs = []*ControlSpec{
 			if err != nil {
 				return err
 			}
+			if !util.IsPort(val) {
+				return fmt.Errorf("invalid httpd_port value port")
+			}
 			cfg.ProxyServerPort = val
 			return nil
 		},
@@ -543,6 +541,9 @@ var sharedControlSpecs = []*ControlSpec{
 			val, err := intFromValue(value)
 			if err != nil {
 				return err
+			}
+			if !util.IsPort(val) {
+				return fmt.Errorf("invalid httpsd_port value port")
 			}
 			cfg.SProxyServerPort = val
 			return nil
@@ -841,6 +842,9 @@ var sharedControlSpecs = []*ControlSpec{
 			if err != nil {
 				return err
 			}
+			if !util.IsPort(val) {
+				return fmt.Errorf("invalid socksd_port value port")
+			}
 			cfg.SocksServerPort = val
 			return nil
 		},
@@ -1131,6 +1135,108 @@ func currentPublishedControlState(cfg *config.Config) publishedControlState {
 	}
 }
 
+func cloneAddressBoolMap(in map[util.Address]bool) map[util.Address]bool {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[util.Address]bool, len(in))
+	for addr, ok := range in {
+		out[addr] = ok
+	}
+	return out
+}
+
+func clonePortMap(in map[int]*config.Port) map[int]*config.Port {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[int]*config.Port, len(in))
+	for key, port := range in {
+		if port == nil {
+			continue
+		}
+		cloned := *port
+		cloned.Allowlist = cloneAddressBoolMap(port.Allowlist)
+		cloned.DriveAllowList = cloneAddressBoolMap(port.DriveAllowList)
+		cloned.DriveMemberAllowList = cloneAddressBoolMap(port.DriveMemberAllowList)
+		if len(port.BnsAllowlist) > 0 {
+			cloned.BnsAllowlist = make(map[string]bool, len(port.BnsAllowlist))
+			for bns, ok := range port.BnsAllowlist {
+				cloned.BnsAllowlist[bns] = ok
+			}
+		}
+		out[key] = &cloned
+	}
+	return out
+}
+
+func cloneControlConfig(cfg *config.Config) *config.Config {
+	if cfg == nil {
+		return nil
+	}
+	cloned := *cfg
+	cloned.RemoteRPCAddrs = config.StringValues(cloneStrings(cfg.RemoteRPCAddrs))
+	cloned.SBlocklists = config.StringValues(cloneStrings(cfg.SBlocklists))
+	cloned.SAllowlists = config.StringValues(cloneStrings(cfg.SAllowlists))
+	cloned.SBinds = config.StringValues(cloneStrings(cfg.SBinds))
+	cloned.PublicPublishedPorts = config.StringValues(cloneStrings(cfg.PublicPublishedPorts))
+	cloned.ProtectedPublishedPorts = config.StringValues(cloneStrings(cfg.ProtectedPublishedPorts))
+	cloned.PrivatePublishedPorts = config.StringValues(cloneStrings(cfg.PrivatePublishedPorts))
+	cloned.SSHPublishedServices = config.StringValues(cloneStrings(cfg.SSHPublishedServices))
+	cloned.Binds = append([]config.Bind(nil), cfg.Binds...)
+	cloned.PublishedPorts = clonePortMap(cfg.PublishedPorts)
+	cloned.Allowlists = cloneAddressBoolMap(cfg.Allowlists)
+	cloned.SetBlocklists(cfg.CloneBlocklists())
+	return &cloned
+}
+
+func commitControlConfig(dst *config.Config, src *config.Config) {
+	dst.EdgeE2ETimeout = src.EdgeE2ETimeout
+	dst.RemoteRPCAddrs = config.StringValues(cloneStrings(src.RemoteRPCAddrs))
+	dst.LogTarget = src.LogTarget
+	dst.LogTargetTo = src.LogTargetTo
+	dst.LogTargetPort = src.LogTargetPort
+	dst.LogTargetRemote = src.LogTargetRemote
+	dst.SBlocklists = config.StringValues(cloneStrings(src.SBlocklists))
+	dst.SAllowlists = config.StringValues(cloneStrings(src.SAllowlists))
+	dst.SBinds = config.StringValues(cloneStrings(src.SBinds))
+	dst.BlockProfile = src.BlockProfile
+	dst.BlockProfileRate = src.BlockProfileRate
+	dst.CPUProfile = src.CPUProfile
+	dst.FleetAddr = src.FleetAddr
+	dst.ProxyServerHost = src.ProxyServerHost
+	dst.ProxyServerPort = src.ProxyServerPort
+	dst.SProxyServerHost = src.SProxyServerHost
+	dst.SProxyServerPort = src.SProxyServerPort
+	dst.SProxyServerPorts = src.SProxyServerPorts
+	dst.SProxyServerCertPath = src.SProxyServerCertPath
+	dst.SProxyServerPrivPath = src.SProxyServerPrivPath
+	dst.AllowRedirectToSProxy = src.AllowRedirectToSProxy
+	dst.APIServerAddr = src.APIServerAddr
+	dst.EnableAPIServer = src.EnableAPIServer
+	dst.EnableProxyServer = src.EnableProxyServer
+	dst.EnableSProxyServer = src.EnableSProxyServer
+	dst.EnableSocksServer = src.EnableSocksServer
+	dst.SocksServerHost = src.SocksServerHost
+	dst.SocksServerPort = src.SocksServerPort
+	dst.SocksFallback = src.SocksFallback
+	dst.PublicPublishedPorts = config.StringValues(cloneStrings(src.PublicPublishedPorts))
+	dst.ProtectedPublishedPorts = config.StringValues(cloneStrings(src.ProtectedPublishedPorts))
+	dst.PrivatePublishedPorts = config.StringValues(cloneStrings(src.PrivatePublishedPorts))
+	dst.SSHPublishedServices = config.StringValues(cloneStrings(src.SSHPublishedServices))
+	dst.ResolveCacheTime = src.ResolveCacheTime
+	dst.BnsCacheTime = src.BnsCacheTime
+	dst.LogMode = src.LogMode
+	dst.LogDateTime = src.LogDateTime
+	dst.LogFilePath = src.LogFilePath
+	dst.LogStats = src.LogStats
+	dst.Debug = src.Debug
+	dst.Binds = append([]config.Bind(nil), src.Binds...)
+	dst.PublishedPorts = clonePortMap(src.PublishedPorts)
+	dst.Allowlists = cloneAddressBoolMap(src.Allowlists)
+	dst.SetBlocklists(src.CloneBlocklists())
+}
+
 func (dio *Diode) loadPersistedSharedControls() error {
 	if dio.controlsLoaded || dio.config.LoadFromFile || db.DB == nil || dio.cmd == nil {
 		dio.controlsLoaded = true
@@ -1267,6 +1373,7 @@ func ApplyControlPatch(cfg *config.Config, patch ControlPatch) ControlPatchResul
 	result := ControlPatchResult{
 		ValidationErrors: map[string]string{},
 	}
+	staged := cloneControlConfig(cfg)
 	seen := map[string]bool{}
 	for _, entry := range patch.Entries {
 		spec, ok := sharedControlSpec(entry.Key)
@@ -1274,7 +1381,7 @@ func ApplyControlPatch(cfg *config.Config, patch ControlPatch) ControlPatchResul
 			result.ValidationErrors[entry.Field] = fmt.Sprintf("unknown control %s", entry.Key)
 			continue
 		}
-		if err := spec.Apply(cfg, entry.Value); err != nil {
+		if err := spec.Apply(staged, entry.Value); err != nil {
 			result.ValidationErrors[entry.Field] = err.Error()
 			continue
 		}
@@ -1287,6 +1394,23 @@ func ApplyControlPatch(cfg *config.Config, patch ControlPatch) ControlPatchResul
 			}
 		}
 	}
+	if result.HasValidationErrors() {
+		return result
+	}
+	if result.ServicesChanged() {
+		if err := syncConfigBindsFromSBinds(staged); err != nil {
+			result.ValidationErrors["bind"] = err.Error()
+		}
+	}
+	if result.PublishedChanged() {
+		if err := rebuildPublishedPortState(staged); err != nil {
+			result.ValidationErrors["ports"] = err.Error()
+		}
+	}
+	if result.HasValidationErrors() {
+		return result
+	}
+	commitControlConfig(cfg, staged)
 	return result
 }
 
@@ -1302,6 +1426,74 @@ func (result ControlPatchResult) ServicesChanged() bool {
 	return result.Effects&controlEffectServices != 0
 }
 
+type controlPatchApplyOptions struct {
+	Persist   bool
+	Reconcile bool
+}
+
+func (result ControlPatchResult) Changed(key string) bool {
+	canonical := canonicalSharedControlKey(key)
+	for _, changed := range result.ChangedKeys {
+		if changed == canonical {
+			return true
+		}
+	}
+	return false
+}
+
+func (dio *Diode) ApplyControlPatch(patch ControlPatch, opts controlPatchApplyOptions) ControlPatchResult {
+	dio.mu.Lock()
+	defer dio.mu.Unlock()
+
+	cfg := dio.config
+	before := cloneControlConfig(cfg)
+	runtimeBefore := dio.controlRuntime
+	result := ApplyControlPatch(cfg, patch)
+	if result.HasValidationErrors() || len(result.ChangedKeys) == 0 {
+		return result
+	}
+
+	if opts.Reconcile {
+		if result.Changed("diodeaddrs") && dio.clientManager != nil {
+			dio.clientManager.AddNewAddresses()
+		}
+		if result.ServicesChanged() {
+			if err := dio.reconcileControlServicesLocked(); err != nil {
+				commitControlConfig(cfg, before)
+				dio.controlRuntime = runtimeBefore
+				_ = dio.reconcileControlServicesLocked()
+				result.ValidationErrors["runtime"] = err.Error()
+				return result
+			}
+		}
+		if result.PublishedChanged() {
+			if err := dio.reconcilePublishedPortsLocked(); err != nil {
+				commitControlConfig(cfg, before)
+				dio.controlRuntime = runtimeBefore
+				_ = dio.reconcileControlServicesLocked()
+				_ = dio.reconcilePublishedPortsLocked()
+				result.ValidationErrors["runtime"] = err.Error()
+				return result
+			}
+		}
+	}
+
+	if opts.Persist {
+		if err := persistSharedControlState(cfg, result.PersistKeys); err != nil {
+			commitControlConfig(cfg, before)
+			dio.controlRuntime = runtimeBefore
+			if opts.Reconcile {
+				_ = dio.reconcileControlServicesLocked()
+				_ = dio.reconcilePublishedPortsLocked()
+			}
+			result.ValidationErrors["persist"] = err.Error()
+			return result
+		}
+	}
+
+	return result
+}
+
 func applyContractControlValue(cfg *config.Config, patch *ControlPatch, key string, value string) {
 	trimmed := strings.TrimSpace(value)
 	switch strings.ToLower(key) {
@@ -1312,10 +1504,12 @@ func applyContractControlValue(cfg *config.Config, patch *ControlPatch, key stri
 	}
 	if trimmed == "" {
 		switch canonicalSharedControlKey(key) {
-		case "bind", "diodeaddrs", "logtarget", "logstats":
-			if resetSharedControlValue(cfg, key) {
-				return
-			}
+		case "bind", "diodeaddrs":
+			patch.Add(key, key, []string{})
+		case "logtarget":
+			patch.Add(key, key, "")
+		case "logstats":
+			patch.Add(key, key, 0)
 		}
 		return
 	}
@@ -1358,6 +1552,51 @@ func publishedPortDefinitionFromAPI(p port) (string, error) {
 	return base, nil
 }
 
+func publishedPortDefinitionFromConfigPort(p *config.Port) string {
+	base := fmt.Sprintf("%d:%d", p.Src, p.To)
+	switch p.Protocol {
+	case config.TCPProtocol:
+		base = fmt.Sprintf("%s:tcp", base)
+	case config.TLSProtocol:
+		base = fmt.Sprintf("%s:tls", base)
+	case config.UDPProtocol:
+		base = fmt.Sprintf("%s:udp", base)
+	}
+	addrs := make([]string, 0, len(p.Allowlist)+len(p.BnsAllowlist)+len(p.DriveAllowList)+len(p.DriveMemberAllowList))
+	for addr := range p.Allowlist {
+		addrs = append(addrs, addr.HexString())
+	}
+	for bnsName := range p.BnsAllowlist {
+		addrs = append(addrs, bnsName)
+	}
+	for addr := range p.DriveAllowList {
+		addrs = append(addrs, addr.HexString())
+	}
+	for addr := range p.DriveMemberAllowList {
+		addrs = append(addrs, addr.HexString())
+	}
+	sort.Strings(addrs)
+	if len(addrs) > 0 {
+		base = fmt.Sprintf("%s,%s", base, strings.Join(addrs, ","))
+	}
+	return base
+}
+
+func appendPublishedControlDefinition(publicPorts, privatePorts, protectedPorts []string, p *config.Port) ([]string, []string, []string, error) {
+	definition := publishedPortDefinitionFromConfigPort(p)
+	switch p.Mode {
+	case config.PublicPublishedMode:
+		publicPorts = append(publicPorts, definition)
+	case config.PrivatePublishedMode:
+		privatePorts = append(privatePorts, definition)
+	case config.ProtectedPublishedMode:
+		protectedPorts = append(protectedPorts, definition)
+	default:
+		return nil, nil, nil, fmt.Errorf("invalid published port mode: %d", p.Mode)
+	}
+	return publicPorts, privatePorts, protectedPorts, nil
+}
+
 func publishedPortDefinitionsFromAPI(ports []port) (config.StringValues, config.StringValues, config.StringValues, error) {
 	publicPorts := make([]string, 0, len(ports))
 	privatePorts := make([]string, 0, len(ports))
@@ -1394,9 +1633,14 @@ func applyPublishedPortsFromAPI(cfg *config.Config, ports []port) error {
 	if err != nil {
 		return err
 	}
-	cfg.PublicPublishedPorts = config.StringValues(publicPorts)
-	cfg.PrivatePublishedPorts = config.StringValues(privatePorts)
-	cfg.ProtectedPublishedPorts = config.StringValues(protectedPorts)
+	patch := ControlPatch{}
+	patch.Add("ports.public", "public", publicPorts)
+	patch.Add("ports.private", "private", privatePorts)
+	patch.Add("ports.protected", "protected", protectedPorts)
+	result := ApplyControlPatch(cfg, patch)
+	if result.HasValidationErrors() {
+		return fmt.Errorf("%v", result.ValidationErrors)
+	}
 	return nil
 }
 
@@ -1566,21 +1810,21 @@ func (dio *Diode) reconcileControlServicesLocked() error {
 	desiredAPISig := apiServerSignature(cfg)
 	if desiredAPISig == "" {
 		if dio.configAPIServer != nil {
-			dio.configAPIServer.Close()
+			dio.configAPIServer.StopAccepting()
 			dio.configAPIServer = nil
 		}
 		dio.controlRuntime.apiSignature = ""
 	} else if dio.configAPIServer == nil || dio.controlRuntime.apiSignature != desiredAPISig {
-		if dio.configAPIServer != nil {
-			dio.configAPIServer.Close()
-		}
 		configAPIServer := NewConfigAPIServer(cfg, dio.clientManager)
 		if err := configAPIServer.ListenAndServe(); err != nil {
-			dio.controlRuntime.apiSignature = ""
 			return err
 		}
+		prev := dio.configAPIServer
 		dio.SetConfigAPIServer(configAPIServer)
-		dio.controlRuntime.apiSignature = desiredAPISig
+		if prev != nil {
+			prev.StopAccepting()
+		}
+		dio.controlRuntime.apiSignature = apiServerSignature(cfg)
 	}
 
 	needSocks := cfg.EnableSocksServer || cfg.EnableProxyServer || cfg.EnableSProxyServer || len(cfg.Binds) > 0
@@ -1603,12 +1847,6 @@ func (dio *Diode) reconcileControlServicesLocked() error {
 	desiredSocksSig := socksServerSignature(cfg)
 	socksRecreated := false
 	if dio.socksServer == nil || dio.controlRuntime.socksSignature != desiredSocksSig {
-		if dio.proxyServer != nil {
-			dio.proxyServer.Close()
-			dio.proxyServer = nil
-			dio.controlRuntime.proxySignature = ""
-		}
-
 		socksCfg := rpc.Config{
 			Addr:       cfg.SocksServerAddr(),
 			FleetAddr:  cfg.FleetAddr,
@@ -1616,22 +1854,29 @@ func (dio *Diode) reconcileControlServicesLocked() error {
 			Allowlists: cfg.Allowlists,
 			Fallback:   cfg.SocksFallback,
 		}
-		socksServer, err := rpc.NewSocksServer(socksCfg, dio.clientManager)
-		if err != nil {
-			return err
+		if dio.socksServer != nil && dio.socksServer.Config.Addr == socksCfg.Addr {
+			if err := dio.socksServer.SetConfig(socksCfg); err != nil {
+				return err
+			}
+			dio.controlRuntime.socksSignature = desiredSocksSig
+		} else {
+			socksServer, err := rpc.NewSocksServer(socksCfg, dio.clientManager)
+			if err != nil {
+				return err
+			}
+			if err := socksServer.Start(); err != nil {
+				socksServer.Close()
+				return err
+			}
+			prev := dio.socksServer
+			dio.SetSocksServer(socksServer)
+			if prev != nil {
+				prev.Close()
+			}
+			dio.controlRuntime.socksSignature = desiredSocksSig
+			dio.controlRuntime.appliedBindSignature = ""
+			socksRecreated = true
 		}
-		if err := socksServer.Start(); err != nil {
-			socksServer.Close()
-			return err
-		}
-		prev := dio.socksServer
-		dio.SetSocksServer(socksServer)
-		if prev != nil {
-			prev.Close()
-		}
-		dio.controlRuntime.socksSignature = desiredSocksSig
-		dio.controlRuntime.appliedBindSignature = ""
-		socksRecreated = true
 	}
 
 	sig := controlBindSignature(cfg.SBinds)
@@ -1649,10 +1894,6 @@ func (dio *Diode) reconcileControlServicesLocked() error {
 
 	desiredProxySig := proxyServerSignature(cfg)
 	if socksRecreated || dio.proxyServer == nil || dio.controlRuntime.proxySignature != desiredProxySig {
-		if dio.proxyServer != nil {
-			dio.proxyServer.Close()
-			dio.proxyServer = nil
-		}
 		proxyCfg := rpc.ProxyConfig{
 			EnableSProxy:       cfg.EnableSProxyServer,
 			ProxyServerAddr:    cfg.ProxyServerAddr(),
@@ -1673,7 +1914,11 @@ func (dio *Diode) reconcileControlServicesLocked() error {
 			proxyServer.Close()
 			return err
 		}
+		prev := dio.proxyServer
 		dio.SetProxyServer(proxyServer)
+		if prev != nil {
+			prev.Close()
+		}
 		dio.controlRuntime.proxySignature = desiredProxySig
 	}
 

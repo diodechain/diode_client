@@ -230,6 +230,31 @@ func (cfg *Config) Blocklists() map[Address]bool {
 	return cfg.blocklists
 }
 
+// CloneBlocklists returns a copy of the decoded blocklist map.
+func (cfg *Config) CloneBlocklists() map[Address]bool {
+	blocklists := cfg.Blocklists()
+	if len(blocklists) == 0 {
+		return nil
+	}
+	out := make(map[Address]bool, len(blocklists))
+	for addr, blocked := range blocklists {
+		out[addr] = blocked
+	}
+	return out
+}
+
+// SetBlocklists replaces the decoded blocklist map with a copy.
+func (cfg *Config) SetBlocklists(blocklists map[Address]bool) {
+	if len(blocklists) == 0 {
+		cfg.blocklists = nil
+		return
+	}
+	cfg.blocklists = make(map[util.Address]bool, len(blocklists))
+	for addr, blocked := range blocklists {
+		cfg.blocklists[addr] = blocked
+	}
+}
+
 func (cfg *Config) PrintLabel(label string, value string) {
 	msg := fmt.Sprintf("%-20s : %-42s", label, value)
 	msg = strings.Replace(msg, "%", "%%", -1)

@@ -1078,7 +1078,7 @@ func getDefaultRemoteRPCAddrs() config.StringValues {
 	return config.StringValues(defaultAddrs)
 }
 
-func applyDiodeAddrs(cfg *config.Config, addrs []string) {
+func applyDiodeAddrs(cfg *config.Config, addrs []string) error {
 	normalized := make([]string, 0, len(addrs))
 	for _, addr := range addrs {
 		addr = strings.TrimSpace(addr)
@@ -1088,8 +1088,7 @@ func applyDiodeAddrs(cfg *config.Config, addrs []string) {
 		if !isValidRPCAddress(addr) {
 			adjusted := addr + ":41046"
 			if !isValidRPCAddress(adjusted) {
-				cfg.Logger.Warn("Invalid diode node address %q", addr)
-				continue
+				return fmt.Errorf("invalid diode node address %q", addr)
 			}
 			addr = adjusted
 		}
@@ -1104,15 +1103,16 @@ func applyDiodeAddrs(cfg *config.Config, addrs []string) {
 	// path for that is to set bogus values, not empty/malformed values.
 	if len(normalized) == 0 {
 		cfg.RemoteRPCAddrs = getDefaultRemoteRPCAddrs()
-		return
+		return nil
 	}
 	mrand.Shuffle(len(normalized), func(i, j int) {
 		normalized[i], normalized[j] = normalized[j], normalized[i]
 	})
 	cfg.RemoteRPCAddrs = config.StringValues(normalized)
+	return nil
 }
 
-func applyBinds(cfg *config.Config, binds []string) {
+func applyBinds(cfg *config.Config, binds []string) error {
 	cfg.SBinds = config.StringValues{}
 	cfg.Binds = []config.Bind{}
 	for _, bindStr := range binds {
@@ -1122,48 +1122,46 @@ func applyBinds(cfg *config.Config, binds []string) {
 		}
 		bind, err := parseBind(trimmed)
 		if err != nil {
-			cfg.Logger.Warn("Skipping invalid bind %q: %v", trimmed, err)
-			continue
+			return fmt.Errorf("invalid bind %q: %w", trimmed, err)
 		}
 		cfg.SBinds = append(cfg.SBinds, trimmed)
 		cfg.Binds = append(cfg.Binds, *bind)
 	}
+	return nil
 }
 
-func applyAllowlist(cfg *config.Config, allowlists []string) {
+func applyAllowlist(cfg *config.Config, allowlists []string) error {
 	cfg.SAllowlists = config.StringValues(allowlists)
 	cfg.Allowlists = nil
 	if len(allowlists) == 0 {
-		return
+		return nil
 	}
 	cfg.Allowlists = make(map[util.Address]bool, len(allowlists))
 	for _, entry := range allowlists {
 		addr, err := util.DecodeAddress(entry)
 		if err != nil {
-			cfg.Logger.Warn("Skipping invalid allowlist address %q: %v", entry, err)
-			continue
+			return fmt.Errorf("invalid allowlist address %q: %w", entry, err)
 		}
 		cfg.Allowlists[addr] = true
 	}
+	return nil
 }
 
-func applyBlocklist(cfg *config.Config, blocklists []string) {
+func applyBlocklist(cfg *config.Config, blocklists []string) error {
 	cfg.SBlocklists = config.StringValues(blocklists)
-	blocklistMap := cfg.Blocklists()
-	for addr := range blocklistMap {
-		delete(blocklistMap, addr)
-	}
+	blocklistMap := make(map[util.Address]bool, len(blocklists))
 	for _, entry := range blocklists {
 		addr, err := util.DecodeAddress(entry)
 		if err != nil {
-			cfg.Logger.Warn("Skipping invalid blocklist address %q: %v", entry, err)
-			continue
+			return fmt.Errorf("invalid blocklist address %q: %w", entry, err)
 		}
 		blocklistMap[addr] = true
 	}
+	cfg.SetBlocklists(blocklistMap)
+	return nil
 }
 
-func syncConfigBindsFromSBinds(cfg *config.Config) {
+func syncConfigBindsFromSBinds(cfg *config.Config) error {
 	cfg.Binds = make([]config.Bind, 0, len(cfg.SBinds))
 	for _, str := range cfg.SBinds {
 		trimmed := strings.TrimSpace(str)
@@ -1172,33 +1170,45 @@ func syncConfigBindsFromSBinds(cfg *config.Config) {
 		}
 		bind, err := parseBind(trimmed)
 		if err != nil {
-			if cfg.Logger != nil {
-				cfg.Logger.Warn("Skipping invalid bind %q: %v", trimmed, err)
-			}
-			continue
+			return fmt.Errorf("invalid bind %q: %w", trimmed, err)
 		}
 		cfg.Binds = append(cfg.Binds, *bind)
 	}
+	return nil
 }
 
-func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
+func buildContractControlPatch(cfg *config.Config, props map[string]string) (ControlPatch, error) {
+	patch := ControlPatch{}
 	if props == nil {
-		return
+		return patch, nil
 	}
 
 	// If diodeaddrs is not in the perimeter at all, re-apply default RPCs so refill has candidates.
 	// Note: this shouldn't really happen in practice but we may change how the keys are seeded in the future.
 	if _, hasDiodeAddrs := props["diodeaddrs"]; !hasDiodeAddrs {
-		cfg.RemoteRPCAddrs = getDefaultRemoteRPCAddrs()
+		patch.Add("diodeaddrs", "diodeaddrs", []string{})
 	}
 
-	patch := ControlPatch{}
 	for key, val := range props {
-		if key == "extra_config" {
+		switch key {
+		case "extra_config", "public", "private", "protected", "sshd":
 			continue
 		}
 		applyContractControlValue(cfg, &patch, key, val)
 	}
+
+	publicPorts, privatePorts, protectedPorts, err := updatePortsFromContract(cfg.ClientAddr, props)
+	if err != nil {
+		return patch, err
+	}
+	sshServices, _, err := updateSSHServicesFromContract(props)
+	if err != nil {
+		return patch, err
+	}
+	patch.Add("public", "public", publicPorts)
+	patch.Add("private", "private", privatePorts)
+	patch.Add("protected", "protected", protectedPorts)
+	patch.Add("sshd", "sshd", sshServices)
 
 	extraRaw := strings.TrimSpace(props["extra_config"])
 	if extraRaw != "" {
@@ -1215,11 +1225,23 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 		}
 	}
 
+	return patch, nil
+}
+
+func applyControlPlaneConfig(cfg *config.Config, props map[string]string) ControlPatchResult {
+	patch, err := buildContractControlPatch(cfg, props)
+	if err != nil {
+		result := ControlPatchResult{ValidationErrors: map[string]string{"contract": err.Error()}}
+		if cfg != nil && cfg.Logger != nil {
+			cfg.Logger.Warn("Ignoring control plane config: %v", err)
+		}
+		return result
+	}
 	result := ApplyControlPatch(cfg, patch)
 	for key, errText := range result.ValidationErrors {
 		cfg.Logger.Warn("Ignoring %s from control plane: %v", key, errText)
 	}
-	syncConfigBindsFromSBinds(cfg)
+	return result
 }
 
 var lastWGConfigHash string
@@ -2611,22 +2633,18 @@ func contractSync(cfg *config.Config) error {
 
 	commitEffectiveContractState(cfg, chain, effectiveContractAddr, props)
 
-	applyControlPlaneConfig(cfg, props)
-	if err := applyPublishedControlsFromContract(cfg, props); err != nil {
+	patch, err := buildContractControlPatch(cfg, props)
+	if err != nil {
 		return err
 	}
-
-	// After applying contract config, check for new diodeaddrs and add clients for them
-	if app.clientManager != nil {
-		app.clientManager.AddNewAddresses()
-	}
-
-	if err := app.ReconcileControlServices(); err != nil {
-		return err
-	}
-
-	if err := app.ReconcilePublishedPorts(); err != nil {
-		return err
+	result := app.ApplyControlPatch(patch, controlPatchApplyOptions{Reconcile: true})
+	if result.HasValidationErrors() {
+		for key, errText := range result.ValidationErrors {
+			cfg.Logger.Warn("Ignoring %s from control plane: %v", key, errText)
+		}
+		if result.ValidationErrors["runtime"] != "" {
+			return fmt.Errorf("control runtime reconciliation failed: %s", result.ValidationErrors["runtime"])
+		}
 	}
 
 	if err := updateWireGuardFromContract(client, cfg.ClientAddr, effectiveContractAddr, props); err != nil {
@@ -2653,25 +2671,6 @@ func runContractController(cfg *config.Config) error {
 
 		time.Sleep(30 * time.Second)
 	}
-}
-
-func applyPublishedControlsFromContract(cfg *config.Config, props map[string]string) error {
-	publicPorts, privatePorts, protectedPorts, err := updatePortsFromContract(cfg.ClientAddr, props)
-	if err != nil {
-		cfg.Logger.Error("Failed to update ports from contract: %v", err)
-		return err
-	}
-	sshServices, _, err := updateSSHServicesFromContract(props)
-	if err != nil {
-		cfg.Logger.Error("Failed to update ssh services from contract: %v", err)
-		return err
-	}
-
-	cfg.PublicPublishedPorts = publicPorts
-	cfg.PrivatePublishedPorts = privatePorts
-	cfg.ProtectedPublishedPorts = protectedPorts
-	cfg.SSHPublishedServices = config.StringValues(sshServices)
-	return nil
 }
 
 func joinHandler() (err error) {
