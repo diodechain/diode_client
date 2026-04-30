@@ -294,9 +294,10 @@ func sanitizeTrayFlagFromArgs() {
 
 // safeAppClose avoids panicking if the app hasn't been initialized (closeCh nil)
 func safeAppClose() {
-	if app.closeCh != nil {
-		if !app.Closed() {
-			app.Close()
-		}
+	if app == nil || app.closeCh == nil {
+		return
+	}
+	if !app.Closed() {
+		app.Close()
 	}
 }

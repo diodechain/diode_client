@@ -24,6 +24,7 @@ All traffic is routed through the Diode network and secured with Diode's client 
 - the commands you are most likely to use
 - how to publish ports, browse Diode services, transfer files, use SSH, and run MCP
 - where config lives, how the config API works, and the common pitfalls
+- how shared CLI/API/join controls are wired for maintainers
 
 ## Requirements
 
@@ -154,6 +155,8 @@ Not:
 ```bash
 ./diode publish -debug=true -public 80:80
 ```
+
+If you plan to contribute code, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Publishing Ports
 
@@ -579,7 +582,7 @@ Endpoints:
 
 - `GET /` for a basic health check
 - `GET /config` for the current client config summary
-- `PUT /config` to update config-file-backed settings
+- `PUT /config` to update supported runtime config settings
 - `GET /connection-client-id?peer=<remoteAddr>` to map a published inbound TCP peer to a verified Diode client ID
 
 Important gotcha:
@@ -593,6 +596,50 @@ curl -H 'Content-Type: application/json' http://localhost:1081/config
 ```
 
 The `connection-client-id` endpoint is used by the example app in [examples/client_id/README.md](examples/client_id/README.md).
+
+## Shared Control Path
+
+The overlapping runtime controls used by shared CLI flags, `diode config`, the config API, and `join` are centralized in the descriptor registry in [cmd/diode/control_shared.go](cmd/diode/control_shared.go).
+
+When you add a new shared control:
+
+1. Add one `ControlSpec` with the canonical key, aliases, value kind, apply/reset behavior, persistence serializer, effects, HTTP exposure, and shared CLI flag definitions.
+2. If it should survive YAML config files, make sure the backing field in [config/flag.go](config/flag.go) has the correct YAML tag.
+3. If it changes live runtime behavior beyond existing service or published-port effects, update `ReconcileControlServices()` or `ReconcilePublishedPorts()`.
+4. Keep adapters thin: route CLI config changes, API request fields, and contract properties through `ControlPatch`/`ApplyControlPatch`.
+5. Add focused regression tests in [cmd/diode/control_shared_test.go](cmd/diode/control_shared_test.go).
+
+Commands should not directly mutate shared runtime fields such as `EnableSocksServer`, `EnableProxyServer`, `PublishedPorts`, shared bind lists, or published-port lists. A command handler should parse command-only inputs, convert them into a `ControlPatch`, and apply it through the app runtime:
+
+```go
+patch := ControlPatch{}
+patch.Add("my-command", "my_control", value)
+
+result := app.ApplyControlPatch(patch, controlPatchApplyOptions{Reconcile: true})
+if result.HasValidationErrors() {
+	return fmt.Errorf("couldn't apply controls: %v", result.ValidationErrors)
+}
+```
+
+Use `registerSharedControlFlags(&someCmd.Flag, cfg, "my_control")` when a command should expose an existing shared flag. If a command needs to generate published ports internally, append the generated definitions to the shared `public`, `protected`, `private`, or `sshd` controls and let `ReconcilePublishedPorts()` rebuild the runtime map and update the relay pool.
+
+`PUT /config` supports exposed controls through both the `controls` object and compatible top-level fields:
+
+```json
+{"controls":{"my_control":"value"}}
+```
+
+```json
+{"my_control":"value"}
+```
+
+Adding an exposed control should not require adding another top-level API struct field or manual field mapping. Only legacy aggregate shapes, such as `ports`, should need a small adapter that converts the request into shared control keys.
+
+For `join`, contract property keys should match the `ControlSpec` key or one of its aliases. Normal contract properties and `extra_config` are applied through `ControlPatch` by default. If a contract property has a special wire shape, keep the conversion local to the join adapter and emit shared control keys from there.
+
+Compatibility matters here. Some DB keys already have older meanings, such as `private` for the client private key. If a new shared control would collide with an existing store key, keep the canonical runtime key and set the descriptor `StorageKey` to the compatible persisted name instead of changing the old DB meaning.
+
+For broader contributor workflow and package ownership, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## MCP
 

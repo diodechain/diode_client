@@ -42,13 +42,7 @@ var (
 func init() {
 	cfg := config.AppConfig
 
-	publishCmd.Flag.Var(&cfg.PublicPublishedPorts, "public", "expose ports to public users, so that user could connect to")
-	publishCmd.Flag.Var(&cfg.ProtectedPublishedPorts, "protected", "expose ports to protected users (in fleet contract), so that user could connect to")
-	publishCmd.Flag.Var(&cfg.PrivatePublishedPorts, "private", "expose ports to private users, so that user could connect to")
-	publishCmd.Flag.Var(&cfg.SSHPublishedServices, "sshd", "publish an embedded Diode SSH service: private|protected:<extern_port>:<local_user>[,<allowlist...>]")
-	publishCmd.Flag.StringVar(&cfg.SocksServerHost, "proxy_host", "127.0.0.1", "host of socksd proxy server")
-	publishCmd.Flag.IntVar(&cfg.SocksServerPort, "proxy_port", 1080, "port of socksd proxy server")
-	publishCmd.Flag.BoolVar(&cfg.EnableSocksServer, "socksd", false, "enable socksd proxy server")
+	registerSharedControlFlags(&publishCmd.Flag, cfg, "public", "protected", "private", "sshd", "proxy_host", "proxy_port", "socksd")
 	publishCmd.Flag.BoolVar(&enableStaticServer, "http", false, "enable http static file server")
 	publishCmd.Flag.StringVar(&scfg.RootDirectory, "http_dir", "", "the root directory of http static file server")
 	publishCmd.Flag.StringVar(&scfg.Host, "http_host", "127.0.0.1", "the host of http static file server")
@@ -77,6 +71,7 @@ func parseFilesPorts(portStrings []string, mode int) ([]*config.Port, error) {
 
 func parsePortsEx(portStrings []string, mode int, allowEphemeralSrc bool) ([]*config.Port, error) {
 	ports := []*config.Port{}
+	client := currentControlClient()
 	for _, portString := range portStrings {
 		segments := strings.Split(portString, ",")
 		allowlist := make(map[util.Address]bool)
@@ -150,12 +145,14 @@ func parsePortsEx(portStrings []string, mode int, allowEphemeralSrc bool) ([]*co
 				}
 				ports = append(ports, port)
 			} else {
-				client := app.clientManager.GetNearestClient()
 				access := accessPattern.FindString(segment)
 				if access == "" {
 					bnsName := bnsPattern.FindString(segment)
 					if bnsName != "" && isValidBNS(bnsName) {
 						bnsAllowlist[bnsName] = true
+						if client == nil {
+							return nil, fmt.Errorf("port format couldn't resolve BNS name without an active client: %v", segment)
+						}
 						_, err := client.GetCacheOrResolvePeers(bnsName)
 						if err != nil {
 							err = fmt.Errorf("port format couldn't resolve BNS name: %v", segment)
@@ -171,6 +168,10 @@ func parsePortsEx(portStrings []string, mode int, allowEphemeralSrc bool) ([]*co
 				if err != nil {
 					err = fmt.Errorf("port format couldn't parse port address: %v", segment)
 					return nil, err
+				}
+				if client == nil {
+					allowlist[addr] = true
+					continue
 				}
 				addrType, err := client.ResolveAccountType(addr)
 				if err != nil {
@@ -270,59 +271,14 @@ func parseBind(bind string) (*config.Bind, error) {
 
 func publishHandler() (err error) {
 	cfg := config.AppConfig
-	portString := make(map[int]*config.Port)
-
-	// copy to config
-	ports, err := parsePorts(cfg.PublicPublishedPorts, config.PublicPublishedMode)
-	if err != nil {
-		return
-	}
-	for _, port := range ports {
-		if portString[port.To] != nil {
-			err = fmt.Errorf("public port specified twice: %v", port.To)
-			return
-		}
-		portString[port.To] = port
-	}
-	ports, err = parsePorts(cfg.ProtectedPublishedPorts, config.ProtectedPublishedMode)
-	if err != nil {
-		return
-	}
-	for _, port := range ports {
-		if portString[port.To] != nil {
-			err = fmt.Errorf("port conflict between public and protected port: %v", port.To)
-			return
-		}
-		portString[port.To] = port
-	}
 	err = app.Start()
 	if err != nil {
 		return
 	}
-	ports, err = parsePorts(cfg.PrivatePublishedPorts, config.PrivatePublishedMode)
-	if err != nil {
-		return
-	}
-	for _, port := range ports {
-		if portString[port.To] != nil {
-			err = fmt.Errorf("port conflict with private port: %v", port.To)
-			return
-		}
-		portString[port.To] = port
-	}
-	sshServices, err := parseSSHServices(cfg.SSHPublishedServices)
-	if err != nil {
-		return
-	}
-	for _, service := range sshServices {
-		if portString[service.To] != nil {
-			err = fmt.Errorf("port conflict with ssh service: %v", service.To)
-			return
-		}
-		portString[service.To] = service
-	}
-
-	fileListenerTos := make(map[int]bool)
+	publicPorts := cloneStrings(cfg.PublicPublishedPorts)
+	privatePorts := cloneStrings(cfg.PrivatePublishedPorts)
+	protectedPorts := cloneStrings(cfg.ProtectedPublishedPorts)
+	fileListeners := []*config.Port{}
 	for _, fs := range publishFileSpecs {
 		fs = strings.TrimSpace(fs)
 		if fs == "" {
@@ -338,35 +294,37 @@ func publishHandler() (err error) {
 			err = e
 			return
 		}
-		for _, np := range nports {
-			if portString[np.To] != nil {
-				err = fmt.Errorf("port conflict with -files: %v", np.To)
-				return
-			}
-			portString[np.To] = np
-			fileListenerTos[np.To] = true
-		}
+		fileListeners = append(fileListeners, nports...)
 	}
 
 	if publishFileFileroot != "" && len(publishFileSpecs) == 0 {
 		cfg.Logger.Warn("-fileroot without -files is ignored")
 	}
 
-	cfg.PublishedPorts = portString
-
-	for to := range fileListenerTos {
-		p := portString[to]
+	for _, p := range fileListeners {
 		var cleanup func()
 		cleanup, err = startFileListener(p, publishFileFileroot)
 		if err != nil {
 			return
 		}
 		app.Defer(cleanup)
+		publicPorts, privatePorts, protectedPorts, err = appendPublishedControlDefinition(publicPorts, privatePorts, protectedPorts, p)
+		if err != nil {
+			return err
+		}
 	}
 
 	if enableStaticServer || len(scfg.RootDirectory) > 0 {
 		// publish the static when user didn't publish 80 port
-		if _, ok := cfg.PublishedPorts[httpPort]; !ok {
+		sshPorts, e := parseSSHServices(cfg.SSHPublishedServices)
+		if e != nil {
+			return e
+		}
+		currentPorts, e := buildPublishedPortMap(publicPorts, privatePorts, protectedPorts, sshPorts)
+		if e != nil {
+			return e
+		}
+		if _, ok := currentPorts[httpPort]; !ok {
 			staticServer = staticserver.NewStaticHTTPServer(scfg)
 			var ln net.Listener
 			ln, err = net.Listen("tcp", staticServer.Addr)
@@ -387,16 +345,19 @@ func publishHandler() (err error) {
 				ln.Close()
 			})
 
-			cfg.PublishedPorts[httpPort] = &config.Port{
+			publicPorts, privatePorts, protectedPorts, err = appendPublishedControlDefinition(publicPorts, privatePorts, protectedPorts, &config.Port{
 				Src:      scfg.Port,
 				To:       httpPort,
 				Mode:     config.PublicPublishedMode,
 				Protocol: config.AnyProtocol,
+			})
+			if err != nil {
+				return err
 			}
 		}
 	}
 
-	if len(cfg.PublishedPorts) == 0 && len(cfg.Binds) == 0 {
+	if len(publicPorts) == 0 && len(privatePorts) == 0 && len(protectedPorts) == 0 && len(cfg.SSHPublishedServices) == 0 && len(cfg.Binds) == 0 {
 		fmt.Println()
 		fmt.Println("ERROR: Can't run publish without any arguments!")
 		fmt.Println(" HINT: Try 'diode publish -public 8080:80' to publish a local port")
@@ -405,77 +366,17 @@ func publishHandler() (err error) {
 		os.Exit(2)
 	}
 
-	if len(cfg.PublishedPorts) > 0 {
-		cfg.PrintInfo("")
-		name := cfg.ClientAddr.HexString()
-		if cfg.ClientName != "" {
-			name = cfg.ClientName
-		}
-		app.clientManager.GetPool().SetPublishedPorts(cfg.PublishedPorts)
-		for _, port := range cfg.PublishedPorts {
-			if port.Mode == config.PublicPublishedMode {
-				if port.To == httpPort {
-					cfg.PrintLabel("HTTP Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", name))
-				}
-				if (8000 <= port.To && port.To <= 8100) || (8400 <= port.To && port.To <= 8500) {
-					cfg.PrintLabel("HTTP Gateway Enabled", fmt.Sprintf("https://%s.diode.link:%d/", name, port.To))
-				}
-			}
-		}
-		cfg.PrintLabel("Port      <name>", "<extern>     <mode>    <protocol>     <allowlist>")
-		for _, port := range cfg.PublishedPorts {
-
-			addrs := make([]string, 0, len(port.Allowlist)+len(port.BnsAllowlist))
-			for addr := range port.Allowlist {
-				addrs = append(addrs, addr.HexString())
-			}
-			for bnsName := range port.BnsAllowlist {
-				addrs = append(addrs, bnsName)
-			}
-			for drive := range port.DriveAllowList {
-				addrs = append(addrs, drive.HexString())
-			}
-			for driveMember := range port.DriveMemberAllowList {
-				addrs = append(addrs, driveMember.HexString())
-			}
-			host := publishedPortDisplayHost(port)
-			cfg.PrintLabel(fmt.Sprintf("Port %12s", host), fmt.Sprintf("%8d  %10s       %s        %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol), strings.Join(addrs, ",")))
-		}
+	patch := ControlPatch{}
+	patch.Add("publish.public", "public", publicPorts)
+	patch.Add("publish.private", "private", privatePorts)
+	patch.Add("publish.protected", "protected", protectedPorts)
+	result := app.ApplyControlPatch(patch, controlPatchApplyOptions{Reconcile: true})
+	if result.HasValidationErrors() {
+		return fmt.Errorf("couldn't apply publish controls: %v", result.ValidationErrors)
 	}
 
-	if cfg.EnableAPIServer {
-		configAPIServer := NewConfigAPIServer(cfg, app.clientManager)
-		configAPIServer.ListenAndServe()
-		app.SetConfigAPIServer(configAPIServer)
-	}
-	socksCfg := rpc.Config{
-		Addr:            cfg.SocksServerAddr(),
-		FleetAddr:       cfg.FleetAddr,
-		Blocklists:      cfg.Blocklists(),
-		Allowlists:      cfg.Allowlists,
-		EnableProxy:     true,
-		ProxyServerAddr: cfg.ProxyServerAddr(),
-		Fallback:        cfg.SocksFallback,
-	}
-	socksServer, err := rpc.NewSocksServer(socksCfg, app.clientManager)
-	if err != nil {
+	if err := app.ReconcileControlServices(); err != nil {
 		return err
-	}
-	if cfg.EnableSocksServer {
-		app.SetSocksServer(socksServer)
-		if err = socksServer.Start(); err != nil {
-			cfg.Logger.Error(err.Error())
-			return
-		}
-	}
-	if len(cfg.Binds) > 0 {
-		socksServer.SetBinds(cfg.Binds)
-		cfg.Binds = socksServer.GetBinds() // resolve "auto" ports for logs and API
-		cfg.PrintInfo("")
-		cfg.PrintLabel("Bind      <name>", "<mode>     <remote>")
-		for _, bind := range cfg.Binds {
-			cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %11s:%d", config.ProtocolName(bind.Protocol), bind.To, bind.ToPort))
-		}
 	}
 	for {
 		app.Wait()
