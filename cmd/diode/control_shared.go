@@ -1628,22 +1628,6 @@ func publishedPortDefinitionsFromAPI(ports []port) (config.StringValues, config.
 	return config.StringValues(publicPorts), config.StringValues(privatePorts), config.StringValues(protectedPorts), nil
 }
 
-func applyPublishedPortsFromAPI(cfg *config.Config, ports []port) error {
-	publicPorts, privatePorts, protectedPorts, err := publishedPortDefinitionsFromAPI(ports)
-	if err != nil {
-		return err
-	}
-	patch := ControlPatch{}
-	patch.Add("ports.public", "public", publicPorts)
-	patch.Add("ports.private", "private", privatePorts)
-	patch.Add("ports.protected", "protected", protectedPorts)
-	result := ApplyControlPatch(cfg, patch)
-	if result.HasValidationErrors() {
-		return fmt.Errorf("%v", result.ValidationErrors)
-	}
-	return nil
-}
-
 func logPublishedPortSummary(cfg *config.Config) {
 	if len(cfg.PublishedPorts) == 0 {
 		return

@@ -237,18 +237,24 @@ func TestPersistSharedControlStateWritesYAMLConfig(t *testing.T) {
 	}
 }
 
-func TestApplyPublishedPortsFromAPIRebuildsCanonicalState(t *testing.T) {
+func TestPublishedPortsFromAPIFlowThroughSharedPatch(t *testing.T) {
 	cfg := newSharedControlTestConfig(t)
 	setupSharedControlTestEnv(t, cfg)
 
-	if err := applyPublishedPortsFromAPI(cfg, []port{
+	publicPorts, privatePorts, protectedPorts, err := publishedPortDefinitionsFromAPI([]port{
 		{LocalPort: 8080, ExternPort: 80, Mode: "public"},
 		{LocalPort: 2222, ExternPort: 22, Mode: "private", Addresses: []string{"0x1111111111111111111111111111111111111111"}},
-	}); err != nil {
-		t.Fatalf("applyPublishedPortsFromAPI(): %v", err)
+	})
+	if err != nil {
+		t.Fatalf("publishedPortDefinitionsFromAPI(): %v", err)
 	}
-	if err := rebuildPublishedPortState(cfg); err != nil {
-		t.Fatalf("rebuildPublishedPortState(): %v", err)
+	patch := ControlPatch{}
+	patch.Add("ports.public", "public", publicPorts)
+	patch.Add("ports.private", "private", privatePorts)
+	patch.Add("ports.protected", "protected", protectedPorts)
+	result := ApplyControlPatch(cfg, patch)
+	if result.HasValidationErrors() {
+		t.Fatalf("ApplyControlPatch errors: %#v", result.ValidationErrors)
 	}
 
 	if !reflect.DeepEqual(cfg.PublicPublishedPorts, config.StringValues{"8080:80"}) {
@@ -566,7 +572,7 @@ func TestSharedControlFlagRegistration(t *testing.T) {
 	}
 }
 
-func TestApplyControlPlaneConfigEmptyValuesUseSharedReset(t *testing.T) {
+func TestBuildContractControlPatchEmptyValuesUseSharedReset(t *testing.T) {
 	cfg := newSharedControlTestConfig(t)
 	cfg.RemoteRPCAddrs = config.StringValues{"diode://custom.example:41046"}
 	cfg.SBinds = config.StringValues{"0:Helloworld:80"}
@@ -574,12 +580,19 @@ func TestApplyControlPlaneConfigEmptyValuesUseSharedReset(t *testing.T) {
 	cfg.LogTarget = "collector:1234"
 	cfg.LogStats = time.Minute
 
-	applyControlPlaneConfig(cfg, map[string]string{
+	patch, err := buildContractControlPatch(cfg, map[string]string{
 		"bind":       "",
 		"diodeaddrs": "",
 		"logtarget":  "",
 		"logstats":   "",
 	})
+	if err != nil {
+		t.Fatalf("buildContractControlPatch(): %v", err)
+	}
+	result := ApplyControlPatch(cfg, patch)
+	if result.HasValidationErrors() {
+		t.Fatalf("ApplyControlPatch errors: %#v", result.ValidationErrors)
+	}
 
 	if len(cfg.SBinds) != 0 || len(cfg.Binds) != 0 {
 		t.Fatalf("expected bind reset, got SBinds=%#v Binds=%#v", cfg.SBinds, cfg.Binds)
@@ -592,15 +605,19 @@ func TestApplyControlPlaneConfigEmptyValuesUseSharedReset(t *testing.T) {
 	}
 }
 
-func TestApplyControlPlaneConfigRoutesPublishedControlsThroughPatch(t *testing.T) {
+func TestBuildContractControlPatchRoutesPublishedControlsThroughPatch(t *testing.T) {
 	cfg := newSharedControlTestConfig(t)
 
-	result := applyControlPlaneConfig(cfg, map[string]string{
+	patch, err := buildContractControlPatch(cfg, map[string]string{
 		"public": "8080:80",
 		"sshd":   "protected:22:root",
 	})
+	if err != nil {
+		t.Fatalf("buildContractControlPatch(): %v", err)
+	}
+	result := ApplyControlPatch(cfg, patch)
 	if result.HasValidationErrors() {
-		t.Fatalf("applyControlPlaneConfig errors: %#v", result.ValidationErrors)
+		t.Fatalf("ApplyControlPatch errors: %#v", result.ValidationErrors)
 	}
 	if !reflect.DeepEqual(cfg.PublicPublishedPorts, config.StringValues{"8080:80"}) {
 		t.Fatalf("unexpected public ports: %#v", cfg.PublicPublishedPorts)

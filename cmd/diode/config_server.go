@@ -9,7 +9,6 @@ import (
 	"mime"
 	"net"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync"
 
@@ -89,11 +88,6 @@ func isProtocol(fl validator.FieldLevel) bool {
 	return config.ProtocolIdentifier(protocol) > 0
 }
 
-func isURL(fl validator.FieldLevel) bool {
-	_, err := url.ParseRequestURI(fl.Field().String())
-	return err == nil
-}
-
 func isMode(fl validator.FieldLevel) bool {
 	mode := fl.Field().String()
 	return config.ModeIdentifier(mode) > 0
@@ -105,7 +99,6 @@ func init() {
 	validate.RegisterValidation("subdomain", isSubdomain)
 	validate.RegisterValidation("port", isPort)
 	validate.RegisterValidation("protocol", isProtocol)
-	validate.RegisterValidation("url", isURL)
 	validate.RegisterValidation("mode", isMode)
 	validate.RegisterStructValidation(portValidation, port{})
 }

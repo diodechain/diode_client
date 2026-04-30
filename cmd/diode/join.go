@@ -1228,22 +1228,6 @@ func buildContractControlPatch(cfg *config.Config, props map[string]string) (Con
 	return patch, nil
 }
 
-func applyControlPlaneConfig(cfg *config.Config, props map[string]string) ControlPatchResult {
-	patch, err := buildContractControlPatch(cfg, props)
-	if err != nil {
-		result := ControlPatchResult{ValidationErrors: map[string]string{"contract": err.Error()}}
-		if cfg != nil && cfg.Logger != nil {
-			cfg.Logger.Warn("Ignoring control plane config: %v", err)
-		}
-		return result
-	}
-	result := ApplyControlPatch(cfg, patch)
-	for key, errText := range result.ValidationErrors {
-		cfg.Logger.Warn("Ignoring %s from control plane: %v", key, errText)
-	}
-	return result
-}
-
 var lastWGConfigHash string
 var lastWGPublicKey string
 var wgPrivateKeyMigrationWarnOnce sync.Once
