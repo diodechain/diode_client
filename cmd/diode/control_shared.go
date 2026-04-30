@@ -27,7 +27,6 @@ const (
 	defaultSecureProxyPort     = 443
 	defaultSecureProxyCertPath = "./priv/fullchain.pem"
 	defaultSecureProxyPrivPath = "./priv/privkey.pem"
-	defaultResolveCacheTime    = 10 * time.Minute
 )
 
 type publishedControlState struct {
@@ -720,12 +719,12 @@ var sharedControlSpecs = []*ControlSpec{
 		Effects:    sharedControlEffects(controlEffectServices),
 		ExposeHTTP: true,
 		Flags: []controlFlagSpec{
-			controlDurationFlag(func(cfg *config.Config) *time.Duration { return &cfg.ResolveCacheTime }, defaultResolveCacheTime, "time for member and bns resolvers cache. (default: 10 minutes)"),
+			controlDurationFlag(func(cfg *config.Config) *time.Duration { return &cfg.ResolveCacheTime }, config.DefaultResolveCacheTime, "time for member and bns resolvers cache. (default: 10 minutes)"),
 			{
 				Name:  "bnscachetime",
 				Usage: "(Deprecated. Please use resolvecachetime) time for bns address resolve cache. (default: 10 minutes)",
 				Register: func(fs *flag.FlagSet, cfg *config.Config, name string) {
-					fs.DurationVar(&cfg.ResolveCacheTime, name, defaultResolveCacheTime, "(Deprecated. Please use resolvecachetime) time for bns address resolve cache. (default: 10 minutes)")
+					fs.DurationVar(&cfg.ResolveCacheTime, name, config.DefaultResolveCacheTime, "(Deprecated. Please use resolvecachetime) time for bns address resolve cache. (default: 10 minutes)")
 				},
 			},
 		},
@@ -734,16 +733,19 @@ var sharedControlSpecs = []*ControlSpec{
 			if err != nil {
 				return err
 			}
+			if dur <= 0 {
+				dur = config.DefaultResolveCacheTime
+			}
 			cfg.ResolveCacheTime = dur
 			cfg.BnsCacheTime = dur
 			return nil
 		},
 		Reset: func(cfg *config.Config) bool {
-			cfg.ResolveCacheTime = defaultResolveCacheTime
-			cfg.BnsCacheTime = defaultResolveCacheTime
+			cfg.ResolveCacheTime = config.DefaultResolveCacheTime
+			cfg.BnsCacheTime = config.DefaultResolveCacheTime
 			return true
 		},
-		DBValue:   durationControlDBValue(func(cfg *config.Config) time.Duration { return cfg.ResolveCacheTime }, defaultResolveCacheTime),
+		DBValue:   durationControlDBValue(func(cfg *config.Config) time.Duration { return cfg.ResolveCacheTime }, config.DefaultResolveCacheTime),
 		HTTPValue: durationHTTPValue(func(cfg *config.Config) time.Duration { return cfg.ResolveCacheTime }),
 	},
 	{
@@ -1269,6 +1271,8 @@ func (dio *Diode) loadPersistedSharedControls() error {
 			return fmt.Errorf("could not load persisted %s: %w", key, err)
 		}
 	}
+
+	config.NormalizeResolveCache(dio.config)
 
 	dio.controlsLoaded = true
 	return nil

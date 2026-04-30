@@ -35,8 +35,8 @@ func newSharedControlTestConfig(t *testing.T) *config.Config {
 		SProxyServerPort:     defaultSecureProxyPort,
 		SProxyServerCertPath: defaultSecureProxyCertPath,
 		SProxyServerPrivPath: defaultSecureProxyPrivPath,
-		ResolveCacheTime:     defaultResolveCacheTime,
-		BnsCacheTime:         defaultResolveCacheTime,
+		ResolveCacheTime:     config.DefaultResolveCacheTime,
+		BnsCacheTime:         config.DefaultResolveCacheTime,
 	}
 	logger, err := config.NewLogger(cfg)
 	if err != nil {

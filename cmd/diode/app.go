@@ -167,8 +167,8 @@ func prepareDiode() error {
 
 	if cfg.BnsCacheTime > 0 {
 		cfg.Logger.Warn("Warning: bnscachetime is deprecated, please use resolvecachetime instead")
-		cfg.ResolveCacheTime = cfg.BnsCacheTime
 	}
+	config.NormalizeResolveCache(cfg)
 	// initialize diode application
 	app = NewDiode(cfg)
 	if err := app.Init(); err != nil {
