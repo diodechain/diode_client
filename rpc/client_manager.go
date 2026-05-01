@@ -6,6 +6,7 @@ package rpc
 
 import (
 	"fmt"
+	"math/big"
 	"net"
 	"net/url"
 	"sort"
@@ -368,13 +369,15 @@ func (cm *ClientManager) AddNewAddresses() {
 		cm.syncPerimeterCandidatesLocked(cm.Config.RemoteRPCAddrs)
 		// Save current clients as defaults on first detection
 		if len(cm.savedDefaultAddresses) == 0 {
-			savedAddrs := make([]string, 0, len(cm.Config.RemoteRPCAddrs))
-			for _, addr := range cm.Config.RemoteRPCAddrs {
-				addr = strings.TrimSpace(addr)
-				if addr == "" {
+			savedAddrs := make([]string, 0, len(cm.clients))
+			for _, client := range cm.clients {
+				if client == nil || client.Closing() {
 					continue
 				}
-				savedAddrs = append(savedAddrs, addr)
+				addr := strings.TrimSpace(client.host)
+				if addr != "" {
+					savedAddrs = append(savedAddrs, addr)
+				}
 			}
 			cm.savedDefaultAddresses = config.StringValues(savedAddrs)
 			cm.Config.Logger.Debug("Cached %d default addresses for later restoration: %v", len(cm.savedDefaultAddresses), cm.savedDefaultAddresses)
@@ -477,6 +480,9 @@ func (cm *ClientManager) doAddClient() {
 func (cm *ClientManager) startClient(host string) *Client {
 	if host == "" {
 		return nil
+	}
+	if candidate := cm.ensureCandidateLocked(host); candidate != nil {
+		candidate.lastProbe = time.Now()
 	}
 
 	n := len(cm.clientMap)
@@ -729,6 +735,90 @@ func (cm *ClientManager) PeekNearestAddresses() (prim *util.Address, secd *util.
 		secd = &secdClient.serverID
 	}
 	return
+}
+
+func (cm *ClientManager) PeekCommunityAddress() (addr *util.Address) {
+	cm.srv.Call(func() {
+		active := cm.rankedActiveCandidatesLocked(time.Now())
+		for _, ranked := range active {
+			if ranked.candidate == nil || !ranked.candidate.isCommunityRelay() || !ranked.candidate.hasNodeID {
+				continue
+			}
+			nodeID := ranked.candidate.nodeID
+			addr = &nodeID
+			return
+		}
+	})
+	return addr
+}
+
+func (cm *ClientManager) WaitForConnectedClients(minClients int, timeout time.Duration) bool {
+	if minClients <= 0 {
+		return true
+	}
+
+	deadline := time.Now().Add(timeout)
+	for {
+		count := 0
+		cm.srv.Call(func() {
+			for _, client := range cm.clientMap {
+				if client != nil && !client.Closing() {
+					count++
+				}
+			}
+			if count >= minClients {
+				cm.doSortTopClients()
+			}
+		})
+		if count >= minClients {
+			return true
+		}
+		if timeout <= 0 || time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func (cm *ClientManager) WaitForCommunityRelays(minRelays int, timeout time.Duration) bool {
+	if minRelays <= 0 {
+		return true
+	}
+
+	deadline := time.Now().Add(timeout)
+	for {
+		count := 0
+		cm.srv.Call(func() {
+			count = cm.activeCommunityRelayCountLocked()
+		})
+		if count >= minRelays {
+			return true
+		}
+		if timeout <= 0 || time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func (cm *ClientManager) RefreshRelayCandidates() {
+	cm.refreshDiscoveryCandidates()
+}
+
+func (cm *ClientManager) RefreshConnectedTickets() {
+	var clients []*Client
+	cm.srv.Call(func() {
+		clients = make([]*Client, 0, len(cm.clientMap))
+		for _, client := range cm.clientMap {
+			if client != nil && client.s != nil && !client.Closing() {
+				clients = append(clients, client)
+			}
+		}
+	})
+
+	for _, client := range clients {
+		client.SubmitTicketForUsage(new(big.Int).SetUint64(client.s.TotalBytes()))
+	}
 }
 
 func (cm *ClientManager) PeekNearestClients() (prim *Client, secd *Client) {

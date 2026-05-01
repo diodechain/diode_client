@@ -798,14 +798,17 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 	}
 
 	prim, secd := client.clientMan.PeekNearestAddresses()
+	community := client.clientMan.PeekCommunityAddress()
 
-	if prim != nil {
+	if community != nil && *community != serverID {
+		ticket.LocalAddr = append([]byte{0}, community[:]...)
+	} else if prim != nil {
 		if *prim == serverID {
 			if secd != nil {
 				ticket.LocalAddr = append([]byte{1}, secd[:]...)
 			}
 		} else {
-			ticket.LocalAddr = append([]byte{0}, prim[:]...)
+			ticket.LocalAddr = append([]byte{1}, prim[:]...)
 		}
 	}
 

@@ -7,6 +7,7 @@ package rpc
 import (
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/edge"
@@ -105,6 +106,7 @@ func (resolver *Resolver) fetchDeviceTicket(primary *Client, deviceID Address, p
 
 	var lastTicket *edge.DeviceTicket
 	var lastErr error
+	var bestTicket *edge.DeviceTicket
 	triedServers := make(map[Address]bool)
 
 	for _, client := range clients {
@@ -119,7 +121,10 @@ func (resolver *Resolver) fetchDeviceTicket(primary *Client, deviceID Address, p
 		}
 
 		if err == nil {
-			return ticket, nil
+			if resolver.betterDeviceTicket(ticket, bestTicket) {
+				bestTicket = ticket
+			}
+			continue
 		}
 
 		lastTicket = ticket
@@ -146,14 +151,113 @@ func (resolver *Resolver) fetchDeviceTicket(primary *Client, deviceID Address, p
 
 		ticket, err = resolver.fetchAndValidate(homeClient, deviceID)
 		if err == nil {
-			return ticket, nil
+			if resolver.betterDeviceTicket(ticket, bestTicket) {
+				bestTicket = ticket
+			}
+			continue
 		}
 		lastTicket = ticket
 		lastErr = err
 	}
 
+	if bestTicket != nil {
+		return bestTicket, nil
+	}
+
 	// No cache poisoning on outdated tickets; caller can retry shortly.
 	return lastTicket, lastErr
+}
+
+type deviceTicketRouteRank struct {
+	ok        bool
+	community bool
+	bucket    int
+	score     float64
+	source    int
+}
+
+func (resolver *Resolver) betterDeviceTicket(candidate *edge.DeviceTicket, current *edge.DeviceTicket) bool {
+	if candidate == nil {
+		return false
+	}
+	if current == nil {
+		return true
+	}
+
+	candidateRank := resolver.firstRouteRank(candidate)
+	currentRank := resolver.firstRouteRank(current)
+	if candidateRank.ok && currentRank.ok {
+		if candidateRank.community != currentRank.community {
+			return candidateRank.community
+		}
+		if candidateRank.bucket != currentRank.bucket {
+			return candidateRank.bucket < currentRank.bucket
+		}
+		if candidateRank.score != currentRank.score {
+			return candidateRank.score < currentRank.score
+		}
+		if candidateRank.source != currentRank.source {
+			return candidateRank.source < currentRank.source
+		}
+	} else if candidateRank.ok {
+		return true
+	} else if currentRank.ok {
+		return false
+	}
+
+	return betterDeviceTicket(candidate, current)
+}
+
+func (resolver *Resolver) firstRouteRank(ticket *edge.DeviceTicket) deviceTicketRouteRank {
+	if resolver == nil || resolver.clientManager == nil || ticket == nil {
+		return deviceTicketRouteRank{}
+	}
+	serverIDs := ticket.GetServerIDs()
+	if len(serverIDs) == 0 {
+		return deviceTicketRouteRank{}
+	}
+
+	var ret deviceTicketRouteRank
+	resolver.clientManager.srv.Call(func() {
+		ranked := resolver.clientManager.bestServerIDCandidateLocked(serverIDs[0], time.Now())
+		if ranked == nil {
+			return
+		}
+		ret = deviceTicketRouteRank{
+			ok:        true,
+			community: ranked.candidate != nil && ranked.candidate.isCommunityRelay(),
+			bucket:    ranked.bucket,
+			score:     ranked.score,
+			source:    ranked.source,
+		}
+	})
+	return ret
+}
+
+func betterDeviceTicket(candidate *edge.DeviceTicket, current *edge.DeviceTicket) bool {
+	if candidate == nil {
+		return false
+	}
+	if current == nil {
+		return true
+	}
+
+	candidateRoutes := len(candidate.GetServerIDs())
+	currentRoutes := len(current.GetServerIDs())
+	if candidateRoutes != currentRoutes {
+		return candidateRoutes > currentRoutes
+	}
+
+	if candidate.TotalBytes != nil && current.TotalBytes != nil {
+		cmp := candidate.TotalBytes.Cmp(current.TotalBytes)
+		if cmp != 0 {
+			return cmp > 0
+		}
+	} else if candidate.TotalBytes != nil {
+		return true
+	}
+
+	return candidate.BlockNumber > current.BlockNumber
 }
 
 func prependClient(list []*Client, client *Client) []*Client {
@@ -198,7 +302,7 @@ func (resolver *Resolver) fetchAndValidate(client *Client, deviceID Address) (*e
 	if cache != nil {
 		cache.deviceTicket = device
 	} else {
-		cache = &DeviceCache{deviceTicket: device, serverIDs: []util.Address{client.serverID}}
+		cache = &DeviceCache{deviceTicket: device}
 	}
 
 	resolver.datapool.SetCacheDevice(deviceID, cache)

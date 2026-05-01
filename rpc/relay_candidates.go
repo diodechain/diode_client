@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
+	"math/big"
 	"net"
 	"sort"
 	"strconv"
@@ -19,6 +20,10 @@ const (
 	candidateFailurePenaltyMs        = 500.0
 	candidateLatencyAlpha            = 0.25
 	candidateMaxConcurrentUnmeasured = 3
+	candidateProbeInterval           = 30 * time.Minute
+	candidateReplacementMarginMs     = 25.0
+	communityRelayReserve            = 1
+	communityRelayMinResidence       = 2 * time.Minute
 	discoveryRefreshInterval         = 5 * time.Minute
 )
 
@@ -37,6 +42,7 @@ type relayCandidate struct {
 	lastSuccess         time.Time
 	lastFailure         time.Time
 	lastRefresh         time.Time
+	lastProbe           time.Time
 }
 
 type rankedRelayCandidate struct {
@@ -143,6 +149,35 @@ func (cm *ClientManager) RecordDialOutcome(host string, latency time.Duration, e
 		candidate.consecutiveFailures = 0
 		candidate.lastSuccess = time.Now()
 		cm.scheduleRelayCandidateCacheFlushLocked()
+	})
+}
+
+func (cm *ClientManager) RecordRelayUseOutcome(host string, latency time.Duration, err error) {
+	cm.srv.Cast(func() {
+		candidate := cm.ensureCandidateLocked(host)
+		if candidate == nil {
+			return
+		}
+		latencyMs := float64(latency.Milliseconds())
+		if latencyMs <= 0 {
+			latencyMs = 1
+		}
+		if err != nil {
+			candidate.consecutiveFailures++
+			candidate.lastFailure = time.Now()
+			cm.scheduleRelayCandidateCacheFlushLocked()
+			return
+		}
+		if !candidate.hasLatency {
+			candidate.latencyEWMA = latencyMs
+			candidate.hasLatency = true
+		} else {
+			candidate.latencyEWMA = (candidateLatencyAlpha * latencyMs) + ((1 - candidateLatencyAlpha) * candidate.latencyEWMA)
+		}
+		candidate.consecutiveFailures = 0
+		candidate.lastSuccess = time.Now()
+		cm.scheduleRelayCandidateCacheFlushLocked()
+		cm.maybeProbeBetterCandidateLocked(time.Now())
 	})
 }
 
@@ -285,6 +320,12 @@ func (cm *ClientManager) registerConnectedClientLocked(host string, nodeID util.
 		}
 		delete(cm.waitingNode, key)
 	}
+	cm.doSortTopClients()
+	cm.maybeProbeBetterCandidateLocked(time.Now())
+	cm.trimRelayPoolLocked()
+	if cm.pool != nil && cm.pool.HasPublishedPorts() && client != nil && client.s != nil {
+		client.SubmitTicketForUsage(new(big.Int).SetUint64(client.s.TotalBytes()))
+	}
 }
 
 func (cm *ClientManager) rankedPoolCandidatesLocked(now time.Time) []rankedRelayCandidate {
@@ -323,6 +364,34 @@ func (cm *ClientManager) rankedPoolCandidatesLocked(now time.Time) []rankedRelay
 	return candidates
 }
 
+func (cm *ClientManager) rankedActiveCandidatesLocked(now time.Time) []rankedRelayCandidate {
+	candidates := make([]rankedRelayCandidate, 0, len(cm.clients))
+	for _, client := range cm.clients {
+		if client == nil || client.Closing() {
+			continue
+		}
+		host := normalizeHostPort(client.host)
+		if host == "" {
+			continue
+		}
+		candidate := cm.candidates[host]
+		if candidate == nil {
+			candidate = &relayCandidate{
+				host:        host,
+				nodeID:      client.serverID,
+				hasNodeID:   client.serverID != util.EmptyAddress,
+				validated:   client.serverID != util.EmptyAddress,
+				hasLatency:  true,
+				latencyEWMA: float64(client.averageLatency()),
+				lastSuccess: now,
+			}
+		}
+		candidates = append(candidates, rankCandidate(candidate, now))
+	}
+	sortRankedCandidates(candidates)
+	return candidates
+}
+
 func (cm *ClientManager) activeClientHostsLocked() map[string]bool {
 	hosts := make(map[string]bool, len(cm.clients))
 	for _, client := range cm.clients {
@@ -336,11 +405,96 @@ func (cm *ClientManager) activeClientHostsLocked() map[string]bool {
 
 func (cm *ClientManager) doSelectNextHost() string {
 	now := time.Now()
+	if cm.activeCommunityRelayCountLocked() < communityRelayReserve {
+		if community := cm.bestInactiveCommunityCandidateLocked(now); community != nil {
+			return community.candidate.host
+		}
+	}
 	ranked := cm.rankedPoolCandidatesLocked(now)
 	for _, candidate := range ranked {
 		return candidate.candidate.host
 	}
 	return ""
+}
+
+func (cm *ClientManager) maybeProbeBetterCandidateLocked(now time.Time) {
+	if cm.targetClients <= 0 || len(cm.clients) < cm.targetClients || len(cm.clients) > cm.targetClients {
+		return
+	}
+	if cm.activeCommunityRelayCountLocked() < communityRelayReserve {
+		if community := cm.bestInactiveCommunityCandidateLocked(now); community != nil {
+			if now.Sub(community.candidate.lastProbe) >= candidateProbeInterval {
+				community.candidate.lastProbe = now
+				cm.startClient(community.candidate.host)
+			}
+			return
+		}
+	}
+	active := cm.rankedActiveCandidatesLocked(now)
+	if len(active) == 0 {
+		return
+	}
+	worst := active[len(active)-1]
+	inactive := cm.rankedPoolCandidatesLocked(now)
+	if len(inactive) == 0 {
+		return
+	}
+	best := inactive[0]
+	if best.candidate == nil || activeHostPresent(active, best.candidate.host) {
+		return
+	}
+	if now.Sub(best.candidate.lastProbe) < candidateProbeInterval {
+		return
+	}
+	if best.candidate.hasLatency {
+		if best.bucket > worst.bucket {
+			return
+		}
+		if best.bucket == worst.bucket && best.score+candidateReplacementMarginMs >= worst.score {
+			return
+		}
+	} else if worst.bucket != 0 {
+		return
+	}
+	best.candidate.lastProbe = now
+	cm.startClient(best.candidate.host)
+}
+
+func activeHostPresent(active []rankedRelayCandidate, host string) bool {
+	host = normalizeHostPort(host)
+	for _, ranked := range active {
+		if ranked.candidate != nil && normalizeHostPort(ranked.candidate.host) == host {
+			return true
+		}
+	}
+	return false
+}
+
+func (cm *ClientManager) activeCommunityRelayCountLocked() int {
+	count := 0
+	for _, client := range cm.clients {
+		candidate := cm.candidateForClientLocked(client)
+		if candidate != nil && candidate.isCommunityRelay() && candidate.validated && candidate.hasNodeID {
+			count++
+		}
+	}
+	return count
+}
+
+func (cm *ClientManager) bestInactiveCommunityCandidateLocked(now time.Time) *rankedRelayCandidate {
+	activeHosts := cm.activeClientHostsLocked()
+	var best *rankedRelayCandidate
+	for host, candidate := range cm.candidates {
+		if activeHosts[host] || candidate == nil || !candidate.isCommunityRelay() || !candidate.allowedForPool(now) {
+			continue
+		}
+		ranked := rankCandidate(candidate, now)
+		if best == nil || rankedRelayCandidateLess(ranked, *best) {
+			tmp := ranked
+			best = &tmp
+		}
+	}
+	return best
 }
 
 func (cm *ClientManager) knownRelayAddr(nodeID util.Address) (string, bool) {
@@ -358,7 +512,7 @@ func (cm *ClientManager) knownRelayAddr(nodeID util.Address) (string, bool) {
 func (cm *ClientManager) knownRelayHosts(nodeID util.Address) []string {
 	var hosts []string
 	cm.srv.Call(func() {
-		ranked := cm.rankedNodeCandidatesLocked(nodeID, time.Now(), true)
+		ranked := cm.rankedNodeCandidatesLocked(nodeID, time.Now(), false)
 		hosts = make([]string, 0, len(ranked))
 		for _, candidate := range ranked {
 			hosts = append(hosts, candidate.candidate.host)
@@ -423,6 +577,71 @@ func (cm *ClientManager) sortServerIDsForRouting(serverIDs []util.Address) []uti
 		out = append(out, ranked.serverID)
 	}
 	return out
+}
+
+func (cm *ClientManager) sortServerIDsWithinRoutingTier(serverIDs []util.Address) []util.Address {
+	return cm.sortServerIDsForRouting(serverIDs)
+}
+
+func (cm *ClientManager) trimRelayPoolLocked() {
+	if cm.targetClients <= 0 || len(cm.clients) <= cm.targetClients {
+		return
+	}
+	now := time.Now()
+	onlineClients := make(ByLatency, 0, len(cm.clients))
+	for _, client := range cm.clients {
+		if client == nil || client.Closing() {
+			continue
+		}
+		onlineClients = append(onlineClients, client)
+	}
+	if len(onlineClients) <= cm.targetClients {
+		return
+	}
+	sort.Sort(onlineClients)
+
+	communityCount := 0
+	for _, client := range onlineClients {
+		if candidate := cm.candidateForClientLocked(client); candidate != nil && candidate.isCommunityRelay() {
+			communityCount++
+		}
+	}
+
+	excess := len(onlineClients) - cm.targetClients
+	for i := len(onlineClients) - 1; i >= 0 && excess > 0; i-- {
+		client := onlineClients[i]
+		if client == nil || client.Closing() {
+			continue
+		}
+		candidate := cm.candidateForClientLocked(client)
+		isCommunity := candidate != nil && candidate.isCommunityRelay()
+		if isCommunity && communityCount <= communityRelayReserve {
+			continue
+		}
+		if isCommunity && !candidate.lastSuccess.IsZero() && now.Sub(candidate.lastSuccess) < communityRelayMinResidence {
+			continue
+		}
+		if cm.pool != nil && cm.pool.HasActivePortsForClient(client) {
+			continue
+		}
+		cm.Config.Logger.Debug("Closing slower relay after candidate probe: %s", client.host)
+		if isCommunity {
+			communityCount--
+		}
+		excess--
+		go client.Close()
+	}
+}
+
+func (cm *ClientManager) candidateForClientLocked(client *Client) *relayCandidate {
+	if client == nil {
+		return nil
+	}
+	host := normalizeHostPort(client.host)
+	if host == "" {
+		return nil
+	}
+	return cm.candidates[host]
 }
 
 func (cm *ClientManager) rankedNodeCandidatesLocked(nodeID util.Address, now time.Time, validatedOnly bool) []rankedRelayCandidate {
@@ -514,6 +733,10 @@ func (candidate *relayCandidate) sourceRank() int {
 	}
 }
 
+func (candidate *relayCandidate) isCommunityRelay() bool {
+	return candidate != nil && candidate.discovered && !candidate.configured && !candidate.perimeter
+}
+
 func rankCandidate(candidate *relayCandidate, now time.Time) rankedRelayCandidate {
 	bucket := 3
 	score := math.MaxFloat64
@@ -550,19 +773,21 @@ func rankCandidate(candidate *relayCandidate, now time.Time) rankedRelayCandidat
 
 func sortRankedCandidates(candidates []rankedRelayCandidate) {
 	sort.Slice(candidates, func(i, j int) bool {
-		left := candidates[i]
-		right := candidates[j]
-		if left.bucket != right.bucket {
-			return left.bucket < right.bucket
-		}
-		if left.score != right.score {
-			return left.score < right.score
-		}
-		if left.source != right.source {
-			return left.source < right.source
-		}
-		return left.candidate.host < right.candidate.host
+		return rankedRelayCandidateLess(candidates[i], candidates[j])
 	})
+}
+
+func rankedRelayCandidateLess(left rankedRelayCandidate, right rankedRelayCandidate) bool {
+	if left.bucket != right.bucket {
+		return left.bucket < right.bucket
+	}
+	if left.score != right.score {
+		return left.score < right.score
+	}
+	if left.source != right.source {
+		return left.source < right.source
+	}
+	return left.candidate.host < right.candidate.host
 }
 
 func (cm *ClientManager) runDiscoveryLoop() {
@@ -609,6 +834,7 @@ func (cm *ClientManager) refreshDiscoveryCandidates() {
 			}
 		}
 		cm.scheduleRelayCandidateCacheFlushLocked()
+		cm.maybeProbeBetterCandidateLocked(now)
 	})
 }
 

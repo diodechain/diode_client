@@ -308,6 +308,21 @@ func (p *DataPool) ClosePorts(client *Client) {
 	}
 }
 
+func (p *DataPool) HasActivePortsForClient(client *Client) (hasActive bool) {
+	if client == nil {
+		return false
+	}
+	p.srv.Call(func() {
+		for _, port := range p.devices {
+			if port.client == client && port.Conn != nil {
+				hasActive = true
+				return
+			}
+		}
+	})
+	return hasActive
+}
+
 func (p *DataPool) SetCacheBNS(key string, bns []Address) {
 	p.srv.Cast(func() {
 		p.bnsCache.Set(key, bns, cache.DefaultExpiration)
@@ -492,6 +507,13 @@ func (p *DataPool) UnregisterConnectionPeer(peerAddr string) {
 func (p *DataPool) GetPublishedPort(portnum int) (port *config.Port) {
 	p.srv.Call(func() { port = p.publishedPorts[portnum] })
 	return
+}
+
+func (p *DataPool) HasPublishedPorts() (hasPublished bool) {
+	p.srv.Call(func() {
+		hasPublished = len(p.publishedPorts) > 0
+	})
+	return hasPublished
 }
 
 func (p *DataPool) GetContext() (ctx *openssl.Ctx) {

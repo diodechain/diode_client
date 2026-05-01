@@ -340,7 +340,11 @@ func publishHandler() (err error) {
 		if cfg.ClientName != "" {
 			name = cfg.ClientName
 		}
+		app.clientManager.RefreshRelayCandidates()
+		app.clientManager.WaitForConnectedClients(2, 3*time.Second)
+		app.clientManager.WaitForCommunityRelays(1, 30*time.Second)
 		app.clientManager.GetPool().SetPublishedPorts(cfg.PublishedPorts)
+		app.clientManager.RefreshConnectedTickets()
 		for _, port := range cfg.PublishedPorts {
 			if port.Mode == config.PublicPublishedMode {
 				if port.To == httpPort {

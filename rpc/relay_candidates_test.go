@@ -2,10 +2,12 @@ package rpc
 
 import (
 	"net"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/diodechain/diode_client/config"
+	"github.com/diodechain/diode_client/edge"
 	"github.com/diodechain/diode_client/util"
 )
 
@@ -168,6 +170,88 @@ func TestKnownRelayHostsPreferValidatedLowLatency(t *testing.T) {
 	}
 }
 
+func TestKnownRelayHostsIncludesUnvalidatedDiscoveredCandidate(t *testing.T) {
+	cfg := testConfig()
+	config.AppConfig = cfg
+	cm := NewClientManager(cfg)
+	nodeID := util.Address{9}
+	now := time.Now()
+
+	discoveredCandidate := cm.ensureCandidateLocked(net.JoinHostPort("34.97.17.118", "41046"))
+	discoveredCandidate.discovered = true
+	discoveredCandidate.lastRefresh = now
+	discoveredCandidate.nodeID = nodeID
+	discoveredCandidate.hasNodeID = true
+
+	got := cm.knownRelayHosts(nodeID)
+	want := []string{"34.97.17.118:41046"}
+	if len(got) != len(want) || got[0] != want[0] {
+		t.Fatalf("unexpected discovered host list: got %v want %v", got, want)
+	}
+}
+
+func TestRoutingTiersKeepDefaultFallbackBehindTicketServer(t *testing.T) {
+	cfg := testConfig()
+	config.AppConfig = cfg
+	cm := NewClientManager(cfg)
+
+	ticketServer := util.Address{1}
+	defaultServer := util.Address{2}
+	cm.srv.Call(func() {
+		cm.clientMap[defaultServer] = &Client{
+			host:         "default-fast:41046",
+			serverID:     defaultServer,
+			latencySum:   10,
+			latencyCount: 1,
+		}
+	})
+
+	serverIDs := make([]util.Address, 0, 2)
+	serverIDs = appendRoutingTier(serverIDs, cm.sortServerIDsWithinRoutingTier([]util.Address{ticketServer}))
+	serverIDs = appendRoutingTier(serverIDs, cm.sortServerIDsWithinRoutingTier([]util.Address{defaultServer}))
+
+	if len(serverIDs) != 2 {
+		t.Fatalf("unexpected server id count: got %d want 2", len(serverIDs))
+	}
+	if serverIDs[0] != ticketServer {
+		t.Fatalf("expected ticket server to stay ahead of default fallback, got %v", serverIDs)
+	}
+}
+
+func TestRoutingKeepsTicketServerPreferenceBeforeLatencySorting(t *testing.T) {
+	cfg := testConfig()
+	config.AppConfig = cfg
+	cm := NewClientManager(cfg)
+
+	preferredServer := util.Address{1}
+	signedServer := util.Address{2}
+	cm.srv.Call(func() {
+		cm.clientMap[signedServer] = &Client{
+			host:         "signed-fast:41046",
+			serverID:     signedServer,
+			latencySum:   10,
+			latencyCount: 1,
+		}
+		cm.clientMap[preferredServer] = &Client{
+			host:         "preferred-slow:41046",
+			serverID:     preferredServer,
+			latencySum:   100,
+			latencyCount: 1,
+		}
+	})
+
+	ticketServerIDs := []util.Address{preferredServer, signedServer}
+	serverIDs := make([]util.Address, 0, len(ticketServerIDs))
+	serverIDs = appendRoutingTier(serverIDs, ticketServerIDs)
+
+	if len(serverIDs) != 2 {
+		t.Fatalf("unexpected server id count: got %d want 2", len(serverIDs))
+	}
+	if serverIDs[0] != preferredServer {
+		t.Fatalf("expected ticket preference to be preserved, got %v", serverIDs)
+	}
+}
+
 func TestSortServerIDsForRoutingPrefersBestKnownNode(t *testing.T) {
 	cfg := testConfig()
 	config.AppConfig = cfg
@@ -273,6 +357,31 @@ func TestGetDefaultClientsIncludesPlainHostSeeds(t *testing.T) {
 	}
 }
 
+func TestAddNewAddressesCachesExistingDefaultsBeforePerimeterSwitch(t *testing.T) {
+	cfg := testConfig()
+	config.AppConfig = cfg
+	cfg.RemoteRPCAddrs = []string{"contract-a:41046", "contract-b:41046"}
+	cm := NewClientManager(cfg)
+	cm.targetClients = 2
+	cm.clients = append(cm.clients,
+		NewClient("default-a:41046", nil, cfg, cm.pool),
+		NewClient("default-b:41046", nil, cfg, cm.pool),
+	)
+
+	cm.AddNewAddresses()
+
+	got := []string(cm.savedDefaultAddresses)
+	want := []string{"default-a:41046", "default-b:41046"}
+	if len(got) != len(want) {
+		t.Fatalf("unexpected saved defaults: got %v want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("unexpected saved defaults: got %v want %v", got, want)
+		}
+	}
+}
+
 func TestRegisterConnectedClientLockedPenalizesRequestedHostOnIdentityMismatch(t *testing.T) {
 	cfg := testConfig()
 	config.AppConfig = cfg
@@ -314,6 +423,110 @@ func TestRegisterConnectedClientLockedPenalizesRequestedHostOnIdentityMismatch(t
 	}
 	if connectedCandidate.consecutiveFailures != 0 {
 		t.Fatalf("expected connected host not to be penalized, got %d", connectedCandidate.consecutiveFailures)
+	}
+}
+
+func TestRecordRelayUseOutcomeUpdatesCandidateScore(t *testing.T) {
+	cfg := testConfig()
+	config.AppConfig = cfg
+	cm := NewClientManager(cfg)
+
+	cm.srv.Call(func() {
+		cm.syncConfiguredCandidatesLocked([]string{"alpha:41046"})
+	})
+	cm.RecordRelayUseOutcome("alpha:41046", 42*time.Millisecond, nil)
+	cm.srv.Call(func() {})
+
+	candidate := cm.candidates["alpha:41046"]
+	if candidate == nil {
+		t.Fatal("expected candidate to exist")
+	}
+	if !candidate.hasLatency || candidate.latencyEWMA != 42 {
+		t.Fatalf("expected relay use latency to be recorded, got %+v", candidate)
+	}
+	if candidate.consecutiveFailures != 0 {
+		t.Fatalf("expected successful relay use to clear failures, got %d", candidate.consecutiveFailures)
+	}
+}
+
+func TestSelectNextHostReservesCommunityRelay(t *testing.T) {
+	cfg := testConfig()
+	config.AppConfig = cfg
+	cm := NewClientManager(cfg)
+	cm.targetClients = 5
+	now := time.Now()
+
+	cm.srv.Call(func() {
+		for i := 0; i < cm.targetClients; i++ {
+			host := net.JoinHostPort("seed-"+strconv.Itoa(i), "41046")
+			client := &Client{
+				host:         host,
+				serverID:     util.Address{byte(i + 1)},
+				latencySum:   10,
+				latencyCount: 1,
+			}
+			cm.clients = append(cm.clients, client)
+			cm.clientMap[client.serverID] = client
+			candidate := cm.ensureCandidateLocked(host)
+			candidate.configured = true
+			candidate.validated = true
+			candidate.hasLatency = true
+			candidate.latencyEWMA = 10
+			candidate.lastSuccess = now
+		}
+		community := cm.ensureCandidateLocked("community:41046")
+		community.discovered = true
+		community.validated = true
+		community.hasLatency = true
+		community.latencyEWMA = 100
+		community.lastSuccess = now
+		community.lastRefresh = now
+	})
+
+	var got string
+	cm.srv.Call(func() {
+		got = cm.doSelectNextHost()
+	})
+	if got != "community:41046" {
+		t.Fatalf("expected inactive community relay to fill reserve slot, got %q", got)
+	}
+}
+
+func TestResolverRouteRankMarksCommunityRelay(t *testing.T) {
+	cfg := testConfig()
+	config.AppConfig = cfg
+	cm := NewClientManager(cfg)
+	now := time.Now()
+	communityServer := util.Address{1}
+	seedServer := util.Address{2}
+
+	cm.srv.Call(func() {
+		community := cm.ensureCandidateLocked("community:41046")
+		community.nodeID = communityServer
+		community.hasNodeID = true
+		community.discovered = true
+		community.validated = true
+		community.hasLatency = true
+		community.latencyEWMA = 100
+		community.lastSuccess = now
+		community.lastRefresh = now
+
+		seed := cm.ensureCandidateLocked("seed:41046")
+		seed.nodeID = seedServer
+		seed.hasNodeID = true
+		seed.configured = true
+		seed.validated = true
+		seed.hasLatency = true
+		seed.latencyEWMA = 10
+		seed.lastSuccess = now
+	})
+
+	resolver := &Resolver{clientManager: cm}
+	communityTicket := &edge.DeviceTicket{ServerID: communityServer}
+	seedTicket := &edge.DeviceTicket{ServerID: seedServer}
+
+	if !resolver.betterDeviceTicket(communityTicket, seedTicket) {
+		t.Fatal("expected community ticket to be preferred over seed ticket")
 	}
 }
 
