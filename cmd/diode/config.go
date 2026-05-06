@@ -32,6 +32,7 @@ func init() {
 	cfg := config.AppConfig
 	configCmd.Flag.Var(&cfg.ConfigDelete, "delete", "deletes the given variable from the config")
 	configCmd.Flag.BoolVar(&cfg.ConfigList, "list", false, "list all stored config keys")
+	configCmd.Flag.BoolVar(&cfg.ConfigFullValues, "full", false, "list complete values (no line-width truncation)")
 	configCmd.Flag.BoolVar(&cfg.ConfigUnsafe, "unsafe", false, "display private keys (disabled by default)")
 	configCmd.Flag.Var(&cfg.ConfigSet, "set", "sets the given variable in the config")
 }
@@ -137,6 +138,7 @@ func configHandler() (err error) {
 
 	if cfg.ConfigList || !activity {
 		var value []byte
+		termWidth := config.TerminalWidth(80)
 		cfg.PrintLabel("<KEY>", "<VALUE>")
 		list := db.DB.List()
 		sort.Strings(list)
@@ -165,7 +167,7 @@ func configHandler() (err error) {
 					label = util.EncodeToString(value)
 				}
 			}
-			cfg.PrintLabel(name, label)
+			cfg.PrintLabel(name, config.TruncateConfigValue(name, label, termWidth, cfg.ConfigFullValues))
 		}
 	}
 	return
