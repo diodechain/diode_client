@@ -87,6 +87,7 @@ type Config struct {
 	SocksServerPort         int              `yaml:"socksd_port,omitempty" json:"socksd_port,omitempty"`
 	SocksFallback           string           `yaml:"fallback,omitempty" json:"fallback,omitempty"`
 	ConfigUnsafe            bool             `yaml:"-" json:"-"`
+	ConfigFullValues        bool             `yaml:"-" json:"-"`
 	ConfigList              bool             `yaml:"-" json:"-"`
 	ConfigDelete            StringValues     `yaml:"-" json:"-"`
 	ConfigSet               StringValues     `yaml:"-" json:"-"`
