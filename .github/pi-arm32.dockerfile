@@ -26,7 +26,7 @@ RUN ln -s `which arm-linux-gnueabihf-strip` /pitools/arm-bcm2708/gcc-linaro-arm-
 
 # install golang
 RUN echo "Build and install golang......"
-ENV GOFILE=go1.25.3.linux-amd64.tar.gz
+ENV GOFILE=go1.25.9.linux-amd64.tar.gz
 RUN wget https://dl.google.com/go/$GOFILE && \
     [ "0335f314b6e7bfe08c3d0cfaa7c19db961b7b99fb20be62b0a826c992ad14e0f" = "$(sha256sum $GOFILE | cut -d ' ' -f1)" ] && \
     tar -xvf $GOFILE
