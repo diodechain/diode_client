@@ -6,6 +6,7 @@ package rpc
 import (
 	"math/rand"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -92,56 +93,46 @@ func TestE2ETunnels(t *testing.T) {
 	pubKey := LoadClientPubKey()
 	ID := util.PubkeyToAddress(pubKey)
 
-	errCh := make(chan error)
-	// client
-	go func() {
-		// fack proxy client and server
-		fc, fs := net.Pipe()
-		defer fc.Close()
-		defer fs.Close()
-		// e2e server for fc and fs
-		e2eServer := newTestE2EServer(fs, ID)
+	errCh := make(chan error, 2)
+	var wg sync.WaitGroup
+	runTunnel := func(connect func(*E2EServer) error, localConn net.Conn) {
+		wg.Add(1)
 		go func() {
-			time.Sleep(2 * time.Second)
-			fc.Close()
+			defer wg.Done()
+			// fake client and server
+			fc, fs := net.Pipe()
+			defer fc.Close()
+			defer fs.Close()
+
+			e2eServer := newTestE2EServer(fs, ID)
+			go func() {
+				time.Sleep(2 * time.Second)
+				fc.Close()
+			}()
+			defer e2eServer.Close()
+
+			if err := connect(e2eServer); err != nil {
+				errCh <- err
+				return
+			}
+
+			tunnel := NewTunnel(e2eServer.localConn, localConn)
+			defer tunnel.Close()
+			tunnel.Copy()
+			errCh <- nil
 		}()
-		defer e2eServer.Close()
-		err := e2eServer.InternalClientConnect()
-		if err != nil {
-			errCh <- err
-			return
-		}
-		// copy local tunnel
-		tunnel := NewTunnel(e2eServer.localConn, ca)
-		defer tunnel.Close()
-		tunnel.Copy()
-		errCh <- nil
-	}()
-	// device
-	go func() {
-		// fack device client and server
-		fc, fs := net.Pipe()
-		defer fc.Close()
-		defer fs.Close()
-		// e2e client for fc and fs
-		e2eServer := newTestE2EServer(fs, ID)
-		go func() {
-			time.Sleep(2 * time.Second)
-			fc.Close()
-		}()
-		defer e2eServer.Close()
-		err := e2eServer.InternalServerConnect()
-		if err != nil {
-			errCh <- err
-			return
-		}
-		// copy local tunnel to c
-		tunnel := NewTunnel(e2eServer.localConn, cb)
-		defer tunnel.Close()
-		tunnel.Copy()
-	}()
-	err = <-errCh
-	if err != nil {
-		t.Fatal(err)
 	}
+
+	// client
+	runTunnel(func(server *E2EServer) error { return server.InternalClientConnect() }, ca)
+	// device
+	runTunnel(func(server *E2EServer) error { return server.InternalServerConnect() }, cb)
+
+	for i := 0; i < 2; i++ {
+		err = <-errCh
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	wg.Wait()
 }

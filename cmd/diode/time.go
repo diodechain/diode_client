@@ -30,20 +30,20 @@ func timeHandler() (err error) {
 		return
 	}
 	cfg := config.AppConfig
-	client := app.clientManager.GetNearestClient()
-	blocknr, _ := client.LastValid()
-	header := client.GetBlockHeaderValid(blocknr)
-	if header.Number() == 0 {
-		err = ErrFailedToFetchHeader
-		return
-	}
+	return app.clientManager.CallWithClientFailover("diode time", func(client *rpc.Client) error {
+		blocknr, _ := client.LastValid()
+		header := client.GetBlockHeaderValid(blocknr)
+		if header.Number() == 0 {
+			return ErrFailedToFetchHeader
+		}
 
-	t0 := int(header.Timestamp())
-	t1 := t0 + (rpc.WindowSize() * averageBlockTime)
+		t0 := int(header.Timestamp())
+		t1 := t0 + (rpc.WindowSize() * averageBlockTime)
 
-	tm0 := time.Unix(int64(t0), 0)
-	tm1 := time.Unix(int64(t1), 0)
-	cfg.PrintLabel("Minimum Time", fmt.Sprintf("%s (%d)", tm0.Format(time.UnixDate), t0))
-	cfg.PrintLabel("Maximum Time", fmt.Sprintf("%s (%d)", tm1.Format(time.UnixDate), t1))
-	return
+		tm0 := time.Unix(int64(t0), 0)
+		tm1 := time.Unix(int64(t1), 0)
+		cfg.PrintLabel("Minimum Time", fmt.Sprintf("%s (%d)", tm0.Format(time.UnixDate), t0))
+		cfg.PrintLabel("Maximum Time", fmt.Sprintf("%s (%d)", tm1.Format(time.UnixDate), t1))
+		return nil
+	})
 }

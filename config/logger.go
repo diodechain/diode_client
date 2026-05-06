@@ -21,7 +21,7 @@ type Logger struct {
 	logger *zap.Logger
 }
 
-func newZapLogger(cfg *Config) (logger *zap.Logger, err error) {
+func newZapLoggerLegacy(cfg *Config) (logger *zap.Logger, err error) {
 	zapCfg := zap.NewProductionConfig()
 	if cfg.LogDateTime || cfg.Debug {
 		zapCfg.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
@@ -32,7 +32,7 @@ func newZapLogger(cfg *Config) (logger *zap.Logger, err error) {
 	zapCfg.DisableStacktrace = true
 	if (cfg.LogMode & LogToFile) > 0 {
 		_, err = os.Stat(cfg.LogFilePath)
-		if err == nil || (err != nil && os.IsExist(err)) {
+		if err == nil || os.IsExist(err) {
 			zapCfg.OutputPaths = []string{cfg.LogFilePath}
 			zapCfg.ErrorOutputPaths = []string{cfg.LogFilePath}
 			zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
@@ -51,15 +51,84 @@ func newZapLogger(cfg *Config) (logger *zap.Logger, err error) {
 	zapCfg.Encoding = "consoleraw"
 	zapCfg.EncoderConfig.ConsoleSeparator = " "
 	zapCfg.EncoderConfig.LevelKey = "[L]"
-	logger, _ = zapCfg.Build()
-	defer logger.Sync()
-	return
+	return zapCfg.Build()
+}
+
+func newZapLogger(cfg *Config) (logger *zap.Logger, err error) {
+	var remote zapcore.WriteSyncer
+	if cfg.LogTargetRemote != nil {
+		if ws, ok := cfg.LogTargetRemote.(zapcore.WriteSyncer); ok {
+			remote = ws
+		}
+	}
+	if remote == nil {
+		return newZapLoggerLegacy(cfg)
+	}
+
+	// Tee: build primary the same way as legacy, then add a second core for remote.
+	primary, err := newZapLoggerLegacy(cfg)
+	if err != nil {
+		return nil, err
+	}
+	// Extract the single core from the legacy logger (zap always has at least one).
+	cores := primary.Core()
+	encCfg := buildEncoderConfigForTee(cfg)
+	level := levelEnablerForTee(cfg)
+	encR := zapcore.NewConsoleEncoder(encCfg)
+	remoteCore := zapcore.NewCore(encR, remote, level)
+	return zap.New(zapcore.NewTee(cores, remoteCore)), nil
+}
+
+func levelEnablerForTee(cfg *Config) zapcore.LevelEnabler {
+	if cfg.LogDateTime || cfg.Debug {
+		return zap.NewAtomicLevelAt(zap.DebugLevel)
+	}
+	return zap.NewAtomicLevelAt(zap.InfoLevel)
+}
+
+func buildEncoderConfigForTee(cfg *Config) zapcore.EncoderConfig {
+	zapCfg := zap.NewProductionConfig()
+	if cfg.LogDateTime || cfg.Debug {
+		zapCfg.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
+	} else {
+		zapCfg.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
+	}
+	zapCfg.EncoderConfig.CallerKey = ""
+	zapCfg.DisableStacktrace = true
+	if (cfg.LogMode & LogToFile) > 0 {
+		_, err := os.Stat(cfg.LogFilePath)
+		if err == nil || os.IsExist(err) {
+			zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
+		} else {
+			zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+		}
+	} else {
+		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	}
+	if !cfg.LogDateTime {
+		zapCfg.EncoderConfig.TimeKey = ""
+	} else {
+		zapCfg.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(termDatetimeTempl)
+	}
+	zapCfg.EncoderConfig.ConsoleSeparator = " "
+	zapCfg.EncoderConfig.LevelKey = "[L]"
+	return zapCfg.EncoderConfig
 }
 
 // NewLogger initialize logger with given config
 func NewLogger(cfg *Config) (l Logger, err error) {
 	l.logger, err = newZapLogger(cfg)
 	return
+}
+
+// ReloadLogger replaces cfg.Logger using current cfg (e.g. after LogTargetRemote is set).
+func ReloadLogger(cfg *Config) error {
+	logger, err := newZapLogger(cfg)
+	if err != nil {
+		return err
+	}
+	cfg.Logger = &Logger{logger: logger}
+	return nil
 }
 
 // Info logs to logger in Info level

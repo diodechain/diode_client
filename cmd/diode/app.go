@@ -55,12 +55,9 @@ func init() {
 	diodeCmd.Flag.BoolVar(&cfg.EnableMetrics, "metrics", false, "enable metrics stats")
 	diodeCmd.Flag.BoolVar(&cfg.EnableTray, "tray", false, "show a system tray icon")
 	diodeCmd.Flag.BoolVar(&cfg.BlockquickDowngrade, "bqdowngrade", false, "reset blockquick window after repeated validation failures")
-	diodeCmd.Flag.BoolVar(&cfg.Debug, "debug", false, "turn on debug mode")
-	diodeCmd.Flag.BoolVar(&cfg.EnableAPIServer, "api", false, "turn on the config api")
-	diodeCmd.Flag.StringVar(&cfg.APIServerAddr, "apiaddr", "localhost:1081", "define config api server address")
+	registerSharedControlFlags(&diodeCmd.Flag, cfg, "debug", "api", "apiaddr")
 	diodeCmd.Flag.IntVar(&cfg.RlimitNofile, "rlimit_nofile", 0, "specify the file descriptor numbers that can be opened by this process")
-	diodeCmd.Flag.StringVar(&cfg.LogFilePath, "logfilepath", "", "absolute path to the log file")
-	diodeCmd.Flag.BoolVar(&cfg.LogDateTime, "logdatetime", false, "show the date time in log")
+	registerSharedControlFlags(&diodeCmd.Flag, cfg, "logfilepath", "logstats", "logtarget", "logdatetime")
 	diodeCmd.Flag.StringVar(&cfg.ConfigFilePath, "configpath", "", "yaml file path to config file")
 	diodeCmd.Flag.StringVar(&cfg.CPUProfile, "cpuprofile", "", "file path for cpu profiling")
 	// diodeCmd.Flag.IntVar(&cfg.CPUProfileRate, "cpuprofilerate", 100, "the CPU profiling rate to hz samples per second")
@@ -76,13 +73,7 @@ func init() {
 
 	diodeCmd.Flag.DurationVar(&cfg.RemoteRPCTimeout, "timeout", 5*time.Second, "timeout seconds to connect to the remote rpc server")
 	diodeCmd.Flag.DurationVar(&cfg.RetryWait, "retrywait", 1*time.Second, "wait seconds before next retry")
-	diodeCmd.Flag.Var(&cfg.RemoteRPCAddrs, "diodeaddrs", "addresses of Diode node server (default: asia.prenet.diode.io:41046, europe.prenet.diode.io:41046, usa.prenet.diode.io:41046)")
-	diodeCmd.Flag.Var(&cfg.SBlockdomains, "blockdomains", "domains (bns names) that are not allowed")
-	diodeCmd.Flag.Var(&cfg.SBlocklists, "blocklists", "addresses are not allowed to connect to published resource (used when allowlists is empty)")
-	diodeCmd.Flag.Var(&cfg.SAllowlists, "allowlists", "addresses are allowed to connect to published resource (used when blocklists is empty)")
-	diodeCmd.Flag.Var(&cfg.SBinds, "bind", "bind a remote port to a local port. -bind <local_port|auto>:<to_address>:<to_port>:(udp|tcp|tls)")
-	diodeCmd.Flag.DurationVar(&cfg.ResolveCacheTime, "resolvecachetime", 10*time.Minute, "time for member and bns resolvers cache. (default: 10 minutes)")
-	diodeCmd.Flag.DurationVar(&cfg.ResolveCacheTime, "bnscachetime", 10*time.Minute, "(Deprecated. Please use resolvecachetime) time for bns address resolve cache. (default: 10 minutes)")
+	registerSharedControlFlags(&diodeCmd.Flag, cfg, "diodeaddrs", "blockdomains", "blocklists", "allowlists", "bind", "resolvecachetime", "bnscachetime")
 	diodeCmd.Flag.IntVar(&cfg.MaxPortsPerDevice, "maxports", 0, "maximum concurrent ports per device (0 = unlimited)")
 	config.AppConfig = cfg
 	// Add diode commands
@@ -98,8 +89,11 @@ func init() {
 	diodeCmd.AddSubCommand(timeCmd)
 	diodeCmd.AddSubCommand(tokenCmd)
 	diodeCmd.AddSubCommand(sshCmd)
+	diodeCmd.AddSubCommand(sshProxyCmd)
+	diodeCmd.AddSubCommand(scpCmd)
 	diodeCmd.AddSubCommand(versionCmd)
 	diodeCmd.AddSubCommand(updateCmd)
+	diodeCmd.AddSubCommand(mcpCmd)
 }
 
 func prepareDiode() error {
@@ -160,6 +154,8 @@ func prepareDiode() error {
 		cfg.RemoteRPCAddrs[i], cfg.RemoteRPCAddrs[j] = cfg.RemoteRPCAddrs[j], cfg.RemoteRPCAddrs[i]
 	})
 
+	// logtarget has an implicit bind - inject the bind if set
+	injectLogTargetSBinds(cfg)
 	cfg.Binds = make([]config.Bind, 0)
 	for _, str := range cfg.SBinds {
 		bind, err := parseBind(str)
@@ -170,20 +166,22 @@ func prepareDiode() error {
 	}
 
 	if cfg.BnsCacheTime > 0 {
-		fmt.Println("Warning: bnscachetime is deprecated, please use resolvecachetime instead")
-		cfg.ResolveCacheTime = cfg.BnsCacheTime
+		cfg.Logger.Warn("Warning: bnscachetime is deprecated, please use resolvecachetime instead")
 	}
+	config.NormalizeResolveCache(cfg)
 	// initialize diode application
 	app = NewDiode(cfg)
 	if err := app.Init(); err != nil {
+		app = nil
 		return err
 	}
 	return nil
 }
 
 func isValidRPCAddress(address string) (isValid bool) {
-	_, err := url.Parse(address)
-	if err == nil {
+	uri, err := url.Parse(address)
+
+	if err == nil && uri.Host != "" {
 		return true
 	}
 	_, _, err = net.SplitHostPort(address)
@@ -195,7 +193,9 @@ func isValidRPCAddress(address string) (isValid bool) {
 
 func cleanDiode() error {
 	// close diode application
-	app.Close()
+	if app != nil {
+		app.Close()
+	}
 	return nil
 }
 
@@ -206,15 +206,19 @@ type Diode struct {
 	socksServer     *rpc.Server
 	proxyServer     *rpc.ProxyServer
 	configAPIServer *ConfigAPIServer
+	controlRuntime  controlRuntimeState
+	controlsLoaded  bool
 	cd              sync.Once
+	mu              sync.Mutex
+	logStatsStop    func()
 	deferals        []func()
 	closeCh         chan struct{}
 	cmd             *command.Command
 }
 
 // NewDiode return diode application
-func NewDiode(cfg *config.Config) Diode {
-	return Diode{
+func NewDiode(cfg *config.Config) *Diode {
+	return &Diode{
 		config:        cfg,
 		clientManager: rpc.NewClientManager(cfg),
 		closeCh:       make(chan struct{}),
@@ -339,6 +343,16 @@ func (dio *Diode) Init() error {
 		})
 	}
 
+	if cfg.LogStats > 0 {
+		dio.logStatsStop = config.StartLogStats(cfg)
+	}
+	dio.Defer(func() {
+		if dio.logStatsStop != nil {
+			dio.logStatsStop()
+			dio.logStatsStop = nil
+		}
+	})
+
 	{
 		if cfg.FleetAddr == config.NullAddr {
 			cfg.FleetAddr = config.DefaultFleetAddr
@@ -378,9 +392,24 @@ func (dio *Diode) Start() error {
 	if dio.cmd == nil {
 		return fmt.Errorf("could not determine command to start")
 	}
+	if err := dio.loadPersistedSharedControls(); err != nil {
+		return err
+	}
 	cfg.PrintLabel("Client address", cfg.ClientAddr.HexString())
 	cfg.PrintLabel("Fleet address", cfg.FleetAddr.HexString())
 	dio.clientManager.Start()
+
+	// socksd waits for a validated client inside Start(); reconcile the SOCKS listener here so
+	// local integration tests (and scripts like ci_test.sh) can probe the port while the
+	// network handshake is still in progress.
+	if dio.cmd.Name == "socksd" {
+		patch := ControlPatch{}
+		patch.Add("socksd", "socksd", true)
+		result := dio.ApplyControlPatch(patch, controlPatchApplyOptions{Reconcile: true})
+		if result.HasValidationErrors() {
+			return fmt.Errorf("couldn't apply socksd controls: %v", result.ValidationErrors)
+		}
+	}
 
 	if dio.cmd.Type == command.EmptyConnectionCommand {
 		return nil
@@ -493,6 +522,8 @@ func (dio *Diode) Closed() bool {
 
 // Close shut down diode application
 func (dio *Diode) Close() {
+	dio.mu.Lock()
+	defer dio.mu.Unlock()
 	dio.cd.Do(func() {
 		cfg := config.AppConfig
 		for _, fun := range dio.deferals {

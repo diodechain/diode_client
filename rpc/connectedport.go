@@ -116,7 +116,7 @@ func (port *ConnectedPort) bufferRunner() {
 			break
 		}
 	}
-	fmt.Printf("Stopped writer buffer with: %v\n", port.localErr)
+	port.Log().Debug("Stopped writer buffer: %v", port.localErr)
 }
 
 // GetDeviceKey returns this ports key

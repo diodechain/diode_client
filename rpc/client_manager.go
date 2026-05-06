@@ -21,6 +21,7 @@ import (
 	"github.com/diodechain/diode_client/edge"
 	"github.com/diodechain/diode_client/util"
 	"github.com/dominicletz/genserver"
+	"golang.org/x/sync/singleflight"
 )
 
 // ClientManager struct for the client manager
@@ -52,6 +53,8 @@ type ClientManager struct {
 	portOpen2Mu             sync.RWMutex
 	portOpen2Handlers       map[string]func(*edge.PortOpen2) error
 	defaultPortOpen2Handler func(*edge.PortOpen2) error
+
+	defaultClientsGroup *singleflight.Group
 }
 
 type nodeRequest struct {
@@ -63,16 +66,17 @@ type nodeRequest struct {
 // NewClientManager returns a new manager rpc client
 func NewClientManager(cfg *config.Config) *ClientManager {
 	cm := &ClientManager{
-		srv:               genserver.New("ClientManager"),
-		clientMap:         make(map[util.Address]*Client),
-		waitingNode:       make(map[util.Address]*nodeRequest),
-		pool:              NewPool(),
-		Config:            cfg,
-		targetClients:     5,
-		relayCacheDB:      db.DB,
-		candidates:        make(map[string]*relayCandidate),
-		discoveryStop:     make(chan struct{}),
-		portOpen2Handlers: make(map[string]func(*edge.PortOpen2) error),
+		srv:                 genserver.New("ClientManager"),
+		clientMap:           make(map[util.Address]*Client),
+		waitingNode:         make(map[util.Address]*nodeRequest),
+		pool:                NewPool(),
+		Config:              cfg,
+		targetClients:       5,
+		relayCacheDB:        db.DB,
+		candidates:          make(map[string]*relayCandidate),
+		discoveryStop:       make(chan struct{}),
+		portOpen2Handlers:   make(map[string]func(*edge.PortOpen2) error),
+		defaultClientsGroup: &singleflight.Group{},
 	}
 	if !config.AppConfig.LogDateTime {
 		cm.srv.DeadlockCallback = nil
@@ -175,8 +179,24 @@ func (cm *ClientManager) GetClientByHost(host string) *Client {
 	return found
 }
 
-// GetClientByHost returns an existing client for host without connecting.
+// GetDefaultClients returns connected clients for configured RPC hosts.
+// Concurrent callers are coalesced so only one connect loop runs at a time,
+// avoiding thundering herd on ClientManager.connect() and timeout storms.
 func (cm *ClientManager) GetDefaultClients() []*Client {
+	v, _, _ := cm.defaultClientsGroup.Do("default", func() (interface{}, error) {
+		return cm.getDefaultClientsUncached(), nil
+	})
+	return v.([]*Client)
+}
+
+// testHookGetDefaultClientsUncached, when non-nil, is called once at the start of getDefaultClientsUncached (for unit tests).
+var testHookGetDefaultClientsUncached func()
+
+// getDefaultClientsUncached does the actual GetClientOrConnect loop (used under singleflight).
+func (cm *ClientManager) getDefaultClientsUncached() []*Client {
+	if testHookGetDefaultClientsUncached != nil {
+		testHookGetDefaultClientsUncached()
+	}
 	hosts := cm.Config.RemoteRPCAddrs
 	clients := make([]*Client, 0, len(hosts))
 	seenHosts := make(map[string]bool, len(hosts))
@@ -191,12 +211,15 @@ func (cm *ClientManager) GetDefaultClients() []*Client {
 			continue
 		}
 
-		url, err := url.Parse(host)
-		if err != nil || url.User == nil || url.User.Username() == "" {
+		parsed, err := url.Parse(host)
+		if err != nil {
+			continue
+		}
+		if parsed.User == nil || parsed.User.Username() == "" {
 			continue
 		}
 
-		id, err := util.DecodeAddress(url.User.Username())
+		id, err := util.DecodeAddress(parsed.User.Username())
 		if err != nil {
 			continue
 		}
@@ -623,11 +646,43 @@ func (cm *ClientManager) connect(nodeID util.Address, host string) (ret *Client,
 			}
 		}
 		req.waiting = append(req.waiting, r)
+
+		go func() {
+			// Cleanup if the client is not found after 20 seconds
+			time.Sleep(20 * time.Second)
+			cm.srv.Cast(func() {
+				req := cm.waitingNode[nodeID]
+				if req == nil {
+					return
+				}
+				for i, w := range req.waiting {
+					if w == r {
+						req.waiting = append(req.waiting[:i], req.waiting[i+1:]...)
+						break
+					}
+				}
+				if len(req.waiting) == 0 {
+					delete(cm.waitingNode, nodeID)
+				}
+			})
+		}()
+
 		if req.client == nil || req.client.Closing() {
 			req.client = cm.startClient(req.host)
 		}
 		return false
 	}, 15*time.Second)
+
+	if err != nil {
+		waiters := -1
+		cm.srv.Call(func() {
+			if req := cm.waitingNode[nodeID]; req != nil {
+				waiters = len(req.waiting)
+			}
+		})
+		cm.Config.Logger.Warn("ClientManager.connect: timeout or failure nodeID=%s host=%s waiter_depth=%d", nodeID.HexString(), host, waiters)
+	}
+
 	return
 }
 
@@ -721,6 +776,39 @@ func (cm *ClientManager) GetNearestClient() (client *Client) {
 		return true
 	})
 	return
+}
+
+// CallWithClientFailover runs fn with each connected client in latency order until fn
+// returns nil or a non-transient error. On transient errors (dropped connection, dead
+// genserver, cancelled RPC, timeouts, etc.) it tries the next relay.
+//
+// Prefer this over GetNearestClient for one-off CLI paths where a single bad relay
+// should not doom the command. For long-lived sessions that must stick to one node,
+// use GetNearestClient or GetClient as appropriate.
+func (cm *ClientManager) CallWithClientFailover(op string, fn func(*Client) error) error {
+	clients := cm.ClientsByLatency()
+	if len(clients) == 0 {
+		return fmt.Errorf("no rpc clients available")
+	}
+	var lastErr error
+	for i, c := range clients {
+		err := fn(c)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+		if !IsTransientRPCError(err) {
+			return err
+		}
+		if i+1 < len(clients) {
+			host, herr := c.Host()
+			if herr != nil {
+				host = "unknown"
+			}
+			cm.Config.Logger.Info("%s: transient RPC error on %q, trying next relay (%d/%d): %v", op, host, i+1, len(clients), err)
+		}
+	}
+	return lastErr
 }
 
 // PeekNearestAddresses is a non-blocking version of GetNearestClient but can return nil

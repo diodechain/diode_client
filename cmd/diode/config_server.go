@@ -7,13 +7,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"mime"
+	"net"
 	"net/http"
-	"net/url"
-	"os"
-	"runtime"
 	"strings"
 	"sync"
-	"syscall"
 
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/rpc"
@@ -34,17 +31,19 @@ type apiResponse struct {
 }
 
 type configEntry struct {
-	Address              string         `json:"client"`
-	Fleet                string         `json:"fleet"`
-	Version              string         `json:"version"`
-	LastValidBlockNumber uint64         `json:"lastValidBlockNumber"`
-	LastValidBlockHash   string         `json:"lastValidBlockHash"`
-	Binds                []bind         `json:"binds"`
-	Ports                []port         `json:"ports"`
-	EnableSocks          bool           `json:"enableSocks"`
-	EnableProxy          bool           `json:"enableProxy"`
-	EnableSecureProxy    bool           `json:"enableSecureProxy"`
-	Perimeter            *perimeterInfo `json:"perimeter,omitempty"`
+	Address              string                 `json:"client"`
+	Fleet                string                 `json:"fleet"`
+	Version              string                 `json:"version"`
+	LastValidBlockNumber uint64                 `json:"lastValidBlockNumber"`
+	LastValidBlockHash   string                 `json:"lastValidBlockHash"`
+	Binds                []bind                 `json:"binds"`
+	Ports                []port                 `json:"ports"`
+	SSHD                 []string               `json:"sshd,omitempty"`
+	Controls             map[string]interface{} `json:"controls,omitempty"`
+	EnableSocks          bool                   `json:"enableSocks"`
+	EnableProxy          bool                   `json:"enableProxy"`
+	EnableSecureProxy    bool                   `json:"enableSecureProxy"`
+	Perimeter            *perimeterInfo         `json:"perimeter,omitempty"`
 }
 
 type perimeterInfo struct {
@@ -69,16 +68,6 @@ type port struct {
 	Addresses  []string `json:"addresses,omitempty" validate:"dive,omitempty,address"`
 }
 
-type putConfigRequest struct {
-	Fleet      string   `json:"fleet,omitempty" validate:"omitempty,address"`
-	Registry   string   `json:"registry,omitempty" validate:"omitempty,address"`
-	DiodeAddrs []string `json:"diodeaddrs,omitempty" validate:"dive,omitempty,url"`
-	Blocklists []string `json:"blocklists,omitempty" validate:"dive,omitempty,address"`
-	Allowlists []string `json:"allowlists,omitempty" validate:"dive,omitempty,address"`
-	Binds      []bind   `json:"binds,omitempty" validate:"dive,omitempty"`
-	Ports      []port   `json:"ports,omitempty" validate:"dive,omitempty"`
-}
-
 func isAddress(fl validator.FieldLevel) bool {
 	address := fl.Field().String()
 	return util.IsAddress([]byte(address))
@@ -99,11 +88,6 @@ func isProtocol(fl validator.FieldLevel) bool {
 	return config.ProtocolIdentifier(protocol) > 0
 }
 
-func isURL(fl validator.FieldLevel) bool {
-	_, err := url.ParseRequestURI(fl.Field().String())
-	return err == nil
-}
-
 func isMode(fl validator.FieldLevel) bool {
 	mode := fl.Field().String()
 	return config.ModeIdentifier(mode) > 0
@@ -115,7 +99,6 @@ func init() {
 	validate.RegisterValidation("subdomain", isSubdomain)
 	validate.RegisterValidation("port", isPort)
 	validate.RegisterValidation("protocol", isProtocol)
-	validate.RegisterValidation("url", isURL)
 	validate.RegisterValidation("mode", isMode)
 	validate.RegisterStructValidation(portValidation, port{})
 }
@@ -128,6 +111,133 @@ func portValidation(sl validator.StructLevel) {
 	}
 }
 
+func bindDefinitionsFromAPI(binds []bind) []string {
+	definitions := make([]string, 0, len(binds))
+	for _, b := range binds {
+		protocol := strings.TrimSpace(b.Protocol)
+		if protocol == "" || strings.EqualFold(protocol, "tls") {
+			definitions = append(definitions, fmt.Sprintf("%d:%s:%d", b.LocalPort, b.Remote, b.RemotePort))
+			continue
+		}
+		definitions = append(definitions, fmt.Sprintf("%d:%s:%d:%s", b.LocalPort, b.Remote, b.RemotePort, protocol))
+	}
+	return definitions
+}
+
+func rawConfigValue(raw json.RawMessage) (interface{}, error) {
+	var value interface{}
+	dec := json.NewDecoder(strings.NewReader(string(raw)))
+	dec.UseNumber()
+	if err := dec.Decode(&value); err != nil {
+		return nil, err
+	}
+	return value, nil
+}
+
+func addRawControlValue(patch *ControlPatch, validationErrors map[string]string, field string, key string, raw json.RawMessage) {
+	value, err := rawConfigValue(raw)
+	if err != nil {
+		validationErrors[field] = err.Error()
+		return
+	}
+	patch.AddRejectingDuplicate(field, key, value, validationErrors)
+}
+
+func buildConfigRequestPatch(raw map[string]json.RawMessage) (ControlPatch, map[string]string) {
+	validationErrors := map[string]string{}
+	patch := ControlPatch{}
+
+	for field, value := range raw {
+		switch field {
+		case "controls":
+			var controls map[string]json.RawMessage
+			if err := json.Unmarshal(value, &controls); err != nil {
+				validationErrors[field] = err.Error()
+				continue
+			}
+			for key, rawValue := range controls {
+				spec, ok := sharedControlSpec(key)
+				if !ok || !spec.ExposeHTTP {
+					validationErrors["controls."+key] = fmt.Sprintf("unknown control %s", key)
+					continue
+				}
+				addRawControlValue(&patch, validationErrors, "controls."+key, key, rawValue)
+			}
+		case "binds":
+			var binds []bind
+			if err := json.Unmarshal(value, &binds); err != nil {
+				validationErrors[field] = err.Error()
+				continue
+			}
+			for _, b := range binds {
+				if err := validate.Struct(b); err != nil {
+					validationErrors[field] = "invalid binds value"
+					break
+				}
+			}
+			if validationErrors[field] == "" {
+				patch.AddRejectingDuplicate(field, "bind", bindDefinitionsFromAPI(binds), validationErrors)
+			}
+		case "ports":
+			var ports []port
+			if err := json.Unmarshal(value, &ports); err != nil {
+				validationErrors[field] = err.Error()
+				continue
+			}
+			for _, p := range ports {
+				if err := validate.Struct(p); err != nil {
+					validationErrors[field] = "invalid ports value"
+					break
+				}
+			}
+			if validationErrors[field] != "" {
+				continue
+			}
+			publicPorts, privatePorts, protectedPorts, err := publishedPortDefinitionsFromAPI(ports)
+			if err != nil {
+				validationErrors[field] = err.Error()
+				continue
+			}
+			patch.AddRejectingDuplicate("ports.public", "public", publicPorts, validationErrors)
+			patch.AddRejectingDuplicate("ports.private", "private", privatePorts, validationErrors)
+			patch.AddRejectingDuplicate("ports.protected", "protected", protectedPorts, validationErrors)
+		case "sshd":
+			var sshd []string
+			if err := json.Unmarshal(value, &sshd); err != nil {
+				validationErrors[field] = err.Error()
+				continue
+			}
+			if _, err := parseSSHServices(sshd); err != nil {
+				validationErrors[field] = err.Error()
+				continue
+			}
+			patch.AddRejectingDuplicate(field, "sshd", sshd, validationErrors)
+		case "registry":
+			// Accepted for compatibility with previous API shape; it is not a shared runtime control.
+			var registry string
+			if err := json.Unmarshal(value, &registry); err != nil {
+				validationErrors[field] = err.Error()
+			} else if !util.IsAddress([]byte(registry)) {
+				validationErrors[field] = "invalid registry value address"
+			}
+		default:
+			spec, ok := sharedControlSpec(field)
+			if !ok || (!spec.ExposeHTTP && spec.Key != "fleet") {
+				validationErrors[field] = fmt.Sprintf("unknown config field %s", field)
+				continue
+			}
+			addRawControlValue(&patch, validationErrors, field, field, value)
+		}
+	}
+
+	for key, value := range validationErrors {
+		if value == "" {
+			delete(validationErrors, key)
+		}
+	}
+	return patch, validationErrors
+}
+
 // ConfigAPIServer struct
 type ConfigAPIServer struct {
 	appConfig     *config.Config
@@ -135,7 +245,9 @@ type ConfigAPIServer struct {
 	addr          string
 	corsOptions   cors.Options
 	httpServer    *http.Server
+	listener      net.Listener
 	cd            sync.Once
+	listenerClose sync.Once
 }
 
 // NewConfigAPIServer return ConfigAPIServer. clientManager may be nil; if set, enables GET /connection-client-id.
@@ -232,6 +344,10 @@ func (configAPIServer *ConfigAPIServer) successResponse(w http.ResponseWriter, m
 
 func (configAPIServer *ConfigAPIServer) configResponse(w http.ResponseWriter, message string) {
 	cfg := configAPIServer.appConfig
+	if app != nil {
+		app.mu.Lock()
+		defer app.mu.Unlock()
+	}
 
 	// Get perimeter information if configured
 	var perimeter *perimeterInfo
@@ -273,6 +389,8 @@ func (configAPIServer *ConfigAPIServer) configResponse(w http.ResponseWriter, me
 				}
 				return ret
 			}(cfg.PublishedPorts),
+			SSHD:     cloneStrings(cfg.SSHPublishedServices),
+			Controls: sharedControlHTTPValues(cfg),
 
 			EnableSocks:       cfg.EnableSocksServer,
 			EnableProxy:       cfg.EnableProxyServer,
@@ -297,7 +415,7 @@ func (configAPIServer *ConfigAPIServer) getPerimeterInfo(contractAddr string, cf
 	}
 
 	// Get the effective contract address (after following proxy_to chain)
-	effectiveAddr := GetEffectiveContractAddress()
+	effectiveAddr, cachedProps := getContractSyncStateSnapshot()
 	if effectiveAddr == "" {
 		// No effective contract address means no perimeter is configured
 		return &perimeterInfo{
@@ -310,16 +428,8 @@ func (configAPIServer *ConfigAPIServer) getPerimeterInfo(contractAddr string, cf
 	var props map[string]string
 	var propsErr error
 
-	lastContractPropsMutex.RLock()
-	cachedProps := lastContractProps
-	lastContractPropsMutex.RUnlock()
-
 	if cachedProps != nil {
-		// Use cached properties
-		props = make(map[string]string)
-		for k, v := range cachedProps {
-			props[k] = v
-		}
+		props = cachedProps
 		propsErr = nil
 		cfg.Logger.Debug("Using cached contract properties for API response")
 	} else {
@@ -370,245 +480,35 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 			configAPIServer.configResponse(w, "ok")
 			return
 		} else if req.Method == "PUT" {
-			if !configAPIServer.appConfig.LoadFromFile {
-				configAPIServer.appConfig.Logger.Error("Didn't load config file")
-				configAPIServer.serverError(w)
-				return
-			}
 			req.Body = http.MaxBytesReader(w, req.Body, 1048576)
 			dec := json.NewDecoder(req.Body)
 			dec.DisallowUnknownFields()
-			var c putConfigRequest
-			var err error
-			err = dec.Decode(&c)
-			if err != nil {
+			var raw map[string]json.RawMessage
+			if err := dec.Decode(&raw); err != nil {
 				configAPIServer.appConfig.Logger.Error("Couldn't decode request: %v", err)
 				configAPIServer.serverError(w)
 				return
 			}
-			var isDirty bool
-			// validate put body
-			validationError := make(map[string]string)
-			err = validate.Struct(c)
-			if err != nil {
-				if _, ok := err.(*validator.InvalidValidationError); ok {
-					configAPIServer.appConfig.Logger.Info("Couldn't validate the config struct: %v", err)
+			patch, validationErrors := buildConfigRequestPatch(raw)
+			if len(validationErrors) > 0 {
+				configAPIServer.clientError(w, validationErrors)
+				return
+			}
+			result := app.ApplyControlPatch(patch, controlPatchApplyOptions{Persist: true, Reconcile: true})
+			if result.HasValidationErrors() {
+				if result.ValidationErrors["runtime"] != "" || result.ValidationErrors["persist"] != "" {
+					configAPIServer.appConfig.Logger.Error("Couldn't apply config: %v", result.ValidationErrors)
+					configAPIServer.serverError(w)
 					return
 				}
-				for _, err := range err.(validator.ValidationErrors) {
-					field := strings.ToLower(err.Field())
-					tagName := err.Tag()
-					validationError[field] = fmt.Sprintf("invalid %s value %s", field, tagName)
-				}
-			}
-			if len(validationError) > 0 {
-				configAPIServer.clientError(w, validationError)
-				return
-			}
-
-			// If valid diodeAddrs entries are provided, replace RemoteRPCAddrs with exactly that list.
-			// Note: if all entries are empty/blank (e.g. "" or " ") applyDiodeAddrs will apply RPC defaults.
-			if len(c.DiodeAddrs) > 0 {
-				applyDiodeAddrs(configAPIServer.appConfig, c.DiodeAddrs)
-				isDirty = true
-			}
-			if len(c.Blocklists) >= 0 {
-				blocklists := []string{}
-				for _, blocklist := range c.Blocklists {
-					if !util.StringsContain(blocklists, blocklist) && !util.StringsContain(configAPIServer.appConfig.SBlocklists, blocklist) {
-						blocklists = append(blocklists, blocklist)
-					}
-				}
-				if len(c.Blocklists) == 0 && len(configAPIServer.appConfig.SBlocklists) > 0 {
-					isDirty = true
-					configAPIServer.appConfig.SBlocklists = blocklists
-				} else if len(blocklists) > 0 {
-					isDirty = true
-					configAPIServer.appConfig.SBlocklists = append(configAPIServer.appConfig.SBlocklists, blocklists...)
-				}
-			}
-			if len(c.Allowlists) >= 0 {
-				allowlists := []string{}
-				for _, allowlist := range c.Allowlists {
-					if !util.StringsContain(allowlists, allowlist) && !util.StringsContain(configAPIServer.appConfig.SAllowlists, allowlist) {
-						allowlists = append(allowlists, allowlist)
-					}
-				}
-				if len(c.Allowlists) == 0 && len(configAPIServer.appConfig.SAllowlists) > 0 {
-					isDirty = true
-					configAPIServer.appConfig.SAllowlists = allowlists
-				} else if len(allowlists) > 0 {
-					isDirty = true
-					configAPIServer.appConfig.SAllowlists = append(configAPIServer.appConfig.SAllowlists, allowlists...)
-				}
-			}
-			if len(c.Blocklists) >= 0 {
-				blocklists := []string{}
-				for _, blocklist := range c.Blocklists {
-					if !util.StringsContain(blocklists, blocklist) && !util.StringsContain(configAPIServer.appConfig.SBlocklists, blocklist) {
-						blocklists = append(blocklists, blocklist)
-					}
-				}
-				if len(c.Blocklists) == 0 && len(configAPIServer.appConfig.SBlocklists) > 0 {
-					isDirty = true
-					configAPIServer.appConfig.SBlocklists = blocklists
-				} else if len(blocklists) > 0 {
-					isDirty = true
-					configAPIServer.appConfig.SBlocklists = append(configAPIServer.appConfig.SBlocklists, blocklists...)
-				}
-			}
-			if len(c.Binds) >= 0 {
-				binds := []string{}
-				bound := make(map[int]map[int]config.Bind)
-				for _, b := range configAPIServer.appConfig.Binds {
-					bound[b.LocalPort] = make(map[int]config.Bind)
-					bound[b.LocalPort][b.Protocol] = b
-				}
-				for _, b := range c.Binds {
-					var bindIden string
-					protocolIden := config.ProtocolIdentifier(b.Protocol)
-					if protocolIden > 0 {
-						if protocolIden == config.AnyProtocol {
-							continue
-						}
-						if bb, ok := bound[b.LocalPort][protocolIden]; ok {
-							if bb.To == b.Remote && bb.ToPort == b.RemotePort {
-								continue
-							}
-						}
-						bindIden = fmt.Sprintf("%d:%s:%d:%s", b.LocalPort, b.Remote, b.RemotePort, b.Protocol)
-					} else {
-						// default is tls
-						protocolIden = config.TLSProtocol
-						bindIden = fmt.Sprintf("%d:%s:%d", b.LocalPort, b.Remote, b.RemotePort)
-					}
-					if protocolIden == config.TCPProtocol {
-						if _, ok := bound[b.LocalPort][config.TLSProtocol]; ok {
-							continue
-						}
-					}
-					if protocolIden == config.TLSProtocol {
-						if _, ok := bound[b.LocalPort][config.TCPProtocol]; ok {
-							continue
-						}
-					}
-					bound[b.LocalPort][protocolIden] = config.Bind{
-						To:        b.Remote,
-						ToPort:    b.RemotePort,
-						LocalPort: b.LocalPort,
-						Protocol:  protocolIden,
-					}
-					if !util.StringsContain(configAPIServer.appConfig.SBinds, bindIden) {
-						binds = append(binds, bindIden)
-					}
-				}
-				if len(c.Binds) == 0 && len(configAPIServer.appConfig.SBinds) > 0 {
-					isDirty = true
-					configAPIServer.appConfig.SBinds = binds
-				} else if len(binds) > 0 {
-					isDirty = true
-					configAPIServer.appConfig.SBinds = binds
-				}
-			}
-			// only updates published ports when user already publish
-			// do we need api authentication for updating ports, eg sign a signature with user private key, or unlock account?
-			if len(c.Ports) >= 0 && len(configAPIServer.appConfig.PublishedPorts) > 0 {
-				ports := make(map[int]bool)
-				for _, p := range c.Ports {
-					if ports[p.ExternPort] {
-						continue
-					}
-					protocol := p.Protocol
-					if len(protocol) > 0 {
-					} else {
-						protocol = "any"
-					}
-					portIden := fmt.Sprintf("%d:%d:%s", p.LocalPort, p.ExternPort, protocol)
-					published := configAPIServer.appConfig.PublishedPorts[p.ExternPort]
-					if published != nil {
-						if published.Src == p.LocalPort &&
-							config.ProtocolIdentifier(p.Protocol) == published.Protocol &&
-							config.ModeIdentifier(p.Mode) == published.Mode {
-							continue
-						}
-						switch published.Mode {
-						case config.PublicPublishedMode:
-							i := findExternPort(configAPIServer.appConfig.PublicPublishedPorts, p.ExternPort)
-							if i >= 0 {
-								configAPIServer.appConfig.PublicPublishedPorts = append(configAPIServer.appConfig.PublicPublishedPorts[:i], configAPIServer.appConfig.PublicPublishedPorts[i+1:]...)
-							}
-						case config.PrivatePublishedMode:
-							i := findExternPort(configAPIServer.appConfig.PrivatePublishedPorts, p.ExternPort)
-							if i >= 0 {
-								configAPIServer.appConfig.PrivatePublishedPorts = append(configAPIServer.appConfig.PrivatePublishedPorts[:i], configAPIServer.appConfig.PrivatePublishedPorts[i+1:]...)
-							}
-						case config.ProtectedPublishedMode:
-							i := findExternPort(configAPIServer.appConfig.ProtectedPublishedPorts, p.ExternPort)
-							if i >= 0 {
-								configAPIServer.appConfig.ProtectedPublishedPorts = append(configAPIServer.appConfig.ProtectedPublishedPorts[:i], configAPIServer.appConfig.ProtectedPublishedPorts[i+1:]...)
-							}
-						}
-					}
-					switch config.ModeIdentifier(p.Mode) {
-					case config.PublicPublishedMode:
-						configAPIServer.appConfig.PublicPublishedPorts = append(configAPIServer.appConfig.PublicPublishedPorts, portIden)
-						isDirty = true
-					case config.PrivatePublishedMode:
-						portIden = fmt.Sprintf("%s,%s", portIden, strings.Join(p.Addresses, ","))
-						configAPIServer.appConfig.PrivatePublishedPorts = append(configAPIServer.appConfig.PrivatePublishedPorts, portIden)
-						isDirty = true
-					case config.ProtectedPublishedMode:
-						configAPIServer.appConfig.ProtectedPublishedPorts = append(configAPIServer.appConfig.ProtectedPublishedPorts, portIden)
-						isDirty = true
-					}
-				}
-			}
-			if !isDirty {
-				configAPIServer.successResponse(w, "ok")
-				return
-			}
-			// write to yaml config
-			err = configAPIServer.appConfig.SaveToFile()
-			if err != nil {
-				configAPIServer.appConfig.Logger.Error("Couldn't save config: %v", err)
-				configAPIServer.serverError(w)
+				configAPIServer.clientError(w, result.ValidationErrors)
 				return
 			}
 			configAPIServer.successResponse(w, "ok")
-			go func() {
-				// restart diode go client
-				// TODO: gracefully restart go client
-				configAPIServer.appConfig.Logger.Info("Update config, restarting diode...")
-				if runtime.GOOS != "windows" {
-					exeFile, err := os.Executable()
-					if err != nil {
-						configAPIServer.appConfig.Logger.Error("Couldn't restart diode: %v", err)
-						os.Exit(1)
-					}
-					err = syscall.Exec(exeFile, os.Args, os.Environ())
-					if err != nil {
-						configAPIServer.appConfig.Logger.Error("Couldn't restart diode: %v", err)
-					} else {
-						configAPIServer.appConfig.Logger.Error("Should restart diode manually on Windows")
-					}
-					os.Exit(1)
-				}
-			}()
 			return
 		}
 		configAPIServer.notFoundError(w)
 	}
-}
-
-func findExternPort(ports []string, externPort int) (index int) {
-	format := fmt.Sprintf(":%d", externPort)
-	for i, port := range ports {
-		if strings.Contains(port, format) {
-			index = i
-			return
-		}
-	}
-	return -1
 }
 
 func (configAPIServer *ConfigAPIServer) rootHandleFunc() func(w http.ResponseWriter, req *http.Request) {
@@ -678,29 +578,47 @@ func (configAPIServer *ConfigAPIServer) connectionClientIDHandleFunc() func(http
 	}
 }
 
-// ListenAndServe start config api server
-func (configAPIServer *ConfigAPIServer) ListenAndServe() {
+// ListenAndServe binds the TCP address, starts the HTTP server in a background goroutine, and
+// returns any synchronous bind error (e.g. address already in use) before callers record success.
+func (configAPIServer *ConfigAPIServer) ListenAndServe() error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/connection-client-id", configAPIServer.connectionClientIDHandleFunc())
 	mux.HandleFunc("/config", configAPIServer.apiHandleFunc())
 	mux.HandleFunc("/", configAPIServer.rootHandleFunc())
 	handler := cors.New(configAPIServer.corsOptions).Handler(mux)
 	handler = configAPIServer.requireJSON(handler)
-	configAPIServer.httpServer = &http.Server{Addr: configAPIServer.addr, Handler: handler}
+	ln, err := net.Listen("tcp", configAPIServer.addr)
+	if err != nil {
+		return err
+	}
+	configAPIServer.addr = ln.Addr().String()
+	configAPIServer.appConfig.APIServerAddr = configAPIServer.addr
+	configAPIServer.httpServer = &http.Server{Handler: handler}
+	configAPIServer.listener = ln
 	configAPIServer.appConfig.Logger.Info("Start config api server %s", configAPIServer.addr)
 	go func() {
-		if err := configAPIServer.httpServer.ListenAndServe(); err != nil {
-			configAPIServer.httpServer = nil
+		if err := configAPIServer.httpServer.Serve(ln); err != nil {
 			if err != http.ErrServerClosed {
 				configAPIServer.appConfig.Logger.Info("Couldn't start config api: %v", err)
 			}
 		}
 	}()
+	return nil
+}
+
+// StopAccepting closes the listener without closing active HTTP requests.
+func (configAPIServer *ConfigAPIServer) StopAccepting() {
+	configAPIServer.listenerClose.Do(func() {
+		if configAPIServer.listener != nil {
+			configAPIServer.listener.Close()
+		}
+	})
 }
 
 // Close config api server
 func (configAPIServer *ConfigAPIServer) Close() {
 	configAPIServer.cd.Do(func() {
+		configAPIServer.StopAccepting()
 		if configAPIServer.httpServer != nil {
 			configAPIServer.httpServer.Close()
 		}

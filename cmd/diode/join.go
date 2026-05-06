@@ -24,7 +24,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"reflect"
 	"regexp"
 	"runtime"
 	"sort"
@@ -831,7 +830,7 @@ func getDeviceKeyAt(client *rpc.Client, deviceAddr util.Address, contractAddr st
 
 // fetchContractPropsFromContract retrieves all contract-backed configuration in one batch call
 func fetchContractPropsFromContract(deviceAddr util.Address, contractAddr string) (map[string]string, error) {
-	keys := []string{"public", "private", "protected", "wireguard", "socksd", "bind", "debug", "diodeaddrs", "fleet", "extra_config"}
+	keys := []string{"public", "private", "protected", "sshd", "wireguard", "socksd", "bind", "debug", "diodeaddrs", "fleet", "extra_config"}
 	logJoinContractFetch(deviceAddr, contractAddr, keys)
 	props, err := getPropertyValuesAt(deviceAddr, contractAddr, keys)
 	logJoinContractFetchResult(deviceAddr, contractAddr, keys, props, err)
@@ -889,7 +888,7 @@ func buildProxyToChain(deviceAddr util.Address, startContractAddr string) (chain
 		props, fetchErr := getPropertyValuesAt(deviceAddr, current, []string{"proxy_to"})
 		if fetchErr != nil && len(props) == 0 {
 			// Can't even read proxy_to; stop at the last known good contract.
-			return chain, fetchErr
+			return chain, formatProxyToLookupError(deviceAddr, current, fetchErr)
 		}
 
 		proxyTo := ""
@@ -928,21 +927,65 @@ func buildProxyToChain(deviceAddr util.Address, startContractAddr string) (chain
 	return chain, err
 }
 
-func selectContractPropsWithFallback(deviceAddr util.Address, chain []string) (contractAddr string, props map[string]string, err error) {
-	if len(chain) == 0 {
-		return "", nil, fmt.Errorf("empty proxy_to chain")
+func formatProxyToLookupError(deviceAddr util.Address, contractAddr string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if strings.Contains(err.Error(), "execution reverted") {
+		return fmt.Errorf(
+			"asset %s might not be added to perimeter %s (proxy_to lookup reverted: %w)",
+			deviceAddr.HexString(),
+			contractAddr,
+			err,
+		)
+	}
+	return err
+}
+
+func resolveEffectiveContractProps(
+	deviceAddr util.Address,
+	startContractAddr string,
+	buildChain func(util.Address, string) ([]string, error),
+	fetchProps func(util.Address, string) (map[string]string, error),
+) (chain []string, contractAddr string, props map[string]string, err error) {
+	chain, err = buildChain(deviceAddr, startContractAddr)
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("proxy_to resolution failed: %w", err)
 	}
 
-	var lastErr error
-	for i := len(chain) - 1; i >= 0; i-- {
-		addr := chain[i]
-		props, err = fetchContractPropsFromContract(deviceAddr, addr)
-		if err == nil || len(props) > 0 {
-			return addr, props, err
-		}
-		lastErr = err
+	if len(chain) == 0 {
+		return nil, "", nil, fmt.Errorf("empty proxy_to chain")
 	}
-	return chain[0], nil, lastErr
+
+	contractAddr = chain[len(chain)-1]
+	props, err = fetchProps(deviceAddr, contractAddr)
+	if err != nil && len(props) == 0 {
+		return chain, contractAddr, nil, err
+	}
+
+	return chain, contractAddr, props, err
+}
+
+func commitEffectiveContractState(cfg *config.Config, chain []string, contractAddr string, props map[string]string) {
+	chainStr := strings.Join(chain, " -> ")
+	shouldLog := false
+	lastContractSyncStateMutex.Lock()
+	if contractAddr != "" && (contractAddr != lastEffectiveContract || chainStr != lastProxyToChain) {
+		lastEffectiveContract = contractAddr
+		lastProxyToChain = chainStr
+		shouldLog = true
+	}
+	if props != nil {
+		lastContractProps = props
+	}
+	lastContractSyncStateMutex.Unlock()
+
+	if shouldLog && cfg != nil && cfg.Logger != nil {
+		if len(chain) > 1 {
+			cfg.PrintLabel("Perimeter Proxy Chain", chainStr)
+		}
+		cfg.PrintLabel("Effective Perimeter", contractAddr)
+	}
 }
 
 // updatePortsFromContract uses the provided property map to extract port configurations,
@@ -975,127 +1018,57 @@ func updatePortsFromContract(deviceAddr util.Address, props map[string]string) (
 	return publicPorts, privatePorts, protectedPorts, nil
 }
 
-// normalizeList trims whitespace, drops empties, and keeps order
-func normalizeList(items []string) []string {
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		trimmed := strings.TrimSpace(item)
-		if trimmed == "" {
-			continue
-		}
-		out = append(out, trimmed)
+func updateSSHServicesFromContract(props map[string]string) (definitions []string, ports []*config.Port, err error) {
+	if props == nil {
+		return nil, nil, fmt.Errorf("missing contract properties for ssh services")
 	}
-	return out
+	return parseSSHPropertyValue(strings.TrimSpace(props["sshd"]))
 }
 
-func stringFromValue(val interface{}) (string, error) {
-	switch v := val.(type) {
-	case string:
-		return strings.TrimSpace(v), nil
-	case fmt.Stringer:
-		return strings.TrimSpace(v.String()), nil
-	default:
-		return strings.TrimSpace(fmt.Sprint(v)), nil
-	}
-}
+func buildPublishedPortMap(publicPorts, privatePorts, protectedPorts []string, sshPorts []*config.Port) (map[int]*config.Port, error) {
+	portString := make(map[int]*config.Port)
 
-func stringSliceFromValue(val interface{}) ([]string, error) {
-	switch v := val.(type) {
-	case nil:
-		return nil, nil
-	case string:
-		s := strings.TrimSpace(v)
-		if s == "" {
-			return nil, nil
-		}
-		// Allow JSON-style arrays, e.g. ["bind1","bind2"]
-		if strings.HasPrefix(s, "[") {
-			var strItems []string
-			if err := json.Unmarshal([]byte(s), &strItems); err == nil {
-				return normalizeList(strItems), nil
-			}
-			var genericItems []interface{}
-			if err := json.Unmarshal([]byte(s), &genericItems); err == nil {
-				items := make([]string, 0, len(genericItems))
-				for _, item := range genericItems {
-					items = append(items, fmt.Sprint(item))
-				}
-				return normalizeList(items), nil
-			}
-		}
-		// Fallback format: split on any whitespace and commas so that
-		// contract-side concatenation using spaces produces multiple
-		// logical entries (e.g. "bind1 bind2", "addr1 addr2").
-		fields := strings.Fields(s)
-		parts := make([]string, 0, len(fields))
-		for _, f := range fields {
-			parts = append(parts, strings.Split(f, ",")...)
-		}
-		return normalizeList(parts), nil
-	case []interface{}:
-		items := make([]string, 0, len(v))
-		for _, item := range v {
-			items = append(items, fmt.Sprint(item))
-		}
-		return normalizeList(items), nil
-	case []string:
-		return normalizeList(v), nil
-	default:
-		return nil, fmt.Errorf("unsupported list type %T", val)
+	ports, err := parsePorts(publicPorts, config.PublicPublishedMode)
+	if err != nil {
+		return nil, err
 	}
-}
+	for _, port := range ports {
+		if portString[port.To] != nil {
+			return nil, fmt.Errorf("public port specified twice: %v", port.To)
+		}
+		portString[port.To] = port
+	}
 
-func boolFromValue(val interface{}) (bool, error) {
-	switch v := val.(type) {
-	case bool:
-		return v, nil
-	case string:
-		switch strings.ToLower(strings.TrimSpace(v)) {
-		case "1", "true", "yes", "y", "on", "t":
-			return true, nil
-		case "0", "false", "no", "n", "off", "f":
-			return false, nil
-		case "":
-			return false, fmt.Errorf("empty bool string")
-		default:
-			return false, fmt.Errorf("invalid bool value: %s", v)
+	ports, err = parsePorts(protectedPorts, config.ProtectedPublishedMode)
+	if err != nil {
+		return nil, err
+	}
+	for _, port := range ports {
+		if portString[port.To] != nil {
+			return nil, fmt.Errorf("port conflict between public and protected port: %v", port.To)
 		}
-	case float64:
-		return v != 0, nil
-	case int:
-		return v != 0, nil
-	default:
-		return false, fmt.Errorf("unsupported bool type %T", val)
+		portString[port.To] = port
 	}
-}
 
-func durationFromValue(val interface{}) (time.Duration, error) {
-	switch v := val.(type) {
-	case string:
-		return time.ParseDuration(strings.TrimSpace(v))
-	case float64:
-		return time.Duration(v) * time.Second, nil
-	case int:
-		return time.Duration(v) * time.Second, nil
-	default:
-		return 0, fmt.Errorf("unsupported duration type %T", val)
+	ports, err = parsePorts(privatePorts, config.PrivatePublishedMode)
+	if err != nil {
+		return nil, err
 	}
-}
-
-func intFromValue(val interface{}) (int, error) {
-	switch v := val.(type) {
-	case string:
-		if strings.TrimSpace(v) == "" {
-			return 0, fmt.Errorf("empty int value")
+	for _, port := range ports {
+		if portString[port.To] != nil {
+			return nil, fmt.Errorf("port conflict with private port: %v", port.To)
 		}
-		return strconv.Atoi(strings.TrimSpace(v))
-	case float64:
-		return int(v), nil
-	case int:
-		return v, nil
-	default:
-		return 0, fmt.Errorf("unsupported int type %T", val)
+		portString[port.To] = port
 	}
+
+	for _, service := range sshPorts {
+		if portString[service.To] != nil {
+			return nil, fmt.Errorf("port conflict with ssh service: %v", service.To)
+		}
+		portString[service.To] = service
+	}
+
+	return portString, nil
 }
 
 // getDefaultRemoteRPCAddrs returns the default relay list
@@ -1105,7 +1078,7 @@ func getDefaultRemoteRPCAddrs() config.StringValues {
 	return config.StringValues(defaultAddrs)
 }
 
-func applyDiodeAddrs(cfg *config.Config, addrs []string) {
+func applyDiodeAddrs(cfg *config.Config, addrs []string) error {
 	normalized := make([]string, 0, len(addrs))
 	for _, addr := range addrs {
 		addr = strings.TrimSpace(addr)
@@ -1115,8 +1088,7 @@ func applyDiodeAddrs(cfg *config.Config, addrs []string) {
 		if !isValidRPCAddress(addr) {
 			adjusted := addr + ":41046"
 			if !isValidRPCAddress(adjusted) {
-				cfg.Logger.Warn("Invalid diode node address %q", addr)
-				continue
+				return fmt.Errorf("invalid diode node address %q", addr)
 			}
 			addr = adjusted
 		}
@@ -1131,15 +1103,16 @@ func applyDiodeAddrs(cfg *config.Config, addrs []string) {
 	// path for that is to set bogus values, not empty/malformed values.
 	if len(normalized) == 0 {
 		cfg.RemoteRPCAddrs = getDefaultRemoteRPCAddrs()
-		return
+		return nil
 	}
 	mrand.Shuffle(len(normalized), func(i, j int) {
 		normalized[i], normalized[j] = normalized[j], normalized[i]
 	})
 	cfg.RemoteRPCAddrs = config.StringValues(normalized)
+	return nil
 }
 
-func applyBinds(cfg *config.Config, binds []string) {
+func applyBinds(cfg *config.Config, binds []string) error {
 	cfg.SBinds = config.StringValues{}
 	cfg.Binds = []config.Bind{}
 	for _, bindStr := range binds {
@@ -1149,264 +1122,93 @@ func applyBinds(cfg *config.Config, binds []string) {
 		}
 		bind, err := parseBind(trimmed)
 		if err != nil {
-			cfg.Logger.Warn("Skipping invalid bind %q: %v", trimmed, err)
-			continue
+			return fmt.Errorf("invalid bind %q: %w", trimmed, err)
 		}
 		cfg.SBinds = append(cfg.SBinds, trimmed)
 		cfg.Binds = append(cfg.Binds, *bind)
 	}
+	return nil
 }
 
-func applyAllowlist(cfg *config.Config, allowlists []string) {
+func applyAllowlist(cfg *config.Config, allowlists []string) error {
 	cfg.SAllowlists = config.StringValues(allowlists)
 	cfg.Allowlists = nil
 	if len(allowlists) == 0 {
-		return
+		return nil
 	}
 	cfg.Allowlists = make(map[util.Address]bool, len(allowlists))
 	for _, entry := range allowlists {
 		addr, err := util.DecodeAddress(entry)
 		if err != nil {
-			cfg.Logger.Warn("Skipping invalid allowlist address %q: %v", entry, err)
-			continue
+			return fmt.Errorf("invalid allowlist address %q: %w", entry, err)
 		}
 		cfg.Allowlists[addr] = true
-	}
-}
-
-func applyBlocklist(cfg *config.Config, blocklists []string) {
-	cfg.SBlocklists = config.StringValues(blocklists)
-	blocklistMap := cfg.Blocklists()
-	for addr := range blocklistMap {
-		delete(blocklistMap, addr)
-	}
-	for _, entry := range blocklists {
-		addr, err := util.DecodeAddress(entry)
-		if err != nil {
-			cfg.Logger.Warn("Skipping invalid blocklist address %q: %v", entry, err)
-			continue
-		}
-		blocklistMap[addr] = true
-	}
-}
-
-func applyConfigKey(cfg *config.Config, key string, value interface{}) error {
-	switch strings.ToLower(key) {
-	case "socksd":
-		b, err := boolFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.EnableSocksServer = b
-	case "gateway":
-		b, err := boolFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.EnableProxyServer = b
-		if b {
-			cfg.EnableSocksServer = true
-		}
-	case "bind":
-		items, err := stringSliceFromValue(value)
-		if err != nil {
-			return err
-		}
-		applyBinds(cfg, items)
-	case "debug":
-		b, err := boolFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.Debug = b
-	case "diodeaddrs":
-		items, err := stringSliceFromValue(value)
-		if err != nil {
-			cfg.Logger.Warn("Failed to parse diodeaddrs value %v: %v", value, err)
-			return err
-		}
-		applyDiodeAddrs(cfg, items)
-	case "fleet":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return err
-		}
-		if str == "" {
-			return nil
-		}
-		addr, err := util.DecodeAddress(str)
-		if err != nil {
-			return fmt.Errorf("invalid fleet address %q: %w", str, err)
-		}
-		cfg.FleetAddr = addr
-	case "bnscachetime", "resolvecachetime":
-		dur, err := durationFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.ResolveCacheTime = dur
-		cfg.BnsCacheTime = dur
-	case "allowlists":
-		items, err := stringSliceFromValue(value)
-		if err != nil {
-			return err
-		}
-		applyAllowlist(cfg, items)
-	case "api":
-		b, err := boolFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.EnableAPIServer = b
-	case "apiaddr":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.APIServerAddr = str
-	case "blockdomains":
-		items, err := stringSliceFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.SBlockdomains = config.StringValues(items)
-	case "blocklists":
-		items, err := stringSliceFromValue(value)
-		if err != nil {
-			return err
-		}
-		applyBlocklist(cfg, items)
-	case "blockprofile":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.BlockProfile = str
-	case "blockproliferate", "blockprofilerate":
-		val, err := intFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.BlockProfileRate = val
-	case "configpath":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.ConfigFilePath = str
-	case "cpuprofile":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.CPUProfile = str
-	case "dbpath":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.DBPath = str
-	case "e2etimeout":
-		dur, err := durationFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.EdgeE2ETimeout = dur
-	case "logdatetime":
-		b, err := boolFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.LogDateTime = b
-	case "logfilepath":
-		str, err := stringFromValue(value)
-		if err != nil {
-			return err
-		}
-		cfg.LogFilePath = str
-	default:
-		return nil
 	}
 	return nil
 }
 
-func reloadLoggerIfNeeded(cfg *config.Config, oldDebug bool, oldLogDatetime bool, oldLogFilePath string) {
-	if cfg.Debug == oldDebug && cfg.LogDateTime == oldLogDatetime && cfg.LogFilePath == oldLogFilePath {
-		return
+func applyBlocklist(cfg *config.Config, blocklists []string) error {
+	cfg.SBlocklists = config.StringValues(blocklists)
+	blocklistMap := make(map[util.Address]bool, len(blocklists))
+	for _, entry := range blocklists {
+		addr, err := util.DecodeAddress(entry)
+		if err != nil {
+			return fmt.Errorf("invalid blocklist address %q: %w", entry, err)
+		}
+		blocklistMap[addr] = true
 	}
-	if len(cfg.LogFilePath) > 0 {
-		cfg.LogMode = config.LogToFile
-	} else {
-		cfg.LogMode = config.LogToConsole
-	}
-	logger, err := config.NewLogger(cfg)
-	if err != nil {
-		cfg.PrintError("Could not reload logger with control plane config", err)
-		return
-	}
-	cfg.Logger = &logger
+	cfg.SetBlocklists(blocklistMap)
+	return nil
 }
 
-func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
-	if props == nil {
-		return
+func syncConfigBindsFromSBinds(cfg *config.Config) error {
+	cfg.Binds = make([]config.Bind, 0, len(cfg.SBinds))
+	for _, str := range cfg.SBinds {
+		trimmed := strings.TrimSpace(str)
+		if trimmed == "" {
+			continue
+		}
+		bind, err := parseBind(trimmed)
+		if err != nil {
+			return fmt.Errorf("invalid bind %q: %w", trimmed, err)
+		}
+		cfg.Binds = append(cfg.Binds, *bind)
 	}
+	return nil
+}
 
-	oldDebug := cfg.Debug
-	oldLogDatetime := cfg.LogDateTime
-	oldLogFilePath := cfg.LogFilePath
+func buildContractControlPatch(cfg *config.Config, props map[string]string) (ControlPatch, error) {
+	patch := ControlPatch{}
+	if props == nil {
+		return patch, nil
+	}
 
 	// If diodeaddrs is not in the perimeter at all, re-apply default RPCs so refill has candidates.
 	// Note: this shouldn't really happen in practice but we may change how the keys are seeded in the future.
 	if _, hasDiodeAddrs := props["diodeaddrs"]; !hasDiodeAddrs {
-		cfg.RemoteRPCAddrs = getDefaultRemoteRPCAddrs()
+		patch.Add("diodeaddrs", "diodeaddrs", []string{})
 	}
 
 	for key, val := range props {
-		if key == "extra_config" {
+		switch key {
+		case "extra_config", "public", "private", "protected", "sshd":
 			continue
 		}
-		trimmed := strings.TrimSpace(val)
-
-		// For non-combinable keys coming directly from the contract,
-		// discard anything after the first whitespace. Multi-value
-		// keys like bind/diodeaddrs are handled separately via
-		// stringSliceFromValue, and wireguard is processed elsewhere.
-		switch strings.ToLower(key) {
-		case "socksd", "debug", "fleet":
-			if idx := strings.IndexAny(trimmed, " \t\r\n"); idx >= 0 {
-				trimmed = trimmed[:idx]
-			}
-		}
-
-		// Special handling for bind: an empty bind value in the control plane
-		// should clear all existing binds derived from the contract so that
-		// removed binds are reflected in the running client.
-		if key == "bind" && trimmed == "" {
-			if len(cfg.SBinds) > 0 || len(cfg.Binds) > 0 {
-				cfg.SBinds = config.StringValues{}
-				cfg.Binds = []config.Bind{}
-			}
-			continue
-		}
-
-		// Special handling for diodeaddrs: an empty diodeaddrs value in the control plane
-		// should set defaults so we don't drain the connection pool.  Instead of just ignoring
-		// the empty value, we need to proactively set defaults because this commonly happens
-		// if a perimeter diodeaddrs value was initially set, and then the value was cleared/unset.
-		// The intent of an unset diodeaddrs is to return to using defaults.
-		if key == "diodeaddrs" && trimmed == "" {
-			cfg.RemoteRPCAddrs = getDefaultRemoteRPCAddrs()
-			continue
-		}
-
-		if trimmed == "" {
-			continue
-		}
-		if err := applyConfigKey(cfg, key, trimmed); err != nil {
-			cfg.Logger.Warn("Ignoring %s from control plane: %v", key, err)
-		}
+		applyContractControlValue(cfg, &patch, key, val)
 	}
+
+	publicPorts, privatePorts, protectedPorts, err := updatePortsFromContract(cfg.ClientAddr, props)
+	if err != nil {
+		return patch, err
+	}
+	sshServices, _, err := updateSSHServicesFromContract(props)
+	if err != nil {
+		return patch, err
+	}
+	patch.Add("public", "public", publicPorts)
+	patch.Add("private", "private", privatePorts)
+	patch.Add("protected", "protected", protectedPorts)
+	patch.Add("sshd", "sshd", sshServices)
 
 	extraRaw := strings.TrimSpace(props["extra_config"])
 	if extraRaw != "" {
@@ -1418,149 +1220,21 @@ func applyControlPlaneConfig(cfg *config.Config, props map[string]string) {
 				if val == nil {
 					continue
 				}
-				if err := applyConfigKey(cfg, key, val); err != nil {
-					cfg.Logger.Warn("Ignoring %s from extra_config: %v", key, err)
-				}
+				patch.Add(key, key, val)
 			}
 		}
 	}
 
-	reloadLoggerIfNeeded(cfg, oldDebug, oldLogDatetime, oldLogFilePath)
+	return patch, nil
 }
 
-func startServicesFromConfig(cfg *config.Config) error {
-	if cfg.EnableAPIServer && app.configAPIServer == nil {
-		configAPIServer := NewConfigAPIServer(cfg, app.clientManager)
-		configAPIServer.ListenAndServe()
-		app.SetConfigAPIServer(configAPIServer)
-	}
-
-	sig := bindSignature(cfg.SBinds)
-	needServer := cfg.EnableSocksServer || cfg.EnableProxyServer || cfg.EnableSProxyServer || len(cfg.Binds) > 0
-	if !needServer {
-		applyAndLogBinds(&app, cfg, sig)
-		return nil
-	}
-
-	if app.socksServer == nil {
-		socksCfg := rpc.Config{
-			Addr:            cfg.SocksServerAddr(),
-			FleetAddr:       cfg.FleetAddr,
-			Blocklists:      cfg.Blocklists(),
-			Allowlists:      cfg.Allowlists,
-			EnableProxy:     cfg.EnableProxyServer,
-			ProxyServerAddr: cfg.ProxyServerAddr(),
-			Fallback:        cfg.SocksFallback,
-		}
-		socksServer, err := rpc.NewSocksServer(socksCfg, app.clientManager)
-		if err != nil {
-			return err
-		}
-		app.SetSocksServer(socksServer)
-		lastAppliedBindSignature = ""
-	}
-
-	applyAndLogBinds(&app, cfg, sig)
-
-	shouldStartSocks := cfg.EnableSocksServer || cfg.EnableProxyServer || cfg.EnableSProxyServer
-	if shouldStartSocks && !socksServerStarted {
-		if err := app.socksServer.Start(); err != nil {
-			cfg.Logger.Error(err.Error())
-			return err
-		}
-		socksServerStarted = true
-	}
-
-	if (cfg.EnableProxyServer || cfg.EnableSProxyServer) && app.proxyServer == nil {
-		proxyCfg := rpc.ProxyConfig{
-			EnableSProxy:      cfg.EnableSProxyServer,
-			ProxyServerAddr:   cfg.ProxyServerAddr(),
-			SProxyServerAddr:  cfg.SProxyServerAddr(),
-			SProxyServerPorts: cfg.SProxyAdditionalPorts(),
-			CertPath:          cfg.SProxyServerCertPath,
-			PrivPath:          cfg.SProxyServerPrivPath,
-			AllowRedirect:     cfg.AllowRedirectToSProxy,
-		}
-		proxyServer, err := rpc.NewProxyServer(proxyCfg, app.socksServer)
-		if err != nil {
-			return err
-		}
-		app.SetProxyServer(proxyServer)
-		if err := proxyServer.Start(); err != nil {
-			cfg.Logger.Error(err.Error())
-			return err
-		}
-	}
-	return nil
-}
-
-func applyAndLogBinds(app *Diode, cfg *config.Config, sig string) {
-	if app.socksServer != nil {
-		if sig != lastAppliedBindSignature {
-			app.socksServer.SetBinds(cfg.Binds)
-			lastAppliedBindSignature = sig
-		}
-		// Always refresh cfg.Binds from the socks server when we have binds, so the API
-		// and logs see resolved ports (e.g. "0" -> 56510). After a contract sync we
-		// overwrite cfg.Binds with parsed strings (LocalPort 0); without this refresh
-		// the signature would be unchanged and we'd never call GetBinds(), so the API
-		// would keep returning 0 for auto binds.
-		if len(cfg.Binds) > 0 {
-			cfg.Binds = app.socksServer.GetBinds()
-		}
-	}
-	logBindSummary(cfg, sig)
-}
-
-func logBindSummary(cfg *config.Config, sig string) {
-	// No change in bind configuration, nothing to report.
-	if sig == lastBindSignature {
-		return
-	}
-
-	// Binds have been cleared since the last update.
-	if sig == "" {
-		if lastBindSignature != "" {
-			cfg.PrintInfo("")
-			cfg.PrintInfo("All binds have been removed from contract")
-		}
-		lastBindSignature = ""
-		return
-	}
-
-	// New/updated binds detected, print a fresh summary.
-	lastBindSignature = sig
-	cfg.PrintInfo("")
-	cfg.PrintLabel("Bind      <name>", "<mode>     <remote>")
-	for _, bind := range cfg.Binds {
-		bindHost := net.JoinHostPort(bind.To, strconv.Itoa(bind.ToPort))
-		cfg.PrintLabel(fmt.Sprintf("Port      %5d", bind.LocalPort), fmt.Sprintf("%5s     %s", config.ProtocolName(bind.Protocol), bindHost))
-	}
-}
-
-func bindSignature(binds config.StringValues) string {
-	if len(binds) == 0 {
-		return ""
-	}
-	items := make([]string, len(binds))
-	copy(items, binds)
-	sort.Strings(items)
-	return strings.Join(items, "|")
-}
-
-var lastPublicPorts []string
-var lastPrivatePorts []string
-var lastProtectedPorts []string
 var lastWGConfigHash string
 var lastWGPublicKey string
 var wgPrivateKeyMigrationWarnOnce sync.Once
-var lastBindSignature string
-var lastAppliedBindSignature string
-var socksServerStarted bool
 var lastEffectiveContract string
 var lastProxyToChain string
-var lastContractProps map[string]string // Cache for last fetched contract properties (used by API server)
-var lastContractPropsMutex sync.RWMutex // Protects lastContractProps
+var lastContractProps map[string]string     // Cache for last fetched contract properties (used by API server)
+var lastContractSyncStateMutex sync.RWMutex // Protects effective contract, proxy chain, and cached contract props
 
 // GetContractAddress returns the current contract/perimeter address
 func GetContractAddress() string {
@@ -1569,7 +1243,23 @@ func GetContractAddress() string {
 
 // GetEffectiveContractAddress returns the effective contract address
 func GetEffectiveContractAddress() string {
+	lastContractSyncStateMutex.RLock()
+	defer lastContractSyncStateMutex.RUnlock()
 	return lastEffectiveContract
+}
+
+func getContractSyncStateSnapshot() (effectiveContract string, props map[string]string) {
+	lastContractSyncStateMutex.RLock()
+	defer lastContractSyncStateMutex.RUnlock()
+
+	effectiveContract = lastEffectiveContract
+	if lastContractProps != nil {
+		props = make(map[string]string, len(lastContractProps))
+		for k, v := range lastContractProps {
+			props[k] = v
+		}
+	}
+	return effectiveContract, props
 }
 
 // wgBasepoint is the X25519 basepoint per RFC 7748
@@ -2914,29 +2604,7 @@ func contractSync(cfg *config.Config) error {
 
 	deviceAddr := cfg.ClientAddr
 
-	chain, proxyErr := buildProxyToChain(deviceAddr, contractAddress)
-	effectiveContractAddr, props, err := selectContractPropsWithFallback(deviceAddr, chain)
-	if proxyErr != nil && cfg.Logger != nil {
-		cfg.Logger.Debug("proxy_to resolution stopped early: %v", proxyErr)
-	}
-	if effectiveContractAddr != "" && effectiveContractAddr != lastEffectiveContract {
-		lastEffectiveContract = effectiveContractAddr
-		lastProxyToChain = strings.Join(chain, " -> ")
-		if len(chain) > 1 {
-			cfg.PrintLabel("Perimeter Proxy Chain", lastProxyToChain)
-		}
-		cfg.PrintLabel("Effective Perimeter", effectiveContractAddr)
-	}
-
-	// Cache the fetched properties for use by the API server
-	if props != nil {
-		lastContractPropsMutex.Lock()
-		lastContractProps = make(map[string]string)
-		for k, v := range props {
-			lastContractProps[k] = v
-		}
-		lastContractPropsMutex.Unlock()
-	}
+	chain, effectiveContractAddr, props, err := resolveEffectiveContractProps(deviceAddr, contractAddress, buildProxyToChain, fetchContractPropsFromContract)
 
 	if err != nil {
 		if len(props) == 0 {
@@ -2947,19 +2615,20 @@ func contractSync(cfg *config.Config) error {
 		}
 	}
 
-	applyControlPlaneConfig(cfg, props)
+	commitEffectiveContractState(cfg, chain, effectiveContractAddr, props)
 
-	// After applying contract config, check for new diodeaddrs and add clients for them
-	if app.clientManager != nil {
-		app.clientManager.AddNewAddresses()
-	}
-
-	if err := startServicesFromConfig(cfg); err != nil {
+	patch, err := buildContractControlPatch(cfg, props)
+	if err != nil {
 		return err
 	}
-
-	if err := updatePublishedPorts(client, props); err != nil {
-		return err
+	result := app.ApplyControlPatch(patch, controlPatchApplyOptions{Reconcile: true})
+	if result.HasValidationErrors() {
+		for key, errText := range result.ValidationErrors {
+			cfg.Logger.Warn("Ignoring %s from control plane: %v", key, errText)
+		}
+		if result.ValidationErrors["runtime"] != "" {
+			return fmt.Errorf("control runtime reconciliation failed: %s", result.ValidationErrors["runtime"])
+		}
 	}
 
 	if err := updateWireGuardFromContract(client, cfg.ClientAddr, effectiveContractAddr, props); err != nil {
@@ -2986,135 +2655,6 @@ func runContractController(cfg *config.Config) error {
 
 		time.Sleep(30 * time.Second)
 	}
-}
-
-// updatePublishedPorts updates the published ports based on contract configuration
-func updatePublishedPorts(client *rpc.Client, props map[string]string) error {
-	cfg := config.AppConfig
-	deviceAddr := cfg.ClientAddr
-
-	// Track whether there were any published ports before this update so we
-	// can notify the user when the configuration is cleared.
-	previousHadPorts := len(lastPublicPorts) > 0 || len(lastPrivatePorts) > 0 || len(lastProtectedPorts) > 0
-
-	publicPorts, privatePorts, protectedPorts, err := updatePortsFromContract(deviceAddr, props)
-	if err != nil {
-		cfg.Logger.Error("Failed to update ports from contract: %v", err)
-		return err
-	}
-
-	if reflect.DeepEqual(lastPublicPorts, publicPorts) &&
-		reflect.DeepEqual(lastPrivatePorts, privatePorts) &&
-		reflect.DeepEqual(lastProtectedPorts, protectedPorts) {
-		return nil
-	}
-
-	lastPublicPorts = publicPorts
-	lastPrivatePorts = privatePorts
-	lastProtectedPorts = protectedPorts
-
-	// Debug output for port configurations
-	cfg.Logger.Debug("Public Ports: %s", strings.Join(publicPorts, ","))
-	cfg.Logger.Debug("Private Ports: %s", strings.Join(privatePorts, ","))
-	cfg.Logger.Debug("Protected Ports: %s", strings.Join(protectedPorts, ","))
-
-	// Update the config with new port settings
-	cfg.PublicPublishedPorts = publicPorts
-	cfg.PrivatePublishedPorts = privatePorts
-	cfg.ProtectedPublishedPorts = protectedPorts
-
-	// Process the port configurations similar to publishHandler
-	portString := make(map[int]*config.Port)
-
-	// Process public ports
-	ports, err := parsePorts(cfg.PublicPublishedPorts, config.PublicPublishedMode)
-	if err != nil {
-		return err
-	}
-	for _, port := range ports {
-		if portString[port.To] != nil {
-			err = fmt.Errorf("public port specified twice: %v", port.To)
-			return err
-		}
-		portString[port.To] = port
-	}
-
-	// Process protected ports
-	ports, err = parsePorts(cfg.ProtectedPublishedPorts, config.ProtectedPublishedMode)
-	if err != nil {
-		return err
-	}
-	for _, port := range ports {
-		if portString[port.To] != nil {
-			err = fmt.Errorf("port conflict between public and protected port: %v", port.To)
-			return err
-		}
-		portString[port.To] = port
-	}
-
-	// Process private ports
-	ports, err = parsePorts(cfg.PrivatePublishedPorts, config.PrivatePublishedMode)
-	if err != nil {
-		return err
-	}
-	for _, port := range ports {
-		if portString[port.To] != nil {
-			err = fmt.Errorf("port conflict with private port: %v", port.To)
-			return err
-		}
-		portString[port.To] = port
-	}
-
-	// Update the published ports
-	cfg.PublishedPorts = portString
-
-	// Always push the latest published ports set (including empty) to the pool
-	// so removed ports are actually cleared.
-	app.clientManager.GetPool().SetPublishedPorts(cfg.PublishedPorts)
-
-	// Log user-facing summary for changes.
-	if len(cfg.PublishedPorts) > 0 {
-		cfg.PrintInfo("Updated port configurations from contract")
-		name := cfg.ClientAddr.HexString()
-		if cfg.ClientName != "" {
-			name = cfg.ClientName
-		}
-
-		for _, port := range cfg.PublishedPorts {
-			if port.Mode == config.PublicPublishedMode {
-				if port.To == httpPort {
-					cfg.PrintLabel("HTTP Gateway Enabled", fmt.Sprintf("http://%s.diode.link/", name))
-				}
-				if (8000 <= port.To && port.To <= 8100) || (8400 <= port.To && port.To <= 8500) {
-					cfg.PrintLabel("HTTP Gateway Enabled", fmt.Sprintf("https://%s.diode.link:%d/", name, port.To))
-				}
-			}
-		}
-
-		cfg.PrintLabel("Port      <name>", "<extern>     <mode>    <protocol>     <allowlist>")
-		for _, port := range cfg.PublishedPorts {
-			addrs := make([]string, 0, len(port.Allowlist)+len(port.BnsAllowlist))
-			for addr := range port.Allowlist {
-				addrs = append(addrs, addr.HexString())
-			}
-			for bnsName := range port.BnsAllowlist {
-				addrs = append(addrs, bnsName)
-			}
-			for drive := range port.DriveAllowList {
-				addrs = append(addrs, drive.HexString())
-			}
-			for driveMember := range port.DriveMemberAllowList {
-				addrs = append(addrs, driveMember.HexString())
-			}
-			host := net.JoinHostPort(port.SrcHost, strconv.Itoa(port.Src))
-			cfg.PrintLabel(fmt.Sprintf("Port %12s", host), fmt.Sprintf("%8d  %10s       %s        %s", port.To, config.ModeName(port.Mode), config.ProtocolName(port.Protocol), strings.Join(addrs, ",")))
-		}
-	} else if previousHadPorts {
-		// Transition from having published ports to none: inform the user.
-		cfg.PrintInfo("All published ports have been removed from contract")
-	}
-
-	return nil
 }
 
 func joinHandler() (err error) {
