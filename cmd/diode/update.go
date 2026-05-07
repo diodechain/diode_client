@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"os"
-	"os/exec"
-	"path"
 	"path/filepath"
 	"runtime"
 	"time"
@@ -87,26 +85,13 @@ func doUpdate(restartMode updateRestartMode) (string, error) {
 		return "", nil
 	}
 
-	// searching for binary in path
-	bin, err := exec.LookPath(m.Command)
-	if err != nil {
-		// just update local file
-		bin = os.Args[0]
-	}
-
-	// find the real path of execute file if the file was symlink
-	binExe, err := filepath.EvalSymlinks(bin)
-	if err != nil {
-		binExe = bin
-	}
-
-	dir := filepath.Dir(binExe)
+	dir := updateInstallDir()
 	if err := m.InstallTo(tarball, dir); err != nil {
 		cfg.PrintError("Error installing", err)
 		return "", newExitStatusError(129, "%s", err.Error())
 	}
 
-	cmd := path.Join(dir, m.Command)
+	cmd := filepath.Join(dir, m.Command)
 	stdoutf("Updated, restarting %s...\n", cmd)
 	writeLastUpdateAt()
 	if restartMode == updateRestartDeferred {
@@ -114,6 +99,24 @@ func doUpdate(restartMode updateRestartMode) (string, error) {
 	}
 	update.Restart(cmd)
 	return "", nil
+}
+
+func updateInstallDir() string {
+	bin, err := os.Executable()
+	if err != nil || bin == "" {
+		bin = os.Args[0]
+	}
+	return updateInstallDirFromExecutable(bin, filepath.EvalSymlinks)
+}
+
+func updateInstallDirFromExecutable(bin string, evalSymlinks func(string) (string, error)) string {
+	if abs, err := filepath.Abs(bin); err == nil {
+		bin = abs
+	}
+	if resolved, err := evalSymlinks(bin); err == nil {
+		bin = resolved
+	}
+	return filepath.Dir(bin)
 }
 
 func download(m *update.Manager) (string, bool, error) {
