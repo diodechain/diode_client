@@ -63,26 +63,6 @@ type networkEntry struct {
 	NodeID    string        `json:"node_id"`
 }
 
-func (candidate *relayCandidate) sourceName() string {
-	parts := make([]string, 0, 4)
-	if candidate.configured {
-		parts = append(parts, "configured")
-	}
-	if candidate.perimeter {
-		parts = append(parts, "perimeter")
-	}
-	if candidate.authoritative {
-		parts = append(parts, "authoritative_getnode")
-	}
-	if candidate.discovered {
-		parts = append(parts, "discovered")
-	}
-	if len(parts) == 0 {
-		return "unknown"
-	}
-	return strings.Join(parts, "+")
-}
-
 func (cm *ClientManager) syncConfiguredCandidatesLocked(hosts []string) {
 	for _, candidate := range cm.candidates {
 		candidate.configured = false
