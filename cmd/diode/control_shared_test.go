@@ -572,6 +572,29 @@ func TestSharedControlFlagRegistration(t *testing.T) {
 	}
 }
 
+func TestPublishPatchReconcilesPreparsedSSHServices(t *testing.T) {
+	cfg := newSharedControlTestConfig(t)
+	cfg.SSHPublishedServices = config.StringValues{"private:22:root,0x1111111111111111111111111111111111111111"}
+	setupSharedControlTestEnv(t, cfg)
+
+	patch := ControlPatch{}
+	patch.Add("publish.public", "public", []string(nil))
+	patch.Add("publish.private", "private", []string(nil))
+	patch.Add("publish.protected", "protected", []string(nil))
+	result := app.ApplyControlPatch(patch, controlPatchApplyOptions{Reconcile: true})
+	if result.HasValidationErrors() {
+		t.Fatalf("ApplyControlPatch errors: %#v", result.ValidationErrors)
+	}
+
+	port := app.clientManager.GetPool().GetPublishedPort(22)
+	if port == nil {
+		t.Fatalf("expected ssh service to be installed in published port pool")
+	}
+	if !port.SSHEnabled || port.SSHLocalUser != "root" {
+		t.Fatalf("unexpected ssh port: %#v", port)
+	}
+}
+
 func TestBuildContractControlPatchEmptyValuesUseSharedReset(t *testing.T) {
 	cfg := newSharedControlTestConfig(t)
 	cfg.RemoteRPCAddrs = config.StringValues{"diode://custom.example:41046"}

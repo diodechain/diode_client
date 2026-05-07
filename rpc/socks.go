@@ -409,7 +409,7 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 
 		serverIDs := make([]util.Address, 0, len(cachedServerIDs)+len(ticketServerIDs)+len(defaultIds))
 		serverIDs = appendRoutingTier(serverIDs, socksServer.clientManager.sortServerIDsWithinRoutingTier(cachedServerIDs))
-		serverIDs = appendRoutingTier(serverIDs, ticketServerIDs)
+		serverIDs = appendRoutingTier(serverIDs, socksServer.clientManager.sortServerIDsWithinRoutingTier(ticketServerIDs))
 		serverIDs = appendRoutingTier(serverIDs, socksServer.clientManager.sortServerIDsWithinRoutingTier(defaultIds))
 
 		candidates = append(candidates, candidate{deviceID, serverIDs})

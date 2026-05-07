@@ -218,37 +218,37 @@ func TestRoutingTiersKeepDefaultFallbackBehindTicketServer(t *testing.T) {
 	}
 }
 
-func TestRoutingKeepsTicketServerPreferenceBeforeLatencySorting(t *testing.T) {
+func TestRoutingSortsTicketServerIDsWithinTier(t *testing.T) {
 	cfg := testConfig()
 	config.AppConfig = cfg
 	cm := NewClientManager(cfg)
 
-	preferredServer := util.Address{1}
-	signedServer := util.Address{2}
+	slowServer := util.Address{1}
+	fastServer := util.Address{2}
 	cm.srv.Call(func() {
-		cm.clientMap[signedServer] = &Client{
+		cm.clientMap[fastServer] = &Client{
 			host:         "signed-fast:41046",
-			serverID:     signedServer,
+			serverID:     fastServer,
 			latencySum:   10,
 			latencyCount: 1,
 		}
-		cm.clientMap[preferredServer] = &Client{
+		cm.clientMap[slowServer] = &Client{
 			host:         "preferred-slow:41046",
-			serverID:     preferredServer,
+			serverID:     slowServer,
 			latencySum:   100,
 			latencyCount: 1,
 		}
 	})
 
-	ticketServerIDs := []util.Address{preferredServer, signedServer}
+	ticketServerIDs := []util.Address{slowServer, fastServer}
 	serverIDs := make([]util.Address, 0, len(ticketServerIDs))
-	serverIDs = appendRoutingTier(serverIDs, ticketServerIDs)
+	serverIDs = appendRoutingTier(serverIDs, cm.sortServerIDsWithinRoutingTier(ticketServerIDs))
 
 	if len(serverIDs) != 2 {
 		t.Fatalf("unexpected server id count: got %d want 2", len(serverIDs))
 	}
-	if serverIDs[0] != preferredServer {
-		t.Fatalf("expected ticket preference to be preserved, got %v", serverIDs)
+	if serverIDs[0] != fastServer {
+		t.Fatalf("expected lower-latency ticket server to be first, got %v", serverIDs)
 	}
 }
 
