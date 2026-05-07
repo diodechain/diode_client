@@ -366,6 +366,13 @@ func publishHandler() (err error) {
 		os.Exit(2)
 	}
 
+	hasPublishedControls := len(publicPorts) > 0 || len(privatePorts) > 0 || len(protectedPorts) > 0 || len(cfg.SSHPublishedServices) > 0
+	if hasPublishedControls {
+		app.clientManager.RefreshRelayCandidates()
+		app.clientManager.WaitForConnectedClients(2, 3*time.Second)
+		app.clientManager.WaitForCommunityRelays(1, 30*time.Second)
+	}
+
 	patch := ControlPatch{}
 	patch.Add("publish.public", "public", publicPorts)
 	patch.Add("publish.private", "private", privatePorts)
@@ -377,6 +384,9 @@ func publishHandler() (err error) {
 
 	if err := app.ReconcileControlServices(); err != nil {
 		return err
+	}
+	if hasPublishedControls {
+		app.clientManager.RefreshConnectedTickets()
 	}
 	for {
 		app.Wait()

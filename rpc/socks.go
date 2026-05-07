@@ -393,22 +393,24 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 			}
 		}
 
-		serverIDs := make([]util.Address, 0)
+		cachedServerIDs := make([]util.Address, 0)
 		cache := socksServer.datapool.GetCacheDevice(deviceID)
 		if cache != nil {
 			for _, serverID := range cache.serverIDs {
-				serverIDs = appendAddressIfNotExists(serverIDs, serverID)
+				cachedServerIDs = appendAddressIfNotExists(cachedServerIDs, serverID)
 			}
 		}
 
+		ticketServerIDs := make([]util.Address, 0)
 		for _, serverID := range device.GetServerIDs() {
 			socksServer.logger.Debug("Found device %s on server %s", deviceID.HexString(), serverID.HexString())
-			serverIDs = appendAddressIfNotExists(serverIDs, serverID)
+			ticketServerIDs = appendAddressIfNotExists(ticketServerIDs, serverID)
 		}
 
-		for _, defaultID := range defaultIds {
-			serverIDs = appendAddressIfNotExists(serverIDs, defaultID)
-		}
+		serverIDs := make([]util.Address, 0, len(cachedServerIDs)+len(ticketServerIDs)+len(defaultIds))
+		serverIDs = appendRoutingTier(serverIDs, socksServer.clientManager.sortServerIDsWithinRoutingTier(cachedServerIDs))
+		serverIDs = appendRoutingTier(serverIDs, socksServer.clientManager.sortServerIDsWithinRoutingTier(ticketServerIDs))
+		serverIDs = appendRoutingTier(serverIDs, socksServer.clientManager.sortServerIDsWithinRoutingTier(defaultIds))
 
 		candidates = append(candidates, candidate{deviceID, serverIDs})
 	}
@@ -511,6 +513,13 @@ func appendAddressIfNotExists(slice []util.Address, address util.Address) []util
 	return append(slice, address)
 }
 
+func appendRoutingTier(out []util.Address, tier []util.Address) []util.Address {
+	for _, address := range tier {
+		out = appendAddressIfNotExists(out, address)
+	}
+	return out
+}
+
 func doCreatePort(client *Client, deviceID Address, port int, portName string, mode string, requestId int64) (conn *ConnectedPort, err error) {
 	if client == nil {
 		err = fmt.Errorf("doCreatePort(): nil client for device %s", deviceID.HexString())
@@ -529,18 +538,31 @@ func doCreatePort(client *Client, deviceID Address, port int, portName string, m
 	}
 	defer pool.DecrementConnectionAttempt(deviceID)
 
+	start := time.Now()
 	var portOpen *edge.PortOpen
 	portOpen, err = client.PortOpen(deviceID, port, portName, mode)
 	if err != nil {
+		if client.clientMan != nil {
+			client.clientMan.RecordRelayUseOutcome(client.host, time.Since(start), err)
+		}
 		return
 	}
 	if portOpen == nil {
 		err = fmt.Errorf("portopen returned nil for device %s", deviceID.HexString())
+		if client.clientMan != nil {
+			client.clientMan.RecordRelayUseOutcome(client.host, time.Since(start), err)
+		}
 		return
 	}
 	if portOpen != nil && portOpen.Err != nil {
 		err = portOpen.Err
+		if client.clientMan != nil {
+			client.clientMan.RecordRelayUseOutcome(client.host, time.Since(start), err)
+		}
 		return
+	}
+	if client.clientMan != nil {
+		client.clientMan.RecordRelayUseOutcome(client.host, time.Since(start), nil)
 	}
 	portOpen.PortNumber = port
 	conn = NewConnectedPort(requestId, portOpen.Ref, deviceID, client, port)

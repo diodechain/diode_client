@@ -152,7 +152,13 @@ func (client *Client) dialNewSession() (s *SSL, dialDuration time.Duration, err 
 	total := time.Since(t0)
 	if err != nil {
 		client.Log().Debug("Client dial failed: host=%s get_context=%v dial=%v total=%v err=%v", host, getCtxLatency, dialDuration, total, err)
+		if client.clientMan != nil {
+			client.clientMan.RecordDialOutcome(host, dialDuration, err)
+		}
 		return nil, 0, err
+	}
+	if client.clientMan != nil {
+		client.clientMan.RecordDialOutcome(host, dialDuration, nil)
 	}
 	if total > 500*time.Millisecond {
 		client.Log().Debug("Client dial slow: host=%s get_context=%v dial=%v total=%v", host, getCtxLatency, dialDuration, total)
@@ -758,7 +764,37 @@ func (client *Client) SapphireRPC(method string, params interface{}) (json.RawMe
 	return parseSapphireRPCResult(method, payload)
 }
 
+// RelayRPC forwards a JSON-RPC method call to the connected relay's network rpc path.
+func (client *Client) RelayRPC(method string, params interface{}) (json.RawMessage, error) {
+	paramsJSON, err := json.Marshal(params)
+	if err != nil {
+		return nil, fmt.Errorf("failed to encode relay rpc params for %s: %w", method, err)
+	}
+	rawResp, err := client.CallContext("rpc", method, string(paramsJSON))
+	if err != nil {
+		return nil, fmt.Errorf("relay rpc %s call failed: %w", method, err)
+	}
+	var payload []byte
+	switch v := rawResp.(type) {
+	case []byte:
+		payload = v
+	case string:
+		payload = []byte(v)
+	default:
+		return nil, fmt.Errorf("relay rpc %s returned unsupported payload type %T", method, rawResp)
+	}
+	return parseRelayRPCResult(method, payload)
+}
+
 func parseSapphireRPCResult(method string, payload []byte) (json.RawMessage, error) {
+	return parseRPCResultEnvelope("sapphire rpc", method, payload)
+}
+
+func parseRelayRPCResult(method string, payload []byte) (json.RawMessage, error) {
+	return parseRPCResultEnvelope("relay rpc", method, payload)
+}
+
+func parseRPCResultEnvelope(prefix string, method string, payload []byte) (json.RawMessage, error) {
 	type envelope struct {
 		Result json.RawMessage `json:"result"`
 		Error  json.RawMessage `json:"error"`
@@ -767,16 +803,16 @@ func parseSapphireRPCResult(method string, payload []byte) (json.RawMessage, err
 	// or a surfaced upstream error so decoding stays centralized here.
 	var env envelope
 	if err := json.Unmarshal(payload, &env); err != nil {
-		return nil, fmt.Errorf("failed to decode sapphire rpc %s response: %w", method, err)
+		return nil, fmt.Errorf("failed to decode %s %s response: %w", prefix, method, err)
 	}
 	jsonNull := []byte("null")
 	trimmedErr := bytes.TrimSpace(env.Error)
 	if len(trimmedErr) > 0 && !bytes.Equal(trimmedErr, jsonNull) {
-		return nil, fmt.Errorf("sapphire rpc %s error: %s", method, string(trimmedErr))
+		return nil, fmt.Errorf("%s %s error: %s", prefix, method, string(trimmedErr))
 	}
 	trimmedResult := bytes.TrimSpace(env.Result)
 	if len(trimmedResult) == 0 || bytes.Equal(trimmedResult, jsonNull) {
-		return nil, fmt.Errorf("sapphire rpc %s missing result", method)
+		return nil, fmt.Errorf("%s %s missing result", prefix, method)
 	}
 	return env.Result, nil
 }
@@ -803,14 +839,17 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 	}
 
 	prim, secd := client.clientMan.PeekNearestAddresses()
+	community := client.clientMan.PeekCommunityAddress()
 
-	if prim != nil {
+	if community != nil && *community != serverID {
+		ticket.LocalAddr = append([]byte{0}, community[:]...)
+	} else if prim != nil {
 		if *prim == serverID {
 			if secd != nil {
 				ticket.LocalAddr = append([]byte{1}, secd[:]...)
 			}
 		} else {
-			ticket.LocalAddr = append([]byte{0}, prim[:]...)
+			ticket.LocalAddr = append([]byte{1}, prim[:]...)
 		}
 	}
 
@@ -1890,6 +1929,9 @@ func (client *Client) initialize() (err error) {
 	if err != nil {
 		err = fmt.Errorf("failed to get server id: %v", err)
 		return
+	}
+	if client.clientMan != nil {
+		client.clientMan.RecordConnectedIdentity(client.host, client.serverID)
 	}
 	err = client.greet()
 	if err != nil {
