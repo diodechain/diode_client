@@ -6,6 +6,7 @@ package rpc
 import (
 	"fmt"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/diodechain/diode_client/config"
@@ -15,6 +16,8 @@ import (
 	"github.com/diodechain/openssl"
 	"github.com/dominicletz/genserver"
 )
+
+const resolveMembersConcurrency = 8
 
 type DataPool struct {
 	locks          map[string]bool
@@ -53,15 +56,22 @@ func NewPool() *DataPool {
 		srv:                  genserver.New("DataPool"),
 		locks:                make(map[string]bool),
 		memoryCache:          cache.New(5*time.Minute, 10*time.Minute),
-		bnsCache:             cache.New(0, 0),
 		devices:              make(map[string]*ConnectedPort),
 		publishedPorts:       make(map[int]*config.Port),
 		bnsCacheExpireItem:   make(map[string]time.Time),
-		bnsCacheExpire:       config.AppConfig.ResolveCacheTime,
+		bnsCacheExpire:       config.AppConfig.ResolveCacheTTL(),
 		bnsCacheUpdatingFlag: make(map[string]bool),
 		connectionAttempts:   make(map[Address]int),
 		peerAddrToDeviceID:   make(map[string]Address),
 	}
+	ttl := config.AppConfig.ResolveCacheTTL()
+	pool.bnsCache = cache.New(ttl, ttl)
+	pool.bnsCache.OnEvicted(func(k string, _ interface{}) {
+		pool.srv.Cast(func() {
+			delete(pool.bnsCacheExpireItem, k)
+			delete(pool.bnsCacheUpdatingFlag, k)
+		})
+	})
 	if !config.AppConfig.LogDateTime {
 		pool.srv.DeadlockCallback = nil
 	}
@@ -115,6 +125,8 @@ func (p *DataPool) getCacheBNS(key string) (bns []Address, ok bool) {
 	p.srv.Call(func() {
 		cachedBNS, hit := p.bnsCache.Get(key)
 		if !hit {
+			delete(p.bnsCacheExpireItem, key)
+			delete(p.bnsCacheUpdatingFlag, key)
 			ok = false
 			return
 		}
@@ -134,8 +146,8 @@ func (p *DataPool) GetCacheOrResolveBNS(deviceName string, client *Client) ([]Ad
 	bnsKey := fmt.Sprintf("bns:%s", deviceName)
 	bns, cached := p.getCacheBNS(bnsKey)
 	if cached {
-		//check if cache is expired if so call updateCacheResolveBNS async. Expire duration is config.AppConfig.ResolveCacheTime
-		if !p.bnsCacheUpdatingFlag[bnsKey] && config.AppConfig.ResolveCacheTime > 0 {
+		//check if cache is expired if so call updateCacheResolveBNS async. Expire duration is config.AppConfig.ResolveCacheTTL()
+		if !p.bnsCacheUpdatingFlag[bnsKey] {
 			if expireTime, ok := p.bnsCacheExpireItem[bnsKey]; ok && time.Now().After(expireTime) {
 				p.bnsCacheUpdatingFlag[bnsKey] = true
 				go p.updateCacheResolveBNS(deviceName, client)
@@ -158,8 +170,8 @@ func (p *DataPool) GetCacheOrResolvePeers(deviceName string, client *Client) ([]
 	peerKey := fmt.Sprintf("peers:%s", deviceName)
 	peers, cached := p.getCacheBNS(peerKey)
 	if cached {
-		//check if cache is expired if so call updateCacheResolvePeers async. Expire duration is config.AppConfig.ResolveCacheTime
-		if !p.bnsCacheUpdatingFlag[peerKey] && config.AppConfig.ResolveCacheTime > 0 {
+		//check if cache is expired if so call updateCacheResolvePeers async. Expire duration is config.AppConfig.ResolveCacheTTL()
+		if !p.bnsCacheUpdatingFlag[peerKey] {
 			if expireTime, ok := p.bnsCacheExpireItem[peerKey]; ok && time.Now().After(expireTime) {
 				p.bnsCacheUpdatingFlag[peerKey] = true
 				go p.updateCacheResolvePeers(deviceName, client)
@@ -184,8 +196,8 @@ func (p *DataPool) GetCacheOrResolveAllPeersOfAddrs(addr Address, client *Client
 	peers, cached := p.getCacheBNS(peerKey)
 	addrs := []Address{addr}
 	if cached {
-		//check if cache is expired if so call updateCacheResolveAllPeersOfAddrs async. Expire duration is config.AppConfig.ResolveCacheTime
-		if !p.bnsCacheUpdatingFlag[peerKey] && config.AppConfig.ResolveCacheTime > 0 {
+		//check if cache is expired if so call updateCacheResolveAllPeersOfAddrs async. Expire duration is config.AppConfig.ResolveCacheTTL()
+		if !p.bnsCacheUpdatingFlag[peerKey] {
 			if expireTime, ok := p.bnsCacheExpireItem[peerKey]; ok && time.Now().After(expireTime) {
 				p.bnsCacheUpdatingFlag[peerKey] = true
 				go p.updateCacheResolveAllPeersOfAddrs(addrs, client)
@@ -210,7 +222,7 @@ func (p *DataPool) updateCacheResolveAllPeersOfAddrs(members []Address, client *
 	peers := resolveAllPeersOfAddrs(members, client)
 
 	p.SetCacheBNS(peerKey, peers)
-	p.bnsCacheExpireItem[peerKey] = time.Now().Add(config.AppConfig.ResolveCacheTime)
+	p.bnsCacheExpireItem[peerKey] = time.Now().Add(config.AppConfig.ResolveCacheTTL())
 	p.bnsCacheUpdatingFlag[peerKey] = false
 }
 
@@ -225,7 +237,7 @@ func (p *DataPool) updateCacheResolvePeers(deviceName string, client *Client) {
 	addr = resolveAllPeersOfAddrs(bnsResult, client)
 
 	p.SetCacheBNS(peerKey, addr)
-	p.bnsCacheExpireItem[peerKey] = time.Now().Add(config.AppConfig.ResolveCacheTime)
+	p.bnsCacheExpireItem[peerKey] = time.Now().Add(config.AppConfig.ResolveCacheTTL())
 	p.bnsCacheUpdatingFlag[peerKey] = false
 }
 
@@ -234,42 +246,59 @@ func (p *DataPool) updateCacheResolveBNS(deviceName string, client *Client) {
 	bns, err := client.ResolveBNS(deviceName)
 	if err == nil {
 		p.SetCacheBNS(bnsKey, bns)
-		p.bnsCacheExpireItem[bnsKey] = time.Now().Add(config.AppConfig.ResolveCacheTime)
+		p.bnsCacheExpireItem[bnsKey] = time.Now().Add(config.AppConfig.ResolveCacheTTL())
 	}
 	p.bnsCacheUpdatingFlag[bnsKey] = false
 }
 
 func resolveAllPeersOfAddrs(members []Address, client *Client) (peers []Address) {
-	for _, maybePeerAddr := range members {
-		members, new_err := client.ResolveMembers(maybePeerAddr)
-		if new_err == nil {
-			//if member count is 1 and member is itself, it is a peer.
-			if len(members) == 1 && members[0] == maybePeerAddr {
-				peers = append(peers, maybePeerAddr)
-				continue
-			}
-			// check if members list includes itself to prevent infinite loop. If so, delete itself from members list
-			for i, member := range members {
-				if member == maybePeerAddr {
-					members = append(members[:i], members[i+1:]...)
-					break
-				}
-			}
-			// smart contract, might need to recurse
-			peers = append(peers, resolveAllPeersOfAddrs(members, client)...)
-		} else {
-			// not a smart contract, instead a real (device) peer
-			peers = append(peers, maybePeerAddr)
-			// log peers
-			peersString := "["
-			for _, peer := range peers {
-				peersString += peer.HexString() + ", "
-			}
-			peersString = peersString[:len(peersString)-2] + "]"
-			client.Log().Debug("Resolved all peers of %s. Peers list is %v", maybePeerAddr.HexString(), peersString)
-		}
+	sem := make(chan struct{}, resolveMembersConcurrency)
+	return resolveAllPeersOfAddrsWithLimit(members, client, sem)
+}
+
+func resolveAllPeersOfAddrsWithLimit(members []Address, client *Client, sem chan struct{}) (peers []Address) {
+	if len(members) == 0 {
+		return nil
+	}
+
+	resolved := make([][]Address, len(members))
+	var wg sync.WaitGroup
+	for i, maybePeerAddr := range members {
+		wg.Add(1)
+		go func(i int, maybePeerAddr Address) {
+			defer wg.Done()
+			resolved[i] = resolvePeerAddr(maybePeerAddr, client, sem)
+		}(i, maybePeerAddr)
+	}
+	wg.Wait()
+
+	for _, addrs := range resolved {
+		peers = append(peers, addrs...)
 	}
 	return peers
+}
+
+func resolvePeerAddr(maybePeerAddr Address, client *Client, sem chan struct{}) []Address {
+	sem <- struct{}{}
+	members, err := client.ResolveMembers(maybePeerAddr)
+	<-sem
+
+	if err != nil {
+		return []Address{maybePeerAddr}
+	}
+	// If member count is 1 and member is itself, it is a peer.
+	if len(members) == 1 && members[0] == maybePeerAddr {
+		return []Address{maybePeerAddr}
+	}
+	// Check if members list includes itself to prevent infinite recursion.
+	for i, member := range members {
+		if member == maybePeerAddr {
+			members = append(members[:i], members[i+1:]...)
+			break
+		}
+	}
+	// Smart contract, might need to recurse.
+	return resolveAllPeersOfAddrsWithLimit(members, client, sem)
 }
 
 func (p *DataPool) Lock(name string) {
@@ -496,12 +525,16 @@ func (p *DataPool) GetPublishedPort(portnum int) (port *config.Port) {
 }
 
 func (p *DataPool) GetContext() (ctx *openssl.Ctx) {
+	t0 := time.Now()
 	p.srv.Call(func() {
 		if p.ctx == nil {
 			p.ctx = initSSLCtx(config.AppConfig)
 		}
 		ctx = p.ctx
 	})
+	if d := time.Since(t0); d > 100*time.Millisecond {
+		config.AppConfig.Logger.Debug("DataPool.GetContext slow: %s (possible DataPool GenServer backlog)", d)
+	}
 	return
 }
 

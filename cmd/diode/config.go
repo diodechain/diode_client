@@ -32,6 +32,7 @@ func init() {
 	cfg := config.AppConfig
 	configCmd.Flag.Var(&cfg.ConfigDelete, "delete", "deletes the given variable from the config")
 	configCmd.Flag.BoolVar(&cfg.ConfigList, "list", false, "list all stored config keys")
+	configCmd.Flag.BoolVar(&cfg.ConfigFullValues, "full", false, "list complete values (no line-width truncation)")
 	configCmd.Flag.BoolVar(&cfg.ConfigUnsafe, "unsafe", false, "display private keys (disabled by default)")
 	configCmd.Flag.Var(&cfg.ConfigSet, "set", "sets the given variable in the config")
 }
@@ -43,9 +44,25 @@ func configHandler() (err error) {
 	}
 	cfg := config.AppConfig
 	activity := false
+	changedSharedKeys := []string{}
+	effects := controlEffect(0)
 	if len(cfg.ConfigDelete) > 0 {
 		activity = true
 		for _, deleteKey := range cfg.ConfigDelete {
+			if strings.EqualFold(strings.TrimSpace(deleteKey), "private") {
+				db.DB.Del(deleteKey)
+				cfg.PrintLabel("Deleted:", deleteKey)
+				continue
+			}
+			if resetSharedControlValue(cfg, deleteKey) && isPersistedSharedControlKey(deleteKey) {
+				canonical := canonicalSharedControlKey(deleteKey)
+				changedSharedKeys = append(changedSharedKeys, canonical)
+				if spec, ok := sharedControlSpec(canonical); ok {
+					effects |= spec.Effects
+				}
+				cfg.PrintLabel("Deleted:", canonical)
+				continue
+			}
 			db.DB.Del(deleteKey)
 			cfg.PrintLabel("Deleted:", deleteKey)
 		}
@@ -53,8 +70,27 @@ func configHandler() (err error) {
 	if len(cfg.ConfigSet) > 0 {
 		activity = true
 		for _, configSet := range cfg.ConfigSet {
-			list := strings.Split(configSet, "=")
+			list := strings.SplitN(configSet, "=", 2)
 			if len(list) == 2 {
+				if !strings.EqualFold(strings.TrimSpace(list[0]), "private") {
+					if _, ok := sharedControlSpec(list[0]); ok {
+						patch := ControlPatch{}
+						patch.Add(list[0], list[0], list[1])
+						result := ApplyControlPatch(cfg, patch)
+						if result.HasValidationErrors() {
+							sharedErr := fmt.Errorf("%s", result.ValidationErrors[list[0]])
+							cfg.PrintError("Couldn't set value", sharedErr)
+							return sharedErr
+						}
+						if isPersistedSharedControlKey(list[0]) {
+							changedSharedKeys = append(changedSharedKeys, result.PersistKeys...)
+							effects |= result.Effects
+							cfg.PrintLabel("Set:", canonicalSharedControlKey(list[0]))
+							continue
+						}
+					}
+				}
+
 				value := []byte(list[1])
 				if util.IsHex(value) {
 					value, err = util.DecodeString(list[1])
@@ -83,8 +119,26 @@ func configHandler() (err error) {
 		}
 	}
 
+	if err := syncConfigBindsFromSBinds(cfg); err != nil {
+		cfg.PrintError("Couldn't set binds", err)
+		return err
+	}
+	if effects&controlEffectPublished != 0 {
+		if err := rebuildPublishedPortState(cfg); err != nil {
+			cfg.PrintError("Couldn't set published ports", err)
+			return err
+		}
+	}
+	if len(changedSharedKeys) > 0 {
+		if err := persistSharedControlState(cfg, changedSharedKeys); err != nil {
+			cfg.PrintError("Couldn't persist config", err)
+			return err
+		}
+	}
+
 	if cfg.ConfigList || !activity {
 		var value []byte
+		termWidth := config.TerminalWidth(80)
 		cfg.PrintLabel("<KEY>", "<VALUE>")
 		list := db.DB.List()
 		sort.Strings(list)
@@ -113,7 +167,7 @@ func configHandler() (err error) {
 					label = util.EncodeToString(value)
 				}
 			}
-			cfg.PrintLabel(name, label)
+			cfg.PrintLabel(name, config.TruncateConfigValue(name, label, termWidth, cfg.ConfigFullValues))
 		}
 	}
 	return

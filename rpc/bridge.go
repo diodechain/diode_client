@@ -456,7 +456,7 @@ func (client *Client) recvMessageLoop() {
 
 	ssl := client.Socket()
 	if ssl == nil {
-		if !client.isClosed {
+		if !client.closed.Load() {
 			client.Log().Info("Client connection closed prematurely.")
 			client.Close()
 		}
@@ -466,7 +466,7 @@ func (client *Client) recvMessageLoop() {
 	for {
 		msg, err := ssl.readMessage()
 		if err != nil {
-			if !client.isClosed {
+			if !client.closed.Load() {
 				client.Log().Info("Client connection closed unexpectedly: %v", err)
 				client.Close()
 			}

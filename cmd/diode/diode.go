@@ -17,7 +17,7 @@ import (
 
 var (
 	version   string = "development"
-	app       Diode
+	app       *Diode
 	buildTime string
 )
 

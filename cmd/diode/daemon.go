@@ -980,7 +980,7 @@ func (rd *runtimeDaemon) updateModeSnapshot(mode string, args []string, cfg *con
 	defer rd.stateMu.Unlock()
 	rd.activeMode = mode
 	rd.activeArgs = sanitizeModeArgs(mode, args)
-	rd.ports = clonePortMap(cfg.PublishedPorts)
+	rd.ports = cloneDaemonPortMap(cfg.PublishedPorts)
 	rd.binds = append([]config.Bind{}, cfg.Binds...)
 	rd.socksOn = cfg.EnableSocksServer
 	rd.socksAddr = cfg.SocksServerAddr()
@@ -1025,7 +1025,7 @@ func (rd *runtimeDaemon) snapshotStatus() daemonRuntimeStatus {
 	defer rd.stateMu.Unlock()
 	status.ActiveMode = rd.activeMode
 	status.ActiveArgs = append([]string{}, rd.activeArgs...)
-	status.PublishedPorts = clonePortMap(rd.ports)
+	status.PublishedPorts = cloneDaemonPortMap(rd.ports)
 	status.Binds = append([]config.Bind{}, rd.binds...)
 	status.SocksEnabled = rd.socksOn
 	status.SocksAddr = rd.socksAddr
@@ -1034,7 +1034,7 @@ func (rd *runtimeDaemon) snapshotStatus() daemonRuntimeStatus {
 	return status
 }
 
-func clonePortMap(in map[int]*config.Port) map[int]*config.Port {
+func cloneDaemonPortMap(in map[int]*config.Port) map[int]*config.Port {
 	if len(in) == 0 {
 		return map[int]*config.Port{}
 	}

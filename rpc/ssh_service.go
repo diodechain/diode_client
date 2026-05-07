@@ -46,6 +46,9 @@ type sshProcessHandle struct {
 	wait   func() error
 	resize func(cols, rows uint32) error
 	close  func() error
+	// copyWG counts stdout/stderr proxy goroutines; waited before closing the SSH channel
+	// so clients observe full command output (see proxySSHProcessIO / waitForProcess).
+	copyWG sync.WaitGroup
 }
 
 type sshDirectTCPIPPayload struct {
@@ -244,6 +247,7 @@ func (connState *embeddedSSHConn) handleSessionChannel(newChannel ssh.NewChannel
 			if err := currentProc.wait(); err != nil {
 				status = exitStatusCode(err)
 			}
+			currentProc.copyWG.Wait()
 			_, _ = channel.SendRequest("exit-status", false, ssh.Marshal(struct{ Status uint32 }{Status: status}))
 			if currentProc.close != nil {
 				_ = currentProc.close()
@@ -509,12 +513,16 @@ func proxySSHProcessIO(channel ssh.Channel, proc *sshProcessHandle) {
 		}()
 	}
 	if proc.stdout != nil {
+		proc.copyWG.Add(1)
 		go func() {
+			defer proc.copyWG.Done()
 			_, _ = io.Copy(channel, proc.stdout)
 		}()
 	}
 	if proc.stderr != nil {
+		proc.copyWG.Add(1)
 		go func() {
+			defer proc.copyWG.Done()
 			_, _ = io.Copy(channel.Stderr(), proc.stderr)
 		}()
 	}

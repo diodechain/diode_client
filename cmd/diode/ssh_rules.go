@@ -142,10 +142,7 @@ func parseSSHServicesWithClient(serviceStrings []string, client *rpc.Client) ([]
 }
 
 func currentSSHRuleClient() *rpc.Client {
-	if app.clientManager == nil {
-		return nil
-	}
-	return app.clientManager.GetNearestClient()
+	return currentControlClient()
 }
 
 func publishedPortDisplayHost(port *config.Port) string {

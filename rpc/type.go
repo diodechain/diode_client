@@ -6,7 +6,9 @@ package rpc
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -103,6 +105,46 @@ type RPCError struct {
 
 func (e RPCError) Error() string {
 	return e.Err.Message
+}
+
+// IsTransientRPCError reports whether err indicates a connection or client
+// actor failure that may succeed on another relay (e.g. dropped connection,
+// dead genserver after Close).
+func IsTransientRPCError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var ce CancelledError
+	if errors.As(err, &ce) {
+		return true
+	}
+	var te TimeoutError
+	if errors.As(err, &te) {
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "dead genserver") {
+		return true
+	}
+	if strings.Contains(msg, "rpc client was closed") {
+		return true
+	}
+	if strings.Contains(msg, "client disconnected") {
+		return true
+	}
+	if strings.Contains(msg, "connection reset") {
+		return true
+	}
+	if strings.Contains(msg, "broken pipe") {
+		return true
+	}
+	if strings.Contains(msg, "use of closed network connection") {
+		return true
+	}
+	if strings.Contains(msg, "connection refused") {
+		return true
+	}
+	return false
 }
 
 // WindowSize returns the current blockquick window size

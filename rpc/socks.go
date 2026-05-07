@@ -1030,6 +1030,15 @@ func (socksServer *Server) SetBinds(bindDefs []config.Bind) {
 	}
 
 	socksServer.binds = newBinds
+
+	// if logtarget used, we need to allow it to setup/update the ephemeral bind it uses
+	if config.AppConfig.LogTarget != "" {
+		resolved := make([]config.Bind, len(newBinds))
+		for i := range newBinds {
+			resolved[i] = newBinds[i].def
+		}
+		config.SetupLogTargetSink(resolved)
+	}
 }
 
 // GetBinds returns the current bind definitions with resolved local ports

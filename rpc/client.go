@@ -75,10 +75,10 @@ type Client struct {
 	// close event
 	OnClose func()
 
-	isClosed bool
-	closing  uint32 // set before Close() callback runs; allows GetNearestClient to exclude client earlier
-	srv      *genserver.GenServer
-	timer    *Timer
+	closed  atomic.Bool // set true when fully closed (atomic: read from any goroutine e.g. Start/recv loops)
+	closing uint32      // set before Close() callback runs; allows GetNearestClient to exclude client earlier
+	srv     *genserver.GenServer
+	timer   *Timer
 
 	portOpen2Handler atomic.Value
 }
@@ -131,36 +131,75 @@ func (client *Client) addLatencyMeasurement(latency time.Duration) {
 	client.latencyCount++
 }
 
-func (client *Client) doConnect() (err error) {
-	err = client.doDial()
-	if err != nil {
-		// client.Log().Error("Failed to connect: (%v)", err)
-		// Retry to connect
-		isOk := false
-		for i := 1; i <= client.config.RetryTimes; i++ {
-			dur := client.backoff.Duration()
-			client.Log().Info("Retry to connect (%d/%d), waiting %s", i, client.config.RetryTimes, dur.String())
-			time.Sleep(dur)
-			err = client.doDial()
-			if err == nil {
-				isOk = true
-				break
-			}
-			// client.Log().Warn("Failed to connect: (%v)", err)
-		}
-		if !isOk {
-			return fmt.Errorf("failed to connect to host: %s", client.host)
-		}
+// testHookBeforeDialContext, when non-nil, runs in dialNewSession after GetContext and before
+// DialContext (used by tests to simulate a slow connect without depending on TLS timing).
+var testHookBeforeDialContext func()
+
+// dialNewSession performs TCP/TLS dial off the Client GenServer loop so insertCall and other
+// actor work are not starved during slow connects (see gateway lockup investigation).
+func (client *Client) dialNewSession() (s *SSL, dialDuration time.Duration, err error) {
+	host := normalizeHostPort(client.host)
+	t0 := time.Now()
+	ctxAt := time.Now()
+	ctx := client.pool.GetContext()
+	getCtxLatency := time.Since(ctxAt)
+	dialAt := time.Now()
+	if testHookBeforeDialContext != nil {
+		testHookBeforeDialContext()
 	}
-	return err
+	s, err = DialContext(ctx, host, openssl.InsecureSkipHostVerification)
+	dialDuration = time.Since(dialAt)
+	total := time.Since(t0)
+	if err != nil {
+		client.Log().Debug("Client dial failed: host=%s get_context=%v dial=%v total=%v err=%v", host, getCtxLatency, dialDuration, total, err)
+		return nil, 0, err
+	}
+	if total > 500*time.Millisecond {
+		client.Log().Debug("Client dial slow: host=%s get_context=%v dial=%v total=%v", host, getCtxLatency, dialDuration, total)
+	}
+	return s, dialDuration, nil
 }
 
-func (client *Client) doDial() (err error) {
-	start := time.Now()
-	host := normalizeHostPort(client.host)
-	client.s, err = DialContext(client.pool.GetContext(), host, openssl.InsecureSkipHostVerification)
-	client.addLatencyMeasurement(time.Since(start))
-	return
+func (client *Client) connectWithRetries() (s *SSL, lastDialDuration time.Duration, err error) {
+	s, lastDialDuration, err = client.dialNewSession()
+	if err == nil {
+		return s, lastDialDuration, nil
+	}
+	for i := 1; i <= client.config.RetryTimes; i++ {
+		dur := client.backoff.Duration()
+		client.Log().Info("Retry to connect (%d/%d), waiting %s", i, client.config.RetryTimes, dur.String())
+		time.Sleep(dur)
+		s, lastDialDuration, err = client.dialNewSession()
+		if err == nil {
+			return s, lastDialDuration, nil
+		}
+	}
+	return nil, 0, fmt.Errorf("failed to connect to host: %s", client.host)
+}
+
+func (client *Client) installConnection(s *SSL, lastDialDuration time.Duration) (err error) {
+	defer func() {
+		if err != nil && s != nil {
+			s.Close()
+		}
+	}()
+	var installErr error
+	callErr := client.srv.Call(func() {
+		if client.closed.Load() {
+			installErr = fmt.Errorf("client closed during connect")
+			return
+		}
+		client.s = s
+		client.addLatencyMeasurement(lastDialDuration)
+		go client.recvMessageLoop()
+		client.cm.SendCallPtr = client.sendCall
+	})
+	if callErr != nil {
+		err = callErr
+		return err
+	}
+	err = installErr
+	return err
 }
 
 // Info logs to logger in Info level
@@ -276,7 +315,7 @@ func (client *Client) CastContext(sender *ConnectedPort, method string, args ...
 
 func (client *Client) insertCall(call *Call) (err error) {
 	timeout := client.callTimeout(func() {
-		if client.isClosed {
+		if client.closed.Load() {
 			err = errClientClosed
 			return
 		}
@@ -593,7 +632,7 @@ func (client *Client) greet() error {
 // SubmitTicketForUsage submits a ticket covering at least minBytes.
 func (client *Client) SubmitTicketForUsage(minBytes *big.Int) {
 	client.srv.Cast(func() {
-		if client.bq == nil || client.isClosed || client.s == nil {
+		if client.bq == nil || client.closed.Load() || client.s == nil {
 			return
 		}
 		if minBytes == nil {
@@ -1027,6 +1066,25 @@ func (client *Client) GetMoonAccountValueRaw(account [20]byte, rawKey []byte) ([
 	return nil, nil
 }
 
+func (client *Client) getMoonAccountValuesRaw(account [20]byte, rawKeys [][]byte) ([][]byte, []error) {
+	raws := make([][]byte, len(rawKeys))
+	errs := make([]error, len(rawKeys))
+	if len(rawKeys) == 0 {
+		return raws, errs
+	}
+
+	var wg sync.WaitGroup
+	for i, rawKey := range rawKeys {
+		wg.Add(1)
+		go func(i int, rawKey []byte) {
+			defer wg.Done()
+			raws[i], errs[i] = client.GetMoonAccountValueRaw(account, rawKey)
+		}(i, rawKey)
+	}
+	wg.Wait()
+	return raws, errs
+}
+
 func (client *Client) GetMoonAccountValueInt(addr [20]byte, key []byte) *big.Int {
 	raw, err := client.GetMoonAccountValueRaw(addr, key)
 	ret := big.NewInt(0)
@@ -1095,6 +1153,70 @@ func (client *Client) GetAccountValueRaw(blockNumber uint64, addr [20]byte, key 
 		return NullData, err
 	}
 	return raw, nil
+}
+
+func (client *Client) getAccountValuesRaw(blockNumber uint64, addr [20]byte, rawKeys [][]byte) ([][]byte, []error) {
+	if blockNumber <= 0 {
+		bn, _ := client.LastValid()
+		blockNumber = uint64(bn)
+	}
+	raws := make([][]byte, len(rawKeys))
+	errs := make([]error, len(rawKeys))
+	if len(rawKeys) == 0 {
+		return raws, errs
+	}
+
+	keys := make([][]byte, len(rawKeys))
+	values := make([]*edge.AccountValue, len(rawKeys))
+	var roots *edge.AccountRoots
+	var rootsErr error
+
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		roots, rootsErr = client.GetAccountRoots(blockNumber, addr)
+	}()
+
+	for i, rawKey := range rawKeys {
+		keys[i] = util.PaddingBytesPrefix(rawKey, 0, 32)
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			values[i], errs[i] = client.GetAccountValue(blockNumber, addr, keys[i])
+		}(i)
+	}
+	wg.Wait()
+
+	for i, acv := range values {
+		if errs[i] != nil {
+			raws[i] = NullData
+			continue
+		}
+		if rootsErr != nil {
+			raws[i] = NullData
+			errs[i] = rootsErr
+			continue
+		}
+		if acv == nil || roots == nil {
+			raws[i] = NullData
+			errs[i] = fmt.Errorf("empty account value")
+			continue
+		}
+		acvTree := acv.AccountTree()
+		// Verify the calculated proof value matches the specific known root.
+		if roots.Find(acv.AccountRoot()) != int(acvTree.Modulo) {
+			client.config.Logger.Error("Received wrong merkle proof %v != %v", roots.Find(acv.AccountRoot()), int(acvTree.Modulo))
+			errs[i] = fmt.Errorf("wrong merkle proof")
+			raws[i] = NullData
+			continue
+		}
+		raws[i], errs[i] = acvTree.Get(keys[i])
+		if errs[i] != nil {
+			raws[i] = NullData
+		}
+	}
+	return raws, errs
 }
 
 // GetAccountRoots returns account state roots
@@ -1344,12 +1466,23 @@ func (client *Client) ResolveMembers(members Address) (addr []Address, err error
 func (client *Client) ResolveDiodeMembers(members Address) (addr []Address, err error) {
 	blockNumber, _ := client.LastValid()
 
-	owner := client.GetAccountValueAddress(blockNumber, members, contract.OwnerLocation())
+	raws, errs := client.getAccountValuesRaw(blockNumber, members, [][]byte{
+		contract.OwnerLocation(),
+		contract.MemberIndex(),
+	})
+
+	var owner Address
+	if errs[0] == nil {
+		copy(owner[:], raws[0][12:])
+	}
 	if owner != [20]byte{} {
 		addr = append(addr, owner)
 	}
 
-	size := int(client.GetAccountValueInt(blockNumber, members, contract.MemberIndex()).Uint64())
+	size := 0
+	if errs[1] == nil {
+		size = int(new(big.Int).SetBytes(raws[1]).Uint64())
+	}
 
 	// Safety belt, to protect against unreasonable allocation.
 	if size > 128 {
@@ -1357,8 +1490,16 @@ func (client *Client) ResolveDiodeMembers(members Address) (addr []Address, err 
 		size = 0
 	}
 
+	keys := make([][]byte, size)
+	for i := range keys {
+		keys[i] = contract.MemberLocation(i)
+	}
+	raws, errs = client.getAccountValuesRaw(blockNumber, members, keys)
 	for i := 0; i < size; i++ {
-		address := client.GetAccountValueAddress(blockNumber, members, contract.MemberLocation(i))
+		var address Address
+		if errs[i] == nil {
+			copy(address[:], raws[i][12:])
+		}
 		if address != owner && address != [20]byte{} {
 			addr = append(addr, address)
 		}
@@ -1367,12 +1508,23 @@ func (client *Client) ResolveDiodeMembers(members Address) (addr []Address, err 
 }
 
 func (client *Client) ResolveMoonMembers(members Address) (addr []Address, err error) {
-	owner := client.GetMoonAccountValueAddress(members, contract.OwnerLocation())
+	raws, errs := client.getMoonAccountValuesRaw(members, [][]byte{
+		contract.OwnerLocation(),
+		contract.MemberIndex(),
+	})
+
+	var owner Address
+	if errs[0] == nil {
+		copy(owner[:], raws[0][12:])
+	}
 	if owner != [20]byte{} {
 		addr = append(addr, owner)
 	}
 
-	size := int(client.GetMoonAccountValueInt(members, contract.MemberIndex()).Uint64())
+	size := 0
+	if errs[1] == nil {
+		size = int(new(big.Int).SetBytes(raws[1]).Uint64())
+	}
 
 	// Safety belt, to protect against unreasonable allocation.
 	if size > 128 {
@@ -1380,8 +1532,16 @@ func (client *Client) ResolveMoonMembers(members Address) (addr []Address, err e
 		size = 0
 	}
 
+	keys := make([][]byte, size)
+	for i := range keys {
+		keys[i] = contract.MemberLocation(i)
+	}
+	raws, errs = client.getMoonAccountValuesRaw(members, keys)
 	for i := 0; i < size; i++ {
-		address := client.GetMoonAccountValueAddress(members, contract.MemberLocation(i))
+		var address Address
+		if errs[i] == nil {
+			copy(address[:], raws[i][12:])
+		}
 		if address != owner && address != [20]byte{} {
 			addr = append(addr, address)
 		}
@@ -1458,13 +1618,13 @@ func (client *Client) IsDeviceAllowlisted(fleetAddr Address, clientAddr Address)
 
 // Closed returns whether client had closed
 func (client *Client) Closed() bool {
-	return client.isClosed
+	return client.closed.Load()
 }
 
 // Closing returns true if the client is closed or in the process of closing (flag set before Close callback runs).
 // Used by ClientManager to avoid returning a client that is about to be closed.
 func (client *Client) Closing() bool {
-	return atomic.LoadUint32(&client.closing) == 1 || client.isClosed
+	return atomic.LoadUint32(&client.closing) == 1 || client.closed.Load()
 }
 
 // Close rpc client
@@ -1475,11 +1635,11 @@ func (client *Client) Close() {
 	}
 	doCleanup := true
 	timeout := client.callTimeout(func() {
-		if client.isClosed {
+		if client.closed.Load() {
 			doCleanup = false
 			return
 		}
-		client.isClosed = true
+		client.closed.Store(true)
 		// remove existing calls
 		client.cm.RemoveCalls()
 		if client.OnClose != nil {
@@ -1510,18 +1670,16 @@ func (client *Client) Socket() (ssl *SSL) {
 
 // Start process rpc inbound message and outbound message
 func (client *Client) Start() {
-	client.srv.Cast(func() {
+	go func() {
 		if err := client.doStart(); err != nil {
-			if !client.isClosed {
+			if !client.closed.Load() {
 				client.Log().Warn("Client connect failed: %v", err)
 			}
 			client.srv.Shutdown(0)
+			return
 		}
-	})
-
-	go func() {
 		if err := client.initialize(); err != nil {
-			if !client.isClosed {
+			if !client.closed.Load() {
 				if strings.Contains(err.Error(), "block header chain mismatch") {
 					msg := "Startup chain check failed: relay returned non-contiguous block headers. This relay will be skipped; other relays can still validate the network."
 					if atomic.CompareAndSwapUint32(&startupBlockMismatchWarned, 0, 1) {
@@ -1539,12 +1697,11 @@ func (client *Client) Start() {
 }
 
 func (client *Client) doStart() (err error) {
-	if err = client.doConnect(); err != nil {
-		return
+	s, dialDur, err := client.connectWithRetries()
+	if err != nil {
+		return err
 	}
-	go client.recvMessageLoop()
-	client.cm.SendCallPtr = client.sendCall
-	return
+	return client.installConnection(s, dialDur)
 }
 
 // watchLatestBlock keep downloading the latest blockheaders and

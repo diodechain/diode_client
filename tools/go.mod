@@ -1,6 +1,6 @@
 module github.com/diodechain/diode_client/tools
 
-go 1.25.3
+go 1.25.9
 
 require (
 	github.com/securego/gosec/v2 v2.22.10
