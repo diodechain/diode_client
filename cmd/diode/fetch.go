@@ -209,9 +209,5 @@ func fetchHandler() (err error) {
 		}
 		return
 	}
-	if f != nil {
-		io.Copy(f, src)
-		f.Close()
-	}
 	return
 }
