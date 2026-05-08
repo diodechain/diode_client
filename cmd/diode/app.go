@@ -55,6 +55,8 @@ func registerRootFlags(fs *flag.FlagSet, cfg *config.Config) {
 	fs.BoolVar(&cfg.EnableMetrics, "metrics", false, "enable metrics stats")
 	fs.BoolVar(&cfg.EnableTray, "tray", false, "show a system tray icon")
 	fs.BoolVar(&cfg.DisableDaemon, "no-daemon", false, "run this command in standalone mode instead of using the diode daemon")
+	fs.BoolVar(&cfg.DetachDaemon, "d", false, "run daemon mode in the background")
+	fs.BoolVar(&cfg.DetachDaemon, "detach", false, "run daemon mode in the background")
 	fs.BoolVar(&cfg.BlockquickDowngrade, "bqdowngrade", false, "reset blockquick window after repeated validation failures")
 	registerSharedControlFlags(fs, cfg, "debug", "api", "apiaddr")
 	fs.IntVar(&cfg.RlimitNofile, "rlimit_nofile", 0, "specify the file descriptor numbers that can be opened by this process")

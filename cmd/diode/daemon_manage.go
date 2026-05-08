@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"sort"
@@ -236,6 +237,25 @@ func dispatchToRunningDaemon(req daemonRequest) (daemonResponse, bool, error) {
 	return daemonResponse{}, false, nil
 }
 
+func requestDaemonModeStop() error {
+	resp, running, err := dispatchToRunningDaemon(daemonRequest{
+		Version: daemonProtocolVersion,
+		Kind:    daemonRequestManage,
+		Command: "daemon",
+		Args:    []string{"daemon", "mode-stop"},
+	})
+	if err != nil || !running {
+		return err
+	}
+	if resp.ExitCode != 0 {
+		if resp.Error != "" {
+			return fmt.Errorf("%s", resp.Error)
+		}
+		return newExitStatusError(resp.ExitCode, "daemon mode stop failed")
+	}
+	return nil
+}
+
 func runDaemonManage(args []string, resp *daemonResponse) error {
 	if len(args) == 0 || args[0] != "daemon" {
 		return newExitStatusError(2, "missing daemon action")
@@ -265,6 +285,11 @@ func runDaemonManage(args []string, resp *daemonResponse) error {
 		if resp != nil {
 			resp.RestartPath = exePath
 		}
+		return nil
+	case "mode-stop":
+		stdoutln("Stopping diode daemon mode.")
+		app.StopMode()
+		daemonState.clearModeSnapshot()
 		return nil
 	case "ports":
 		if len(args) < 3 {

@@ -45,6 +45,64 @@ func TestParseRootInvocationDetectsHelpAndNoDaemon(t *testing.T) {
 	}
 }
 
+func TestParseRootInvocationDetectsDetach(t *testing.T) {
+	inv, err := parseRootInvocation([]string{"-d", "publish", "-public", "80"})
+	if err != nil {
+		t.Fatalf("parseRootInvocation() error = %v", err)
+	}
+	if !inv.detachDaemon {
+		t.Fatal("detachDaemon = false, want true")
+	}
+}
+
+func TestDaemonRequestForInvocationAttachesApplyModeByDefault(t *testing.T) {
+	inv, err := parseRootInvocation([]string{"publish", "-public", "80"})
+	if err != nil {
+		t.Fatalf("parseRootInvocation() error = %v", err)
+	}
+	req, err := daemonRequestForInvocation(inv)
+	if err != nil {
+		t.Fatalf("daemonRequestForInvocation() error = %v", err)
+	}
+	if req.Kind != daemonRequestApplyMode {
+		t.Fatalf("request kind = %q, want %q", req.Kind, daemonRequestApplyMode)
+	}
+	if !req.Attach {
+		t.Fatal("request Attach = false, want true")
+	}
+}
+
+func TestDaemonRequestForInvocationDetachedApplyMode(t *testing.T) {
+	inv, err := parseRootInvocation([]string{"-d", "publish", "-public", "80"})
+	if err != nil {
+		t.Fatalf("parseRootInvocation() error = %v", err)
+	}
+	req, err := daemonRequestForInvocation(inv)
+	if err != nil {
+		t.Fatalf("daemonRequestForInvocation() error = %v", err)
+	}
+	if req.Kind != daemonRequestApplyMode {
+		t.Fatalf("request kind = %q, want %q", req.Kind, daemonRequestApplyMode)
+	}
+	if req.Attach {
+		t.Fatal("request Attach = true, want false")
+	}
+}
+
+func TestDaemonRequestForInvocationRejectsDetachedOneOff(t *testing.T) {
+	inv, err := parseRootInvocation([]string{"-d", "query", "-address", "0xabc"})
+	if err != nil {
+		t.Fatalf("parseRootInvocation() error = %v", err)
+	}
+	_, err = daemonRequestForInvocation(inv)
+	if err == nil {
+		t.Fatal("daemonRequestForInvocation() error = nil, want detach rejection")
+	}
+	if !strings.Contains(err.Error(), "-d is only supported") {
+		t.Fatalf("daemonRequestForInvocation() error = %q, want detach rejection", err.Error())
+	}
+}
+
 func TestParseRootInvocationDefaultsToPublishForRootFlagsOnly(t *testing.T) {
 	inv, err := parseRootInvocation([]string{"-bind", "8080:0x8911295322a1b94539e258e46f18e33acf21b48a:80"})
 	if err != nil {
@@ -58,6 +116,32 @@ func TestParseRootInvocationDefaultsToPublishForRootFlagsOnly(t *testing.T) {
 	}
 	if len(inv.execArgs) != 3 || inv.execArgs[0] != "-bind" || inv.execArgs[2] != "publish" {
 		t.Fatalf("execArgs = %#v, want root flags plus implicit publish", inv.execArgs)
+	}
+}
+
+func TestRunDaemonManageModeStopLeavesDaemonRunning(t *testing.T) {
+	cfg := newSharedControlTestConfig(t)
+	setupSharedControlTestEnv(t, cfg)
+
+	origState := daemonState
+	daemonState = &runtimeDaemon{
+		modeChange: make(chan struct{}),
+		activeMode: "publish",
+		activeArgs: []string{"publish", "-public", "80"},
+	}
+	t.Cleanup(func() {
+		daemonState = origState
+	})
+	app.BeginMode("publish")
+
+	if err := runDaemonManage([]string{"daemon", "mode-stop"}, &daemonResponse{}); err != nil {
+		t.Fatalf("runDaemonManage(mode-stop) error = %v", err)
+	}
+	if app.Closed() {
+		t.Fatal("mode-stop closed the daemon app")
+	}
+	if status := daemonState.snapshotStatus(); status.ActiveMode != "" {
+		t.Fatalf("ActiveMode = %q, want empty", status.ActiveMode)
 	}
 }
 

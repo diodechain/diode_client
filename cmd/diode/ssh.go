@@ -189,6 +189,10 @@ func runSSHViaDaemonLease(commandArgs []string, resp daemonResponse) int {
 		stderrln("missing ssh command arguments")
 		return 1
 	}
+	if err := ensureDaemonSSHForegroundLogger(); err != nil {
+		stderrln(fmt.Sprintf("could not initialize ssh command logger: %v", err))
+		return 1
+	}
 	cfg := config.AppConfig
 	cfg.PrintLabel("Using diode daemon proxy", resp.ProxyAddr)
 	defer func() {
@@ -200,6 +204,25 @@ func runSSHViaDaemonLease(commandArgs []string, resp daemonResponse) int {
 		return exitCodeFromError(err)
 	}
 	return 0
+}
+
+func ensureDaemonSSHForegroundLogger() error {
+	cfg := config.AppConfig
+	if cfg == nil {
+		cfg = newRootConfig()
+		config.AppConfig = cfg
+	}
+	if cfg.Logger != nil {
+		return nil
+	}
+	if cfg.LogFilePath != "" {
+		cfg.LogMode = config.LogToFile
+	} else {
+		cfg.LogMode = config.LogToConsole
+	}
+	logger, err := config.NewLogger(cfg)
+	cfg.Logger = &logger
+	return err
 }
 
 // buildSSHLikeToolArgs builds the argv (excluding argv[0]) for an OpenSSH

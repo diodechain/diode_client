@@ -34,6 +34,10 @@ const (
 	daemonRequestRelease   = "release_local_proxy"
 	daemonRequestUpdate    = "update"
 	daemonRequestManage    = "manage"
+	daemonStreamStdout     = "stdout"
+	daemonStreamStderr     = "stderr"
+	daemonStreamFinal      = "final"
+	daemonStreamError      = "error"
 )
 
 var (
@@ -80,6 +84,8 @@ var (
 		"-bnscachetime":     true,
 		"-maxports":         true,
 		"-no-daemon":        true,
+		"-d":                true,
+		"-detach":           true,
 	}
 	localBypassCommands = map[string]bool{"": true, "version": true, "mcp": true, "ssh-proxy": true, daemonCommandName: true}
 	daemonApplyModeCmds = map[string]bool{"publish": true, "gateway": true, "socksd": true, "join": true, "files": true}
@@ -130,6 +136,7 @@ type daemonRequest struct {
 	Command string   `json:"command"`
 	Args    []string `json:"args,omitempty"`
 	LeaseID string   `json:"lease_id,omitempty"`
+	Attach  bool     `json:"attach,omitempty"`
 }
 
 type daemonResponse struct {
@@ -144,6 +151,13 @@ type daemonResponse struct {
 	Shutdown    bool   `json:"-"`
 }
 
+type daemonStreamFrame struct {
+	Type     string `json:"type"`
+	Data     string `json:"data,omitempty"`
+	ExitCode int    `json:"exit_code,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
 type runtimeDaemon struct {
 	socketPath string
 	metaPath   string
@@ -153,6 +167,7 @@ type runtimeDaemon struct {
 	leasesMu   sync.Mutex
 	leases     map[string]*rpc.Server
 	stateMu    sync.Mutex
+	modeChange chan struct{}
 	activeMode string
 	activeArgs []string
 	ports      map[int]*config.Port
@@ -199,6 +214,7 @@ func daemonHandler() error {
 		startup:    startupSpec,
 		baseConfig: sanitizedDaemonBaseConfig(cfg),
 		leases:     map[string]*rpc.Server{},
+		modeChange: make(chan struct{}),
 	}
 	app.Defer(func() {
 		daemonState.closeLeases()
@@ -251,22 +267,27 @@ func maybeHandleDaemonCLI(args []string) (bool, int) {
 		return false, 0
 	}
 
-	req := daemonRequest{
-		Version: daemonProtocolVersion,
-		Command: inv.command,
-		Args:    inv.execArgs,
+	applyDaemonStartupSpec(config.AppConfig, inv.startupSpec)
+
+	req, err := daemonRequestForInvocation(inv)
+	if err != nil {
+		stderrln(err.Error())
+		return true, exitCodeFromError(err)
 	}
-	switch inv.command {
-	case "ssh":
-		req.Kind = daemonRequestLease
-	case "update":
-		req.Kind = daemonRequestUpdate
-	default:
-		if daemonApplyModeCmds[inv.command] {
-			req.Kind = daemonRequestApplyMode
-		} else {
-			req.Kind = daemonRequestRunTask
+
+	if req.Attach {
+		handled, reason, exitCode, err := dispatchViaDaemonAttached(inv.startupSpec, req)
+		if !handled {
+			if reason != "" {
+				stderrln(reason)
+			}
+			return false, 0
 		}
+		if err != nil {
+			stderrln(err.Error())
+			return true, 1
+		}
+		return true, exitCode
 	}
 
 	resp, handled, reason, err := dispatchViaDaemon(inv.startupSpec, req)
@@ -296,12 +317,40 @@ func maybeHandleDaemonCLI(args []string) (bool, int) {
 	return true, resp.ExitCode
 }
 
+func daemonRequestForInvocation(inv rootInvocation) (daemonRequest, error) {
+	req := daemonRequest{
+		Version: daemonProtocolVersion,
+		Command: inv.command,
+		Args:    inv.execArgs,
+	}
+	switch inv.command {
+	case "ssh":
+		req.Kind = daemonRequestLease
+	case "update":
+		req.Kind = daemonRequestUpdate
+	default:
+		if daemonApplyModeCmds[inv.command] {
+			req.Kind = daemonRequestApplyMode
+		} else {
+			req.Kind = daemonRequestRunTask
+		}
+	}
+	if inv.detachDaemon && req.Kind != daemonRequestApplyMode {
+		return req, newExitStatusError(2, "-d is only supported for daemon mode commands")
+	}
+	if req.Kind == daemonRequestApplyMode && !inv.detachDaemon {
+		req.Attach = true
+	}
+	return req, nil
+}
+
 type rootInvocation struct {
 	command       string
 	commandArgs   []string
 	execArgs      []string
 	help          bool
 	disableDaemon bool
+	detachDaemon  bool
 	startupSpec   daemonStartupSpec
 }
 
@@ -324,7 +373,7 @@ func parseRootInvocation(args []string) (rootInvocation, error) {
 		commandName = rest[0]
 	}
 	if commandName == "" && containsHelpArg(args) {
-		return rootInvocation{help: true, disableDaemon: cfg.DisableDaemon, startupSpec: daemonStartupSpecFromConfig(cfg)}, nil
+		return rootInvocation{help: true, disableDaemon: cfg.DisableDaemon, detachDaemon: cfg.DetachDaemon, startupSpec: daemonStartupSpecFromConfig(cfg)}, nil
 	}
 	if commandName == "" {
 		commandName = "publish"
@@ -332,7 +381,7 @@ func parseRootInvocation(args []string) (rootInvocation, error) {
 		execArgs = append(execArgs, commandName)
 	}
 	if len(rest) > 1 && containsHelpArg(rest[1:]) {
-		return rootInvocation{help: true, disableDaemon: cfg.DisableDaemon, startupSpec: daemonStartupSpecFromConfig(cfg)}, nil
+		return rootInvocation{help: true, disableDaemon: cfg.DisableDaemon, detachDaemon: cfg.DetachDaemon, startupSpec: daemonStartupSpecFromConfig(cfg)}, nil
 	}
 	return rootInvocation{
 		command:       commandName,
@@ -340,6 +389,7 @@ func parseRootInvocation(args []string) (rootInvocation, error) {
 		execArgs:      execArgs,
 		help:          false,
 		disableDaemon: cfg.DisableDaemon,
+		detachDaemon:  cfg.DetachDaemon,
 		startupSpec:   daemonStartupSpecFromConfig(cfg),
 	}, nil
 }
@@ -355,10 +405,103 @@ func containsHelpArg(args []string) bool {
 }
 
 func dispatchViaDaemon(spec daemonStartupSpec, req daemonRequest) (daemonResponse, bool, string, error) {
+	conn, handled, reason, err := openDaemonConnection(spec)
+	if !handled || err != nil {
+		return daemonResponse{}, handled, reason, err
+	}
+	defer conn.Close()
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		return daemonResponse{}, true, "", err
+	}
+	var resp daemonResponse
+	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
+		return daemonResponse{}, true, "", err
+	}
+	return resp, true, "", nil
+}
+
+func dispatchViaDaemonAttached(spec daemonStartupSpec, req daemonRequest) (bool, string, int, error) {
+	conn, handled, reason, err := openDaemonConnection(spec)
+	if !handled || err != nil {
+		return handled, reason, 0, err
+	}
+	defer conn.Close()
+
+	if err := json.NewEncoder(conn).Encode(req); err != nil {
+		return true, "", 1, err
+	}
+
+	frameCh := make(chan daemonStreamFrame, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		dec := json.NewDecoder(conn)
+		for {
+			var frame daemonStreamFrame
+			if err := dec.Decode(&frame); err != nil {
+				errCh <- err
+				return
+			}
+			frameCh <- frame
+			if frame.Type == daemonStreamFinal || frame.Type == daemonStreamError {
+				return
+			}
+		}
+	}()
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, daemonSignals()...)
+	defer signal.Stop(sigCh)
+	stopRequested := false
+	for {
+		select {
+		case frame := <-frameCh:
+			switch frame.Type {
+			case daemonStreamStdout:
+				_, _ = io.WriteString(stdoutWriter(), frame.Data)
+			case daemonStreamStderr:
+				_, _ = io.WriteString(stderrWriter(), frame.Data)
+			case daemonStreamError:
+				if frame.Error != "" {
+					return true, "", exitCodeOrDefault(frame.ExitCode, 1), fmt.Errorf("%s", frame.Error)
+				}
+				return true, "", exitCodeOrDefault(frame.ExitCode, 1), fmt.Errorf("daemon stream failed")
+			case daemonStreamFinal:
+				if frame.Error != "" {
+					_, _ = io.WriteString(stderrWriter(), frame.Error+"\n")
+				}
+				return true, "", frame.ExitCode, nil
+			default:
+				return true, "", 1, fmt.Errorf("unknown daemon stream frame: %s", frame.Type)
+			}
+		case err := <-errCh:
+			if err == io.EOF {
+				return true, "", 0, nil
+			}
+			return true, "", 1, err
+		case <-sigCh:
+			if stopRequested {
+				return true, "", 130, nil
+			}
+			stopRequested = true
+			if err := requestDaemonModeStop(); err != nil {
+				return true, "", 1, err
+			}
+		}
+	}
+}
+
+func exitCodeOrDefault(code int, fallback int) int {
+	if code != 0 {
+		return code
+	}
+	return fallback
+}
+
+func openDaemonConnection(spec daemonStartupSpec) (net.Conn, bool, string, error) {
 	meta, metaErr := readDaemonMetadata()
 	if metaErr == nil && !reflect.DeepEqual(meta.StartupSpec, spec) {
 		if _, err := dialDaemon(meta.SocketPath); err == nil {
-			return daemonResponse{}, false, "running daemon is incompatible with this invocation; using standalone mode. Run `diode daemon restart` to reload the daemon with the current binary and flags.", nil
+			return nil, false, "running daemon is incompatible with this invocation; using standalone mode. Run `diode daemon restart` to reload the daemon with the current binary and flags.", nil
 		}
 		cleanupDaemonArtifacts(meta.SocketPath, metaPathFromSocket(meta.SocketPath))
 		metaErr = os.ErrNotExist
@@ -372,26 +515,18 @@ func dispatchViaDaemon(spec daemonStartupSpec, req daemonRequest) (daemonRespons
 	if err != nil {
 		cleanupDaemonArtifacts(socketPath, metaPathFromSocket(socketPath))
 		if err := spawnDaemon(spec); err != nil {
-			return daemonResponse{}, true, "", err
+			return nil, true, "", err
 		}
 		meta, err = readDaemonMetadata()
 		if err != nil {
-			return daemonResponse{}, true, "", err
+			return nil, true, "", err
 		}
 		conn, err = dialDaemon(meta.SocketPath)
 		if err != nil {
-			return daemonResponse{}, true, "", err
+			return nil, true, "", err
 		}
 	}
-	defer conn.Close()
-	if err := json.NewEncoder(conn).Encode(req); err != nil {
-		return daemonResponse{}, true, "", err
-	}
-	var resp daemonResponse
-	if err := json.NewDecoder(conn).Decode(&resp); err != nil {
-		return daemonResponse{}, true, "", err
-	}
-	return resp, true, "", nil
+	return conn, true, "", nil
 }
 
 func serveDaemon(ln net.Listener) {
@@ -413,6 +548,10 @@ func handleDaemonConn(conn net.Conn) {
 	var req daemonRequest
 	if err := json.NewDecoder(conn).Decode(&req); err != nil {
 		_ = json.NewEncoder(conn).Encode(daemonResponse{Version: daemonProtocolVersion, ExitCode: 1, Error: err.Error()})
+		return
+	}
+	if req.Kind == daemonRequestApplyMode && req.Attach {
+		executeDaemonAttachedRequest(conn, req)
 		return
 	}
 	resp := executeDaemonRequest(req)
@@ -517,6 +656,74 @@ func executeDaemonBufferedRequest(kind string, fn func() (string, error)) daemon
 	}
 	daemonState.baseConfig = sanitizedDaemonBaseConfig(config.AppConfig)
 	return resp
+}
+
+func executeDaemonAttachedRequest(conn net.Conn, req daemonRequest) {
+	var frameMu sync.Mutex
+	enc := json.NewEncoder(conn)
+	sendFrame := func(frame daemonStreamFrame) error {
+		frameMu.Lock()
+		defer frameMu.Unlock()
+		return enc.Encode(frame)
+	}
+
+	if daemonState == nil {
+		_ = sendFrame(daemonStreamFrame{Type: daemonStreamError, ExitCode: 1, Error: "daemon state is not initialized"})
+		return
+	}
+	if req.Command == "publish" {
+		req.Args = mergeImplicitPublishArgs(req.Args)
+	}
+
+	daemonExecMu.Lock()
+	*config.AppConfig = cloneDaemonConfig(&daemonState.baseConfig)
+	resetTransientConfig(config.AppConfig)
+	resetRequestGlobals()
+	config.AppConfig.StdoutWriter = daemonFrameWriter{typ: daemonStreamStdout, send: sendFrame}
+	config.AppConfig.StderrWriter = daemonFrameWriter{typ: daemonStreamStderr, send: sendFrame}
+
+	activeDaemonReqMu.Lock()
+	activeDaemonReqKind = daemonRequestApplyMode
+	activeDaemonReqMu.Unlock()
+	err := runDaemonCommandArgs(req.Args)
+	activeDaemonReqMu.Lock()
+	activeDaemonReqKind = ""
+	activeDaemonReqMu.Unlock()
+
+	exitCode := exitCodeFromError(err)
+	if err != nil && exitCode == 0 {
+		exitCode = 1
+	}
+	if err == nil {
+		daemonState.updateModeSnapshot(req.Command, req.Args, config.AppConfig)
+	}
+	daemonState.baseConfig = sanitizedDaemonBaseConfig(config.AppConfig)
+	daemonExecMu.Unlock()
+
+	if err != nil {
+		_ = sendFrame(daemonStreamFrame{Type: daemonStreamFinal, ExitCode: exitCode, Error: err.Error()})
+		return
+	}
+
+	daemonState.waitForModeExit(req.Command, req.Args, app.closeCh)
+	config.AppConfig.StdoutWriter = nil
+	config.AppConfig.StderrWriter = nil
+	_ = sendFrame(daemonStreamFrame{Type: daemonStreamFinal, ExitCode: 0})
+}
+
+type daemonFrameWriter struct {
+	typ  string
+	send func(daemonStreamFrame) error
+}
+
+func (w daemonFrameWriter) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if err := w.send(daemonStreamFrame{Type: w.typ, Data: string(p)}); err != nil {
+		return 0, err
+	}
+	return len(p), nil
 }
 
 func runDaemonCommandArgs(args []string) error {
@@ -734,6 +941,7 @@ func resetTransientConfig(cfg *config.Config) {
 	cfg.StdoutWriter = nil
 	cfg.StderrWriter = nil
 	cfg.DisableDaemon = false
+	cfg.DetachDaemon = false
 	cfg.QueryAddress = ""
 	cfg.ConfigUnsafe = false
 	cfg.ConfigList = false
@@ -986,6 +1194,14 @@ func (rd *runtimeDaemon) updateModeSnapshot(mode string, args []string, cfg *con
 	rd.socksAddr = cfg.SocksServerAddr()
 	rd.apiOn = cfg.EnableAPIServer
 	rd.apiAddr = cfg.APIServerAddr
+	rd.notifyModeChangedLocked()
+}
+
+func (rd *runtimeDaemon) notifyModeChangedLocked() {
+	if rd.modeChange != nil {
+		close(rd.modeChange)
+	}
+	rd.modeChange = make(chan struct{})
 }
 
 func (rd *runtimeDaemon) clearModeSnapshot() {
@@ -1002,6 +1218,42 @@ func (rd *runtimeDaemon) clearModeSnapshot() {
 	rd.socksAddr = ""
 	rd.apiOn = false
 	rd.apiAddr = ""
+	rd.notifyModeChangedLocked()
+}
+
+func (rd *runtimeDaemon) waitForModeExit(mode string, args []string, done <-chan struct{}) {
+	if rd == nil {
+		return
+	}
+	wantArgs := sanitizeModeArgs(mode, args)
+	for {
+		rd.stateMu.Lock()
+		activeMode := rd.activeMode
+		activeArgs := append([]string{}, rd.activeArgs...)
+		modeChange := rd.modeChange
+		rd.stateMu.Unlock()
+
+		if activeMode == "" || activeMode != mode || !equalStringSlices(activeArgs, wantArgs) {
+			return
+		}
+		select {
+		case <-modeChange:
+		case <-done:
+			return
+		}
+	}
+}
+
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }
 
 func daemonRestoreArgsForRestart() []string {

@@ -7,6 +7,8 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/diodechain/diode_client/config"
 )
 
 func TestExtractSSHTarget(t *testing.T) {
@@ -130,6 +132,23 @@ func TestBuildSSHLikeToolArgsKeepsUserArgsLast(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("buildSSHLikeToolArgs()[%d] = %q, want %q (full=%v)", i, got[i], want[i], got)
 		}
+	}
+}
+
+func TestRunSSHViaDaemonLeaseInitializesForegroundLogger(t *testing.T) {
+	origCfg := config.AppConfig
+	cfg := newRootConfig()
+	config.AppConfig = cfg
+	t.Cleanup(func() {
+		config.AppConfig = origCfg
+	})
+
+	code := runSSHViaDaemonLease([]string{"ssh", "badhost"}, daemonResponse{ProxyAddr: "127.0.0.1:1"})
+	if code == 0 {
+		t.Fatal("runSSHViaDaemonLease() exit code = 0, want validation failure")
+	}
+	if cfg.Logger == nil {
+		t.Fatal("runSSHViaDaemonLease() did not initialize foreground logger")
 	}
 }
 
