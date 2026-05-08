@@ -65,6 +65,8 @@ var (
 		"-apiaddr":          true,
 		"-rlimit_nofile":    true,
 		"-logfilepath":      true,
+		"-logstats":         true,
+		"-logtarget":        true,
 		"-logdatetime":      true,
 		"-configpath":       true,
 		"-cpuprofile":       true,
@@ -105,6 +107,8 @@ type daemonStartupSpec struct {
 	APIServerAddr       string              `json:"apiaddr"`
 	RlimitNofile        int                 `json:"rlimit_nofile"`
 	LogFilePath         string              `json:"logfilepath"`
+	LogStats            time.Duration       `json:"logstats"`
+	LogTarget           string              `json:"logtarget"`
 	LogDateTime         bool                `json:"logdatetime"`
 	ConfigFilePath      string              `json:"configpath"`
 	CPUProfile          string              `json:"cpuprofile"`
@@ -121,6 +125,7 @@ type daemonStartupSpec struct {
 	SBlocklists         config.StringValues `json:"blocklists"`
 	SAllowlists         config.StringValues `json:"allowlists"`
 	ResolveCacheTime    time.Duration       `json:"resolvecachetime"`
+	BnsCacheTime        time.Duration       `json:"bnscachetime"`
 	MaxPortsPerDevice   int                 `json:"maxports"`
 }
 
@@ -545,6 +550,11 @@ func serveDaemon(ln net.Listener) {
 
 func handleDaemonConn(conn net.Conn) {
 	defer conn.Close()
+	defer func() {
+		if r := recover(); r != nil {
+			logDaemonInternalError("Panic handling daemon connection", fmt.Errorf("%v", r))
+		}
+	}()
 	var req daemonRequest
 	if err := json.NewDecoder(conn).Decode(&req); err != nil {
 		_ = json.NewEncoder(conn).Encode(daemonResponse{Version: daemonProtocolVersion, ExitCode: 1, Error: err.Error()})
@@ -570,6 +580,10 @@ func handleDaemonConn(conn net.Conn) {
 }
 
 func executeDaemonRequest(req daemonRequest) daemonResponse {
+	if req.Kind == daemonRequestUpdate {
+		return executeDaemonUpdateRequest(req)
+	}
+
 	daemonExecMu.Lock()
 	defer daemonExecMu.Unlock()
 
@@ -597,13 +611,9 @@ func executeDaemonRequest(req daemonRequest) daemonResponse {
 			resp.Error = err.Error()
 		}
 		return resp
-	case daemonRequestUpdate:
-		return executeDaemonBufferedRequest(req.Kind, func() (string, error) {
-			return runDaemonUpdate(req.Args)
-		})
 	case daemonRequestManage:
 		manageResp := daemonResponse{Version: daemonProtocolVersion}
-		buffered := executeDaemonBufferedRequest(req.Kind, func() (string, error) {
+		buffered := executeDaemonBufferedRequest(req.Kind, false, func() (string, error) {
 			return "", runDaemonManage(req.Args, &manageResp)
 		})
 		manageResp.Stdout = buffered.Stdout
@@ -615,7 +625,7 @@ func executeDaemonRequest(req daemonRequest) daemonResponse {
 	if req.Kind == daemonRequestApplyMode && req.Command == "publish" {
 		req.Args = mergeImplicitPublishArgs(req.Args)
 	}
-	resp = executeDaemonBufferedRequest(req.Kind, func() (string, error) {
+	resp = executeDaemonBufferedRequest(req.Kind, daemonRequestPersistsBaseConfig(req), func() (string, error) {
 		return "", runDaemonCommandArgs(req.Args)
 	})
 	if req.Kind == daemonRequestApplyMode && resp.ExitCode == 0 {
@@ -624,7 +634,49 @@ func executeDaemonRequest(req daemonRequest) daemonResponse {
 	return resp
 }
 
-func executeDaemonBufferedRequest(kind string, fn func() (string, error)) daemonResponse {
+func executeDaemonUpdateRequest(req daemonRequest) daemonResponse {
+	resp := daemonResponse{Version: daemonProtocolVersion}
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+
+	daemonExecMu.Lock()
+	if daemonState == nil {
+		daemonExecMu.Unlock()
+		resp.ExitCode = 1
+		resp.Error = "daemon state is not initialized"
+		return resp
+	}
+	cfg := cloneDaemonConfig(&daemonState.baseConfig)
+	resetTransientConfig(&cfg)
+	cfg.StdoutWriter = &stdout
+	cfg.StderrWriter = &stderr
+	daemonExecMu.Unlock()
+
+	restartPath, err := runDaemonUpdateWithConfig(req.Args, &cfg)
+
+	resp.Stdout = stdout.String()
+	resp.Stderr = stderr.String()
+	resp.RestartPath = restartPath
+	if err != nil {
+		resp.ExitCode = exitCodeFromError(err)
+		resp.Error = err.Error()
+		if resp.ExitCode == 0 {
+			resp.ExitCode = 1
+		}
+	} else {
+		resp.ExitCode = 0
+	}
+	return resp
+}
+
+func daemonRequestPersistsBaseConfig(req daemonRequest) bool {
+	if req.Kind != daemonRequestRunTask {
+		return false
+	}
+	return req.Command == "config" || req.Command == "reset"
+}
+
+func executeDaemonBufferedRequest(kind string, persistBaseConfig bool, fn func() (string, error)) daemonResponse {
 	resp := daemonResponse{Version: daemonProtocolVersion}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
@@ -654,7 +706,9 @@ func executeDaemonBufferedRequest(kind string, fn func() (string, error)) daemon
 	} else {
 		resp.ExitCode = 0
 	}
-	daemonState.baseConfig = sanitizedDaemonBaseConfig(config.AppConfig)
+	if persistBaseConfig {
+		daemonState.baseConfig = sanitizedDaemonBaseConfig(config.AppConfig)
+	}
 	return resp
 }
 
@@ -697,7 +751,6 @@ func executeDaemonAttachedRequest(conn net.Conn, req daemonRequest) {
 	if err == nil {
 		daemonState.updateModeSnapshot(req.Command, req.Args, config.AppConfig)
 	}
-	daemonState.baseConfig = sanitizedDaemonBaseConfig(config.AppConfig)
 	daemonExecMu.Unlock()
 
 	if err != nil {
@@ -706,8 +759,6 @@ func executeDaemonAttachedRequest(conn net.Conn, req daemonRequest) {
 	}
 
 	daemonState.waitForModeExit(req.Command, req.Args, app.closeCh)
-	config.AppConfig.StdoutWriter = nil
-	config.AppConfig.StderrWriter = nil
 	_ = sendFrame(daemonStreamFrame{Type: daemonStreamFinal, ExitCode: 0})
 }
 
@@ -983,6 +1034,8 @@ func resetRequestGlobals() {
 	scfg.Host = "127.0.0.1"
 	scfg.Port = 8080
 	scfg.Indexed = false
+	publishFileSpecs = nil
+	publishFileFileroot = ""
 	filesFileroot = ""
 	edgeACME = false
 	edgeACMEEmail = ""
@@ -1030,6 +1083,8 @@ func daemonStartupSpecFromConfig(cfg *config.Config) daemonStartupSpec {
 		APIServerAddr:       cfg.APIServerAddr,
 		RlimitNofile:        cfg.RlimitNofile,
 		LogFilePath:         cfg.LogFilePath,
+		LogStats:            cfg.LogStats,
+		LogTarget:           cfg.LogTarget,
 		LogDateTime:         cfg.LogDateTime,
 		ConfigFilePath:      cfg.ConfigFilePath,
 		CPUProfile:          cfg.CPUProfile,
@@ -1046,6 +1101,7 @@ func daemonStartupSpecFromConfig(cfg *config.Config) daemonStartupSpec {
 		SBlocklists:         append(config.StringValues{}, cfg.SBlocklists...),
 		SAllowlists:         append(config.StringValues{}, cfg.SAllowlists...),
 		ResolveCacheTime:    cfg.ResolveCacheTime,
+		BnsCacheTime:        cfg.BnsCacheTime,
 		MaxPortsPerDevice:   cfg.MaxPortsPerDevice,
 	}
 }
@@ -1063,6 +1119,8 @@ func applyDaemonStartupSpec(cfg *config.Config, spec daemonStartupSpec) {
 	cfg.APIServerAddr = spec.APIServerAddr
 	cfg.RlimitNofile = spec.RlimitNofile
 	cfg.LogFilePath = spec.LogFilePath
+	cfg.LogStats = spec.LogStats
+	cfg.LogTarget = spec.LogTarget
 	cfg.LogDateTime = spec.LogDateTime
 	cfg.ConfigFilePath = spec.ConfigFilePath
 	cfg.CPUProfile = spec.CPUProfile
@@ -1079,6 +1137,7 @@ func applyDaemonStartupSpec(cfg *config.Config, spec daemonStartupSpec) {
 	cfg.SBlocklists = append(config.StringValues{}, spec.SBlocklists...)
 	cfg.SAllowlists = append(config.StringValues{}, spec.SAllowlists...)
 	cfg.ResolveCacheTime = spec.ResolveCacheTime
+	cfg.BnsCacheTime = spec.BnsCacheTime
 	cfg.MaxPortsPerDevice = spec.MaxPortsPerDevice
 }
 

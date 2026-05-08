@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -47,15 +48,18 @@ const (
 	updateRestartDeferred
 )
 
-func runDaemonUpdate(args []string) (string, error) {
+func runDaemonUpdateWithConfig(args []string, cfg *config.Config) (string, error) {
 	if len(args) == 0 || args[0] != "update" {
 		return "", newExitStatusError(2, "missing update command")
 	}
-	return doUpdate(updateRestartDeferred)
+	return doUpdateWithConfig(cfg, updateRestartDeferred)
 }
 
 func doUpdate(restartMode updateRestartMode) (string, error) {
-	cfg := config.AppConfig
+	return doUpdateWithConfig(config.AppConfig, restartMode)
+}
+
+func doUpdateWithConfig(cfg *config.Config, restartMode updateRestartMode) (string, error) {
 	m := &update.Manager{
 		Command: "diode",
 		Store: &github.Store{
@@ -69,7 +73,7 @@ func doUpdate(restartMode updateRestartMode) (string, error) {
 		m.Command += ".exe"
 	}
 
-	tarball, ok, err := download(m)
+	tarball, ok, err := download(cfg, m)
 	if !ok {
 		// Will recheck for an update in 24 hours
 		go func() {
@@ -92,7 +96,7 @@ func doUpdate(restartMode updateRestartMode) (string, error) {
 	}
 
 	cmd := filepath.Join(dir, m.Command)
-	stdoutf("Updated, restarting %s...\n", cmd)
+	fmt.Fprintf(updateOutputWriter(cfg), "Updated, restarting %s...\n", cmd)
 	writeLastUpdateAt()
 	if restartMode == updateRestartDeferred {
 		return cmd, nil
@@ -119,8 +123,7 @@ func updateInstallDirFromExecutable(bin string, evalSymlinks func(string) (strin
 	return filepath.Dir(bin)
 }
 
-func download(m *update.Manager) (string, bool, error) {
-	cfg := config.AppConfig
+func download(cfg *config.Config, m *update.Manager) (string, bool, error) {
 	ansi.HideCursor()
 	defer ansi.ShowCursor()
 
@@ -150,7 +153,7 @@ func download(m *update.Manager) (string, bool, error) {
 	}
 
 	// whitespace
-	stdoutln()
+	fmt.Fprintln(updateOutputWriter(cfg))
 
 	// download tarball to a tmp dir
 	tarball, err := a.DownloadProxy(progress.Reader)
@@ -159,4 +162,11 @@ func download(m *update.Manager) (string, bool, error) {
 	}
 
 	return tarball, true, nil
+}
+
+func updateOutputWriter(cfg *config.Config) io.Writer {
+	if cfg != nil && cfg.StdoutWriter != nil {
+		return cfg.StdoutWriter
+	}
+	return os.Stdout
 }

@@ -37,7 +37,8 @@ var (
 		PreRun:   prepareDiode,
 		PostRun:  cleanDiode,
 	}
-	bootDiodeAddrs = [6]string{
+	modeStopWaitTimeout = 5 * time.Second
+	bootDiodeAddrs      = [6]string{
 		"diode://0xceca2f8cf1983b4cf0c1ba51fd382c2bc37aba58@us1.prenet.diode.io:41046",
 		"diode://0x7e4cd38d266902444dc9c8f7c0aa716a32497d0b@us2.prenet.diode.io:41046",
 		"diode://0x68e0bafdda9ef323f692fc080d612718c941d120@as1.prenet.diode.io:41046",
@@ -583,36 +584,60 @@ func (dio *Diode) StopMode() {
 	stopCh := dio.modeStopCh
 	doneCh := dio.modeDoneCh
 	modeDeferals := dio.modeDeferals
+	socksServer := dio.socksServer
+	proxyServer := dio.proxyServer
+	configAPIServer := dio.configAPIServer
+	clientManager := dio.clientManager
 	dio.modeStopCh = nil
 	dio.modeDoneCh = nil
 	dio.modeDeferals = nil
 	dio.activeMode = ""
+	dio.socksServer = nil
+	dio.proxyServer = nil
+	dio.configAPIServer = nil
 	dio.modeMu.Unlock()
 
 	if stopCh != nil {
 		close(stopCh)
 	}
+	cleanupMode := func() {
+		for _, fun := range modeDeferals {
+			fun()
+		}
+		if socksServer != nil {
+			socksServer.Close()
+		}
+		if proxyServer != nil {
+			proxyServer.Close()
+		}
+		if configAPIServer != nil {
+			configAPIServer.Close()
+		}
+		if clientManager != nil {
+			dio.modeMu.Lock()
+			activeMode := dio.activeMode
+			dio.modeMu.Unlock()
+			if activeMode == "" {
+				clientManager.GetPool().SetPublishedPorts(map[int]*config.Port{})
+			}
+		}
+	}
 	if doneCh != nil {
-		<-doneCh
+		select {
+		case <-doneCh:
+			cleanupMode()
+		case <-time.After(modeStopWaitTimeout):
+			if dio.config != nil && dio.config.Logger != nil {
+				dio.config.Logger.Warn("Timed out waiting for mode to finish")
+			}
+			go func() {
+				<-doneCh
+				cleanupMode()
+			}()
+		}
+		return
 	}
-	for _, fun := range modeDeferals {
-		fun()
-	}
-	if dio.socksServer != nil {
-		dio.socksServer.Close()
-		dio.socksServer = nil
-	}
-	if dio.proxyServer != nil {
-		dio.proxyServer.Close()
-		dio.proxyServer = nil
-	}
-	if dio.configAPIServer != nil {
-		dio.configAPIServer.Close()
-		dio.configAPIServer = nil
-	}
-	if dio.clientManager != nil {
-		dio.clientManager.GetPool().SetPublishedPorts(map[int]*config.Port{})
-	}
+	cleanupMode()
 }
 
 // Closed returns the whether diode application has been closed

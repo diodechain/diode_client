@@ -145,6 +145,24 @@ func TestRunDaemonManageModeStopLeavesDaemonRunning(t *testing.T) {
 	}
 }
 
+func TestStopModeTimesOutWaitingForDone(t *testing.T) {
+	prevTimeout := modeStopWaitTimeout
+	modeStopWaitTimeout = 5 * time.Millisecond
+	t.Cleanup(func() {
+		modeStopWaitTimeout = prevTimeout
+	})
+
+	dio := &Diode{config: &config.Config{}}
+	dio.modeStopCh = make(chan struct{})
+	dio.modeDoneCh = make(chan struct{})
+
+	start := time.Now()
+	dio.StopMode()
+	if time.Since(start) > time.Second {
+		t.Fatal("StopMode blocked waiting for mode done channel")
+	}
+}
+
 func TestSanitizedDaemonBaseConfigResetsTransientState(t *testing.T) {
 	cfg := newRootConfig()
 	cfg.ConfigList = true
@@ -183,11 +201,67 @@ func TestSanitizedDaemonBaseConfigResetsTransientState(t *testing.T) {
 	}
 }
 
+func TestDaemonBufferedRequestPersistsBaseConfigOnlyWhenRequested(t *testing.T) {
+	prevCfg := config.AppConfig
+	prevState := daemonState
+	t.Cleanup(func() {
+		config.AppConfig = prevCfg
+		daemonState = prevState
+	})
+
+	base := newRootConfig()
+	base.Debug = false
+	config.AppConfig = newRootConfig()
+	daemonState = &runtimeDaemon{baseConfig: *base}
+
+	resp := executeDaemonBufferedRequest(daemonRequestRunTask, false, func() (string, error) {
+		config.AppConfig.Debug = true
+		return "", nil
+	})
+	if resp.ExitCode != 0 {
+		t.Fatalf("executeDaemonBufferedRequest() exit = %d err = %q", resp.ExitCode, resp.Error)
+	}
+	if daemonState.baseConfig.Debug {
+		t.Fatal("baseConfig.Debug changed for non-persistent request")
+	}
+
+	resp = executeDaemonBufferedRequest(daemonRequestRunTask, true, func() (string, error) {
+		config.AppConfig.Debug = true
+		return "", nil
+	})
+	if resp.ExitCode != 0 {
+		t.Fatalf("executeDaemonBufferedRequest(persist) exit = %d err = %q", resp.ExitCode, resp.Error)
+	}
+	if !daemonState.baseConfig.Debug {
+		t.Fatal("baseConfig.Debug did not change for persistent request")
+	}
+}
+
+func TestResetRequestGlobalsClearsPublishFileGlobals(t *testing.T) {
+	publishFileSpecs = config.StringValues{"8080", "9090"}
+	publishFileFileroot = "/tmp/files"
+	t.Cleanup(func() {
+		publishFileSpecs = nil
+		publishFileFileroot = ""
+	})
+
+	resetRequestGlobals()
+	if len(publishFileSpecs) != 0 {
+		t.Fatalf("publishFileSpecs = %#v, want empty", publishFileSpecs)
+	}
+	if publishFileFileroot != "" {
+		t.Fatalf("publishFileFileroot = %q, want empty", publishFileFileroot)
+	}
+}
+
 func TestDaemonStartupSpecFromConfigCopiesRootScopedValues(t *testing.T) {
 	cfg := newRootConfig()
 	cfg.RemoteRPCTimeout = 7 * time.Second
 	cfg.RetryWait = 2 * time.Second
 	cfg.ResolveCacheTime = 5 * time.Minute
+	cfg.BnsCacheTime = 6 * time.Minute
+	cfg.LogStats = 30 * time.Second
+	cfg.LogTarget = "collector:1234"
 	cfg.SBlocklists = config.StringValues{"0x1"}
 
 	spec := daemonStartupSpecFromConfig(cfg)
@@ -200,8 +274,39 @@ func TestDaemonStartupSpecFromConfigCopiesRootScopedValues(t *testing.T) {
 	if spec.ResolveCacheTime != 5*time.Minute {
 		t.Fatalf("ResolveCacheTime = %v, want 5m", spec.ResolveCacheTime)
 	}
+	if spec.BnsCacheTime != 6*time.Minute {
+		t.Fatalf("BnsCacheTime = %v, want 6m", spec.BnsCacheTime)
+	}
+	if spec.LogStats != 30*time.Second {
+		t.Fatalf("LogStats = %v, want 30s", spec.LogStats)
+	}
+	if spec.LogTarget != "collector:1234" {
+		t.Fatalf("LogTarget = %q, want collector:1234", spec.LogTarget)
+	}
 	if len(spec.SBlocklists) != 1 || spec.SBlocklists[0] != "0x1" {
 		t.Fatalf("SBlocklists = %#v, want [0x1]", spec.SBlocklists)
+	}
+}
+
+func TestApplyDaemonStartupSpecCopiesLogAndCacheValues(t *testing.T) {
+	cfg := newRootConfig()
+	applyDaemonStartupSpec(cfg, daemonStartupSpec{
+		LogStats:         15 * time.Second,
+		LogTarget:        "collector:1234",
+		ResolveCacheTime: 4 * time.Minute,
+		BnsCacheTime:     3 * time.Minute,
+	})
+	if cfg.LogStats != 15*time.Second {
+		t.Fatalf("LogStats = %v, want 15s", cfg.LogStats)
+	}
+	if cfg.LogTarget != "collector:1234" {
+		t.Fatalf("LogTarget = %q, want collector:1234", cfg.LogTarget)
+	}
+	if cfg.ResolveCacheTime != 4*time.Minute {
+		t.Fatalf("ResolveCacheTime = %v, want 4m", cfg.ResolveCacheTime)
+	}
+	if cfg.BnsCacheTime != 3*time.Minute {
+		t.Fatalf("BnsCacheTime = %v, want 3m", cfg.BnsCacheTime)
 	}
 }
 
