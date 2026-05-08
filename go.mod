@@ -3,6 +3,7 @@ module github.com/diodechain/diode_client
 go 1.25.9
 
 require (
+	github.com/Microsoft/go-winio v0.6.2
 	github.com/caddyserver/certmagic v0.19.2
 	github.com/creack/pty v1.1.24
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
