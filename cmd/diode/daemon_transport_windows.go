@@ -3,8 +3,6 @@
 package main
 
 import (
-	"crypto/sha1"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net"
@@ -18,25 +16,20 @@ import (
 )
 
 func daemonPaths() (string, string, error) {
-	base, err := os.UserConfigDir()
+	dir, err := daemonPathDir()
 	if err != nil {
 		return "", "", err
 	}
-	dir := filepath.Join(base, "diode")
-	if err := os.MkdirAll(dir, 0700); err != nil {
-		return "", "", err
-	}
-	sum := sha1.Sum([]byte(dir))
-	socketPath := `\\.\pipe\diode-client-` + hex.EncodeToString(sum[:8])
+	socketPath := `\\.\pipe\diode-client-` + daemonPathID()
 	return socketPath, metaPathFromSocket(socketPath), nil
 }
 
 func metaPathFromSocket(socketPath string) string {
-	base, err := os.UserConfigDir()
+	dir, err := daemonPathDir()
 	if err != nil {
 		return "daemon.json"
 	}
-	return filepath.Join(base, "diode", "daemon.json")
+	return filepath.Join(dir, "daemon.json")
 }
 
 func daemonListen(socketPath string) (net.Listener, error) {

@@ -190,6 +190,15 @@ Daemon management commands:
 
 `daemon status` reports whether the daemon is running, the active mode, active arguments, published ports, bind rules, SOCKS state, and config API state. `daemon ports remove` and `daemon ports clear` only manage the current daemon-owned publish/files mode; they do not edit local config.
 
+Daemon instances are scoped by wallet database path. The default `diode daemon ...` commands manage the daemon for the default `-dbpath`; passing a different root `-dbpath` manages a separate daemon for that wallet:
+
+```bash
+./diode -dbpath ./wallet-a.db -d publish -public 8080:80
+./diode -dbpath ./wallet-b.db -d socksd -socksd_port 1082
+./diode -dbpath ./wallet-a.db daemon status
+./diode -dbpath ./wallet-b.db daemon stop
+```
+
 If you plan to contribute code, see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Publishing Ports

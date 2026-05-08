@@ -14,12 +14,8 @@ import (
 )
 
 func daemonPaths() (string, string, error) {
-	base, err := os.UserConfigDir()
+	dir, err := daemonPathDir()
 	if err != nil {
-		return "", "", err
-	}
-	dir := filepath.Join(base, "diode")
-	if err := os.MkdirAll(dir, 0700); err != nil {
 		return "", "", err
 	}
 	socketPath := filepath.Join(dir, "daemon.sock")
@@ -30,7 +26,7 @@ func metaPathFromSocket(socketPath string) string {
 	if socketPath == "" {
 		socketPath, _, _ = daemonPaths()
 	}
-	return socketPath + ".json"
+	return filepath.Join(filepath.Dir(socketPath), "daemon.json")
 }
 
 func daemonListen(socketPath string) (net.Listener, error) {

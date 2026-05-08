@@ -103,6 +103,37 @@ func TestDaemonRequestForInvocationRejectsDetachedOneOff(t *testing.T) {
 	}
 }
 
+func TestDaemonPathsAreScopedByDBPath(t *testing.T) {
+	prevCfg := config.AppConfig
+	t.Cleanup(func() {
+		config.AppConfig = prevCfg
+	})
+
+	dir := t.TempDir()
+	cfgA := newRootConfig()
+	cfgA.DBPath = dir + "/wallet-a.db"
+	config.AppConfig = cfgA
+	socketA, metaA, err := daemonPaths()
+	if err != nil {
+		t.Fatalf("daemonPaths(wallet-a) error = %v", err)
+	}
+
+	cfgB := newRootConfig()
+	cfgB.DBPath = dir + "/wallet-b.db"
+	config.AppConfig = cfgB
+	socketB, metaB, err := daemonPaths()
+	if err != nil {
+		t.Fatalf("daemonPaths(wallet-b) error = %v", err)
+	}
+
+	if socketA == socketB {
+		t.Fatalf("socket path should differ for different dbpaths: %q", socketA)
+	}
+	if metaA == metaB {
+		t.Fatalf("metadata path should differ for different dbpaths: %q", metaA)
+	}
+}
+
 func TestParseRootInvocationDefaultsToPublishForRootFlagsOnly(t *testing.T) {
 	inv, err := parseRootInvocation([]string{"-bind", "8080:0x8911295322a1b94539e258e46f18e33acf21b48a:80"})
 	if err != nil {

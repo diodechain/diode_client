@@ -266,6 +266,7 @@ func maybeHandleDaemonCLI(args []string) (bool, int) {
 		return false, 0
 	}
 	if inv.command == "daemon" {
+		applyDaemonStartupSpec(config.AppConfig, inv.startupSpec)
 		return handleDaemonManagerCLI(inv.commandArgs)
 	}
 	if inv.disableDaemon || inv.help || localBypassCommands[inv.command] || !daemonRunnableCmds[inv.command] {
