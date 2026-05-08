@@ -1,7 +1,7 @@
 package main
 
 import (
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"os"
 	"path/filepath"
@@ -25,7 +25,7 @@ func daemonPathID() string {
 	if base, err := os.UserConfigDir(); err == nil {
 		seed = filepath.Clean(base) + "\x00" + seed
 	}
-	sum := sha1.Sum([]byte(seed))
+	sum := sha256.Sum256([]byte(seed))
 	return hex.EncodeToString(sum[:8])
 }
 
