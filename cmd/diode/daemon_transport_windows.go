@@ -21,7 +21,7 @@ func daemonPaths() (string, string, error) {
 		return "", "", err
 	}
 	socketPath := `\\.\pipe\diode-client-` + daemonPathID()
-	return socketPath, metaPathFromSocket(socketPath), nil
+	return socketPath, filepath.Join(dir, "daemon.json"), nil
 }
 
 func metaPathFromSocket(socketPath string) string {
