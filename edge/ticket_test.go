@@ -23,3 +23,18 @@ func TestCheckSignature(t *testing.T) {
 		t.Errorf("Host signature recovery failed")
 	}
 }
+
+func TestCheckSignatureFeatures(t *testing.T) {
+	const node = `fcad0b19bb29d4674531d6f115237e16afce377c`
+	nodeAddress, _ := hex.DecodeString(node)
+	buffer, _ := hex.DecodeString(`f8df01f8dc88726573706f6e7365f8d1867365727665728d34352e37392e3131352e32343682a05682c76f85312e322e34f86bca85626c6f636b83edc594d68866656174757265738c7475726e2c77675f65786974dd846e616d6597656e726963685f747572746c654064696f64652d757331ce877469636b657473853d21b0f889ce8474696d658818ae9add46213993cc86757074696d65840ffa6fc6b8410171fa9b657f5c3b2e6c207eb4976bf3960e825894b654c3bae041d4347d712f301d67453b4225099618cf646a90862a1785fcc029d478ecbf2c094cf82822f7bb`)
+	obj, err := doParseServerObjResponse(buffer)
+
+	if err != nil {
+		t.Fatalf("Failed to parse server object response: %v", err)
+	}
+
+	if !bytes.Equal(obj.Node[:], nodeAddress) {
+		t.Errorf("Host signature recovery failed, expected %x got %x", nodeAddress, obj.Node[:])
+	}
+}
