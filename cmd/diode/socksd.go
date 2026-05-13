@@ -26,9 +26,13 @@ func init() {
 }
 
 func socksdHandler() (err error) {
+	beginRuntimeMode("socksd")
 	err = app.Start()
 	if err != nil {
 		return
+	}
+	if isDaemonApplyRequest() {
+		return nil
 	}
 	app.Wait()
 	return

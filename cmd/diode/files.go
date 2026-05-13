@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -84,9 +83,9 @@ func filesHandler() error {
 	cfg := config.AppConfig
 	spec := strings.TrimSpace(filesCmd.Flag.Arg(0))
 	if spec == "" {
-		fmt.Fprintln(os.Stderr, "usage: diode files [-fileroot <path>] <files-spec>")
-		fmt.Fprintln(os.Stderr, "  files-spec: <port> for public, or <port>,<allowlist>... for private")
-		os.Exit(2)
+		stderrln("usage: diode files [-fileroot <path>] <files-spec>")
+		stderrln("  files-spec: <port> for public, or <port>,<allowlist>... for private")
+		return newExitStatusError(2, "missing files publish spec")
 	}
 
 	portStr, mode, err := expandFilesSpec(spec)
@@ -106,12 +105,13 @@ func filesHandler() error {
 	if err := app.Start(); err != nil {
 		return err
 	}
+	beginRuntimeMode("files")
 
 	cleanup, err := startFileListener(p, filesFileroot)
 	if err != nil {
 		return err
 	}
-	app.Defer(cleanup)
+	registerRuntimeCleanup(cleanup)
 
 	publicPorts, privatePorts, protectedPorts, err := appendPublishedControlDefinition(nil, nil, nil, p)
 	if err != nil {
@@ -136,6 +136,9 @@ func filesHandler() error {
 
 	if err := app.ReconcileControlServices(); err != nil {
 		return err
+	}
+	if isDaemonApplyRequest() {
+		return nil
 	}
 
 	app.Wait()

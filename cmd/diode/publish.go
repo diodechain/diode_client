@@ -6,7 +6,6 @@ package main
 import (
 	"fmt"
 	"net"
-	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -275,6 +274,7 @@ func publishHandler() (err error) {
 	if err != nil {
 		return
 	}
+	beginRuntimeMode("publish")
 	publicPorts := cloneStrings(cfg.PublicPublishedPorts)
 	privatePorts := cloneStrings(cfg.PrivatePublishedPorts)
 	protectedPorts := cloneStrings(cfg.ProtectedPublishedPorts)
@@ -307,7 +307,7 @@ func publishHandler() (err error) {
 		if err != nil {
 			return
 		}
-		app.Defer(cleanup)
+		registerRuntimeCleanup(cleanup)
 		publicPorts, privatePorts, protectedPorts, err = appendPublishedControlDefinition(publicPorts, privatePorts, protectedPorts, p)
 		if err != nil {
 			return err
@@ -339,7 +339,7 @@ func publishHandler() (err error) {
 					return
 				}
 			}()
-			app.Defer(func() {
+			registerRuntimeCleanup(func() {
 				// Since we didn't use ListenAndServe, call
 				// ln.Close() instead of staticServer.Close()
 				ln.Close()
@@ -358,12 +358,12 @@ func publishHandler() (err error) {
 	}
 
 	if len(publicPorts) == 0 && len(privatePorts) == 0 && len(protectedPorts) == 0 && len(cfg.SSHPublishedServices) == 0 && len(cfg.Binds) == 0 {
-		fmt.Println()
-		fmt.Println("ERROR: Can't run publish without any arguments!")
-		fmt.Println(" HINT: Try 'diode publish -public 8080:80' to publish a local port")
-		fmt.Println(" HINT: Check our docs to learn more about publishing ports: https://diode.io/docs/getting-started.html")
-		fmt.Println(" HINT: Or run 'diode --help' to see all commands")
-		os.Exit(2)
+		stdoutln()
+		stdoutln("ERROR: Can't run publish without any arguments!")
+		stdoutln(" HINT: Try 'diode publish -public 8080:80' to publish a local port")
+		stdoutln(" HINT: Check our docs to learn more about publishing ports: https://diode.io/docs/getting-started.html")
+		stdoutln(" HINT: Or run 'diode --help' to see all commands")
+		return newExitStatusError(2, "publish requires at least one published port or bind")
 	}
 
 	patch := ControlPatch{}
@@ -377,6 +377,9 @@ func publishHandler() (err error) {
 
 	if err := app.ReconcileControlServices(); err != nil {
 		return err
+	}
+	if isDaemonApplyRequest() {
+		return nil
 	}
 	for {
 		app.Wait()

@@ -27,6 +27,10 @@ func main() {
 		os.Exit(0)
 	}
 
+	if handled, exitCode := maybeHandleDaemonCLI(os.Args[1:]); handled {
+		os.Exit(exitCode)
+	}
+
 	cfg := config.AppConfig
 	err := diodeCmd.Execute()
 	if err != nil {

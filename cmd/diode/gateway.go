@@ -38,6 +38,7 @@ func init() {
 }
 
 func gatewayHandler() (err error) {
+	beginRuntimeMode("gateway")
 	err = app.Start()
 	if err != nil {
 		return
@@ -47,6 +48,9 @@ func gatewayHandler() (err error) {
 	result := app.ApplyControlPatch(patch, controlPatchApplyOptions{Reconcile: true})
 	if result.HasValidationErrors() {
 		return fmt.Errorf("couldn't apply gateway controls: %v", result.ValidationErrors)
+	}
+	if isDaemonApplyRequest() {
+		return nil
 	}
 	app.Wait()
 	return
