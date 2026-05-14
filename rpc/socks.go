@@ -52,6 +52,7 @@ const (
 
 // Config is Socks Server configuration
 type Config struct {
+	EnableSocks     bool
 	Addr            string
 	ProxyServerAddr string
 	Fallback        string
@@ -810,48 +811,50 @@ func (socksServer *Server) Start() error {
 		return nil
 	}
 
-	socksServer.logger.Info("Start socks server %s", socksServer.Config.Addr)
-	tcp, err := net.Listen("tcp", socksServer.Config.Addr)
-	if err != nil {
-		return err
-	}
-	socksServer.listener = tcp
+	if socksServer.Config.EnableSocks {
+		socksServer.logger.Info("Start socks server %s", socksServer.Config.Addr)
+		tcp, err := net.Listen("tcp", socksServer.Config.Addr)
+		if err != nil {
+			return err
+		}
+		socksServer.listener = tcp
 
-	go func() {
-		for {
-			conn, err := tcp.Accept()
-			if err != nil {
-				if socksServer.Closed() {
+		go func() {
+			for {
+				conn, err := tcp.Accept()
+				if err != nil {
+					if socksServer.Closed() {
+						return
+					}
+					// Check whether error is temporary
+					if ne, ok := err.(net.Error); ok && ne.Timeout() {
+						delayTime := 5 * time.Millisecond
+						socksServer.logger.Warn("socks: Accept error %v, retry in %v", err, delayTime)
+						time.Sleep(delayTime)
+						continue
+					}
+
+					socksServer.logger.Error(err.Error())
+					socksServer.Close()
 					return
 				}
-				// Check whether error is temporary
-				if ne, ok := err.(net.Error); ok && ne.Timeout() {
-					delayTime := 5 * time.Millisecond
-					socksServer.logger.Warn("socks: Accept error %v, retry in %v", err, delayTime)
-					time.Sleep(delayTime)
-					continue
-				}
-
-				socksServer.logger.Error(err.Error())
-				socksServer.Close()
-				return
+				go socksServer.handleSocksConnection(conn)
 			}
-			go socksServer.handleSocksConnection(conn)
-		}
-	}()
+		}()
 
-	udp, err := net.ListenPacket("udp", socksServer.Config.Addr)
-	if err != nil {
-		return err
+		udp, err := net.ListenPacket("udp", socksServer.Config.Addr)
+		if err != nil {
+			return err
+		}
+		socksServer.udpconn = udp
+
+		go func() {
+			buf := make([]byte, 2048)
+			for {
+				socksServer.handleUDP(buf)
+			}
+		}()
 	}
-	socksServer.udpconn = udp
-
-	go func() {
-		buf := make([]byte, 2048)
-		for {
-			socksServer.handleUDP(buf)
-		}
-	}()
 
 	return nil
 }

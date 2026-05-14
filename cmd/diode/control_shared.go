@@ -1719,6 +1719,7 @@ func (dio *Diode) applyCurrentBinds(cfg *config.Config, sig string) {
 
 func socksServerSignature(cfg *config.Config) string {
 	return strings.Join([]string{
+		strconv.FormatBool(cfg.EnableSocksServer),
 		cfg.SocksServerAddr(),
 		cfg.FleetAddr.HexString(),
 		strings.Join(sortedStrings(cfg.SBlocklists), ","),
@@ -1836,11 +1837,12 @@ func (dio *Diode) reconcileControlServicesLocked() error {
 	socksRecreated := false
 	if dio.socksServer == nil || dio.controlRuntime.socksSignature != desiredSocksSig {
 		socksCfg := rpc.Config{
-			Addr:       cfg.SocksServerAddr(),
-			FleetAddr:  cfg.FleetAddr,
-			Blocklists: cfg.Blocklists(),
-			Allowlists: cfg.Allowlists,
-			Fallback:   cfg.SocksFallback,
+			EnableSocks: cfg.EnableSocksServer,
+			Addr:        cfg.SocksServerAddr(),
+			FleetAddr:   cfg.FleetAddr,
+			Blocklists:  cfg.Blocklists(),
+			Allowlists:  cfg.Allowlists,
+			Fallback:    cfg.SocksFallback,
 		}
 		if dio.socksServer != nil && dio.socksServer.Config.Addr == socksCfg.Addr {
 			if err := dio.socksServer.SetConfig(socksCfg); err != nil {
