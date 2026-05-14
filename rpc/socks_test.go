@@ -9,6 +9,8 @@ import (
 
 func TestSocksServerUDPConnClose(t *testing.T) {
 	config.AppConfig = &config.Config{LogMode: config.LogToConsole}
+	logger, _ := config.NewLogger(config.AppConfig)
+	config.AppConfig.Logger = &logger
 	cm := NewClientManager(config.AppConfig)
 	cfg := Config{
 		EnableSocks: true,
@@ -19,10 +21,6 @@ func TestSocksServerUDPConnClose(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
-
-	// Mock logger to avoid nil panic
-	logger, _ := config.NewLogger(&config.Config{LogMode: config.LogToConsole})
-	server.logger = &logger
 
 	err = server.Start()
 	if err != nil {
@@ -49,6 +47,8 @@ func TestSocksServerUDPConnClose(t *testing.T) {
 
 func TestSocksServerDynamicToggle(t *testing.T) {
 	config.AppConfig = &config.Config{LogMode: config.LogToConsole}
+	logger, _ := config.NewLogger(config.AppConfig)
+	config.AppConfig.Logger = &logger
 	cm := NewClientManager(config.AppConfig)
 
 	// Start with socks disabled
@@ -61,9 +61,6 @@ func TestSocksServerDynamicToggle(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
-
-	logger, _ := config.NewLogger(&config.Config{LogMode: config.LogToConsole})
-	server.logger = &logger
 
 	err = server.Start()
 	if err != nil {

@@ -77,15 +77,20 @@ type Server struct {
 	resolver      *Resolver
 	Config        Config
 	logger        *config.Logger
-	listener      net.Listener
-	udpconn       net.PacketConn
-	closeCh       chan struct{}
-	bindsMu       sync.RWMutex
-	binds         []Bind
-	cd            sync.Once
+
+	netMu    sync.RWMutex
+	listener net.Listener
+	udpconn  net.PacketConn
+
+	closeCh chan struct{}
+	bindsMu sync.RWMutex
+	binds   []Bind
+	cd      sync.Once
 }
 
 func (socksServer *Server) Addr() net.Addr {
+	socksServer.netMu.RLock()
+	defer socksServer.netMu.RUnlock()
 	if socksServer == nil || socksServer.listener == nil {
 		return nil
 	}
@@ -815,7 +820,9 @@ func (socksServer *Server) startSocksListeners() error {
 	if err != nil {
 		return err
 	}
+	socksServer.netMu.Lock()
 	socksServer.listener = tcp
+	socksServer.netMu.Unlock()
 
 	go func() {
 		for {
@@ -845,7 +852,9 @@ func (socksServer *Server) startSocksListeners() error {
 		socksServer.stopSocksListeners()
 		return err
 	}
+	socksServer.netMu.Lock()
 	socksServer.udpconn = udp
+	socksServer.netMu.Unlock()
 
 	go func() {
 		buf := make([]byte, 2048)
@@ -853,7 +862,7 @@ func (socksServer *Server) startSocksListeners() error {
 			if socksServer.Closed() {
 				return
 			}
-			err := socksServer.handleUDP(buf)
+			err := socksServer.handleUDP(udp, buf)
 			if err != nil && socksServer.Closed() {
 				return
 			}
@@ -863,6 +872,8 @@ func (socksServer *Server) startSocksListeners() error {
 }
 
 func (socksServer *Server) stopSocksListeners() {
+	socksServer.netMu.Lock()
+	defer socksServer.netMu.Unlock()
 	if socksServer.listener != nil {
 		socksServer.listener.Close()
 		socksServer.listener = nil
@@ -886,8 +897,8 @@ func (socksServer *Server) Start() error {
 	return nil
 }
 
-func (socksServer *Server) handleUDP(packet []byte) error {
-	n, addr, err := socksServer.udpconn.ReadFrom(packet)
+func (socksServer *Server) handleUDP(udpconn net.PacketConn, packet []byte) error {
+	n, addr, err := udpconn.ReadFrom(packet)
 	if err != nil {
 		socksServer.logger.Error("handleUDP error: %v", err)
 		return err
@@ -957,7 +968,7 @@ func (socksServer *Server) handleUDP(packet []byte) error {
 		return nil
 	}
 
-	socksServer.forwardUDP(socksServer.udpconn, addr, deviceID, port, mode, data)
+	socksServer.forwardUDP(udpconn, addr, deviceID, port, mode, data)
 	return nil
 }
 
