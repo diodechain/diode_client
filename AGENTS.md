@@ -186,7 +186,7 @@ This is a self-contained Go CLI (`diode`) with no local service dependencies (no
 - Go 1.25.x (pre-installed; version pinned in `.tool-versions`)
 - Go runtime patch (`./patch_runtime.sh`) — adds `GetGoID()` to the Go runtime; idempotent
 - OpenSSL build (`SUDO=sudo make openssl`) — builds the CGO OpenSSL binding; idempotent
-- `staticcheck` installed via `cd tools && go install ...`
+- `staticcheck` installed via `cd tools && go install honnef.co/go/tools/cmd/staticcheck@latest`
 
 ### Key commands
 
