@@ -174,3 +174,37 @@ Before handing back a change, verify:
 - concurrency edits preserve ownership and shutdown semantics
 - if behavior changed at the CLI or network level, isolated clients were started with `-dbpath` and the flow was manually tested
 - verification was run, or you clearly state what was not run
+
+## Cursor Cloud specific instructions
+
+### Environment overview
+
+This is a self-contained Go CLI (`diode`) with no local service dependencies (no databases, message queues, or Docker containers). The only external runtime dependency is outbound internet to Diode relay nodes (`*.prenet.diode.io:41046`).
+
+### Build prerequisites (already handled by the update script)
+
+- Go 1.25.x (pre-installed; version pinned in `.tool-versions`)
+- Go runtime patch (`./patch_runtime.sh`) — adds `GetGoID()` to the Go runtime; idempotent
+- OpenSSL build (`SUDO=sudo make openssl`) — builds the CGO OpenSSL binding; idempotent
+- `staticcheck` installed via `cd tools && go install honnef.co/go/tools/cmd/staticcheck@latest`
+
+### Key commands
+
+| Action | Command |
+|--------|---------|
+| Build binary | `make diode` |
+| Run tests | `make test` |
+| Run cmd/diode tests | `go test -tags patch_runtime ./cmd/diode/...` |
+| Format | `make format` |
+| Lint | `make lint` (runs `go vet` + `staticcheck`) |
+| Run app | `./diode -update=false <subcommand>` |
+
+### Gotchas
+
+- Always pass `-update=false` when running `./diode` in CI or cloud environments to skip the auto-updater.
+- Use `-dbpath /tmp/<unique>/private.db` for isolated test runs to avoid corrupting shared state.
+- The `make openssl` target requires `sudo` on Linux (`SUDO=sudo make openssl`).
+- `patch_runtime.sh` needs write access to `$(go env GOROOT)/src/runtime/runtime.go`; this is already writable in the cloud agent VM.
+- The Makefile excludes `cmd` packages from `make test`; run `go test -tags patch_runtime ./cmd/diode/...` separately if needed.
+- Build tag `patch_runtime` is required for compilation (the Makefile sets it automatically).
+- Network-dependent tests (e.g., `ci_test.sh`) require live internet access to Diode relays.
