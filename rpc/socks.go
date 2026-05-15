@@ -52,6 +52,7 @@ const (
 
 // Config is Socks Server configuration
 type Config struct {
+	EnableSocks     bool
 	Addr            string
 	ProxyServerAddr string
 	Fallback        string
@@ -76,16 +77,24 @@ type Server struct {
 	resolver      *Resolver
 	Config        Config
 	logger        *config.Logger
-	listener      net.Listener
-	udpconn       net.PacketConn
-	closeCh       chan struct{}
-	bindsMu       sync.RWMutex
-	binds         []Bind
-	cd            sync.Once
+
+	netMu    sync.RWMutex
+	listener net.Listener
+	udpconn  net.PacketConn
+
+	closeCh chan struct{}
+	bindsMu sync.RWMutex
+	binds   []Bind
+	cd      sync.Once
 }
 
 func (socksServer *Server) Addr() net.Addr {
-	if socksServer == nil || socksServer.listener == nil {
+	if socksServer == nil {
+		return nil
+	}
+	socksServer.netMu.RLock()
+	defer socksServer.netMu.RUnlock()
+	if socksServer.listener == nil {
 		return nil
 	}
 	return socksServer.listener.Addr()
@@ -804,8 +813,7 @@ func (socksServer *Server) handleSocksConnection(conn net.Conn) {
 	}
 }
 
-// Start socks server
-func (socksServer *Server) Start() error {
+func (socksServer *Server) startSocksListeners() error {
 	if socksServer.Closed() {
 		return nil
 	}
@@ -815,7 +823,9 @@ func (socksServer *Server) Start() error {
 	if err != nil {
 		return err
 	}
+	socksServer.netMu.Lock()
 	socksServer.listener = tcp
+	socksServer.netMu.Unlock()
 
 	go func() {
 		for {
@@ -833,7 +843,7 @@ func (socksServer *Server) Start() error {
 				}
 
 				socksServer.logger.Error(err.Error())
-				socksServer.Close()
+				socksServer.stopSocksListeners()
 				return
 			}
 			go socksServer.handleSocksConnection(conn)
@@ -842,25 +852,67 @@ func (socksServer *Server) Start() error {
 
 	udp, err := net.ListenPacket("udp", socksServer.Config.Addr)
 	if err != nil {
+		socksServer.stopSocksListeners()
 		return err
 	}
+	socksServer.netMu.Lock()
 	socksServer.udpconn = udp
+	socksServer.netMu.Unlock()
 
 	go func() {
 		buf := make([]byte, 2048)
 		for {
-			socksServer.handleUDP(buf)
+			if socksServer.Closed() {
+				return
+			}
+			err := socksServer.handleUDP(udp, buf)
+			if err != nil && socksServer.Closed() {
+				return
+			}
 		}
 	}()
+	return nil
+}
+
+func (socksServer *Server) stopSocksListeners() {
+	socksServer.netMu.Lock()
+	defer socksServer.netMu.Unlock()
+	if socksServer.listener != nil {
+		socksServer.listener.Close()
+		socksServer.listener = nil
+	}
+	if socksServer.udpconn != nil {
+		socksServer.udpconn.Close()
+		socksServer.udpconn = nil
+	}
+}
+
+// Start socks server
+func (socksServer *Server) Start() error {
+	if socksServer.Closed() {
+		return nil
+	}
+
+	if socksServer.Config.EnableSocks {
+		socksServer.netMu.Lock()
+		already := socksServer.listener != nil && socksServer.udpconn != nil
+		socksServer.netMu.Unlock()
+		if already {
+			// SetConfig already started listeners for a newly constructed server
+			// (see NewSocksServer); starting again would bind the same address twice.
+			return nil
+		}
+		return socksServer.startSocksListeners()
+	}
 
 	return nil
 }
 
-func (socksServer *Server) handleUDP(packet []byte) {
-	n, addr, err := socksServer.udpconn.ReadFrom(packet)
+func (socksServer *Server) handleUDP(udpconn net.PacketConn, packet []byte) error {
+	n, addr, err := udpconn.ReadFrom(packet)
 	if err != nil {
 		socksServer.logger.Error("handleUDP error: %v", err)
-		return
+		return err
 	}
 
 	packet = packet[:n]
@@ -881,12 +933,12 @@ func (socksServer *Server) handleUDP(packet []byte) {
 
 	if len(packet) <= idDmLen {
 		socksServer.logger.Error("handleUDP error: too short")
-		return
+		return nil
 	}
 
 	if packet[idFrag] != 0 {
 		socksServer.logger.Error("handleUDP error: UDP frag %v not yet implemented", packet[idFrag])
-		return
+		return nil
 	}
 
 	// Read target address
@@ -894,20 +946,20 @@ func (socksServer *Server) handleUDP(packet []byte) {
 	switch packet[idType] {
 	case typeIPv4:
 		socksServer.logger.Error("handleUDP error: IPv4 not supported (only domain names)")
-		return
+		return nil
 	case typeIPv6:
 		socksServer.logger.Error("handleUDP error: IPv6 not supported (only domain names)")
-		return
+		return nil
 	case typeDm: // domain name
 		dmLen = int(packet[idDmLen])
 	default:
 		socksServer.logger.Error("handleUDP error: Non supported protocol %v", packet[idType])
-		return
+		return nil
 	}
 
 	if len(packet) <= idDm0+dmLen+3 {
 		socksServer.logger.Error("handleUDP error: too short #2")
-		return
+		return nil
 	}
 
 	host := string(packet[idDm0 : idDm0+dmLen])
@@ -919,15 +971,16 @@ func (socksServer *Server) handleUDP(packet []byte) {
 	isWS, mode, deviceID, _, err := parseHost(host)
 	if err != nil {
 		socksServer.logger.Error("handleUDP error: Failed to parse %s %v", host, err)
-		return
+		return nil
 	}
 
 	if isWS {
 		socksServer.logger.Error("handleUDP error: WS is not supported")
-		return
+		return nil
 	}
 
-	socksServer.forwardUDP(socksServer.udpconn, addr, deviceID, port, mode, data)
+	socksServer.forwardUDP(udpconn, addr, deviceID, port, mode, data)
+	return nil
 }
 
 func (socksServer *Server) forwardUDP(pconn net.PacketConn, raddr net.Addr, deviceName string, port int, mode string, data []byte) {
@@ -1180,7 +1233,17 @@ func (socksServer *Server) SetConfig(config Config) error {
 		return fmt.Errorf("wrong parameters for socks fallback, valid values are 'localhost' or 'false'")
 	}
 
+	prevEnable := socksServer.Config.EnableSocks
 	socksServer.Config = config
+
+	if !prevEnable && config.EnableSocks {
+		if err := socksServer.startSocksListeners(); err != nil {
+			return err
+		}
+	} else if prevEnable && !config.EnableSocks {
+		socksServer.stopSocksListeners()
+	}
+
 	return nil
 }
 
@@ -1198,10 +1261,7 @@ func (socksServer *Server) Closed() bool {
 func (socksServer *Server) Close() {
 	socksServer.cd.Do(func() {
 		close(socksServer.closeCh)
-		if socksServer.listener != nil {
-			socksServer.listener.Close()
-			socksServer.listener = nil
-		}
+		socksServer.stopSocksListeners()
 		socksServer.bindsMu.RLock()
 		for _, bind := range socksServer.binds {
 			if bind.tcp != nil {

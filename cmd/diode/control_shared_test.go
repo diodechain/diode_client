@@ -64,6 +64,9 @@ func setupSharedControlTestEnv(t *testing.T, cfg *config.Config) {
 	db.DB = testDB
 
 	t.Cleanup(func() {
+		if app != nil && app != origApp {
+			app.Close()
+		}
 		app = origApp
 		config.AppConfig = origCfg
 		db.DB = origDB
