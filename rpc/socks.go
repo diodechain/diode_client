@@ -89,9 +89,12 @@ type Server struct {
 }
 
 func (socksServer *Server) Addr() net.Addr {
+	if socksServer == nil {
+		return nil
+	}
 	socksServer.netMu.RLock()
 	defer socksServer.netMu.RUnlock()
-	if socksServer == nil || socksServer.listener == nil {
+	if socksServer.listener == nil {
 		return nil
 	}
 	return socksServer.listener.Addr()
@@ -891,6 +894,14 @@ func (socksServer *Server) Start() error {
 	}
 
 	if socksServer.Config.EnableSocks {
+		socksServer.netMu.Lock()
+		already := socksServer.listener != nil && socksServer.udpconn != nil
+		socksServer.netMu.Unlock()
+		if already {
+			// SetConfig already started listeners for a newly constructed server
+			// (see NewSocksServer); starting again would bind the same address twice.
+			return nil
+		}
 		return socksServer.startSocksListeners()
 	}
 
