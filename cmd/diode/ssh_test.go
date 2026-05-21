@@ -16,6 +16,16 @@ import (
 
 // Regression: SSH must listen on an ephemeral port, not shared 127.0.0.1:1080 (see rpc/socks.go).
 func TestStartSSHLocalSocksProxyStartsListener(t *testing.T) {
+	origCfg := config.AppConfig
+	origApp := app
+	t.Cleanup(func() {
+		if app != nil && app != origApp {
+			app.Close()
+		}
+		app = origApp
+		config.AppConfig = origCfg
+	})
+
 	cfg := &config.Config{LogMode: config.LogToConsole, FleetAddr: config.DefaultFleetAddr}
 	logger, err := config.NewLogger(cfg)
 	if err != nil {

@@ -9,17 +9,29 @@ import (
 	"github.com/diodechain/diode_client/config"
 )
 
+func setupSocksTestConfig(t *testing.T) *config.Config {
+	t.Helper()
+	origCfg := config.AppConfig
+	t.Cleanup(func() { config.AppConfig = origCfg })
+	cfg := &config.Config{LogMode: config.LogToConsole}
+	logger, err := config.NewLogger(cfg)
+	if err != nil {
+		t.Fatalf("NewLogger: %v", err)
+	}
+	cfg.Logger = &logger
+	config.AppConfig = cfg
+	return cfg
+}
+
 func TestSocksServerUDPConnClose(t *testing.T) {
-	config.AppConfig = &config.Config{LogMode: config.LogToConsole}
-	logger, _ := config.NewLogger(config.AppConfig)
-	config.AppConfig.Logger = &logger
-	cm := NewClientManager(config.AppConfig)
-	cfg := Config{
+	appCfg := setupSocksTestConfig(t)
+	cm := NewClientManager(appCfg)
+	socksCfg := Config{
 		EnableSocks: true,
 		Addr:        "127.0.0.1:0", // random port
 	}
 
-	server, err := NewSocksServer(cfg, cm)
+	server, err := NewSocksServer(socksCfg, cm)
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
@@ -48,18 +60,16 @@ func TestSocksServerUDPConnClose(t *testing.T) {
 }
 
 func TestSocksServerDynamicToggle(t *testing.T) {
-	config.AppConfig = &config.Config{LogMode: config.LogToConsole}
-	logger, _ := config.NewLogger(config.AppConfig)
-	config.AppConfig.Logger = &logger
-	cm := NewClientManager(config.AppConfig)
+	appCfg := setupSocksTestConfig(t)
+	cm := NewClientManager(appCfg)
 
 	// Start with socks disabled
-	cfg := Config{
+	socksCfg := Config{
 		EnableSocks: false,
 		Addr:        "127.0.0.1:0", // random port
 	}
 
-	server, err := NewSocksServer(cfg, cm)
+	server, err := NewSocksServer(socksCfg, cm)
 	if err != nil {
 		t.Fatalf("failed to create server: %v", err)
 	}
@@ -74,8 +84,8 @@ func TestSocksServerDynamicToggle(t *testing.T) {
 	}
 
 	// Dynamically enable socks
-	cfg.EnableSocks = true
-	err = server.SetConfig(cfg)
+	socksCfg.EnableSocks = true
+	err = server.SetConfig(socksCfg)
 	if err != nil {
 		t.Fatalf("failed to SetConfig: %v", err)
 	}
@@ -85,8 +95,8 @@ func TestSocksServerDynamicToggle(t *testing.T) {
 	}
 
 	// Dynamically disable socks
-	cfg.EnableSocks = false
-	err = server.SetConfig(cfg)
+	socksCfg.EnableSocks = false
+	err = server.SetConfig(socksCfg)
 	if err != nil {
 		t.Fatalf("failed to SetConfig: %v", err)
 	}
@@ -101,18 +111,16 @@ func TestSocksServerDynamicToggle(t *testing.T) {
 // TestSocksServerSharedListenerBindsAddr guards #292: EnableSocksServer must map to
 // listeners on SocksServerAddr (default 1080), not unconditional bind on every Server.
 func TestSocksServerSharedListenerBindsAddr(t *testing.T) {
-	config.AppConfig = &config.Config{LogMode: config.LogToConsole}
-	logger, _ := config.NewLogger(config.AppConfig)
-	config.AppConfig.Logger = &logger
-	cm := NewClientManager(config.AppConfig)
+	appCfg := setupSocksTestConfig(t)
+	cm := NewClientManager(appCfg)
 
 	const wantPort = 19080
-	cfg := Config{
+	socksCfg := Config{
 		EnableSocks: true,
 		Addr:        net.JoinHostPort("127.0.0.1", strconv.Itoa(wantPort)),
 	}
 
-	server, err := NewSocksServer(cfg, cm)
+	server, err := NewSocksServer(socksCfg, cm)
 	if err != nil {
 		t.Fatalf("NewSocksServer: %v", err)
 	}
@@ -139,16 +147,14 @@ func TestSocksServerSharedListenerBindsAddr(t *testing.T) {
 
 // TestSocksServerEphemeralBindUsesNonDefaultPort mirrors diode ssh (127.0.0.1:0).
 func TestSocksServerEphemeralBindUsesNonDefaultPort(t *testing.T) {
-	config.AppConfig = &config.Config{LogMode: config.LogToConsole}
-	logger, _ := config.NewLogger(config.AppConfig)
-	config.AppConfig.Logger = &logger
-	cm := NewClientManager(config.AppConfig)
+	appCfg := setupSocksTestConfig(t)
+	cm := NewClientManager(appCfg)
 
-	cfg := Config{
+	socksCfg := Config{
 		EnableSocks: true,
 		Addr:        "127.0.0.1:0",
 	}
-	server, err := NewSocksServer(cfg, cm)
+	server, err := NewSocksServer(socksCfg, cm)
 	if err != nil {
 		t.Fatalf("NewSocksServer: %v", err)
 	}
