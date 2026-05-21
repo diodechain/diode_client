@@ -1,6 +1,8 @@
 package rpc
 
 import (
+	"net"
+	"strconv"
 	"testing"
 	"time"
 
@@ -94,4 +96,75 @@ func TestSocksServerDynamicToggle(t *testing.T) {
 	}
 
 	server.Close()
+}
+
+// TestSocksServerSharedListenerBindsAddr guards #292: EnableSocksServer must map to
+// listeners on SocksServerAddr (default 1080), not unconditional bind on every Server.
+func TestSocksServerSharedListenerBindsAddr(t *testing.T) {
+	config.AppConfig = &config.Config{LogMode: config.LogToConsole}
+	logger, _ := config.NewLogger(config.AppConfig)
+	config.AppConfig.Logger = &logger
+	cm := NewClientManager(config.AppConfig)
+
+	const wantPort = 19080
+	cfg := Config{
+		EnableSocks: true,
+		Addr:        net.JoinHostPort("127.0.0.1", strconv.Itoa(wantPort)),
+	}
+
+	server, err := NewSocksServer(cfg, cm)
+	if err != nil {
+		t.Fatalf("NewSocksServer: %v", err)
+	}
+	defer server.Close()
+
+	if err := server.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	addr := server.Addr()
+	if addr == nil {
+		t.Fatal("expected listener address")
+	}
+	tcpAddr, ok := addr.(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("addr type %T", addr)
+	}
+	if tcpAddr.Port != wantPort {
+		t.Fatalf("port = %d, want %d", tcpAddr.Port, wantPort)
+	}
+	if _, err := net.Dial("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(wantPort))); err != nil {
+		t.Fatalf("dial shared socks: %v", err)
+	}
+}
+
+// TestSocksServerEphemeralBindUsesNonDefaultPort mirrors diode ssh (127.0.0.1:0).
+func TestSocksServerEphemeralBindUsesNonDefaultPort(t *testing.T) {
+	config.AppConfig = &config.Config{LogMode: config.LogToConsole}
+	logger, _ := config.NewLogger(config.AppConfig)
+	config.AppConfig.Logger = &logger
+	cm := NewClientManager(config.AppConfig)
+
+	cfg := Config{
+		EnableSocks: true,
+		Addr:        "127.0.0.1:0",
+	}
+	server, err := NewSocksServer(cfg, cm)
+	if err != nil {
+		t.Fatalf("NewSocksServer: %v", err)
+	}
+	defer server.Close()
+	if err := server.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	addr := server.Addr()
+	if addr == nil {
+		t.Fatal("expected listener address")
+	}
+	tcpAddr, ok := addr.(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("addr type %T", addr)
+	}
+	if tcpAddr.Port == 1080 {
+		t.Fatalf("ephemeral bind must not use default socksd port 1080")
+	}
 }

@@ -50,10 +50,22 @@ const (
 	stackBufferSize            = 2048
 )
 
-// Config is Socks Server configuration
+// Config is SOCKS server configuration for one rpc.Server instance.
+//
+// EnableSocks vs config.EnableSocksServer (CLI -socksd / DB socksd):
+//   - EnableSocksServer: operator wants the app-wide shared SOCKS proxy on
+//     cfg.SocksServerAddr() (default 127.0.0.1:1080). Reconcile sets
+//     EnableSocks = EnableSocksServer on dio.socksServer.
+//   - EnableSocks: this instance must bind local TCP/UDP listeners on Addr.
+//     Independent of other Server instances. SSH uses a separate Server with
+//     EnableSocks true and Addr 127.0.0.1:0 (ephemeral port); it must not reuse
+//     dio.socksServer or flip EnableSocksServer.
+//
+// Dial/connectDevice works without listeners when EnableSocks is false.
 type Config struct {
-	EnableSocks     bool
-	Addr            string
+	// EnableSocks starts TCP/UDP listeners on Addr for this instance only.
+	EnableSocks bool
+	Addr        string
 	ProxyServerAddr string
 	Fallback        string
 	EnableProxy     bool
@@ -887,7 +899,9 @@ func (socksServer *Server) stopSocksListeners() {
 	}
 }
 
-// Start socks server
+// Start ensures local SOCKS listeners are running when Config.EnableSocks is set.
+// Shared socksd uses reconcile + EnableSocksServer; one-off SSH uses a private
+// Server with EnableSocks true and Addr 127.0.0.1:0 (see cmd/diode/ssh.go).
 func (socksServer *Server) Start() error {
 	if socksServer.Closed() {
 		return nil

@@ -1867,6 +1867,9 @@ func (dio *Diode) reconcileControlServicesLocked() error {
 	desiredSocksSig := socksServerSignature(cfg)
 	socksRecreated := false
 	if dio.socksServer == nil || dio.controlRuntime.socksSignature != desiredSocksSig {
+		// Shared app SOCKS (socksd/gateway/binds). Ephemeral SSH/scp listeners are a
+		// separate rpc.Server in startSSHLocalSocksProxy; do not route SSH through
+		// dio.socksServer or EnableSocksServer here (avoids fixed-port 1080 conflicts).
 		socksCfg := rpc.Config{
 			EnableSocks: cfg.EnableSocksServer,
 			Addr:        cfg.SocksServerAddr(),

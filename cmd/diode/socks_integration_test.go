@@ -18,6 +18,8 @@ func buildTestDiode(t *testing.T) string {
 	return binPath
 }
 
+// TestSocksDefaultPortFree regression for #292: publish without -socksd must not bind
+// the default shared SOCKS port (1080), so multiple CLI instances can coexist.
 func TestSocksDefaultPortFree(t *testing.T) {
 	binPath := buildTestDiode(t)
 

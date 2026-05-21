@@ -82,6 +82,8 @@ type Config struct {
 	EnableAPIServer         bool             `yaml:"api,omitempty" json:"api,omitempty"`
 	EnableProxyServer       bool             `yaml:"gateway,omitempty" json:"gateway,omitempty"`
 	EnableSProxyServer      bool             `yaml:"secure,omitempty" json:"secure,omitempty"`
+	// EnableSocksServer: shared local SOCKS on SocksServerAddr() (default 127.0.0.1:1080).
+	// Unrelated to per-instance rpc.Config.EnableSocks used by diode ssh (ephemeral port).
 	EnableSocksServer       bool             `yaml:"socksd,omitempty" json:"socksd,omitempty"`
 	SocksServerHost         string           `yaml:"socksd_host,omitempty" json:"socksd_host,omitempty"`
 	SocksServerPort         int              `yaml:"socksd_port,omitempty" json:"socksd_port,omitempty"`
