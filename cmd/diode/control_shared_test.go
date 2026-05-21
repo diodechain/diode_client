@@ -105,6 +105,41 @@ func TestApplySharedControlValueAndReset(t *testing.T) {
 	}
 }
 
+func TestApplyFleetCLIOverride(t *testing.T) {
+	cfg := newSharedControlTestConfig(t)
+	cfg.FleetAddr = config.DefaultFleetAddr
+
+	const overrideHex = "0x1234567890123456789012345678901234567890"
+
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	fs.String("fleet", "", "")
+	if err := applyFleetCLIOverride(fs, cfg); err != nil {
+		t.Fatalf("no flag: %v", err)
+	}
+	if cfg.FleetAddr != config.DefaultFleetAddr {
+		t.Fatalf("expected default fleet unchanged, got %s", cfg.FleetAddr.HexString())
+	}
+
+	if err := fs.Parse([]string{"-fleet", overrideHex}); err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if err := applyFleetCLIOverride(fs, cfg); err != nil {
+		t.Fatalf("with flag: %v", err)
+	}
+	if cfg.FleetAddr.HexString() != strings.ToLower(overrideHex) {
+		t.Fatalf("fleet = %s, want %s", cfg.FleetAddr.HexString(), strings.ToLower(overrideHex))
+	}
+
+	fs2 := flag.NewFlagSet("test2", flag.ContinueOnError)
+	fs2.String("fleet", "", "")
+	if err := fs2.Parse([]string{"-fleet", ""}); err != nil {
+		t.Fatalf("Parse empty: %v", err)
+	}
+	if err := applyFleetCLIOverride(fs2, cfg); err == nil {
+		t.Fatal("expected error for empty -fleet")
+	}
+}
+
 func TestApplyControlPatchRejectsAtomically(t *testing.T) {
 	cfg := newSharedControlTestConfig(t)
 

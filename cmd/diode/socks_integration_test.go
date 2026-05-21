@@ -24,7 +24,7 @@ func TestSocksDefaultPortFree(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "db1")
 
 	// Start diode publish without -socksd
-	cmd := exec.Command(binPath, "-fleet", "127.0.0.1:9999", "-dbpath", dbPath, "publish", "-public", "8080:80")
+	cmd := exec.Command(binPath, "-dbpath", dbPath, "publish", "-public", "8080:80")
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stdout
@@ -55,7 +55,7 @@ func TestParallelDiodeClients(t *testing.T) {
 	dbPath2 := filepath.Join(t.TempDir(), "db2")
 
 	// Start first diode
-	cmd1 := exec.Command(binPath, "-fleet", "127.0.0.1:9999", "-dbpath", dbPath1, "publish", "-public", "8081:80")
+	cmd1 := exec.Command(binPath, "-dbpath", dbPath1, "publish", "-public", "8081:80")
 	if err := cmd1.Start(); err != nil {
 		t.Fatalf("failed to start diode 1: %v", err)
 	}
@@ -68,7 +68,7 @@ func TestParallelDiodeClients(t *testing.T) {
 	time.Sleep(2 * time.Second)
 
 	// Start second diode
-	cmd2 := exec.Command(binPath, "-fleet", "127.0.0.1:9999", "-dbpath", dbPath2, "publish", "-public", "8082:80")
+	cmd2 := exec.Command(binPath, "-dbpath", dbPath2, "publish", "-public", "8082:80")
 	var stdout2 bytes.Buffer
 	cmd2.Stdout = &stdout2
 	cmd2.Stderr = &stdout2

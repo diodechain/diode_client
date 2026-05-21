@@ -68,8 +68,7 @@ func init() {
 	diodeCmd.Flag.StringVar(&cfg.MutexProfile, "mutexprofile", "", "file path for mutex profiling")
 	diodeCmd.Flag.IntVar(&cfg.MutexProfileRate, "mutexprofilerate", 1, "the fraction of mutex contention events that are reported in the mutex profile")
 
-	var fleetFake string
-	diodeCmd.Flag.StringVar(&fleetFake, "fleet", "", "@deprecated. Use: 'diode config set fleet=0x1234' instead")
+	diodeCmd.Flag.String("fleet", "", "fleet contract address (0x...) for this invocation only; use 'diode config -set fleet=0x...' to persist")
 
 	diodeCmd.Flag.DurationVar(&cfg.RemoteRPCTimeout, "timeout", 5*time.Second, "timeout seconds to connect to the remote rpc server")
 	diodeCmd.Flag.DurationVar(&cfg.RetryWait, "retrywait", 1*time.Second, "wait seconds before next retry")
@@ -393,6 +392,9 @@ func (dio *Diode) Start() error {
 		return fmt.Errorf("could not determine command to start")
 	}
 	if err := dio.loadPersistedSharedControls(); err != nil {
+		return err
+	}
+	if err := applyFleetCLIOverride(&diodeCmd.Flag, dio.config); err != nil {
 		return err
 	}
 	cfg.PrintLabel("Client address", cfg.ClientAddr.HexString())
