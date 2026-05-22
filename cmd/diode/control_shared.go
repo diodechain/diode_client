@@ -1239,6 +1239,37 @@ func commitControlConfig(dst *config.Config, src *config.Config) {
 	dst.SetBlocklists(src.CloneBlocklists())
 }
 
+// applyFleetCLIOverride applies -fleet when it was passed on the command line.
+// It does not persist over restarts unless in the flag again.
+func applyFleetCLIOverride(fs *flag.FlagSet, cfg *config.Config) error {
+	if fs == nil || cfg == nil {
+		return nil
+	}
+	var (
+		fleetSet   bool
+		fleetValue string
+	)
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "fleet" {
+			fleetSet = true
+			fleetValue = f.Value.String()
+		}
+	})
+	if !fleetSet {
+		return nil
+	}
+	fleetValue = strings.TrimSpace(fleetValue)
+	if fleetValue == "" {
+		return fmt.Errorf("-fleet requires a contract address (0x...)")
+	}
+	addr, err := util.DecodeAddress(fleetValue)
+	if err != nil {
+		return fmt.Errorf("invalid -fleet address %q: %w", fleetValue, err)
+	}
+	cfg.FleetAddr = addr
+	return nil
+}
+
 func (dio *Diode) loadPersistedSharedControls() error {
 	if dio.controlsLoaded || dio.config.LoadFromFile || db.DB == nil || dio.cmd == nil {
 		dio.controlsLoaded = true
