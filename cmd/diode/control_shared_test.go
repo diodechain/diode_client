@@ -16,6 +16,7 @@ import (
 
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/db"
+	"github.com/diodechain/diode_client/rpc"
 	"gopkg.in/yaml.v2"
 )
 
@@ -137,6 +138,62 @@ func TestApplyFleetCLIOverride(t *testing.T) {
 	}
 	if err := applyFleetCLIOverride(fs2, cfg); err == nil {
 		t.Fatal("expected error for empty -fleet")
+	}
+}
+
+// sharedSocksConfig mirrors reconcileControlServicesLocked dio.socksServer wiring.
+func sharedSocksConfig(cfg *config.Config) rpc.Config {
+	return rpc.Config{
+		EnableSocks: cfg.EnableSocksServer,
+		Addr:        cfg.SocksServerAddr(),
+		FleetAddr:   cfg.FleetAddr,
+		Blocklists:  cfg.Blocklists(),
+		Allowlists:  cfg.Allowlists,
+		Fallback:    cfg.SocksFallback,
+	}
+}
+
+func TestSharedSocksReconcileConfigGatesListeners(t *testing.T) {
+	cfg := newSharedControlTestConfig(t)
+	setupSharedControlTestEnv(t, cfg)
+	cm := rpc.NewClientManager(cfg)
+
+	disabled := sharedSocksConfig(cfg)
+	disabled.EnableSocks = cfg.EnableSocksServer
+	server, err := rpc.NewSocksServer(disabled, cm)
+	if err != nil {
+		t.Fatalf("NewSocksServer disabled: %v", err)
+	}
+	defer server.Close()
+	if err := server.Start(); err != nil {
+		t.Fatalf("Start disabled: %v", err)
+	}
+	if server.Addr() != nil {
+		t.Fatal("publish-style config must not bind shared SOCKS when EnableSocksServer is false")
+	}
+
+	if _, err := applySharedControlValue(cfg, "socksd", true); err != nil {
+		t.Fatalf("apply socksd: %v", err)
+	}
+	enabled := sharedSocksConfig(cfg)
+	server2, err := rpc.NewSocksServer(enabled, cm)
+	if err != nil {
+		t.Fatalf("NewSocksServer enabled: %v", err)
+	}
+	defer server2.Close()
+	if err := server2.Start(); err != nil {
+		t.Fatalf("Start enabled: %v", err)
+	}
+	addr := server2.Addr()
+	if addr == nil {
+		t.Fatal("expected listener when EnableSocksServer is true")
+	}
+	tcpAddr, ok := addr.(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("addr type %T", addr)
+	}
+	if tcpAddr.Port != defaultSocksServerPort {
+		t.Fatalf("socksd port = %d, want default %d", tcpAddr.Port, defaultSocksServerPort)
 	}
 }
 
