@@ -572,7 +572,7 @@ func doParseServerObjResponse(buffer []byte) (obj *ServerObj, err error) {
 		for i, elem := range extra {
 			slice := elem.([]interface{})
 			key := string(slice[0].([]byte))
-			if key == "name" {
+			if key == "name" || key == "features" {
 				value := slice[1].([]byte)
 				obj.ExtraString[key] = string(value)
 				tuples[i] = [2]bert.Term{slice[0].([]byte), value}

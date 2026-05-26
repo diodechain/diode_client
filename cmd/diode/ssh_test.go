@@ -5,11 +5,61 @@ package main
 
 import (
 	"errors"
+	"net"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/diodechain/diode_client/config"
+	"github.com/diodechain/diode_client/rpc"
 )
+
+// Regression: SSH must listen on an ephemeral port, not shared 127.0.0.1:1080 (see rpc/socks.go).
+func TestStartSSHLocalSocksProxyStartsListener(t *testing.T) {
+	origCfg := config.AppConfig
+	origApp := app
+	t.Cleanup(func() {
+		if app != nil && app != origApp {
+			app.Close()
+		}
+		app = origApp
+		config.AppConfig = origCfg
+	})
+
+	cfg := &config.Config{LogMode: config.LogToConsole, FleetAddr: config.DefaultFleetAddr}
+	logger, err := config.NewLogger(cfg)
+	if err != nil {
+		t.Fatalf("NewLogger: %v", err)
+	}
+	cfg.Logger = &logger
+	config.AppConfig = cfg
+	app = NewDiode(cfg)
+	app.clientManager = rpc.NewClientManager(cfg)
+
+	addr, cleanup, err := startSSHLocalSocksProxy()
+	if err != nil {
+		t.Fatalf("startSSHLocalSocksProxy: %v", err)
+	}
+	defer cleanup()
+
+	host, portStr, err := net.SplitHostPort(addr)
+	if err != nil {
+		t.Fatalf("SplitHostPort(%q): %v", addr, err)
+	}
+	conn, err := net.Dial("tcp", net.JoinHostPort(host, portStr))
+	if err != nil {
+		t.Fatalf("dial local socks %q: %v", addr, err)
+	}
+	conn.Close()
+
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		t.Fatalf("port %q: %v", portStr, err)
+	}
+	if port == 1080 {
+		t.Fatal("SSH local SOCKS must not use default shared socksd port 1080")
+	}
+}
 
 func TestExtractSSHTarget(t *testing.T) {
 	tests := []struct {

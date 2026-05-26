@@ -1239,6 +1239,37 @@ func commitControlConfig(dst *config.Config, src *config.Config) {
 	dst.SetBlocklists(src.CloneBlocklists())
 }
 
+// applyFleetCLIOverride applies -fleet when it was passed on the command line.
+// It does not persist over restarts unless in the flag again.
+func applyFleetCLIOverride(fs *flag.FlagSet, cfg *config.Config) error {
+	if fs == nil || cfg == nil {
+		return nil
+	}
+	var (
+		fleetSet   bool
+		fleetValue string
+	)
+	fs.Visit(func(f *flag.Flag) {
+		if f.Name == "fleet" {
+			fleetSet = true
+			fleetValue = f.Value.String()
+		}
+	})
+	if !fleetSet {
+		return nil
+	}
+	fleetValue = strings.TrimSpace(fleetValue)
+	if fleetValue == "" {
+		return fmt.Errorf("-fleet requires a contract address (0x...)")
+	}
+	addr, err := util.DecodeAddress(fleetValue)
+	if err != nil {
+		return fmt.Errorf("invalid -fleet address %q: %w", fleetValue, err)
+	}
+	cfg.FleetAddr = addr
+	return nil
+}
+
 func (dio *Diode) loadPersistedSharedControls() error {
 	if dio.controlsLoaded || dio.config.LoadFromFile || db.DB == nil || dio.cmd == nil {
 		dio.controlsLoaded = true
@@ -1742,6 +1773,7 @@ func (dio *Diode) applyCurrentBinds(cfg *config.Config, sig string) {
 
 func socksServerSignature(cfg *config.Config) string {
 	return strings.Join([]string{
+		strconv.FormatBool(cfg.EnableSocksServer),
 		cfg.SocksServerAddr(),
 		cfg.FleetAddr.HexString(),
 		strings.Join(sortedStrings(cfg.SBlocklists), ","),
@@ -1858,12 +1890,16 @@ func (dio *Diode) reconcileControlServicesLocked() error {
 	desiredSocksSig := socksServerSignature(cfg)
 	socksRecreated := false
 	if dio.socksServer == nil || dio.controlRuntime.socksSignature != desiredSocksSig {
+		// Shared app SOCKS (socksd/gateway/binds). Ephemeral SSH/scp listeners are a
+		// separate rpc.Server in startSSHLocalSocksProxy; do not route SSH through
+		// dio.socksServer or EnableSocksServer here (avoids fixed-port 1080 conflicts).
 		socksCfg := rpc.Config{
-			Addr:       cfg.SocksServerAddr(),
-			FleetAddr:  cfg.FleetAddr,
-			Blocklists: cfg.Blocklists(),
-			Allowlists: cfg.Allowlists,
-			Fallback:   cfg.SocksFallback,
+			EnableSocks: cfg.EnableSocksServer,
+			Addr:        cfg.SocksServerAddr(),
+			FleetAddr:   cfg.FleetAddr,
+			Blocklists:  cfg.Blocklists(),
+			Allowlists:  cfg.Allowlists,
+			Fallback:    cfg.SocksFallback,
 		}
 		if dio.socksServer != nil && dio.socksServer.Config.Addr == socksCfg.Addr {
 			if err := dio.socksServer.SetConfig(socksCfg); err != nil {

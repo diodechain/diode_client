@@ -16,6 +16,7 @@ import (
 
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/db"
+	"github.com/diodechain/diode_client/rpc"
 	"gopkg.in/yaml.v2"
 )
 
@@ -64,7 +65,7 @@ func setupSharedControlTestEnv(t *testing.T, cfg *config.Config) {
 	db.DB = testDB
 
 	t.Cleanup(func() {
-		if app != nil {
+		if app != nil && app != origApp {
 			app.Close()
 		}
 		app = origApp
@@ -102,6 +103,97 @@ func TestApplySharedControlValueAndReset(t *testing.T) {
 	}
 	if len(cfg.PublicPublishedPorts) != 0 {
 		t.Fatalf("expected public ports to be cleared, got %#v", cfg.PublicPublishedPorts)
+	}
+}
+
+func TestApplyFleetCLIOverride(t *testing.T) {
+	cfg := newSharedControlTestConfig(t)
+	cfg.FleetAddr = config.DefaultFleetAddr
+
+	const overrideHex = "0x1234567890123456789012345678901234567890"
+
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	fs.String("fleet", "", "")
+	if err := applyFleetCLIOverride(fs, cfg); err != nil {
+		t.Fatalf("no flag: %v", err)
+	}
+	if cfg.FleetAddr != config.DefaultFleetAddr {
+		t.Fatalf("expected default fleet unchanged, got %s", cfg.FleetAddr.HexString())
+	}
+
+	if err := fs.Parse([]string{"-fleet", overrideHex}); err != nil {
+		t.Fatalf("Parse: %v", err)
+	}
+	if err := applyFleetCLIOverride(fs, cfg); err != nil {
+		t.Fatalf("with flag: %v", err)
+	}
+	if cfg.FleetAddr.HexString() != strings.ToLower(overrideHex) {
+		t.Fatalf("fleet = %s, want %s", cfg.FleetAddr.HexString(), strings.ToLower(overrideHex))
+	}
+
+	fs2 := flag.NewFlagSet("test2", flag.ContinueOnError)
+	fs2.String("fleet", "", "")
+	if err := fs2.Parse([]string{"-fleet", ""}); err != nil {
+		t.Fatalf("Parse empty: %v", err)
+	}
+	if err := applyFleetCLIOverride(fs2, cfg); err == nil {
+		t.Fatal("expected error for empty -fleet")
+	}
+}
+
+// sharedSocksConfig mirrors reconcileControlServicesLocked dio.socksServer wiring.
+func sharedSocksConfig(cfg *config.Config) rpc.Config {
+	return rpc.Config{
+		EnableSocks: cfg.EnableSocksServer,
+		Addr:        cfg.SocksServerAddr(),
+		FleetAddr:   cfg.FleetAddr,
+		Blocklists:  cfg.Blocklists(),
+		Allowlists:  cfg.Allowlists,
+		Fallback:    cfg.SocksFallback,
+	}
+}
+
+func TestSharedSocksReconcileConfigGatesListeners(t *testing.T) {
+	cfg := newSharedControlTestConfig(t)
+	setupSharedControlTestEnv(t, cfg)
+	cm := rpc.NewClientManager(cfg)
+
+	disabled := sharedSocksConfig(cfg)
+	disabled.EnableSocks = cfg.EnableSocksServer
+	server, err := rpc.NewSocksServer(disabled, cm)
+	if err != nil {
+		t.Fatalf("NewSocksServer disabled: %v", err)
+	}
+	defer server.Close()
+	if err := server.Start(); err != nil {
+		t.Fatalf("Start disabled: %v", err)
+	}
+	if server.Addr() != nil {
+		t.Fatal("publish-style config must not bind shared SOCKS when EnableSocksServer is false")
+	}
+
+	if _, err := applySharedControlValue(cfg, "socksd", true); err != nil {
+		t.Fatalf("apply socksd: %v", err)
+	}
+	enabled := sharedSocksConfig(cfg)
+	server2, err := rpc.NewSocksServer(enabled, cm)
+	if err != nil {
+		t.Fatalf("NewSocksServer enabled: %v", err)
+	}
+	defer server2.Close()
+	if err := server2.Start(); err != nil {
+		t.Fatalf("Start enabled: %v", err)
+	}
+	addr := server2.Addr()
+	if addr == nil {
+		t.Fatal("expected listener when EnableSocksServer is true")
+	}
+	tcpAddr, ok := addr.(*net.TCPAddr)
+	if !ok {
+		t.Fatalf("addr type %T", addr)
+	}
+	if tcpAddr.Port != defaultSocksServerPort {
+		t.Fatalf("socksd port = %d, want default %d", tcpAddr.Port, defaultSocksServerPort)
 	}
 }
 

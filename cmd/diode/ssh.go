@@ -283,9 +283,14 @@ func subcommandPassThroughArgs(args []string, name string) ([]string, error) {
 	return nil, fmt.Errorf("%s command not found", name)
 }
 
+// startSSHLocalSocksProxy runs a private SOCKS listener for OpenSSH ProxyCommand.
+// It is separate from dio.socksServer / -socksd: Addr uses port 0 so the OS picks an
+// ephemeral port and does not compete with 127.0.0.1:1080. EnableSocks must be true
+// on this instance (rpc.Config); that is not the same as cfg.EnableSocksServer.
 func startSSHLocalSocksProxy() (string, func(), error) {
 	cfg := config.AppConfig
 	socksCfg := rpc.Config{
+		EnableSocks:     true,
 		Addr:            net.JoinHostPort("127.0.0.1", "0"),
 		FleetAddr:       cfg.FleetAddr,
 		Blocklists:      cfg.Blocklists(),
