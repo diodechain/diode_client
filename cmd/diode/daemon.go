@@ -164,23 +164,28 @@ type daemonStreamFrame struct {
 }
 
 type runtimeDaemon struct {
-	socketPath string
-	metaPath   string
-	listener   net.Listener
-	startup    daemonStartupSpec
-	baseConfig config.Config
-	leasesMu   sync.Mutex
-	leases     map[string]*rpc.Server
-	stateMu    sync.Mutex
-	modeChange chan struct{}
-	activeMode string
-	activeArgs []string
-	ports      map[int]*config.Port
-	binds      []config.Bind
-	socksAddr  string
-	socksOn    bool
-	apiAddr    string
-	apiOn      bool
+	socketPath                   string
+	metaPath                     string
+	listener                     net.Listener
+	startup                      daemonStartupSpec
+	baseConfig                   config.Config
+	leasesMu                     sync.Mutex
+	leases                       map[string]*rpc.Server
+	stateMu                      sync.Mutex
+	modeChange                   chan struct{}
+	activeMode                   string
+	activeArgs                   []string
+	ports                        map[int]*config.Port
+	binds                        []config.Bind
+	socksAddr                    string
+	socksOn                      bool
+	gatewayAddr                  string
+	gatewayOn                    bool
+	secureGatewayAddr            string
+	secureGatewayOn              bool
+	secureGatewayAdditionalAddrs []string
+	apiAddr                      string
+	apiOn                        bool
 }
 
 func init() {
@@ -1250,8 +1255,14 @@ func (rd *runtimeDaemon) updateModeSnapshot(mode string, args []string, cfg *con
 	rd.activeArgs = sanitizeModeArgs(mode, args)
 	rd.ports = cloneDaemonPortMap(cfg.PublishedPorts)
 	rd.binds = append([]config.Bind{}, cfg.Binds...)
-	rd.socksOn = cfg.EnableSocksServer
-	rd.socksAddr = cfg.SocksServerAddr()
+	gatewayStatus := gatewayStatusFromConfig(cfg)
+	rd.socksOn = gatewayStatus.SocksEnabled
+	rd.socksAddr = gatewayStatus.SocksAddr
+	rd.gatewayOn = gatewayStatus.GatewayEnabled
+	rd.gatewayAddr = gatewayStatus.GatewayAddr
+	rd.secureGatewayOn = gatewayStatus.SecureGatewayEnabled
+	rd.secureGatewayAddr = gatewayStatus.SecureGatewayAddr
+	rd.secureGatewayAdditionalAddrs = append([]string{}, gatewayStatus.SecureGatewayAdditionalAddrs...)
 	rd.apiOn = cfg.EnableAPIServer
 	rd.apiAddr = cfg.APIServerAddr
 	rd.notifyModeChangedLocked()
@@ -1276,6 +1287,11 @@ func (rd *runtimeDaemon) clearModeSnapshot() {
 	rd.binds = nil
 	rd.socksOn = false
 	rd.socksAddr = ""
+	rd.gatewayOn = false
+	rd.gatewayAddr = ""
+	rd.secureGatewayOn = false
+	rd.secureGatewayAddr = ""
+	rd.secureGatewayAdditionalAddrs = nil
 	rd.apiOn = false
 	rd.apiAddr = ""
 	rd.notifyModeChangedLocked()
@@ -1341,6 +1357,11 @@ func (rd *runtimeDaemon) snapshotStatus() daemonRuntimeStatus {
 	status.Binds = append([]config.Bind{}, rd.binds...)
 	status.SocksEnabled = rd.socksOn
 	status.SocksAddr = rd.socksAddr
+	status.GatewayEnabled = rd.gatewayOn
+	status.GatewayAddr = rd.gatewayAddr
+	status.SecureGatewayEnabled = rd.secureGatewayOn
+	status.SecureGatewayAddr = rd.secureGatewayAddr
+	status.SecureGatewayAdditionalAddrs = append([]string{}, rd.secureGatewayAdditionalAddrs...)
 	status.APIEnabled = rd.apiOn
 	status.APIAddr = rd.apiAddr
 	return status

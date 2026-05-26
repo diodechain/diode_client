@@ -441,9 +441,9 @@ func (dio *Diode) Start() error {
 
 	dio.startMu.Lock()
 	firstStart := !dio.started
+	cfg.PrintLabel("Client address", cfg.ClientAddr.HexString())
+	cfg.PrintLabel("Fleet address", cfg.FleetAddr.HexString())
 	if firstStart {
-		cfg.PrintLabel("Client address", cfg.ClientAddr.HexString())
-		cfg.PrintLabel("Fleet address", cfg.FleetAddr.HexString())
 		dio.clientManager.Start()
 		dio.started = true
 	}

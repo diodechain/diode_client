@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 	"time"
@@ -191,6 +192,82 @@ func TestStopModeTimesOutWaitingForDone(t *testing.T) {
 	dio.StopMode()
 	if time.Since(start) > time.Second {
 		t.Fatal("StopMode blocked waiting for mode done channel")
+	}
+}
+
+func TestStartPrintsIdentityOnSubsequentCalls(t *testing.T) {
+	cfg := newSharedControlTestConfig(t)
+	var stdout bytes.Buffer
+	cfg.StdoutWriter = &stdout
+
+	dio := &Diode{
+		config:         cfg,
+		cmd:            daemonManageCmd,
+		controlsLoaded: true,
+		started:        true,
+	}
+
+	if err := dio.Start(); err != nil {
+		t.Fatalf("first Start() error = %v", err)
+	}
+	if got := strings.Count(stdout.String(), "Client address"); got != 1 {
+		t.Fatalf("first Start() client address lines = %d, want 1\n%s", got, stdout.String())
+	}
+
+	stdout.Reset()
+	if err := dio.Start(); err != nil {
+		t.Fatalf("second Start() error = %v", err)
+	}
+	if got := strings.Count(stdout.String(), "Client address"); got != 1 {
+		t.Fatalf("second Start() client address lines = %d, want 1\n%s", got, stdout.String())
+	}
+}
+
+func TestRenderDaemonStatusIncludesGatewayListeners(t *testing.T) {
+	prevCfg := config.AppConfig
+	prevState := daemonState
+	t.Cleanup(func() {
+		config.AppConfig = prevCfg
+		daemonState = prevState
+	})
+
+	cfg := newSharedControlTestConfig(t)
+	var stdout bytes.Buffer
+	cfg.StdoutWriter = &stdout
+	config.AppConfig = cfg
+	daemonState = &runtimeDaemon{
+		socketPath:                   "/tmp/daemon.sock",
+		modeChange:                   make(chan struct{}),
+		activeMode:                   "gateway",
+		activeArgs:                   []string{"gateway", "-httpd_port", "18080"},
+		socksOn:                      true,
+		socksAddr:                    "127.0.0.1:18080",
+		gatewayOn:                    true,
+		gatewayAddr:                  "127.0.0.1:18081",
+		secureGatewayOn:              true,
+		secureGatewayAddr:            "127.0.0.1:18443",
+		secureGatewayAdditionalAddrs: []string{"127.0.0.1:18444"},
+		ports:                        map[int]*config.Port{},
+	}
+
+	renderDaemonStatus()
+
+	out := stdout.String()
+	for _, want := range []string{
+		"Active mode",
+		"gateway",
+		"SOCKS proxy",
+		"127.0.0.1:18080",
+		"HTTP gateway",
+		"127.0.0.1:18081",
+		"HTTPS gateway",
+		"127.0.0.1:18443",
+		"HTTPS gateways",
+		"127.0.0.1:18444",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("status output missing %q\n%s", want, out)
+		}
 	}
 }
 

@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/diodechain/diode_client/command"
 	"github.com/diodechain/diode_client/config"
@@ -49,9 +50,41 @@ func gatewayHandler() (err error) {
 	if result.HasValidationErrors() {
 		return fmt.Errorf("couldn't apply gateway controls: %v", result.ValidationErrors)
 	}
+	printGatewayBanner(config.AppConfig)
 	if isDaemonApplyRequest() {
 		return nil
 	}
 	app.Wait()
 	return
+}
+
+func printGatewayBanner(cfg *config.Config) {
+	status := gatewayStatusFromConfig(cfg)
+	if status.GatewayEnabled {
+		cfg.PrintLabel("HTTP gateway", status.GatewayAddr)
+	}
+	if status.SecureGatewayEnabled {
+		cfg.PrintLabel("HTTPS gateway", status.SecureGatewayAddr)
+	}
+	if len(status.SecureGatewayAdditionalAddrs) > 0 {
+		cfg.PrintLabel("HTTPS gateways", strings.Join(status.SecureGatewayAdditionalAddrs, ", "))
+	}
+	if status.SocksEnabled {
+		cfg.PrintLabel("SOCKS proxy", status.SocksAddr)
+	}
+}
+
+func gatewayStatusFromConfig(cfg *config.Config) daemonRuntimeStatus {
+	status := daemonRuntimeStatus{
+		SocksEnabled:         cfg.EnableSocksServer,
+		SocksAddr:            cfg.SocksServerAddr(),
+		GatewayEnabled:       cfg.EnableProxyServer,
+		GatewayAddr:          cfg.ProxyServerAddr(),
+		SecureGatewayEnabled: cfg.EnableSProxyServer,
+		SecureGatewayAddr:    cfg.SProxyServerAddr(),
+	}
+	for _, port := range cfg.SProxyAdditionalPorts() {
+		status.SecureGatewayAdditionalAddrs = append(status.SecureGatewayAdditionalAddrs, cfg.SProxyServerAddrForPort(port))
+	}
+	return status
 }

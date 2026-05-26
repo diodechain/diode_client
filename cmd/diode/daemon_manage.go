@@ -15,14 +15,19 @@ import (
 )
 
 type daemonRuntimeStatus struct {
-	ActiveMode     string
-	ActiveArgs     []string
-	PublishedPorts map[int]*config.Port
-	Binds          []config.Bind
-	SocksEnabled   bool
-	SocksAddr      string
-	APIEnabled     bool
-	APIAddr        string
+	ActiveMode                   string
+	ActiveArgs                   []string
+	PublishedPorts               map[int]*config.Port
+	Binds                        []config.Bind
+	SocksEnabled                 bool
+	SocksAddr                    string
+	GatewayEnabled               bool
+	GatewayAddr                  string
+	SecureGatewayEnabled         bool
+	SecureGatewayAddr            string
+	SecureGatewayAdditionalAddrs []string
+	APIEnabled                   bool
+	APIAddr                      string
 }
 
 var (
@@ -340,6 +345,19 @@ func renderDaemonStatus() {
 		cfg.PrintLabel("SOCKS proxy", status.SocksAddr)
 	} else {
 		cfg.PrintLabel("SOCKS proxy", "disabled")
+	}
+	if status.GatewayEnabled {
+		cfg.PrintLabel("HTTP gateway", status.GatewayAddr)
+	} else {
+		cfg.PrintLabel("HTTP gateway", "disabled")
+	}
+	if status.SecureGatewayEnabled {
+		cfg.PrintLabel("HTTPS gateway", status.SecureGatewayAddr)
+	} else {
+		cfg.PrintLabel("HTTPS gateway", "disabled")
+	}
+	if len(status.SecureGatewayAdditionalAddrs) > 0 {
+		cfg.PrintLabel("HTTPS gateways", strings.Join(status.SecureGatewayAdditionalAddrs, ", "))
 	}
 	if status.APIEnabled {
 		cfg.PrintLabel("Config API", status.APIAddr)
