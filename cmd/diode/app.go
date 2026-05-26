@@ -564,6 +564,12 @@ func (dio *Diode) BeginMode(mode string) {
 	}
 }
 
+func (dio *Diode) ActiveMode() string {
+	dio.modeMu.Lock()
+	defer dio.modeMu.Unlock()
+	return dio.activeMode
+}
+
 func (dio *Diode) ModeStopChan() <-chan struct{} {
 	dio.modeMu.Lock()
 	defer dio.modeMu.Unlock()

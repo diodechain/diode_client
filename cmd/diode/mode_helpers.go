@@ -5,6 +5,9 @@ func beginRuntimeMode(name string) {
 		return
 	}
 	app.StopMode()
+	if daemonState != nil {
+		daemonState.clearModeSnapshot()
+	}
 	app.BeginMode(name)
 }
 

@@ -848,7 +848,7 @@ func (socksServer *Server) Start() error {
 
 	go func() {
 		buf := make([]byte, 2048)
-		for {
+		for !socksServer.Closed() {
 			socksServer.handleUDP(buf)
 		}
 	}()
@@ -857,8 +857,15 @@ func (socksServer *Server) Start() error {
 }
 
 func (socksServer *Server) handleUDP(packet []byte) {
-	n, addr, err := socksServer.udpconn.ReadFrom(packet)
+	udpconn := socksServer.udpconn
+	if udpconn == nil {
+		return
+	}
+	n, addr, err := udpconn.ReadFrom(packet)
 	if err != nil {
+		if socksServer.Closed() {
+			return
+		}
 		socksServer.logger.Error("handleUDP error: %v", err)
 		return
 	}
@@ -1201,6 +1208,10 @@ func (socksServer *Server) Close() {
 		if socksServer.listener != nil {
 			socksServer.listener.Close()
 			socksServer.listener = nil
+		}
+		if socksServer.udpconn != nil {
+			socksServer.udpconn.Close()
+			socksServer.udpconn = nil
 		}
 		socksServer.bindsMu.RLock()
 		for _, bind := range socksServer.binds {

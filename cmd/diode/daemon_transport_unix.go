@@ -114,6 +114,7 @@ func daemonRestartSelf(cmd string, startup daemonStartupSpec) error {
 	if err != nil {
 		return err
 	}
+	prepareDaemonForRestart()
 	r, w, err := os.Pipe()
 	if err != nil {
 		return err

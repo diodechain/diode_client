@@ -45,17 +45,8 @@ var (
 var runtimeGOOS = runtime.GOOS
 
 func sshHandler() error {
-	return runSSHLikeTool(sshLikeToolOptions{
-		commandName:   sshCommandName,
-		toolName:      "ssh",
-		validateLabel: "Invalid SSH target",
-		validateArgs: func(args []string) error {
-			if target := extractSSHTarget(args); target != "" {
-				return validateSSHTarget(target)
-			}
-			return nil
-		},
-	})
+	opts, _ := sshLikeOptionsForCommand(sshCommandName)
+	return runSSHLikeTool(opts)
 }
 
 // sshLikeToolOptions configures runSSHLikeTool for a specific OpenSSH-based
@@ -122,25 +113,6 @@ func sshLikePassThroughArgs(commandName string, osArgs []string) ([]string, erro
 	return nil, fmt.Errorf("%s command not found", commandName)
 }
 
-func runSSHWithProxyAddr(proxyAddr string, sshArgs []string) error {
-	opts := sshLikeToolOptions{
-		commandName:   sshCommandName,
-		toolName:      "ssh",
-		validateLabel: "Invalid SSH target",
-		validateArgs: func(args []string) error {
-			if target := extractSSHTarget(args); target != "" {
-				return validateSSHTarget(target)
-			}
-			return nil
-		},
-	}
-	if err := opts.validateArgs(sshArgs); err != nil {
-		config.AppConfig.PrintError(opts.validateLabel, err)
-		return newExitStatusError(1, "%s", err.Error())
-	}
-	return runSSHToolWithProxyAddr(proxyAddr, opts, sshArgs)
-}
-
 func runSSHToolWithProxyAddr(proxyAddr string, opts sshLikeToolOptions, passArgs []string) error {
 	cfg := config.AppConfig
 	toolName := opts.toolName
@@ -185,12 +157,21 @@ func runSSHToolWithProxyAddr(proxyAddr string, opts sshLikeToolOptions, passArgs
 }
 
 func runSSHViaDaemonLease(commandArgs []string, resp daemonResponse) int {
+	return runSSHLikeViaDaemonLease(commandArgs, resp)
+}
+
+func runSSHLikeViaDaemonLease(commandArgs []string, resp daemonResponse) int {
 	if len(commandArgs) == 0 {
-		stderrln("missing ssh command arguments")
+		stderrln("missing ssh-like command arguments")
 		return 1
 	}
 	if err := ensureDaemonSSHForegroundLogger(); err != nil {
-		stderrln(fmt.Sprintf("could not initialize ssh command logger: %v", err))
+		stderrln(fmt.Sprintf("could not initialize %s command logger: %v", commandArgs[0], err))
+		return 1
+	}
+	opts, ok := sshLikeOptionsForCommand(commandArgs[0])
+	if !ok {
+		stderrln(fmt.Sprintf("unsupported daemon proxy command: %s", commandArgs[0]))
 		return 1
 	}
 	cfg := config.AppConfig
@@ -200,10 +181,49 @@ func runSSHViaDaemonLease(commandArgs []string, resp daemonResponse) int {
 			_ = releaseDaemonLease(resp.LeaseID)
 		}
 	}()
-	if err := runSSHWithProxyAddr(resp.ProxyAddr, normalizeSSHArgs(commandArgs[1:])); err != nil {
+	passArgs := normalizeSSHArgs(commandArgs[1:])
+	if opts.validateArgs != nil {
+		if err := opts.validateArgs(passArgs); err != nil {
+			label := opts.validateLabel
+			if label == "" {
+				label = fmt.Sprintf("Invalid %s argument", opts.commandName)
+			}
+			cfg.PrintError(label, err)
+			return exitCodeFromError(newExitStatusError(1, "%s", err.Error()))
+		}
+	}
+	if err := runSSHToolWithProxyAddr(resp.ProxyAddr, opts, passArgs); err != nil {
 		return exitCodeFromError(err)
 	}
 	return 0
+}
+
+func sshLikeOptionsForCommand(commandName string) (sshLikeToolOptions, bool) {
+	switch commandName {
+	case sshCommandName:
+		return sshLikeToolOptions{
+			commandName:   sshCommandName,
+			toolName:      "ssh",
+			validateLabel: "Invalid SSH target",
+			validateArgs: func(args []string) error {
+				if target := extractSSHTarget(args); target != "" {
+					return validateSSHTarget(target)
+				}
+				return nil
+			},
+		}, true
+	case scpCommandName:
+		return sshLikeToolOptions{
+			commandName:   scpCommandName,
+			toolName:      "scp",
+			validateLabel: "Invalid scp target",
+			validateArgs: func(args []string) error {
+				return validateSCPArgs(args)
+			},
+		}, true
+	default:
+		return sshLikeToolOptions{}, false
+	}
 }
 
 func ensureDaemonSSHForegroundLogger() error {

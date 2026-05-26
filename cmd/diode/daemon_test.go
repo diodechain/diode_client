@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -90,6 +91,20 @@ func TestDaemonRequestForInvocationDetachedApplyMode(t *testing.T) {
 	}
 }
 
+func TestDaemonRequestForInvocationRoutesSCPThroughLease(t *testing.T) {
+	inv, err := parseRootInvocation([]string{"scp", "./a", "host.diode:/tmp/a"})
+	if err != nil {
+		t.Fatalf("parseRootInvocation() error = %v", err)
+	}
+	req, err := daemonRequestForInvocation(inv)
+	if err != nil {
+		t.Fatalf("daemonRequestForInvocation() error = %v", err)
+	}
+	if req.Kind != daemonRequestLease {
+		t.Fatalf("request kind = %q, want %q", req.Kind, daemonRequestLease)
+	}
+}
+
 func TestDaemonRequestForInvocationRejectsDetachedOneOff(t *testing.T) {
 	inv, err := parseRootInvocation([]string{"-d", "query", "-address", "0xabc"})
 	if err != nil {
@@ -101,6 +116,20 @@ func TestDaemonRequestForInvocationRejectsDetachedOneOff(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "-d is only supported") {
 		t.Fatalf("daemonRequestForInvocation() error = %q, want detach rejection", err.Error())
+	}
+}
+
+func TestDaemonStartupSpecCanonicalizesDBPath(t *testing.T) {
+	cfg := newRootConfig()
+	cfg.DBPath = filepath.Join(".", "relative-wallet.db")
+	spec := daemonStartupSpecFromConfig(cfg)
+	want, err := filepath.Abs(cfg.DBPath)
+	if err != nil {
+		t.Fatalf("filepath.Abs() error = %v", err)
+	}
+	want = filepath.Clean(want)
+	if spec.DBPath != want {
+		t.Fatalf("startup DBPath = %q, want %q", spec.DBPath, want)
 	}
 }
 
@@ -271,7 +300,7 @@ func TestRenderDaemonStatusIncludesGatewayListeners(t *testing.T) {
 	}
 }
 
-func TestSanitizedDaemonBaseConfigResetsTransientState(t *testing.T) {
+func TestSanitizedDaemonBaseConfigResetsRequestOnlyState(t *testing.T) {
 	cfg := newRootConfig()
 	cfg.ConfigList = true
 	cfg.QueryAddress = "0x1"
@@ -289,14 +318,14 @@ func TestSanitizedDaemonBaseConfigResetsTransientState(t *testing.T) {
 	if sanitized.QueryAddress != "" {
 		t.Fatalf("QueryAddress = %q, want empty", sanitized.QueryAddress)
 	}
-	if sanitized.EnableProxyServer {
-		t.Fatalf("EnableProxyServer = true, want false")
+	if !sanitized.EnableProxyServer {
+		t.Fatalf("EnableProxyServer = false, want true")
 	}
-	if sanitized.SocksServerPort != 1080 {
-		t.Fatalf("SocksServerPort = %d, want 1080", sanitized.SocksServerPort)
+	if sanitized.SocksServerPort != 9999 {
+		t.Fatalf("SocksServerPort = %d, want 9999", sanitized.SocksServerPort)
 	}
-	if len(sanitized.PublicPublishedPorts) != 0 {
-		t.Fatalf("PublicPublishedPorts = %#v, want empty", sanitized.PublicPublishedPorts)
+	if len(sanitized.PublicPublishedPorts) != 1 {
+		t.Fatalf("PublicPublishedPorts = %#v, want preserved", sanitized.PublicPublishedPorts)
 	}
 	if sanitized.BNSLookup != "" {
 		t.Fatalf("BNSLookup = %q, want empty", sanitized.BNSLookup)
@@ -304,8 +333,8 @@ func TestSanitizedDaemonBaseConfigResetsTransientState(t *testing.T) {
 	if sanitized.StdoutWriter != nil || sanitized.StderrWriter != nil {
 		t.Fatalf("stdout/stderr writers should be cleared")
 	}
-	if sanitized.PublishedPorts != nil {
-		t.Fatalf("PublishedPorts = %#v, want nil", sanitized.PublishedPorts)
+	if len(sanitized.PublishedPorts) != 1 {
+		t.Fatalf("PublishedPorts = %#v, want preserved", sanitized.PublishedPorts)
 	}
 }
 
@@ -493,6 +522,70 @@ func TestFilterPublishCommandArgsRemovesRequestedPorts(t *testing.T) {
 	gotRemoved := map[int]bool{removed[0]: true, removed[1]: true}
 	if !gotRemoved[80] || !gotRemoved[2022] {
 		t.Fatalf("removed = %#v, want ports 80 and 2022", removed)
+	}
+}
+
+func TestFilterPublishCommandArgsPreservesRootBinds(t *testing.T) {
+	args := []string{
+		"-bind", "auto:0x1234567890123456789012345678901234567890:80:tcp",
+		"publish",
+		"-public", "80:80",
+	}
+	filtered, removed, err := filterPublishCommandArgs(args, map[int]bool{80: true})
+	if err != nil {
+		t.Fatalf("filterPublishCommandArgs() error = %v", err)
+	}
+	want := []string{
+		"-bind", "auto:0x1234567890123456789012345678901234567890:80:tcp",
+		"publish",
+	}
+	if strings.Join(filtered, "\x00") != strings.Join(want, "\x00") {
+		t.Fatalf("filtered = %#v, want %#v", filtered, want)
+	}
+	if len(removed) != 1 || removed[0] != 80 {
+		t.Fatalf("removed = %#v, want [80]", removed)
+	}
+	if !publishArgsHaveRootBinds(filtered) {
+		t.Fatal("publishArgsHaveRootBinds() = false, want true")
+	}
+	if got := countPublishManagedFlags(filtered); got != 0 {
+		t.Fatalf("countPublishManagedFlags() = %d, want 0", got)
+	}
+}
+
+func TestDaemonModeNameFromArgsFindsImplicitPublish(t *testing.T) {
+	got := daemonModeNameFromArgs([]string{
+		"-bind", "auto:0x1234567890123456789012345678901234567890:80:tcp",
+		"publish",
+	})
+	if got != "publish" {
+		t.Fatalf("daemonModeNameFromArgs() = %q, want publish", got)
+	}
+}
+
+func TestResetTransientConfigClearsConfigFullValues(t *testing.T) {
+	cfg := newRootConfig()
+	cfg.ConfigFullValues = true
+	resetTransientConfig(cfg)
+	if cfg.ConfigFullValues {
+		t.Fatal("ConfigFullValues = true, want false")
+	}
+}
+
+func TestResetSharedControlsForArgsClearsOnlyOverriddenLists(t *testing.T) {
+	cfg := newRootConfig()
+	cfg.SocksServerPort = 23104
+	cfg.PublicPublishedPorts = config.StringValues{"80:80"}
+	cfg.SBinds = config.StringValues{"auto:0x1234567890123456789012345678901234567890:80:tcp"}
+	resetSharedControlsForArgs(cfg, []string{"publish", "-public", "8080:80"})
+	if cfg.SocksServerPort != 23104 {
+		t.Fatalf("SocksServerPort = %d, want preserved 23104", cfg.SocksServerPort)
+	}
+	if len(cfg.SBinds) != 1 {
+		t.Fatalf("SBinds = %#v, want preserved", cfg.SBinds)
+	}
+	if len(cfg.PublicPublishedPorts) != 0 {
+		t.Fatalf("PublicPublishedPorts = %#v, want reset", cfg.PublicPublishedPorts)
 	}
 }
 

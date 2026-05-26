@@ -96,6 +96,7 @@ func daemonRestartSelf(cmd string, startup daemonStartupSpec) error {
 	if err != nil {
 		return err
 	}
+	prepareDaemonForRestart()
 	devNull, err := os.OpenFile(os.DevNull, os.O_RDWR, 0600)
 	if err != nil {
 		return err

@@ -91,7 +91,7 @@ var (
 	}
 	localBypassCommands = map[string]bool{"": true, "version": true, "mcp": true, "ssh-proxy": true, daemonCommandName: true}
 	daemonApplyModeCmds = map[string]bool{"publish": true, "gateway": true, "socksd": true, "join": true, "files": true}
-	daemonRunnableCmds  = map[string]bool{"query": true, "time": true, "fetch": true, "token": true, "bns": true, "config": true, "reset": true, "push": true, "pull": true, "publish": true, "gateway": true, "socksd": true, "join": true, "files": true, "ssh": true, "update": true}
+	daemonRunnableCmds  = map[string]bool{"query": true, "time": true, "fetch": true, "token": true, "bns": true, "config": true, "reset": true, "push": true, "pull": true, "publish": true, "gateway": true, "socksd": true, "join": true, "files": true, "ssh": true, "scp": true, "update": true}
 )
 
 type daemonStartupSpec struct {
@@ -152,6 +152,7 @@ type daemonResponse struct {
 	Error       string `json:"error,omitempty"`
 	ProxyAddr   string `json:"proxy_addr,omitempty"`
 	LeaseID     string `json:"lease_id,omitempty"`
+	ModeActive  bool   `json:"mode_active,omitempty"`
 	RestartPath string `json:"-"`
 	Shutdown    bool   `json:"-"`
 }
@@ -206,6 +207,12 @@ func daemonHandler() error {
 		return err
 	}
 	defer cleanDiode()
+	if err := loadPersistedSharedControlsInto(cfg, nil); err != nil {
+		return err
+	}
+	if app != nil {
+		app.controlsLoaded = true
+	}
 
 	socketPath, metaPath, err := daemonPaths()
 	if err != nil {
@@ -248,7 +255,7 @@ func daemonHandler() error {
 		if err := runDaemonCommandAsKind(daemonRequestApplyMode, restoreArgs); err != nil {
 			logDaemonInternalError("Couldn't restore daemon mode after restart", err)
 		} else {
-			daemonState.updateModeSnapshot(restoreArgs[0], restoreArgs, config.AppConfig)
+			daemonState.updateModeSnapshot(daemonModeNameFromArgs(restoreArgs), restoreArgs, config.AppConfig)
 		}
 	}
 	if err := signalDaemonReady(); err != nil {
@@ -312,20 +319,27 @@ func maybeHandleDaemonCLI(args []string) (bool, int) {
 		stderrln(err.Error())
 		return true, 1
 	}
-	if resp.Stdout != "" {
-		io.WriteString(stdoutWriter(), resp.Stdout)
-	}
-	if resp.Stderr != "" {
-		io.WriteString(stderrWriter(), resp.Stderr)
-	}
+	writeDaemonResponse(resp)
 	if req.Kind == daemonRequestLease {
 		return true, runSSHViaDaemonLease(inv.commandArgs, resp)
 	}
-	if req.Kind == daemonRequestApplyMode && resp.ExitCode == 0 {
+	if req.Kind == daemonRequestApplyMode && resp.ExitCode == 0 && resp.ModeActive {
 		stdoutf("Daemon mode active: %s\n", inv.command)
 		stdoutln("Use `diode daemon status` to inspect or manage the running daemon.")
 	}
 	return true, resp.ExitCode
+}
+
+func writeDaemonResponse(resp daemonResponse) {
+	if resp.Stdout != "" {
+		_, _ = io.WriteString(stdoutWriter(), resp.Stdout)
+	}
+	if resp.Stderr != "" {
+		_, _ = io.WriteString(stderrWriter(), resp.Stderr)
+	}
+	if resp.ExitCode != 0 && resp.Error != "" {
+		stderrln(resp.Error)
+	}
 }
 
 func daemonRequestForInvocation(inv rootInvocation) (daemonRequest, error) {
@@ -335,7 +349,7 @@ func daemonRequestForInvocation(inv rootInvocation) (daemonRequest, error) {
 		Args:    inv.execArgs,
 	}
 	switch inv.command {
-	case "ssh":
+	case "ssh", "scp":
 		req.Kind = daemonRequestLease
 	case "update":
 		req.Kind = daemonRequestUpdate
@@ -486,7 +500,7 @@ func dispatchViaDaemonAttached(spec daemonStartupSpec, req daemonRequest) (bool,
 			}
 		case err := <-errCh:
 			if err == io.EOF {
-				return true, "", 0, nil
+				return true, "", 1, fmt.Errorf("daemon stream ended before final response")
 			}
 			return true, "", 1, err
 		case <-sigCh:
@@ -635,7 +649,7 @@ func executeDaemonRequest(req daemonRequest) daemonResponse {
 		return "", runDaemonCommandArgs(req.Args)
 	})
 	if req.Kind == daemonRequestApplyMode && resp.ExitCode == 0 {
-		daemonState.updateModeSnapshot(req.Command, req.Args, config.AppConfig)
+		resp.ModeActive = updateDaemonModeSnapshotIfActive(req.Command, req.Args)
 	}
 	return resp
 }
@@ -755,7 +769,7 @@ func executeDaemonAttachedRequest(conn net.Conn, req daemonRequest) {
 		exitCode = 1
 	}
 	if err == nil {
-		daemonState.updateModeSnapshot(req.Command, req.Args, config.AppConfig)
+		_ = updateDaemonModeSnapshotIfActive(req.Command, req.Args)
 	}
 	daemonExecMu.Unlock()
 
@@ -763,9 +777,27 @@ func executeDaemonAttachedRequest(conn net.Conn, req daemonRequest) {
 		_ = sendFrame(daemonStreamFrame{Type: daemonStreamFinal, ExitCode: exitCode, Error: err.Error()})
 		return
 	}
+	if app.ActiveMode() != req.Command {
+		_ = sendFrame(daemonStreamFrame{Type: daemonStreamFinal, ExitCode: 0})
+		return
+	}
 
 	daemonState.waitForModeExit(req.Command, req.Args, app.closeCh)
 	_ = sendFrame(daemonStreamFrame{Type: daemonStreamFinal, ExitCode: 0})
+}
+
+func updateDaemonModeSnapshotIfActive(command string, args []string) bool {
+	if app == nil || daemonState == nil {
+		return false
+	}
+	switch activeMode := app.ActiveMode(); activeMode {
+	case command:
+		daemonState.updateModeSnapshot(command, args, config.AppConfig)
+		return true
+	case "":
+		daemonState.clearModeSnapshot()
+	}
+	return false
 }
 
 type daemonFrameWriter struct {
@@ -787,6 +819,7 @@ func runDaemonCommandArgs(args []string) error {
 	if len(args) == 0 {
 		return newExitStatusError(2, "missing command")
 	}
+	resetSharedControlsForArgs(config.AppConfig, args)
 	if err := diodeCmd.Flag.Parse(args); err != nil {
 		return err
 	}
@@ -809,6 +842,21 @@ func runDaemonCommandArgs(args []string) error {
 		_ = subCmd.Flag.Parse([]string{})
 	}
 	return subCmd.Run()
+}
+
+func resetSharedControlsForArgs(cfg *config.Config, args []string) {
+	if cfg == nil {
+		return
+	}
+	for _, item := range parseRootExecItems(args) {
+		if !strings.HasPrefix(item.flagName, "-") {
+			continue
+		}
+		name := strings.TrimLeft(item.flagName, "-")
+		for _, key := range sharedControlFlagKeys(name) {
+			resetSharedControlValue(cfg, key)
+		}
+	}
 }
 
 func refreshRequestDerivedConfig(cfg *config.Config) error {
@@ -1002,29 +1050,9 @@ func resetTransientConfig(cfg *config.Config) {
 	cfg.QueryAddress = ""
 	cfg.ConfigUnsafe = false
 	cfg.ConfigList = false
+	cfg.ConfigFullValues = false
 	cfg.ConfigDelete = nil
 	cfg.ConfigSet = nil
-	cfg.PublicPublishedPorts = nil
-	cfg.ProtectedPublishedPorts = nil
-	cfg.PrivatePublishedPorts = nil
-	cfg.SSHPublishedServices = nil
-	cfg.PublishedPorts = nil
-	cfg.SBinds = nil
-	cfg.Binds = nil
-	cfg.EnableProxyServer = false
-	cfg.EnableSProxyServer = false
-	cfg.EnableSocksServer = false
-	cfg.SocksServerHost = "127.0.0.1"
-	cfg.SocksServerPort = 1080
-	cfg.SocksFallback = "localhost"
-	cfg.ProxyServerHost = "127.0.0.1"
-	cfg.ProxyServerPort = 80
-	cfg.SProxyServerHost = "127.0.0.1"
-	cfg.SProxyServerPort = 443
-	cfg.SProxyServerPorts = ""
-	cfg.SProxyServerCertPath = "./priv/fullchain.pem"
-	cfg.SProxyServerPrivPath = "./priv/privkey.pem"
-	cfg.AllowRedirectToSProxy = false
 	cfg.BNSForce = false
 	cfg.BNSRegister = ""
 	cfg.BNSUnregister = ""
@@ -1077,7 +1105,7 @@ func exitCodeFromError(err error) int {
 
 func daemonStartupSpecFromConfig(cfg *config.Config) daemonStartupSpec {
 	return daemonStartupSpec{
-		DBPath:              cfg.DBPath,
+		DBPath:              canonicalDaemonDBPath(cfg.DBPath),
 		RetryTimes:          cfg.RetryTimes,
 		EdgeE2ETimeout:      cfg.EdgeE2ETimeout,
 		EnableUpdate:        cfg.EnableUpdate,
@@ -1110,6 +1138,17 @@ func daemonStartupSpecFromConfig(cfg *config.Config) daemonStartupSpec {
 		BnsCacheTime:        cfg.BnsCacheTime,
 		MaxPortsPerDevice:   cfg.MaxPortsPerDevice,
 	}
+}
+
+func daemonModeNameFromArgs(args []string) string {
+	inv, err := parseRootInvocation(args)
+	if err == nil && inv.command != "" {
+		return inv.command
+	}
+	if len(args) == 0 {
+		return ""
+	}
+	return args[0]
 }
 
 func applyDaemonStartupSpec(cfg *config.Config, spec daemonStartupSpec) {
@@ -1222,6 +1261,15 @@ func daemonRestartEnv(spec daemonStartupSpec) ([]string, error) {
 		env = append(env, fmt.Sprintf("%s=%s", envDaemonRestoreArgs, string(restoreBytes)))
 	}
 	return env, nil
+}
+
+func prepareDaemonForRestart() {
+	if app != nil {
+		app.StopMode()
+	}
+	if daemonState != nil {
+		daemonState.clearModeSnapshot()
+	}
 }
 
 func daemonRestoreArgsFromEnv() ([]string, error) {

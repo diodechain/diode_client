@@ -3,7 +3,6 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"sort"
 	"strconv"
@@ -34,7 +33,7 @@ var (
 	daemonManageCmd = &command.Command{
 		Name:            "daemon",
 		HelpText:        `  Inspect and manage the running diode daemon.`,
-		ExampleText:     "  diode daemon status\n  diode daemon stop\n  diode daemon ports remove 80 443\n  diode daemon ports clear",
+		ExampleText:     "  diode daemon status\n  diode daemon stop\n  diode daemon mode-stop\n  diode daemon ports remove 80 443\n  diode daemon ports clear",
 		Run:             daemonManageHandler,
 		Type:            command.EmptyConnectionCommand,
 		PassThroughArgs: true,
@@ -64,10 +63,21 @@ func handleDaemonManagerCLI(args []string) (bool, int) {
 		return true, runDaemonManagerAction([]string{"daemon", "stop"})
 	case "restart":
 		return true, runDaemonManagerRestart()
+	case "mode-stop":
+		return true, runDaemonManagerAction([]string{"daemon", "mode-stop"})
+	case "mode":
+		if len(subArgs) == 2 && subArgs[1] == "stop" {
+			return true, runDaemonManagerAction([]string{"daemon", "mode-stop"})
+		}
+		stderrln("usage: diode daemon [status|stop|restart|mode-stop|ports]")
+		stderrln("       diode daemon mode stop")
+		stderrln("       diode daemon ports [remove|clear]")
+		return true, 2
 	case "ports":
 		return true, runDaemonManagerPorts(subArgs[1:])
 	default:
-		stderrln("usage: diode daemon [status|stop|restart|ports]")
+		stderrln("usage: diode daemon [status|stop|restart|mode-stop|ports]")
+		stderrln("       diode daemon mode stop")
 		stderrln("       diode daemon ports [remove|clear]")
 		return true, 2
 	}
@@ -88,12 +98,7 @@ func runDaemonManagerStatus() int {
 		stdoutln("Daemon status: not running")
 		return 0
 	}
-	if resp.Stdout != "" {
-		_, _ = io.WriteString(stdoutWriter(), resp.Stdout)
-	}
-	if resp.Stderr != "" {
-		_, _ = io.WriteString(stderrWriter(), resp.Stderr)
-	}
+	writeDaemonResponse(resp)
 	return resp.ExitCode
 }
 
@@ -134,12 +139,7 @@ func runDaemonManagerAction(args []string) int {
 		stdoutln("Daemon status: not running")
 		return 1
 	}
-	if resp.Stdout != "" {
-		_, _ = io.WriteString(stdoutWriter(), resp.Stdout)
-	}
-	if resp.Stderr != "" {
-		_, _ = io.WriteString(stderrWriter(), resp.Stderr)
-	}
+	writeDaemonResponse(resp)
 	if len(args) >= 2 && args[0] == "daemon" && args[1] == "stop" && resp.ExitCode == 0 {
 		deadline := time.Now().Add(10 * time.Second)
 		for time.Now().Before(deadline) {
@@ -175,12 +175,7 @@ func runDaemonManagerRestart() int {
 		stdoutln("Daemon status: not running")
 		return 1
 	}
-	if resp.Stdout != "" {
-		_, _ = io.WriteString(stdoutWriter(), resp.Stdout)
-	}
-	if resp.Stderr != "" {
-		_, _ = io.WriteString(stderrWriter(), resp.Stderr)
-	}
+	writeDaemonResponse(resp)
 	if resp.ExitCode != 0 {
 		return resp.ExitCode
 	}
@@ -462,7 +457,7 @@ func daemonReapplyPublishWithoutPorts(args []string, ports []int) error {
 		return newExitStatusError(1, "none of the requested ports are currently configured in publish mode")
 	}
 	sort.Ints(removed)
-	if countPublishManagedFlags(newArgs) == 0 && len(config.AppConfig.Binds) == 0 {
+	if countPublishManagedFlags(newArgs) == 0 && len(config.AppConfig.Binds) == 0 && !publishArgsHaveRootBinds(newArgs) {
 		app.StopMode()
 		daemonState.clearModeSnapshot()
 		stdoutf("Removed published ports: %s\n", joinPorts(removed))
@@ -479,13 +474,15 @@ func daemonReapplyPublishWithoutPorts(args []string, ports []int) error {
 }
 
 func filterPublishCommandArgs(args []string, removePorts map[int]bool) ([]string, []int, error) {
-	if len(args) == 0 || args[0] != "publish" {
+	pre, post, ok := splitPublishExecArgs(args)
+	if !ok {
 		return nil, nil, newExitStatusError(1, "daemon is not tracking a publish command")
 	}
-	filtered := []string{args[0]}
+	filtered := append([]string{}, pre...)
+	filtered = append(filtered, "publish")
 	removed := make(map[int]bool)
-	for i := 1; i < len(args); i++ {
-		arg := args[i]
+	for i := 0; i < len(post); i++ {
+		arg := post[i]
 		flagName, inlineValue, matched := parseManagedPublishFlag(arg)
 		if !matched {
 			filtered = append(filtered, arg)
@@ -493,11 +490,11 @@ func filterPublishCommandArgs(args []string, removePorts map[int]bool) ([]string
 		}
 		value := inlineValue
 		if value == "" {
-			if i+1 >= len(args) {
+			if i+1 >= len(post) {
 				return nil, nil, newExitStatusError(2, "flag %s is missing a value", flagName)
 			}
 			i++
-			value = args[i]
+			value = post[i]
 		}
 		externPort, err := managedFlagExternPort(flagName, value)
 		if err != nil {
@@ -579,19 +576,36 @@ func extractExternPortFromPortSpec(value string) (int, error) {
 }
 
 func countPublishManagedFlags(args []string) int {
+	_, post, ok := splitPublishExecArgs(args)
+	if !ok {
+		return 0
+	}
 	count := 0
-	for i := 1; i < len(args); i++ {
-		flagName, inlineValue, matched := parseManagedPublishFlag(args[i])
+	for i := 0; i < len(post); i++ {
+		flagName, inlineValue, matched := parseManagedPublishFlag(post[i])
 		if !matched {
 			continue
 		}
 		count++
-		if inlineValue == "" && i+1 < len(args) {
+		if inlineValue == "" && i+1 < len(post) {
 			i++
 		}
 		_ = flagName
 	}
 	return count
+}
+
+func publishArgsHaveRootBinds(args []string) bool {
+	pre, _, ok := splitPublishExecArgs(args)
+	if !ok {
+		return false
+	}
+	for _, item := range parseRootExecItems(pre) {
+		if item.flagName == "-bind" {
+			return true
+		}
+	}
+	return false
 }
 
 func joinPorts(ports []int) string {

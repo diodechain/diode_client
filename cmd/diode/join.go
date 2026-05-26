@@ -2739,9 +2739,6 @@ func joinHandler() (err error) {
 	if err != nil {
 		return
 	}
-	if isDaemonApplyRequest() {
-		beginRuntimeMode("join")
-	}
 
 	// Initial contract sync to apply perimeter before starting services
 	if syncErr := runContractControllerOnce(cfg); syncErr != nil {
@@ -2753,6 +2750,7 @@ func joinHandler() (err error) {
 		return nil
 	}
 	if isDaemonApplyRequest() {
+		beginRuntimeMode("join")
 		done := make(chan struct{})
 		app.SetModeDone(done)
 		go func() {

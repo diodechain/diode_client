@@ -15,18 +15,22 @@ func daemonPathID() string {
 	if config.AppConfig != nil {
 		dbPath = config.AppConfig.DBPath
 	}
+	seed := canonicalDaemonDBPath(dbPath)
+	if base, err := os.UserConfigDir(); err == nil {
+		seed = filepath.Clean(base) + "\x00" + seed
+	}
+	sum := sha256.Sum256([]byte(seed))
+	return hex.EncodeToString(sum[:8])
+}
+
+func canonicalDaemonDBPath(dbPath string) string {
 	if dbPath == "" {
 		dbPath = util.DefaultDBPath()
 	}
 	if abs, err := filepath.Abs(dbPath); err == nil {
 		dbPath = abs
 	}
-	seed := filepath.Clean(dbPath)
-	if base, err := os.UserConfigDir(); err == nil {
-		seed = filepath.Clean(base) + "\x00" + seed
-	}
-	sum := sha256.Sum256([]byte(seed))
-	return hex.EncodeToString(sum[:8])
+	return filepath.Clean(dbPath)
 }
 
 func daemonPathDir() (string, error) {
