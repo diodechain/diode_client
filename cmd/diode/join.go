@@ -2621,7 +2621,10 @@ func contractSync(cfg *config.Config) error {
 	if err != nil {
 		return err
 	}
+	app.mu.Lock()
 	fleetBefore := cfg.FleetAddr
+	app.mu.Unlock()
+
 	result := app.ApplyControlPatch(patch, controlPatchApplyOptions{Reconcile: true})
 	if result.HasValidationErrors() {
 		for key, errText := range result.ValidationErrors {
@@ -2631,8 +2634,13 @@ func contractSync(cfg *config.Config) error {
 			return fmt.Errorf("control runtime reconciliation failed: %s", result.ValidationErrors["runtime"])
 		}
 	}
-	if fleetBefore != cfg.FleetAddr {
-		cfg.PrintInfo(fmt.Sprintf("Perimeter fleet address changed from %s to %s", fleetBefore.HexString(), cfg.FleetAddr.HexString()))
+
+	app.mu.Lock()
+	fleetChanged := fleetBefore != cfg.FleetAddr
+	fleetAfter := cfg.FleetAddr
+	app.mu.Unlock()
+	if fleetChanged {
+		cfg.PrintInfo(fmt.Sprintf("Perimeter fleet address changed from %s to %s", fleetBefore.HexString(), fleetAfter.HexString()))
 	}
 
 	if err := updateWireGuardFromContract(client, cfg.ClientAddr, effectiveContractAddr, props); err != nil {
