@@ -1,13 +1,52 @@
 package rpc
 
 import (
+	"errors"
+	"fmt"
 	"net"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/diodechain/diode_client/config"
+	"github.com/diodechain/diode_client/edge"
 )
+
+func TestFormatConnectCandidateErrors(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		errs []error
+		want string
+	}{
+		{name: "empty", errs: nil, want: "[]"},
+		{name: "single", errs: []error{errors.New("not found")}, want: "not found"},
+		{name: "duplicates", errs: []error{
+			errors.New("not found"),
+			errors.New("not found"),
+			errors.New("not found"),
+		}, want: "not found"},
+		{name: "multiple unique", errs: []error{
+			errors.New("not found"),
+			fmt.Errorf("timeout"),
+			errors.New("not found"),
+		}, want: "[not found timeout]"},
+		{name: "rpc errors", errs: []error{
+			RPCError{edge.Error{Message: "not found"}},
+			RPCError{edge.Error{Message: "not found"}},
+			RPCError{edge.Error{Message: "not found"}},
+		}, want: "not found"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := formatConnectCandidateErrors(tt.errs); got != tt.want {
+				t.Fatalf("formatConnectCandidateErrors() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
 
 func setupSocksTestConfig(t *testing.T) *config.Config {
 	t.Helper()

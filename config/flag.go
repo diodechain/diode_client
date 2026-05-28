@@ -62,29 +62,29 @@ type Config struct {
 	SBinds              StringValues  `yaml:"bind,omitempty" json:"bind,omitempty"`
 	CPUProfile          string        `yaml:"cpuprofile,omitempty" json:"-"`
 	// CPUProfileRate          int              `yaml:"cpuprofilerate,omitempty" json:"-"`
-	MEMProfile              string           `yaml:"memprofile,omitempty"`
-	PProfPort               int              `yaml:"pprofport,omitempty"`
-	BlockProfile            string           `yaml:"blockprofile,omitempty" json:"-"`
-	BlockProfileRate        int              `yaml:"blockprofilerate,omitempty" json:"-"`
-	MutexProfile            string           `yaml:"mutexprofile,omitempty" json:"-"`
-	MutexProfileRate        int              `yaml:"mutexprofilerate,omitempty" json:"-"`
-	Command                 string           `yaml:"-" json:"-"`
-	FleetAddr               Address          `yaml:"-" json:"-"`
-	ClientAddr              Address          `yaml:"-" json:"-"`
-	ClientName              string           `yaml:"-" json:"-"`
-	RegistryAddr            Address          `yaml:"-" json:"-"`
-	ProxyServerHost         string           `yaml:"httpd_host,omitempty" json:"httpd_host,omitempty"`
-	ProxyServerPort         int              `yaml:"httpd_port,omitempty" json:"httpd_port,omitempty"`
-	SProxyServerHost        string           `yaml:"httpsd_host,omitempty" json:"httpsd_host,omitempty"`
-	SProxyServerPort        int              `yaml:"httpsd_port,omitempty" json:"httpsd_port,omitempty"`
-	SProxyServerPorts       string           `yaml:"additional_ports,omitempty" json:"additional_ports,omitempty"`
-	SProxyServerCertPath    string           `yaml:"certpath,omitempty" json:"certpath,omitempty"`
-	SProxyServerPrivPath    string           `yaml:"privpath,omitempty" json:"privpath,omitempty"`
-	AllowRedirectToSProxy   bool             `yaml:"allow_redirect,omitempty" json:"allow_redirect,omitempty"`
-	APIServerAddr           string           `yaml:"apiaddr,omitempty" json:"apiaddr,omitempty"`
-	EnableAPIServer         bool             `yaml:"api,omitempty" json:"api,omitempty"`
-	EnableProxyServer       bool             `yaml:"gateway,omitempty" json:"gateway,omitempty"`
-	EnableSProxyServer      bool             `yaml:"secure,omitempty" json:"secure,omitempty"`
+	MEMProfile            string  `yaml:"memprofile,omitempty"`
+	PProfPort             int     `yaml:"pprofport,omitempty"`
+	BlockProfile          string  `yaml:"blockprofile,omitempty" json:"-"`
+	BlockProfileRate      int     `yaml:"blockprofilerate,omitempty" json:"-"`
+	MutexProfile          string  `yaml:"mutexprofile,omitempty" json:"-"`
+	MutexProfileRate      int     `yaml:"mutexprofilerate,omitempty" json:"-"`
+	Command               string  `yaml:"-" json:"-"`
+	FleetAddr             Address `yaml:"-" json:"-"`
+	ClientAddr            Address `yaml:"-" json:"-"`
+	ClientName            string  `yaml:"-" json:"-"`
+	RegistryAddr          Address `yaml:"-" json:"-"`
+	ProxyServerHost       string  `yaml:"httpd_host,omitempty" json:"httpd_host,omitempty"`
+	ProxyServerPort       int     `yaml:"httpd_port,omitempty" json:"httpd_port,omitempty"`
+	SProxyServerHost      string  `yaml:"httpsd_host,omitempty" json:"httpsd_host,omitempty"`
+	SProxyServerPort      int     `yaml:"httpsd_port,omitempty" json:"httpsd_port,omitempty"`
+	SProxyServerPorts     string  `yaml:"additional_ports,omitempty" json:"additional_ports,omitempty"`
+	SProxyServerCertPath  string  `yaml:"certpath,omitempty" json:"certpath,omitempty"`
+	SProxyServerPrivPath  string  `yaml:"privpath,omitempty" json:"privpath,omitempty"`
+	AllowRedirectToSProxy bool    `yaml:"allow_redirect,omitempty" json:"allow_redirect,omitempty"`
+	APIServerAddr         string  `yaml:"apiaddr,omitempty" json:"apiaddr,omitempty"`
+	EnableAPIServer       bool    `yaml:"api,omitempty" json:"api,omitempty"`
+	EnableProxyServer     bool    `yaml:"gateway,omitempty" json:"gateway,omitempty"`
+	EnableSProxyServer    bool    `yaml:"secure,omitempty" json:"secure,omitempty"`
 	// EnableSocksServer: shared local SOCKS on SocksServerAddr() (default 127.0.0.1:1080).
 	// Unrelated to per-instance rpc.Config.EnableSocks used by diode ssh (ephemeral port).
 	EnableSocksServer       bool             `yaml:"socksd,omitempty" json:"socksd,omitempty"`

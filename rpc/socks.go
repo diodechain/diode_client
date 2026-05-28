@@ -337,6 +337,32 @@ func isDiodeAddress(host string) bool {
 	return err == nil
 }
 
+// formatConnectCandidateErrors collapses duplicate connection errors. A single
+// unique message is printed without brackets; multiple unique messages use "[a b]".
+func formatConnectCandidateErrors(errs []error) string {
+	seen := make(map[string]struct{})
+	unique := make([]string, 0, len(errs))
+	for _, e := range errs {
+		if e == nil {
+			continue
+		}
+		msg := e.Error()
+		if _, dup := seen[msg]; dup {
+			continue
+		}
+		seen[msg] = struct{}{}
+		unique = append(unique, msg)
+	}
+	switch len(unique) {
+	case 0:
+		return "[]"
+	case 1:
+		return unique[0]
+	default:
+		return "[" + strings.Join(unique, " ") + "]"
+	}
+}
+
 func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, port int, protocol int, mode string, retry int) (conn *ConnectedPort, err error) {
 	// Define portname
 	var portName string
@@ -435,7 +461,10 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 	}
 
 	ports := make(chan *ConnectedPort, 1)
-	errorCollector := make(chan []error, 1)
+	var (
+		failedErrors   []error
+		failedErrorsMu sync.Mutex
+	)
 	var wg sync.WaitGroup
 	maxConcurrency := make(chan struct{}, 4)
 
@@ -482,11 +511,10 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 				}
 			}
 
-			// try to insert or ignore
-			select {
-			case errorCollector <- errors:
-			default:
-				// ignore errors
+			if len(errors) > 0 {
+				failedErrorsMu.Lock()
+				failedErrors = append(failedErrors, errors...)
+				failedErrorsMu.Unlock()
 			}
 		}(candidate.deviceID, candidate.serverIDs)
 	}
@@ -494,7 +522,6 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 	go func() {
 		wg.Wait()
 		close(ports)
-		close(errorCollector)
 	}()
 
 	connPort, ok := <-ports
@@ -502,8 +529,11 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 		return connPort, nil
 	}
 
-	errorList := <-errorCollector
-	msg := fmt.Sprintf("doConnectDevice() for '%v' failed with %v candidates: %v", deviceName, len(candidates), errorList)
+	failedErrorsMu.Lock()
+	errorList := failedErrors
+	failedErrorsMu.Unlock()
+	errSummary := formatConnectCandidateErrors(errorList)
+	msg := fmt.Sprintf("doConnectDevice() for '%v' failed with %v candidates: %s", deviceName, len(candidates), errSummary)
 
 	for _, device := range devices {
 		deviceID, _ := device.DeviceAddress()
