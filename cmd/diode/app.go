@@ -627,6 +627,7 @@ func (dio *Diode) StopMode() {
 			dio.modeMu.Unlock()
 			if activeMode == "" {
 				clientManager.GetPool().SetPublishedPorts(map[int]*config.Port{})
+				dio.controlRuntime = controlRuntimeState{}
 			}
 		}
 	}

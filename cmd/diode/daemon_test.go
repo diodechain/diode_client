@@ -289,6 +289,20 @@ func TestStopModeTimesOutWaitingForDone(t *testing.T) {
 	}
 }
 
+func TestStopModeClearsPublishedRuntimeState(t *testing.T) {
+	dio := NewDiode(newSharedControlTestConfig(t))
+	dio.BeginMode("publish")
+	dio.controlRuntime.published = publishedControlState{
+		public: []string{"80"},
+	}
+
+	dio.StopMode()
+
+	if len(dio.controlRuntime.published.public) != 0 {
+		t.Fatalf("published runtime state = %#v, want cleared", dio.controlRuntime.published)
+	}
+}
+
 func TestStartPrintsIdentityOnSubsequentCalls(t *testing.T) {
 	cfg := newSharedControlTestConfig(t)
 	var stdout bytes.Buffer
