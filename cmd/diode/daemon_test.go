@@ -206,6 +206,71 @@ func TestRunDaemonManageModeStopLeavesDaemonRunning(t *testing.T) {
 	}
 }
 
+func TestExecuteDaemonBusyModeStopDoesNotWaitForExecLock(t *testing.T) {
+	cfg := newSharedControlTestConfig(t)
+	setupSharedControlTestEnv(t, cfg)
+
+	origState := daemonState
+	daemonState = &runtimeDaemon{
+		modeChange: make(chan struct{}),
+		activeMode: "publish",
+		activeArgs: []string{"publish", "-public", "80"},
+	}
+	t.Cleanup(func() {
+		daemonState = origState
+	})
+	app.BeginMode("publish")
+
+	daemonExecMu.Lock()
+	resp := executeDaemonRequest(daemonRequest{
+		Version: daemonProtocolVersion,
+		Kind:    daemonRequestManage,
+		Command: "daemon",
+		Args:    []string{"daemon", "mode-stop"},
+	})
+	daemonExecMu.Unlock()
+
+	if resp.ExitCode != 0 {
+		t.Fatalf("ExitCode = %d, Error = %q", resp.ExitCode, resp.Error)
+	}
+	if !strings.Contains(resp.Stdout, "Stopping diode daemon mode.") {
+		t.Fatalf("Stdout = %q, want mode-stop message", resp.Stdout)
+	}
+	if got := app.ActiveMode(); got != "" {
+		t.Fatalf("ActiveMode() = %q, want empty", got)
+	}
+	if status := daemonState.snapshotStatus(); status.ActiveMode != "" {
+		t.Fatalf("snapshot ActiveMode = %q, want empty", status.ActiveMode)
+	}
+}
+
+func TestExecuteDaemonBusyLeaseReturnsActionableError(t *testing.T) {
+	cfg := newSharedControlTestConfig(t)
+	setupSharedControlTestEnv(t, cfg)
+
+	origState := daemonState
+	daemonState = &runtimeDaemon{modeChange: make(chan struct{})}
+	t.Cleanup(func() {
+		daemonState = origState
+	})
+
+	daemonExecMu.Lock()
+	resp := executeDaemonRequest(daemonRequest{
+		Version: daemonProtocolVersion,
+		Kind:    daemonRequestLease,
+		Command: "ssh",
+		Args:    []string{"ssh", "ubuntu@example.diode"},
+	})
+	daemonExecMu.Unlock()
+
+	if resp.ExitCode == 0 {
+		t.Fatalf("ExitCode = 0, want busy failure")
+	}
+	if !strings.Contains(resp.Error, "daemon is busy") {
+		t.Fatalf("Error = %q, want busy error", resp.Error)
+	}
+}
+
 func TestStopModeTimesOutWaitingForDone(t *testing.T) {
 	prevTimeout := modeStopWaitTimeout
 	modeStopWaitTimeout = 5 * time.Millisecond

@@ -174,13 +174,24 @@ func runSSHLikeViaDaemonLease(commandArgs []string, resp daemonResponse) int {
 		stderrln(fmt.Sprintf("unsupported daemon proxy command: %s", commandArgs[0]))
 		return 1
 	}
+	if resp.LeaseID != "" {
+		defer func() {
+			_ = releaseDaemonLease(resp.LeaseID)
+		}()
+	}
+	if resp.ExitCode != 0 {
+		return resp.ExitCode
+	}
+	if resp.Error != "" {
+		stderrln(resp.Error)
+		return 1
+	}
+	if strings.TrimSpace(resp.ProxyAddr) == "" {
+		stderrln("daemon proxy lease did not expose an address")
+		return 1
+	}
 	cfg := config.AppConfig
 	cfg.PrintLabel("Using diode daemon proxy", resp.ProxyAddr)
-	defer func() {
-		if resp.LeaseID != "" {
-			_ = releaseDaemonLease(resp.LeaseID)
-		}
-	}()
 	passArgs := normalizeSSHArgs(commandArgs[1:])
 	if opts.validateArgs != nil {
 		if err := opts.validateArgs(passArgs); err != nil {
@@ -289,17 +300,7 @@ func subcommandPassThroughArgs(args []string, name string) ([]string, error) {
 // on this instance (rpc.Config); that is not the same as cfg.EnableSocksServer.
 func startSSHLocalSocksProxy() (string, func(), error) {
 	cfg := config.AppConfig
-	socksCfg := rpc.Config{
-		EnableSocks:     true,
-		Addr:            net.JoinHostPort("127.0.0.1", "0"),
-		FleetAddr:       cfg.FleetAddr,
-		Blocklists:      cfg.Blocklists(),
-		Allowlists:      cfg.Allowlists,
-		EnableProxy:     false,
-		ProxyServerAddr: cfg.ProxyServerAddr(),
-		Fallback:        cfg.SocksFallback,
-	}
-	socksServer, err := rpc.NewSocksServer(socksCfg, app.clientManager)
+	socksServer, err := rpc.NewSocksServer(sshLocalSocksConfig(cfg), app.clientManager)
 	if err != nil {
 		return "", nil, err
 	}
@@ -324,6 +325,19 @@ func startSSHLocalSocksProxy() (string, func(), error) {
 		socksServer.Close()
 	}
 	return net.JoinHostPort(host, strconv.Itoa(tcpAddr.Port)), cleanup, nil
+}
+
+func sshLocalSocksConfig(cfg *config.Config) rpc.Config {
+	return rpc.Config{
+		EnableSocks:     true,
+		Addr:            net.JoinHostPort("127.0.0.1", "0"),
+		FleetAddr:       cfg.FleetAddr,
+		Blocklists:      cfg.Blocklists(),
+		Allowlists:      cfg.Allowlists,
+		EnableProxy:     false,
+		ProxyServerAddr: cfg.ProxyServerAddr(),
+		Fallback:        cfg.SocksFallback,
+	}
 }
 
 func createEphemeralSSHIdentity() (string, func(), error) {

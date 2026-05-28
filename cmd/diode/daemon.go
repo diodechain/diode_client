@@ -476,6 +476,7 @@ func dispatchViaDaemonAttached(spec daemonStartupSpec, req daemonRequest) (bool,
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, daemonSignals()...)
 	defer signal.Stop(sigCh)
+	stopErrCh := make(chan error, 1)
 	stopRequested := false
 	for {
 		select {
@@ -503,14 +504,18 @@ func dispatchViaDaemonAttached(spec daemonStartupSpec, req daemonRequest) (bool,
 				return true, "", 1, fmt.Errorf("daemon stream ended before final response")
 			}
 			return true, "", 1, err
+		case err := <-stopErrCh:
+			if err != nil {
+				return true, "", 1, err
+			}
 		case <-sigCh:
 			if stopRequested {
 				return true, "", 130, nil
 			}
 			stopRequested = true
-			if err := requestDaemonModeStop(); err != nil {
-				return true, "", 1, err
-			}
+			go func() {
+				stopErrCh <- requestDaemonModeStop()
+			}()
 		}
 	}
 }
@@ -601,10 +606,16 @@ func handleDaemonConn(conn net.Conn) {
 
 func executeDaemonRequest(req daemonRequest) daemonResponse {
 	if req.Kind == daemonRequestUpdate {
+		if !daemonExecMu.TryLock() {
+			return executeDaemonBusyResponse(req)
+		}
+		daemonExecMu.Unlock()
 		return executeDaemonUpdateRequest(req)
 	}
 
-	daemonExecMu.Lock()
+	if !daemonExecMu.TryLock() {
+		return executeDaemonBusyResponse(req)
+	}
 	defer daemonExecMu.Unlock()
 
 	resp := daemonResponse{Version: daemonProtocolVersion}
@@ -651,6 +662,39 @@ func executeDaemonRequest(req daemonRequest) daemonResponse {
 	if req.Kind == daemonRequestApplyMode && resp.ExitCode == 0 {
 		resp.ModeActive = updateDaemonModeSnapshotIfActive(req.Command, req.Args)
 	}
+	return resp
+}
+
+func executeDaemonBusyResponse(req daemonRequest) daemonResponse {
+	resp := daemonResponse{Version: daemonProtocolVersion}
+	if req.Kind == daemonRequestManage && len(req.Args) >= 2 && req.Args[0] == "daemon" {
+		switch req.Args[1] {
+		case "stop":
+			resp.Stdout = "Stopping diode daemon.\n"
+			if app != nil {
+				app.StopMode()
+			}
+			if daemonState != nil {
+				daemonState.clearModeSnapshot()
+			}
+			resp.Shutdown = true
+			return resp
+		case "mode-stop":
+			resp.Stdout = "Stopping diode daemon mode.\n"
+			if app != nil {
+				app.StopMode()
+			}
+			if daemonState != nil {
+				daemonState.clearModeSnapshot()
+			}
+			return resp
+		case "status":
+			resp.Stdout = "Daemon status        : busy\nActive request       : starting or stopping a daemon command\n"
+			return resp
+		}
+	}
+	resp.ExitCode = 1
+	resp.Error = "daemon is busy starting or stopping another command; run `diode daemon stop` to reset it"
 	return resp
 }
 
@@ -1461,17 +1505,7 @@ func daemonLeaseLocalProxy() (string, string, error) {
 	if err := app.Start(); err != nil {
 		return "", "", err
 	}
-	cfg := config.AppConfig
-	socksCfg := rpc.Config{
-		Addr:            net.JoinHostPort("127.0.0.1", "0"),
-		FleetAddr:       cfg.FleetAddr,
-		Blocklists:      cfg.Blocklists(),
-		Allowlists:      cfg.Allowlists,
-		EnableProxy:     false,
-		ProxyServerAddr: cfg.ProxyServerAddr(),
-		Fallback:        cfg.SocksFallback,
-	}
-	socksServer, err := rpc.NewSocksServer(socksCfg, app.clientManager)
+	socksServer, err := rpc.NewSocksServer(sshLocalSocksConfig(config.AppConfig), app.clientManager)
 	if err != nil {
 		return "", "", err
 	}
