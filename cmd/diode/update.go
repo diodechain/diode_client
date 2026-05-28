@@ -2,9 +2,8 @@ package main
 
 import (
 	"fmt"
+	"io"
 	"os"
-	"os/exec"
-	"path"
 	"path/filepath"
 	"runtime"
 	"time"
@@ -38,12 +37,29 @@ func writeLastUpdateAt() {
 }
 
 func updateHandler() (err error) {
-	doUpdate()
-	return
+	_, err = doUpdate(updateRestartStandalone)
+	return err
 }
 
-func doUpdate() int {
-	cfg := config.AppConfig
+type updateRestartMode int
+
+const (
+	updateRestartStandalone updateRestartMode = iota
+	updateRestartDeferred
+)
+
+func runDaemonUpdateWithConfig(args []string, cfg *config.Config) (string, error) {
+	if len(args) == 0 || args[0] != "update" {
+		return "", newExitStatusError(2, "missing update command")
+	}
+	return doUpdateWithConfig(cfg, updateRestartDeferred)
+}
+
+func doUpdate(restartMode updateRestartMode) (string, error) {
+	return doUpdateWithConfig(config.AppConfig, restartMode)
+}
+
+func doUpdateWithConfig(cfg *config.Config, restartMode updateRestartMode) (string, error) {
 	m := &update.Manager{
 		Command: "diode",
 		Store: &github.Store{
@@ -57,47 +73,57 @@ func doUpdate() int {
 		m.Command += ".exe"
 	}
 
-	tarball, ok, err := download(m)
+	tarball, ok, err := download(cfg, m)
 	if !ok {
 		// Will recheck for an update in 24 hours
 		go func() {
 			time.Sleep(time.Hour * 24)
-			doUpdate()
+			_, _ = doUpdate(updateRestartStandalone)
 		}()
 		if err == nil {
 			writeLastUpdateAt()
 		}
-		return 0
+		if err != nil {
+			return "", newExitStatusError(1, "%s", err.Error())
+		}
+		return "", nil
 	}
 
-	// searching for binary in path
-	bin, err := exec.LookPath(m.Command)
-	if err != nil {
-		// just update local file
-		bin = os.Args[0]
-	}
-
-	// find the real path of execute file if the file was symlink
-	binExe, err := filepath.EvalSymlinks(bin)
-	if err != nil {
-		binExe = bin
-	}
-
-	dir := filepath.Dir(binExe)
+	dir := updateInstallDir()
 	if err := m.InstallTo(tarball, dir); err != nil {
 		cfg.PrintError("Error installing", err)
-		return 129
+		return "", newExitStatusError(129, "%s", err.Error())
 	}
 
-	cmd := path.Join(dir, m.Command)
-	fmt.Printf("Updated, restarting %s...\n", cmd)
+	cmd := filepath.Join(dir, m.Command)
+	fmt.Fprintf(updateOutputWriter(cfg), "Updated, restarting %s...\n", cmd)
 	writeLastUpdateAt()
+	if restartMode == updateRestartDeferred {
+		return cmd, nil
+	}
 	update.Restart(cmd)
-	return 0
+	return "", nil
 }
 
-func download(m *update.Manager) (string, bool, error) {
-	cfg := config.AppConfig
+func updateInstallDir() string {
+	bin, err := os.Executable()
+	if err != nil || bin == "" {
+		bin = os.Args[0]
+	}
+	return updateInstallDirFromExecutable(bin, filepath.EvalSymlinks)
+}
+
+func updateInstallDirFromExecutable(bin string, evalSymlinks func(string) (string, error)) string {
+	if abs, err := filepath.Abs(bin); err == nil {
+		bin = abs
+	}
+	if resolved, err := evalSymlinks(bin); err == nil {
+		bin = resolved
+	}
+	return filepath.Dir(bin)
+}
+
+func download(cfg *config.Config, m *update.Manager) (string, bool, error) {
 	ansi.HideCursor()
 	defer ansi.ShowCursor()
 
@@ -127,7 +153,7 @@ func download(m *update.Manager) (string, bool, error) {
 	}
 
 	// whitespace
-	fmt.Println()
+	fmt.Fprintln(updateOutputWriter(cfg))
 
 	// download tarball to a tmp dir
 	tarball, err := a.DownloadProxy(progress.Reader)
@@ -136,4 +162,11 @@ func download(m *update.Manager) (string, bool, error) {
 	}
 
 	return tarball, true, nil
+}
+
+func updateOutputWriter(cfg *config.Config) io.Writer {
+	if cfg != nil && cfg.StdoutWriter != nil {
+		return cfg.StdoutWriter
+	}
+	return os.Stdout
 }

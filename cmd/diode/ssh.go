@@ -45,17 +45,8 @@ var (
 var runtimeGOOS = runtime.GOOS
 
 func sshHandler() error {
-	return runSSHLikeTool(sshLikeToolOptions{
-		commandName:   sshCommandName,
-		toolName:      "ssh",
-		validateLabel: "Invalid SSH target",
-		validateArgs: func(args []string) error {
-			if target := extractSSHTarget(args); target != "" {
-				return validateSSHTarget(target)
-			}
-			return nil
-		},
-	})
+	opts, _ := sshLikeOptionsForCommand(sshCommandName)
+	return runSSHLikeTool(opts)
 }
 
 // sshLikeToolOptions configures runSSHLikeTool for a specific OpenSSH-based
@@ -79,44 +70,25 @@ type sshLikeToolOptions struct {
 // identity and a ProxyCommand that tunnels via `diode ssh-proxy`.
 func runSSHLikeTool(opts sshLikeToolOptions) error {
 	cfg := config.AppConfig
-	toolName := opts.toolName
-	if toolName == "" {
-		toolName = opts.commandName
-	}
 	cfg.Logger.Warn("%s command is still BETA, parameters may change", opts.commandName)
 
 	if err := app.Start(); err != nil {
 		cfg.PrintError("Could not start local Diode client", err)
-		os.Exit(1)
+		return newExitStatusError(1, "%s", err.Error())
 	}
 	proxyAddr, cleanupProxy, err := startSSHLocalSocksProxy()
 	if err != nil {
 		cfg.PrintError("Could not start local Diode SOCKS proxy", err)
-		os.Exit(1)
+		return newExitStatusError(1, "%s", err.Error())
 	}
 	defer cleanupProxy()
 	cfg.PrintLabel("Using local diode client", proxyAddr)
 
-	diodeExe, err := os.Executable()
+	passArgs, err := sshLikePassThroughArgs(opts.commandName, os.Args)
 	if err != nil {
-		cfg.PrintError("Could not determine diode executable path", err)
-		os.Exit(1)
+		cfg.PrintError(err.Error(), err)
+		return newExitStatusError(1, "%s", err.Error())
 	}
-
-	os_args := os.Args
-	cmdIndex := -1
-	for i, arg := range os_args {
-		if arg == opts.commandName {
-			cmdIndex = i
-			break
-		}
-	}
-	if cmdIndex == -1 {
-		msg := fmt.Sprintf("%s command not found", opts.commandName)
-		cfg.PrintError(msg, errors.New(msg))
-		os.Exit(1)
-	}
-	passArgs := normalizeSSHArgs(os_args[cmdIndex+1:])
 
 	if opts.validateArgs != nil {
 		if err := opts.validateArgs(passArgs); err != nil {
@@ -125,21 +97,45 @@ func runSSHLikeTool(opts sshLikeToolOptions) error {
 				label = fmt.Sprintf("Invalid %s argument", opts.commandName)
 			}
 			cfg.PrintError(label, err)
-			os.Exit(1)
+			return newExitStatusError(1, "%s", err.Error())
 		}
+	}
+
+	return runSSHToolWithProxyAddr(proxyAddr, opts, passArgs)
+}
+
+func sshLikePassThroughArgs(commandName string, osArgs []string) ([]string, error) {
+	for i, arg := range osArgs {
+		if arg == commandName {
+			return normalizeSSHArgs(osArgs[i+1:]), nil
+		}
+	}
+	return nil, fmt.Errorf("%s command not found", commandName)
+}
+
+func runSSHToolWithProxyAddr(proxyAddr string, opts sshLikeToolOptions, passArgs []string) error {
+	cfg := config.AppConfig
+	toolName := opts.toolName
+	if toolName == "" {
+		toolName = opts.commandName
+	}
+	diodeExe, err := os.Executable()
+	if err != nil {
+		cfg.PrintError("Could not determine diode executable path", err)
+		return newExitStatusError(1, "%s", err.Error())
 	}
 
 	identityFile, cleanup, err := createEphemeralSSHIdentity()
 	if err != nil {
 		cfg.PrintError("Could not create ephemeral ssh identity", err)
-		os.Exit(1)
+		return newExitStatusError(1, "%s", err.Error())
 	}
 	defer cleanup()
 
 	toolPath, err := findOpenSSHTool(toolName)
 	if err != nil {
 		cfg.PrintError(fmt.Sprintf("%s not found", toolName), err)
-		os.Exit(1)
+		return newExitStatusError(1, "%s", err.Error())
 	}
 
 	args := buildSSHLikeToolArgs(runtimeGOOS, diodeExe, proxyAddr, identityFile, passArgs)
@@ -152,12 +148,112 @@ func runSSHLikeTool(opts sshLikeToolOptions) error {
 	if err := cmd.Run(); err != nil {
 		var exitErr *exec.ExitError
 		if errors.As(err, &exitErr) {
-			os.Exit(exitErr.ExitCode())
+			return newExitStatusError(exitErr.ExitCode(), "%s exited with status %d", toolName, exitErr.ExitCode())
 		}
 		cfg.PrintError(fmt.Sprintf("Could not execute %s", toolName), err)
-		os.Exit(1)
+		return newExitStatusError(1, "%s", err.Error())
 	}
 	return nil
+}
+
+func runSSHViaDaemonLease(commandArgs []string, resp daemonResponse) int {
+	return runSSHLikeViaDaemonLease(commandArgs, resp)
+}
+
+func runSSHLikeViaDaemonLease(commandArgs []string, resp daemonResponse) int {
+	if len(commandArgs) == 0 {
+		stderrln("missing ssh-like command arguments")
+		return 1
+	}
+	if err := ensureDaemonSSHForegroundLogger(); err != nil {
+		stderrln(fmt.Sprintf("could not initialize %s command logger: %v", commandArgs[0], err))
+		return 1
+	}
+	opts, ok := sshLikeOptionsForCommand(commandArgs[0])
+	if !ok {
+		stderrln(fmt.Sprintf("unsupported daemon proxy command: %s", commandArgs[0]))
+		return 1
+	}
+	if resp.LeaseID != "" {
+		defer func() {
+			_ = releaseDaemonLease(resp.LeaseID)
+		}()
+	}
+	if resp.ExitCode != 0 {
+		return resp.ExitCode
+	}
+	if resp.Error != "" {
+		stderrln(resp.Error)
+		return 1
+	}
+	if strings.TrimSpace(resp.ProxyAddr) == "" {
+		stderrln("daemon proxy lease did not expose an address")
+		return 1
+	}
+	cfg := config.AppConfig
+	cfg.PrintLabel("Using diode daemon proxy", resp.ProxyAddr)
+	passArgs := normalizeSSHArgs(commandArgs[1:])
+	if opts.validateArgs != nil {
+		if err := opts.validateArgs(passArgs); err != nil {
+			label := opts.validateLabel
+			if label == "" {
+				label = fmt.Sprintf("Invalid %s argument", opts.commandName)
+			}
+			cfg.PrintError(label, err)
+			return exitCodeFromError(newExitStatusError(1, "%s", err.Error()))
+		}
+	}
+	if err := runSSHToolWithProxyAddr(resp.ProxyAddr, opts, passArgs); err != nil {
+		return exitCodeFromError(err)
+	}
+	return 0
+}
+
+func sshLikeOptionsForCommand(commandName string) (sshLikeToolOptions, bool) {
+	switch commandName {
+	case sshCommandName:
+		return sshLikeToolOptions{
+			commandName:   sshCommandName,
+			toolName:      "ssh",
+			validateLabel: "Invalid SSH target",
+			validateArgs: func(args []string) error {
+				if target := extractSSHTarget(args); target != "" {
+					return validateSSHTarget(target)
+				}
+				return nil
+			},
+		}, true
+	case scpCommandName:
+		return sshLikeToolOptions{
+			commandName:   scpCommandName,
+			toolName:      "scp",
+			validateLabel: "Invalid scp target",
+			validateArgs: func(args []string) error {
+				return validateSCPArgs(args)
+			},
+		}, true
+	default:
+		return sshLikeToolOptions{}, false
+	}
+}
+
+func ensureDaemonSSHForegroundLogger() error {
+	cfg := config.AppConfig
+	if cfg == nil {
+		cfg = newRootConfig()
+		config.AppConfig = cfg
+	}
+	if cfg.Logger != nil {
+		return nil
+	}
+	if cfg.LogFilePath != "" {
+		cfg.LogMode = config.LogToFile
+	} else {
+		cfg.LogMode = config.LogToConsole
+	}
+	logger, err := config.NewLogger(cfg)
+	cfg.Logger = &logger
+	return err
 }
 
 // buildSSHLikeToolArgs builds the argv (excluding argv[0]) for an OpenSSH
@@ -204,17 +300,7 @@ func subcommandPassThroughArgs(args []string, name string) ([]string, error) {
 // on this instance (rpc.Config); that is not the same as cfg.EnableSocksServer.
 func startSSHLocalSocksProxy() (string, func(), error) {
 	cfg := config.AppConfig
-	socksCfg := rpc.Config{
-		EnableSocks:     true,
-		Addr:            net.JoinHostPort("127.0.0.1", "0"),
-		FleetAddr:       cfg.FleetAddr,
-		Blocklists:      cfg.Blocklists(),
-		Allowlists:      cfg.Allowlists,
-		EnableProxy:     false,
-		ProxyServerAddr: cfg.ProxyServerAddr(),
-		Fallback:        cfg.SocksFallback,
-	}
-	socksServer, err := rpc.NewSocksServer(socksCfg, app.clientManager)
+	socksServer, err := rpc.NewSocksServer(sshLocalSocksConfig(cfg), app.clientManager)
 	if err != nil {
 		return "", nil, err
 	}
@@ -239,6 +325,19 @@ func startSSHLocalSocksProxy() (string, func(), error) {
 		socksServer.Close()
 	}
 	return net.JoinHostPort(host, strconv.Itoa(tcpAddr.Port)), cleanup, nil
+}
+
+func sshLocalSocksConfig(cfg *config.Config) rpc.Config {
+	return rpc.Config{
+		EnableSocks:     true,
+		Addr:            net.JoinHostPort("127.0.0.1", "0"),
+		FleetAddr:       cfg.FleetAddr,
+		Blocklists:      cfg.Blocklists(),
+		Allowlists:      cfg.Allowlists,
+		EnableProxy:     false,
+		ProxyServerAddr: cfg.ProxyServerAddr(),
+		Fallback:        cfg.SocksFallback,
+	}
 }
 
 func createEphemeralSSHIdentity() (string, func(), error) {

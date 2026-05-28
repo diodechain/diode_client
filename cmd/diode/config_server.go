@@ -505,6 +505,10 @@ func (configAPIServer *ConfigAPIServer) apiHandleFunc() func(w http.ResponseWrit
 				return
 			}
 			configAPIServer.successResponse(w, "ok")
+			if daemonState != nil {
+				daemonState.baseConfig = sanitizedDaemonBaseConfig(configAPIServer.appConfig)
+				configAPIServer.appConfig.Logger.Info("Updated config in daemon mode without process restart")
+			}
 			return
 		}
 		configAPIServer.notFoundError(w)

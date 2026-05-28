@@ -185,6 +185,73 @@ func TestBuildSSHLikeToolArgsKeepsUserArgsLast(t *testing.T) {
 	}
 }
 
+func TestRunSSHViaDaemonLeaseInitializesForegroundLogger(t *testing.T) {
+	origCfg := config.AppConfig
+	cfg := newRootConfig()
+	config.AppConfig = cfg
+	t.Cleanup(func() {
+		config.AppConfig = origCfg
+	})
+
+	code := runSSHViaDaemonLease([]string{"ssh", "badhost"}, daemonResponse{ProxyAddr: "127.0.0.1:1"})
+	if code == 0 {
+		t.Fatal("runSSHViaDaemonLease() exit code = 0, want validation failure")
+	}
+	if cfg.Logger == nil {
+		t.Fatal("runSSHViaDaemonLease() did not initialize foreground logger")
+	}
+}
+
+func TestSSHLocalSocksConfigEnablesListener(t *testing.T) {
+	cfg := newRootConfig()
+	got := sshLocalSocksConfig(cfg)
+	if !got.EnableSocks {
+		t.Fatal("sshLocalSocksConfig() did not enable SOCKS listener")
+	}
+	if got.Addr != net.JoinHostPort("127.0.0.1", "0") {
+		t.Fatalf("sshLocalSocksConfig() Addr = %q, want ephemeral localhost", got.Addr)
+	}
+}
+
+func TestRunSSHViaDaemonLeaseStopsOnLeaseFailure(t *testing.T) {
+	origCfg := config.AppConfig
+	config.AppConfig = newRootConfig()
+	t.Cleanup(func() {
+		config.AppConfig = origCfg
+	})
+
+	code := runSSHViaDaemonLease([]string{"ssh", "ubuntu@miner2023.diode"}, daemonResponse{
+		ExitCode: 1,
+		Error:    "proxy lease did not expose an address",
+	})
+	if code != 1 {
+		t.Fatalf("runSSHViaDaemonLease() exit code = %d, want 1", code)
+	}
+}
+
+func TestRunSSHViaDaemonLeaseRejectsEmptyProxyAddr(t *testing.T) {
+	origCfg := config.AppConfig
+	origLookPath := lookPath
+	config.AppConfig = newRootConfig()
+	lookPathCalled := false
+	lookPath = func(string) (string, error) {
+		lookPathCalled = true
+		return "", errors.New("unexpected OpenSSH lookup")
+	}
+	t.Cleanup(func() {
+		config.AppConfig = origCfg
+		lookPath = origLookPath
+	})
+
+	code := runSSHViaDaemonLease([]string{"ssh", "ubuntu@miner2023.diode"}, daemonResponse{})
+	if code != 1 {
+		t.Fatalf("runSSHViaDaemonLease() exit code = %d, want 1", code)
+	}
+	if lookPathCalled {
+		t.Fatal("runSSHViaDaemonLease() looked up OpenSSH tool despite empty proxy address")
+	}
+}
+
 func TestFindOpenSSHToolWindowsInstallHelp(t *testing.T) {
 	origLookPath := lookPath
 	origGOOS := runtimeGOOS

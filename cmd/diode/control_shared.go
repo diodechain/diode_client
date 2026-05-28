@@ -1290,22 +1290,45 @@ func (dio *Diode) loadPersistedSharedControls() error {
 	collect(&diodeCmd.Flag)
 	collect(&dio.cmd.Flag)
 
+	if err := loadPersistedSharedControlsInto(dio.config, overrides); err != nil {
+		return err
+	}
+
+	dio.controlsLoaded = true
+	return nil
+}
+
+func loadPersistedSharedControlsInto(cfg *config.Config, overrides map[string]bool) error {
+	if cfg == nil || cfg.LoadFromFile || db.DB == nil {
+		return nil
+	}
+	effects := controlEffect(0)
 	for _, key := range persistedSharedControlKeys {
-		if overrides[key] {
+		if overrides != nil && overrides[key] {
 			continue
 		}
 		value, err := db.DB.Get(sharedControlStorageKey(key))
 		if err != nil {
 			continue
 		}
-		if _, err := applySharedControlValue(dio.config, key, string(value)); err != nil {
+		if _, err := applySharedControlValue(cfg, key, string(value)); err != nil {
 			return fmt.Errorf("could not load persisted %s: %w", key, err)
 		}
+		if spec, ok := sharedControlSpec(key); ok {
+			effects |= spec.Effects
+		}
 	}
-
-	config.NormalizeResolveCache(dio.config)
-
-	dio.controlsLoaded = true
+	if effects&controlEffectServices != 0 {
+		if err := syncConfigBindsFromSBinds(cfg); err != nil {
+			return err
+		}
+	}
+	if effects&controlEffectPublished != 0 {
+		if err := rebuildPublishedPortState(cfg); err != nil {
+			return err
+		}
+	}
+	config.NormalizeResolveCache(cfg)
 	return nil
 }
 

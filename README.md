@@ -106,6 +106,8 @@ If the publish succeeds, the client logs the public gateway URL:
 - `http://<name-or-address>.diode.link/` for public port `80`
 - `https://<name-or-address>.diode.link:<port>/` for some public high ports such as `8000-8100`
 
+`publish` stays attached by default and streams daemon output in the foreground. Press `Ctrl-C` to stop the active publish mode while leaving the daemon running idle. Use `./diode -d publish ...` if you want the command to detach and return immediately.
+
 ### 3. Browse Diode services through a local SOCKS proxy
 
 ```bash
@@ -139,6 +141,7 @@ Top-level commands:
 - `config`: inspect or change local stored values
 - `mcp`: run the client as an MCP server over stdin/stdout
 - `gateway`: run a public HTTP/HTTPS gateway
+- `daemon`: inspect or manage the background daemon
 - `time`: query consensus time
 - `version`: print build version
 
@@ -154,6 +157,46 @@ Not:
 
 ```bash
 ./diode publish -debug=true -public 80:80
+```
+
+Daemon-routed long-running commands behave like `docker run`: the CLI uses the daemon, stays attached, streams daemon output, and exits when interrupted or when the active mode exits. This applies to:
+
+- `publish`
+- `gateway`
+- `socksd`
+- `join`
+- `files`
+
+Use root `-d` / `--detach` to keep the daemon mode running in the background:
+
+```bash
+./diode -d publish -public 8080:80
+./diode -d socksd
+```
+
+`-d` is only valid for those long-running daemon apply modes. One-off daemon-routed commands such as `query`, `fetch`, `config`, `ssh`, `update`, `push`, and `pull` return after their task finishes and reject `-d`.
+
+`-no-daemon` bypasses daemon routing entirely and keeps the command running in the local CLI process.
+
+Daemon management commands:
+
+```bash
+./diode daemon status
+./diode daemon restart
+./diode daemon stop
+./diode daemon ports remove 80 443
+./diode daemon ports clear
+```
+
+`daemon status` reports whether the daemon is running, the active mode, active arguments, published ports, bind rules, SOCKS state, and config API state. `daemon ports remove` and `daemon ports clear` only manage the current daemon-owned publish/files mode; they do not edit local config.
+
+Daemon instances are scoped by wallet database path. The default `diode daemon ...` commands manage the daemon for the default `-dbpath`; passing a different root `-dbpath` manages a separate daemon for that wallet:
+
+```bash
+./diode -dbpath ./wallet-a.db -d publish -public 8080:80
+./diode -dbpath ./wallet-b.db -d socksd -socksd_port 1082
+./diode -dbpath ./wallet-a.db daemon status
+./diode -dbpath ./wallet-b.db daemon stop
 ```
 
 If you plan to contribute code, see [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -695,9 +738,11 @@ Common global flags you will actually use:
 
 - `-configpath <file>`: load YAML config from a file
 - `-dbpath <file>`: change the database path
+- `-d` / `--detach`: run long-running daemon modes in the background instead of staying attached
 - `-diodeaddrs <addr>`: override the bootstrap RPC peers
 - `-bind <local>:<remote>:<port>:<proto>`: create a local forward through Diode
 - `-maxports <n>`: cap concurrent ports per device
+- `-no-daemon`: run in the current process instead of routing through the daemon
 - `-tray=true`: show the tray icon on supported platforms
 - `-update=false`: disable auto-update on startup
 - `-debug=true`: enable debug logging

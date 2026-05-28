@@ -33,8 +33,7 @@ func queryHandler() (err error) {
 	cfg := config.AppConfig
 
 	if cfg.QueryAddress == "" {
-		cfg.PrintError("Failed to query", fmt.Errorf("-address argument is required"))
-		return
+		return newExitStatusError(2, "query requires -address")
 	}
 
 	err = app.Start()

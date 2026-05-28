@@ -907,8 +907,7 @@ func (socksServer *Server) startSocksListeners() error {
 			if socksServer.Closed() {
 				return
 			}
-			err := socksServer.handleUDP(udp, buf)
-			if err != nil && socksServer.Closed() {
+			if err := socksServer.handleUDP(udp, buf); err != nil {
 				return
 			}
 		}
@@ -953,8 +952,14 @@ func (socksServer *Server) Start() error {
 }
 
 func (socksServer *Server) handleUDP(udpconn net.PacketConn, packet []byte) error {
+	if udpconn == nil {
+		return nil
+	}
 	n, addr, err := udpconn.ReadFrom(packet)
 	if err != nil {
+		if socksServer.Closed() {
+			return err
+		}
 		socksServer.logger.Error("handleUDP error: %v", err)
 		return err
 	}

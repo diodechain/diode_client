@@ -496,7 +496,7 @@ func handleSSHSessionStart(req *ssh.Request, proc *sshProcessHandle, localUser s
 	if err != nil || !handled {
 		return next, err
 	}
-	go proxySSHProcessIO(channel, next)
+	proxySSHProcessIO(channel, next)
 	go waitForProcess(next)
 	return next, nil
 }
