@@ -353,25 +353,15 @@ func (client *Client) CallContext(method string, args ...interface{}) (res inter
 }
 
 func (client *Client) isRecentTicket(tck *edge.DeviceTicket) bool {
-	lvbn, _ := client.LastValid()
-
-	if tck.Version == 2 {
-		header := client.GetBlockHeaderValid(lvbn)
-		if header.Number() == 0 {
-			return false
-		}
-		epoch := uint64(header.Timestamp()) / 2_592_000
-		return tck.Epoch >= epoch
-	}
-
 	if tck == nil {
 		return false
 	}
-	if lvbn < tck.BlockNumber {
-		return true
+	lvbn, _ := client.LastValid()
+	header := client.GetBlockHeaderValid(lvbn)
+	if header.Number() == 0 {
+		return false
 	}
-	// Ignoring tickets older than 16 hours
-	return (lvbn - tck.BlockNumber) < (16 * 3600 / 15)
+	return tck.IsRecentAtPeak(header.Number(), header.Timestamp())
 }
 
 // ValidateNetwork validate blockchain network is secure and valid
@@ -590,7 +580,9 @@ func (client *Client) GetObject(deviceID [20]byte) (*edge.DeviceTicket, error) {
 		return nil, err
 	}
 	if device, ok := rawObject.(*edge.DeviceTicket); ok {
-		device.BlockHash, err = client.ResolveBlockHash(device.BlockNumber)
+		if device.Version != 2 {
+			device.BlockHash, err = client.ResolveBlockHash(device.BlockNumber)
+		}
 		return device, err
 	}
 	if err, ok := rawObject.(error); ok {
@@ -662,9 +654,11 @@ func (client *Client) SubmitTicketForUsage(minBytes *big.Int) {
 			ticket.TotalBytes = new(big.Int).SetUint64(minUsage)
 		}
 		err = client.submitTicket(ticket)
-		if err == nil {
-			client.lastTicket = ticket
+		if err != nil {
+			client.Log().Error("failed to submit ticket: %v", err)
+			return
 		}
+		client.lastTicket = ticket
 	})
 }
 
@@ -792,10 +786,7 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 	lvbn, lvbh := client.LastValid()
 
 	ticket := &edge.DeviceTicket{
-		Version:          1,
 		ServerID:         serverID,
-		BlockNumber:      lvbn,
-		BlockHash:        lvbh[:],
 		FleetAddr:        client.config.FleetAddr,
 		TotalConnections: big.NewInt(int64(client.s.TotalConnections())),
 		TotalBytes:       big.NewInt(int64(total)),
@@ -803,15 +794,29 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 	}
 
 	prim, secd := client.clientMan.PeekNearestAddresses()
+	header := client.GetBlockHeaderValid(lvbn)
+	if header.Number() == 0 {
+		return nil, fmt.Errorf("no valid block header for ticket")
+	}
+	timestamp := header.Timestamp()
+	preferred := edge.PreferredTicketServers(serverID, prim, secd)
+	ticket.LocalAddr, err = edge.CreateTicketLocalAddress(preferred, timestamp)
+	if err != nil {
+		return nil, err
+	}
 
-	if prim != nil {
-		if *prim == serverID {
-			if secd != nil {
-				ticket.LocalAddr = append([]byte{1}, secd[:]...)
-			}
-		} else {
-			ticket.LocalAddr = append([]byte{0}, prim[:]...)
+	if client.config.UsesTicketV1() {
+		ticket.Version = 1
+		ticket.BlockNumber = lvbn
+		ticket.BlockHash = lvbh[:]
+	} else {
+		epoch := edge.TicketEpochFromTimestamp(timestamp)
+		if epoch == 0 {
+			epoch = 1
 		}
+		ticket.Version = 2
+		ticket.ChainID = client.config.TicketChainID()
+		ticket.Epoch = epoch
 	}
 
 	if err := ticket.ValidateValues(); err != nil {
@@ -835,7 +840,8 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 // SubmitTicket submit ticket to server
 // TODO: resend when got too old error
 func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
-	call, err := client.CastContext(nil, "ticket", uint64(ticket.BlockNumber), ticket.FleetAddr[:], ticket.TotalConnections, ticket.TotalBytes, ticket.LocalAddr, ticket.DeviceSig)
+	args := ticket.SubmitArgs()
+	call, err := client.CastContext(nil, ticket.SubmitMethod(), args...)
 	if err != nil {
 		return fmt.Errorf("failed to submit ticket: %v", err)
 	}
@@ -850,8 +856,7 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 			if lastTicket.Err == edge.ErrTicketTooLow {
 				ssl := client.s
 				sid, _ := ssl.GetServerID()
-				lastTicket.ServerID = sid
-				lastTicket.FleetAddr = client.config.FleetAddr
+				lastTicket.ApplyTooLowContext(sid, client.config.FleetAddr)
 
 				if !lastTicket.ValidateDeviceSig(client.config.ClientAddr) {
 					lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)

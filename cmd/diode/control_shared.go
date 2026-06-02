@@ -936,6 +936,31 @@ var sharedControlSpecs = []*ControlSpec{
 		},
 	},
 	{
+		Key:        "chain_id",
+		Kind:       controlInt,
+		Effects:    controlEffectPersist,
+		ExposeHTTP: true,
+		Apply: func(cfg *config.Config, value interface{}) error {
+			val, err := intFromValue(value)
+			if err != nil {
+				return err
+			}
+			if val < 0 {
+				return fmt.Errorf("chain_id must be non-negative")
+			}
+			cfg.ChainID = uint64(val)
+			return nil
+		},
+		Reset: func(cfg *config.Config) bool {
+			cfg.ChainID = config.DefaultChainID
+			return true
+		},
+		DBValue: intControlDBValue(func(cfg *config.Config) int {
+			return int(cfg.TicketChainID())
+		}, int(config.DefaultChainID)),
+		HTTPValue: func(cfg *config.Config) interface{} { return cfg.TicketChainID() },
+	},
+	{
 		Key:  "blockprofile",
 		Kind: controlString,
 		Apply: func(cfg *config.Config, value interface{}) error {
@@ -1206,6 +1231,7 @@ func commitControlConfig(dst *config.Config, src *config.Config) {
 	dst.BlockProfileRate = src.BlockProfileRate
 	dst.CPUProfile = src.CPUProfile
 	dst.FleetAddr = src.FleetAddr
+	dst.ChainID = src.ChainID
 	dst.ProxyServerHost = src.ProxyServerHost
 	dst.ProxyServerPort = src.ProxyServerPort
 	dst.SProxyServerHost = src.SProxyServerHost

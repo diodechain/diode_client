@@ -212,8 +212,10 @@ func (resolver *Resolver) ValidateTicket(client *Client, deviceID Address, devic
 		errors = append(errors, errOutdatedDeviceTicket)
 	}
 
-	if device.BlockHash, err = client.ResolveBlockHash(device.BlockNumber); err != nil {
-		errors = append(errors, fmt.Errorf("failed to resolve block hash: %v", err))
+	if device.Version != 2 {
+		if device.BlockHash, err = client.ResolveBlockHash(device.BlockNumber); err != nil {
+			errors = append(errors, fmt.Errorf("failed to resolve block hash: %v", err))
+		}
 	}
 
 	if !device.ValidateDeviceSig(deviceID) {

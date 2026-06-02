@@ -46,7 +46,7 @@ var (
 )
 
 func init() {
-	cfg := &config.Config{}
+	cfg := &config.Config{ChainID: config.DefaultChainID}
 	diodeCmd.Flag.StringVar(&cfg.DBPath, "dbpath", util.DefaultDBPath(), "file path to db file")
 	diodeCmd.Flag.IntVar(&cfg.RetryTimes, "retrytimes", 3, "retry times to connect the remote rpc server")
 	diodeCmd.Flag.DurationVar(&cfg.EdgeE2ETimeout, "e2etimeout", 15*time.Second, "timeout seconds for edge e2e handshake")
@@ -399,6 +399,7 @@ func (dio *Diode) Start() error {
 	}
 	cfg.PrintLabel("Client address", cfg.ClientAddr.HexString())
 	cfg.PrintLabel("Fleet address", cfg.FleetAddr.HexString())
+	cfg.PrintLabel("Chain ID", fmt.Sprintf("%d", cfg.TicketChainID()))
 	dio.clientManager.Start()
 
 	// socksd waits for a validated client inside Start(); reconcile the SOCKS listener here so

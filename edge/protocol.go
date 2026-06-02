@@ -203,23 +203,7 @@ func parseDeviceTicketResponse(buffer []byte) (interface{}, error) {
 		ticket := DeviceTicket{}
 		return ticket, nil
 	} else if bytes.Contains(buffer, ticketTooLowPivot) {
-		var response ticketTooLowResponse
-		decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
-		err := decodeStream.Decode(&response)
-		if err != nil {
-			return nil, err
-		}
-		err = ErrTicketTooLow
-		ticket := DeviceTicket{
-			Version:          1,
-			BlockHash:        response.Payload.BlockHash,
-			TotalConnections: response.Payload.TotalConnections,
-			TotalBytes:       response.Payload.TotalBytes,
-			LocalAddr:        response.Payload.LocalAddr,
-			DeviceSig:        response.Payload.DeviceSig,
-			Err:              err,
-		}
-		return ticket, nil
+		return parseTooLowTicketResponse(buffer)
 	} else if bytes.Contains(buffer, ticketTooOldPivot) {
 		var response ticketTooOldResponse
 		decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
@@ -235,6 +219,56 @@ func parseDeviceTicketResponse(buffer []byte) (interface{}, error) {
 		return ticket, nil
 	}
 	return nil, ErrFailedToParseTicket
+}
+
+func parseTooLowTicketResponse(buffer []byte) (interface{}, error) {
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	var responseV1 ticketTooLowResponse
+	errV1 := decodeStream.Decode(&responseV1)
+	if errV1 == nil && responseV1.Payload.Result == "too_low" && len(responseV1.Payload.BlockHash) == 32 {
+		return tooLowTicketFromV1(responseV1), nil
+	}
+
+	decodeStream.Reset(bytes.NewReader(buffer), 0)
+	var responseV2 ticketTooLowResponseV2
+	errV2 := decodeStream.Decode(&responseV2)
+	if errV2 == nil && responseV2.Payload.Result == "too_low" {
+		return tooLowTicketFromV2(responseV2), nil
+	}
+	if errV1 != nil && errV2 != nil {
+		return nil, fmt.Errorf("failed decoding too_low response: %w & %w", errV1, errV2)
+	}
+	if errV2 != nil {
+		return nil, errV2
+	}
+	return nil, fmt.Errorf("failed decoding too_low response")
+}
+
+func tooLowTicketFromV1(r ticketTooLowResponse) DeviceTicket {
+	p := r.Payload
+	return DeviceTicket{
+		Version:          1,
+		BlockHash:        p.BlockHash,
+		TotalConnections: p.TotalConnections,
+		TotalBytes:       p.TotalBytes,
+		LocalAddr:        p.LocalAddr,
+		DeviceSig:        p.DeviceSig,
+		Err:              ErrTicketTooLow,
+	}
+}
+
+func tooLowTicketFromV2(r ticketTooLowResponseV2) DeviceTicket {
+	p := r.Payload
+	return DeviceTicket{
+		Version:          2,
+		ChainID:          p.ChainID,
+		Epoch:            p.Epoch,
+		TotalConnections: p.TotalConnections,
+		TotalBytes:       p.TotalBytes,
+		LocalAddr:        p.LocalAddr,
+		DeviceSig:        p.DeviceSig,
+		Err:              ErrTicketTooLow,
+	}
 }
 
 func parseDeviceObjectResponse(buffer []byte) (interface{}, error) {
@@ -882,7 +916,7 @@ func NewMessage(writer io.Writer, requestID uint64, method string, args ...inter
 		return parseAccountValueResponse, nil
 	case "glmr:getaccountvalue":
 		return parseMoonAccountValueResponse, nil
-	case "ticket":
+	case "ticket", "ticketv2":
 		return parseDeviceTicketResponse, nil
 	case "portopen":
 		return parsePortOpenResponse, nil

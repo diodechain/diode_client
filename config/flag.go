@@ -26,6 +26,13 @@ const (
 	AnyProtocol
 )
 
+const (
+	// DiodeChainID is the Diode L1 chain id (ticket v1).
+	DiodeChainID = 15
+	// DefaultChainID is Moonbeam; used for ticket v2 when chain_id is unset.
+	DefaultChainID = 1284
+)
+
 var (
 	AppConfig                  *Config
 	NullAddr                   util.Address = [20]byte{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
@@ -67,6 +74,7 @@ type Config struct {
 	MutexProfileRate      int     `yaml:"mutexprofilerate,omitempty" json:"-"`
 	Command               string  `yaml:"-" json:"-"`
 	FleetAddr             Address `yaml:"-" json:"-"`
+	ChainID               uint64  `yaml:"chain_id,omitempty" json:"chain_id,omitempty"`
 	ClientAddr            Address `yaml:"-" json:"-"`
 	ClientName            string  `yaml:"-" json:"-"`
 	RegistryAddr          Address `yaml:"-" json:"-"`
@@ -365,6 +373,19 @@ func ProtocolName(protocol int) string {
 // Returns 0 for unlimited, or the configured value
 func (cfg *Config) GetMaxPortsPerDevice() int {
 	return cfg.MaxPortsPerDevice
+}
+
+// TicketChainID returns the configured chain id for tickets, defaulting to Moonbeam.
+func (cfg *Config) TicketChainID() uint64 {
+	if cfg == nil || cfg.ChainID == 0 {
+		return DefaultChainID
+	}
+	return cfg.ChainID
+}
+
+// UsesTicketV1 reports whether tickets should use the legacy Diode L1 (v1) format.
+func (cfg *Config) UsesTicketV1() bool {
+	return cfg.TicketChainID() == DiodeChainID
 }
 
 type StringValues []string
