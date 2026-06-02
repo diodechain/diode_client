@@ -203,39 +203,7 @@ func parseDeviceTicketResponse(buffer []byte) (interface{}, error) {
 		ticket := DeviceTicket{}
 		return ticket, nil
 	} else if bytes.Contains(buffer, ticketTooLowPivot) {
-		var responseV2 ticketTooLowResponseV2
-		decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
-		errV2 := decodeStream.Decode(&responseV2)
-		if errV2 == nil && responseV2.Payload.Result == "too_low" {
-			return DeviceTicket{
-				Version:          2,
-				ChainID:          responseV2.Payload.ChainID,
-				Epoch:            responseV2.Payload.Epoch,
-				TotalConnections: responseV2.Payload.TotalConnections,
-				TotalBytes:       responseV2.Payload.TotalBytes,
-				LocalAddr:        responseV2.Payload.LocalAddr,
-				DeviceSig:        responseV2.Payload.DeviceSig,
-				Err:              ErrTicketTooLow,
-			}, nil
-		}
-		decodeStream.Reset(bytes.NewReader(buffer), 0)
-		var response ticketTooLowResponse
-		err := decodeStream.Decode(&response)
-		if err != nil {
-			if errV2 != nil {
-				return nil, fmt.Errorf("failed decoding too_low response: %w & %w", err, errV2)
-			}
-			return nil, err
-		}
-		return DeviceTicket{
-			Version:          1,
-			BlockHash:        response.Payload.BlockHash,
-			TotalConnections: response.Payload.TotalConnections,
-			TotalBytes:       response.Payload.TotalBytes,
-			LocalAddr:        response.Payload.LocalAddr,
-			DeviceSig:        response.Payload.DeviceSig,
-			Err:              ErrTicketTooLow,
-		}, nil
+		return parseTooLowTicketResponse(buffer)
 	} else if bytes.Contains(buffer, ticketTooOldPivot) {
 		var response ticketTooOldResponse
 		decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
@@ -251,6 +219,46 @@ func parseDeviceTicketResponse(buffer []byte) (interface{}, error) {
 		return ticket, nil
 	}
 	return nil, ErrFailedToParseTicket
+}
+
+func parseTooLowTicketResponse(buffer []byte) (interface{}, error) {
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	var responseV1 ticketTooLowResponse
+	errV1 := decodeStream.Decode(&responseV1)
+	if errV1 == nil && responseV1.Payload.Result == "too_low" && len(responseV1.Payload.BlockHash) == 32 {
+		return DeviceTicket{
+			Version:          1,
+			BlockHash:        responseV1.Payload.BlockHash,
+			TotalConnections: responseV1.Payload.TotalConnections,
+			TotalBytes:       responseV1.Payload.TotalBytes,
+			LocalAddr:        responseV1.Payload.LocalAddr,
+			DeviceSig:        responseV1.Payload.DeviceSig,
+			Err:              ErrTicketTooLow,
+		}, nil
+	}
+
+	decodeStream.Reset(bytes.NewReader(buffer), 0)
+	var responseV2 ticketTooLowResponseV2
+	errV2 := decodeStream.Decode(&responseV2)
+	if errV2 == nil && responseV2.Payload.Result == "too_low" {
+		return DeviceTicket{
+			Version:          2,
+			ChainID:          responseV2.Payload.ChainID,
+			Epoch:            responseV2.Payload.Epoch,
+			TotalConnections: responseV2.Payload.TotalConnections,
+			TotalBytes:       responseV2.Payload.TotalBytes,
+			LocalAddr:        responseV2.Payload.LocalAddr,
+			DeviceSig:        responseV2.Payload.DeviceSig,
+			Err:              ErrTicketTooLow,
+		}, nil
+	}
+	if errV1 != nil && errV2 != nil {
+		return nil, fmt.Errorf("failed decoding too_low response: %w & %w", errV1, errV2)
+	}
+	if errV2 != nil {
+		return nil, errV2
+	}
+	return nil, fmt.Errorf("failed decoding too_low response")
 }
 
 func parseDeviceObjectResponse(buffer []byte) (interface{}, error) {

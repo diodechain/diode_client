@@ -224,6 +224,12 @@ func (ct *DeviceTicket) RecoverDevicePubKey() ([]byte, error) {
 	return pubKey, nil
 }
 
+// ApplyTooLowContext fills fields omitted from too_low server responses before validation.
+func (ct *DeviceTicket) ApplyTooLowContext(serverID, fleetAddr Address) {
+	ct.ServerID = serverID
+	ct.FleetAddr = fleetAddr
+}
+
 // GetServerIDs returns at least one server ID but max 2 as alternatives to try
 func (ct *DeviceTicket) GetServerIDs() []Address {
 	return ct.LocalAddrInfo().Preferred

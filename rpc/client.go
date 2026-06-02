@@ -856,8 +856,7 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 			if lastTicket.Err == edge.ErrTicketTooLow {
 				ssl := client.s
 				sid, _ := ssl.GetServerID()
-				lastTicket.ServerID = sid
-				lastTicket.FleetAddr = client.config.FleetAddr
+				lastTicket.ApplyTooLowContext(sid, client.config.FleetAddr)
 
 				if !lastTicket.ValidateDeviceSig(client.config.ClientAddr) {
 					lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)
