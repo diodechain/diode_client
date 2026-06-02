@@ -57,6 +57,38 @@ func TestSubmitMethodAndArgs(t *testing.T) {
 	}
 }
 
+func TestPreferredTicketServers(t *testing.T) {
+	var server, prim, secd Address
+	server[19] = 1
+	prim[19] = 2
+	secd[19] = 3
+
+	got := PreferredTicketServers(server, &prim, &secd)
+	if len(got) != 2 || got[0] != prim || got[1] != server {
+		t.Fatalf("unexpected order when prim != server: %#v", got)
+	}
+
+	got = PreferredTicketServers(server, &server, &secd)
+	if len(got) != 2 || got[0] != server || got[1] != secd {
+		t.Fatalf("unexpected order when prim == server: %#v", got)
+	}
+}
+
+func TestGetServerIDsMetadata(t *testing.T) {
+	var a1, a2 Address
+	a1[19] = 1
+	a2[19] = 2
+	la, err := CreateTicketLocalAddress([]Address{a1, a2}, 123)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticket := &DeviceTicket{ServerID: a1, LocalAddr: la}
+	ids := ticket.GetServerIDs()
+	if len(ids) != 2 || ids[0] != a1 || ids[1] != a2 {
+		t.Fatalf("GetServerIDs() = %#v, want [%#v %#v]", ids, a1, a2)
+	}
+}
+
 func TestCreateTicketLocalAddress(t *testing.T) {
 	var a1, a2 Address
 	a1[19] = 1

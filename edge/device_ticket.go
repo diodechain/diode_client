@@ -85,7 +85,22 @@ func (ct *DeviceTicket) SubmitArgs() []interface{} {
 	}
 }
 
-// CreateTicketLocalAddress builds v2 local_address metadata (0x02 + RLP), matching diode_client_ex.
+// PreferredTicketServers builds the server hint list for ticket local_address metadata.
+func PreferredTicketServers(serverID Address, prim, secd *Address) []Address {
+	preferred := []Address{serverID}
+	if prim != nil {
+		if *prim == serverID {
+			if secd != nil {
+				preferred = append(preferred, *secd)
+			}
+		} else {
+			preferred = []Address{*prim, serverID}
+		}
+	}
+	return preferred
+}
+
+// CreateTicketLocalAddress builds local_address metadata (0x02 + RLP), matching diode_client_ex.
 func CreateTicketLocalAddress(preferred []Address, timestamp uint64) ([]byte, error) {
 	addrs := make([]interface{}, len(preferred))
 	for i, a := range preferred {
@@ -210,22 +225,8 @@ func (ct *DeviceTicket) RecoverDevicePubKey() ([]byte, error) {
 }
 
 // GetServerIDs returns at least one server ID but max 2 as alternatives to try
-func (ct *DeviceTicket) GetServerIDs() (ret []Address) {
-	var addr Address
-	// Is there a preferred node encoded in the LocalAddr field?
-	// Preference is encoded with a 0
-	if len(ct.LocalAddr) == len(addr)+1 && ct.LocalAddr[0] == 0 {
-		copy(addr[:], ct.LocalAddr[1:21])
-		ret = append(ret, addr)
-	}
-	ret = append(ret, ct.ServerID)
-	// Is there a secondary node encoded in the LocalAddr field?
-	// Secondary is encoded with a 1
-	if len(ct.LocalAddr) == len(addr)+1 && ct.LocalAddr[0] == 1 {
-		copy(addr[:], ct.LocalAddr[1:21])
-		ret = append(ret, addr)
-	}
-	return
+func (ct *DeviceTicket) GetServerIDs() []Address {
+	return ct.LocalAddrInfo().Preferred
 }
 
 // DeviceAddress returns device address

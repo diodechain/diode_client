@@ -353,25 +353,15 @@ func (client *Client) CallContext(method string, args ...interface{}) (res inter
 }
 
 func (client *Client) isRecentTicket(tck *edge.DeviceTicket) bool {
-	lvbn, _ := client.LastValid()
-
-	if tck.Version == 2 {
-		header := client.GetBlockHeaderValid(lvbn)
-		if header.Number() == 0 {
-			return false
-		}
-		epoch := edge.TicketEpochFromTimestamp(header.Timestamp())
-		return tck.Epoch >= epoch
-	}
-
 	if tck == nil {
 		return false
 	}
-	if lvbn < tck.BlockNumber {
-		return true
+	lvbn, _ := client.LastValid()
+	header := client.GetBlockHeaderValid(lvbn)
+	if header.Number() == 0 {
+		return false
 	}
-	// Ignoring tickets older than 16 hours
-	return (lvbn - tck.BlockNumber) < (16 * 3600 / 15)
+	return tck.IsRecentAtPeak(header.Number(), header.Timestamp())
 }
 
 // ValidateNetwork validate blockchain network is secure and valid
@@ -804,26 +794,22 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 	}
 
 	prim, secd := client.clientMan.PeekNearestAddresses()
+	header := client.GetBlockHeaderValid(lvbn)
+	if header.Number() == 0 {
+		return nil, fmt.Errorf("no valid block header for ticket")
+	}
+	timestamp := header.Timestamp()
+	preferred := edge.PreferredTicketServers(serverID, prim, secd)
+	ticket.LocalAddr, err = edge.CreateTicketLocalAddress(preferred, timestamp)
+	if err != nil {
+		return nil, err
+	}
 
 	if client.config.UsesTicketV1() {
 		ticket.Version = 1
 		ticket.BlockNumber = lvbn
 		ticket.BlockHash = lvbh[:]
-		if prim != nil {
-			if *prim == serverID {
-				if secd != nil {
-					ticket.LocalAddr = append([]byte{1}, secd[:]...)
-				}
-			} else {
-				ticket.LocalAddr = append([]byte{0}, prim[:]...)
-			}
-		}
 	} else {
-		header := client.GetBlockHeaderValid(lvbn)
-		if header.Number() == 0 {
-			return nil, fmt.Errorf("no valid block header for ticket epoch")
-		}
-		timestamp := header.Timestamp()
 		epoch := edge.TicketEpochFromTimestamp(timestamp)
 		if epoch == 0 {
 			epoch = 1
@@ -831,20 +817,6 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 		ticket.Version = 2
 		ticket.ChainID = client.config.TicketChainID()
 		ticket.Epoch = epoch
-		preferred := []edge.Address{serverID}
-		if prim != nil {
-			if *prim == serverID {
-				if secd != nil {
-					preferred = append(preferred, *secd)
-				}
-			} else {
-				preferred = []edge.Address{*prim, serverID}
-			}
-		}
-		ticket.LocalAddr, err = edge.CreateTicketLocalAddress(preferred, timestamp)
-		if err != nil {
-			return nil, err
-		}
 	}
 
 	if err := ticket.ValidateValues(); err != nil {
