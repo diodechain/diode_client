@@ -18,20 +18,8 @@ const (
 	localAddrLegacySecondaryPrefix = 1
 )
 
-// LocalAddrFormat describes how local_address bytes are encoded.
-type LocalAddrFormat int
-
-const (
-	LocalAddrFormatEmpty LocalAddrFormat = iota
-	LocalAddrFormatLegacyPreferred
-	LocalAddrFormatLegacySecondary
-	LocalAddrFormatMetadata
-	LocalAddrFormatUnknown
-)
-
 // LocalAddrInfo is the decoded relay hint and optional creation timestamp.
 type LocalAddrInfo struct {
-	Format       LocalAddrFormat
 	Preferred    []Address
 	Timestamp    uint64
 	HasTimestamp bool
@@ -41,15 +29,11 @@ type LocalAddrInfo struct {
 func ParseLocalAddr(local []byte, serverID Address) LocalAddrInfo {
 	var addrLen = len(Address{})
 	if len(local) == 0 {
-		return LocalAddrInfo{
-			Format:    LocalAddrFormatEmpty,
-			Preferred: []Address{serverID},
-		}
+		return LocalAddrInfo{Preferred: []Address{serverID}}
 	}
 
 	if len(local) >= 2 && local[0] == localAddrMetadataPrefix {
 		info := parseMetadataLocalAddr(local[1:])
-		info.Format = LocalAddrFormatMetadata
 		if len(info.Preferred) == 0 {
 			info.Preferred = []Address{serverID}
 		}
@@ -59,23 +43,14 @@ func ParseLocalAddr(local []byte, serverID Address) LocalAddrInfo {
 	var addr Address
 	if len(local) == addrLen+1 && local[0] == localAddrLegacyPreferredPrefix {
 		copy(addr[:], local[1:1+addrLen])
-		return LocalAddrInfo{
-			Format:    LocalAddrFormatLegacyPreferred,
-			Preferred: []Address{addr, serverID},
-		}
+		return LocalAddrInfo{Preferred: []Address{addr, serverID}}
 	}
 	if len(local) == addrLen+1 && local[0] == localAddrLegacySecondaryPrefix {
 		copy(addr[:], local[1:1+addrLen])
-		return LocalAddrInfo{
-			Format:    LocalAddrFormatLegacySecondary,
-			Preferred: []Address{serverID, addr},
-		}
+		return LocalAddrInfo{Preferred: []Address{serverID, addr}}
 	}
 
-	return LocalAddrInfo{
-		Format:    LocalAddrFormatUnknown,
-		Preferred: []Address{serverID},
-	}
+	return LocalAddrInfo{Preferred: []Address{serverID}}
 }
 
 // parseMetadataLocalAddr decodes the RLP body after the 0x02 prefix.
@@ -107,19 +82,10 @@ func applyMetadataPair(info *LocalAddrInfo, raw interface{}) {
 			info.Preferred = addrs
 		}
 	case "t":
-		if b := bytesAsSlice(pair[1]); b != nil {
+		if b, ok := pair[1].([]byte); ok {
 			info.Timestamp = rlpUintFromBytes(b)
 			info.HasTimestamp = true
 		}
-	}
-}
-
-func bytesAsSlice(raw interface{}) []byte {
-	switch v := raw.(type) {
-	case []byte:
-		return v
-	default:
-		return nil
 	}
 }
 
@@ -173,21 +139,16 @@ func (ct *DeviceTicket) IsRecentAtPeak(peakBlock, peakTimestamp uint64) bool {
 
 func isRecentByMetadataTimestamp(version, ticketEpoch, ticketTS, peakTS uint64) bool {
 	peakEpoch := TicketEpochFromTimestamp(peakTS)
-	if version == 2 {
-		if ticketEpoch < peakEpoch {
-			return false
-		}
-		if ticketEpoch > peakEpoch {
-			return true
-		}
-	} else if version == 1 {
+	if version == 1 {
 		ticketEpoch = TicketEpochFromTimestamp(ticketTS)
-		if ticketEpoch < peakEpoch {
-			return false
-		}
-		if ticketEpoch > peakEpoch {
-			return true
-		}
+	} else if version != 2 {
+		return false
+	}
+	if ticketEpoch < peakEpoch {
+		return false
+	}
+	if ticketEpoch > peakEpoch {
+		return true
 	}
 	if peakTS <= ticketTS {
 		return true

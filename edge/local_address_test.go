@@ -16,20 +16,17 @@ func TestParseLocalAddrFormats(t *testing.T) {
 	other[19] = 2
 
 	empty := ParseLocalAddr(nil, server)
-	if empty.Format != LocalAddrFormatEmpty || len(empty.Preferred) != 1 || empty.Preferred[0] != server {
+	if len(empty.Preferred) != 1 || empty.Preferred[0] != server {
 		t.Fatalf("empty: %#v", empty)
 	}
 
 	legacy0 := ParseLocalAddr(append([]byte{0}, other[:]...), server)
-	if legacy0.Format != LocalAddrFormatLegacyPreferred || len(legacy0.Preferred) != 2 {
+	if len(legacy0.Preferred) != 2 || legacy0.Preferred[0] != other || legacy0.Preferred[1] != server {
 		t.Fatalf("legacy0: %#v", legacy0)
-	}
-	if legacy0.Preferred[0] != other || legacy0.Preferred[1] != server {
-		t.Fatalf("legacy0 order: %#v", legacy0.Preferred)
 	}
 
 	legacy1 := ParseLocalAddr(append([]byte{1}, other[:]...), server)
-	if legacy1.Format != LocalAddrFormatLegacySecondary || legacy1.Preferred[0] != server || legacy1.Preferred[1] != other {
+	if len(legacy1.Preferred) != 2 || legacy1.Preferred[0] != server || legacy1.Preferred[1] != other {
 		t.Fatalf("legacy1: %#v", legacy1)
 	}
 
@@ -38,7 +35,7 @@ func TestParseLocalAddrFormats(t *testing.T) {
 		t.Fatal(err)
 	}
 	md := ParseLocalAddr(meta, server)
-	if md.Format != LocalAddrFormatMetadata || !md.HasTimestamp || md.Timestamp != 1_700_000_000 {
+	if !md.HasTimestamp || md.Timestamp != 1_700_000_000 {
 		t.Fatalf("metadata: %#v", md)
 	}
 	if len(md.Preferred) != 2 || md.Preferred[0] != server {
@@ -67,9 +64,6 @@ func TestParseMetadataForwardCompatible(t *testing.T) {
 
 	assertKnown := func(t *testing.T, info LocalAddrInfo) {
 		t.Helper()
-		if info.Format != LocalAddrFormatMetadata {
-			t.Fatalf("format = %v, want metadata", info.Format)
-		}
 		if !info.HasTimestamp || info.Timestamp != ts {
 			t.Fatalf("timestamp = %#v (has=%v), want %d", info.Timestamp, info.HasTimestamp, ts)
 		}
@@ -117,7 +111,7 @@ func TestParseMetadataForwardCompatible(t *testing.T) {
 			t.Fatal(err)
 		}
 		info := ParseLocalAddr(append([]byte{localAddrMetadataPrefix}, meta...), server)
-		if info.Format != LocalAddrFormatMetadata || !info.HasTimestamp || info.Timestamp != ts {
+		if !info.HasTimestamp || info.Timestamp != ts {
 			t.Fatalf("expected s/t from valid pairs only: %#v", info)
 		}
 		if len(info.Preferred) != 1 || info.Preferred[0] != server {

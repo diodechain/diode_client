@@ -137,6 +137,212 @@ func TestDeviceTicketV2SignRoundTrip(t *testing.T) {
 	}
 }
 
+func TestParseTooLowResponse(t *testing.T) {
+	blockHash := make([]byte, 32)
+	blockHash[0] = 0xab
+	v1Buf, err := rlp.EncodeToBytes(ticketTooLowResponse{
+		RequestID: 7,
+		Payload: struct {
+			Type             string
+			Result           string
+			BlockHash        []byte
+			TotalConnections *big.Int
+			TotalBytes       *big.Int
+			LocalAddr        []byte
+			DeviceSig        []byte
+		}{
+			Type: "response", Result: "too_low", BlockHash: blockHash,
+			TotalConnections: big.NewInt(2), TotalBytes: big.NewInt(4096),
+			LocalAddr: []byte{0}, DeviceSig: []byte{1, 2},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v1, err := parseDeviceTicketResponse(v1Buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticket := v1.(DeviceTicket)
+	if ticket.Version != 1 || ticket.Err != ErrTicketTooLow || ticket.BlockHash[0] != 0xab {
+		t.Fatalf("v1: %+v", ticket)
+	}
+
+	local, err := CreateTicketLocalAddress([]Address{{9}}, 1_700_000_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2Buf, err := rlp.EncodeToBytes(ticketTooLowResponseV2{
+		RequestID: 9,
+		Payload: struct {
+			Type             string
+			Result           string
+			ChainID          uint64
+			Epoch            uint64
+			TotalConnections *big.Int
+			TotalBytes       *big.Int
+			LocalAddr        []byte
+			DeviceSig        []byte
+		}{
+			Type: "response", Result: "too_low", ChainID: 1284, Epoch: 686,
+			TotalConnections: big.NewInt(3), TotalBytes: big.NewInt(8192),
+			LocalAddr: local, DeviceSig: []byte{0xaa, 0xbb},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	v2, err := parseDeviceTicketResponse(v2Buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ticket = v2.(DeviceTicket)
+	if ticket.Version != 2 || ticket.ChainID != 1284 || ticket.Epoch != 686 || ticket.FleetAddr != (Address{}) {
+		t.Fatalf("v2: %+v", ticket)
+	}
+
+	// v1 with full block hash must not be parsed as v2.
+	misreadBuf, err := rlp.EncodeToBytes(ticketTooLowResponse{
+		RequestID: 1,
+		Payload: struct {
+			Type             string
+			Result           string
+			BlockHash        []byte
+			TotalConnections *big.Int
+			TotalBytes       *big.Int
+			LocalAddr        []byte
+			DeviceSig        []byte
+		}{
+			Type: "response", Result: "too_low", BlockHash: blockHash,
+			TotalConnections: big.NewInt(1), TotalBytes: big.NewInt(2),
+			DeviceSig: []byte{1},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := parseDeviceTicketResponse(misreadBuf)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if raw.(DeviceTicket).Version != 1 {
+		t.Fatal("v1 too_low misread as v2")
+	}
+}
+
+func TestTooLowTicketValidate(t *testing.T) {
+	priv, deviceID, serverID, fleetAddr := testTicketSignKeys(t)
+
+	tests := []struct {
+		name   string
+		ticket *DeviceTicket
+		encode func(uint64, *DeviceTicket) ([]byte, error)
+	}{
+		{
+			name: "v1",
+			ticket: &DeviceTicket{
+				Version: 1, ServerID: serverID, BlockHash: func() []byte {
+					h := make([]byte, 32)
+					h[31] = 1
+					return h
+				}(),
+				FleetAddr: fleetAddr, TotalConnections: big.NewInt(1),
+				TotalBytes: big.NewInt(4096), LocalAddr: []byte{0},
+			},
+			encode: encodeTooLowV1Wire,
+		},
+		{
+			name: "v2",
+			ticket: func() *DeviceTicket {
+				local, err := CreateTicketLocalAddress([]Address{serverID}, 1_700_000_100)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return &DeviceTicket{
+					Version: 2, ServerID: serverID, ChainID: 1284, Epoch: 686,
+					FleetAddr: fleetAddr, TotalConnections: big.NewInt(2),
+					TotalBytes: big.NewInt(8192), LocalAddr: local,
+				}
+			}(),
+			encode: encodeTooLowV2Wire,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := tc.ticket.Sign(priv); err != nil {
+				t.Fatal(err)
+			}
+			buf, err := tc.encode(1, tc.ticket)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := parseDeviceTicketResponse(buf)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parsed := raw.(DeviceTicket)
+			if parsed.FleetAddr != (Address{}) || parsed.ServerID != (Address{}) {
+				t.Fatal("fleet and server omitted on wire")
+			}
+			parsed.ApplyTooLowContext(serverID, fleetAddr)
+			if !parsed.ValidateDeviceSig(deviceID) {
+				t.Fatal("signature invalid after ApplyTooLowContext")
+			}
+		})
+	}
+}
+
+func testTicketSignKeys(t *testing.T) (*ecdsa.PrivateKey, Address, Address, Address) {
+	t.Helper()
+	priv, err := ecdsa.GenerateKey(secp256k1.S256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var serverID, fleetAddr Address
+	serverID[19] = 0xae
+	fleetAddr[0] = 0x60
+	probe := &DeviceTicket{
+		Version: 1, BlockHash: make([]byte, 32), ServerID: serverID, FleetAddr: fleetAddr,
+		TotalConnections: big.NewInt(1), TotalBytes: big.NewInt(1), LocalAddr: []byte{0},
+	}
+	if err := probe.Sign(priv); err != nil {
+		t.Fatal(err)
+	}
+	pubKey, err := probe.RecoverDevicePubKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return priv, util.PubkeyToAddress(pubKey), serverID, fleetAddr
+}
+
+func encodeTooLowV1Wire(reqID uint64, ticket *DeviceTicket) ([]byte, error) {
+	var resp ticketTooLowResponse
+	resp.RequestID = reqID
+	resp.Payload.Type = "response"
+	resp.Payload.Result = "too_low"
+	resp.Payload.BlockHash = ticket.BlockHash
+	resp.Payload.TotalConnections = ticket.TotalConnections
+	resp.Payload.TotalBytes = ticket.TotalBytes
+	resp.Payload.LocalAddr = ticket.LocalAddr
+	resp.Payload.DeviceSig = ticket.DeviceSig
+	return rlp.EncodeToBytes(resp)
+}
+
+func encodeTooLowV2Wire(reqID uint64, ticket *DeviceTicket) ([]byte, error) {
+	var resp ticketTooLowResponseV2
+	resp.RequestID = reqID
+	resp.Payload.Type = "response"
+	resp.Payload.Result = "too_low"
+	resp.Payload.ChainID = ticket.ChainID
+	resp.Payload.Epoch = ticket.Epoch
+	resp.Payload.TotalConnections = ticket.TotalConnections
+	resp.Payload.TotalBytes = ticket.TotalBytes
+	resp.Payload.LocalAddr = ticket.LocalAddr
+	resp.Payload.DeviceSig = ticket.DeviceSig
+	return rlp.EncodeToBytes(resp)
+}
+
 func minInt(a, b int) int {
 	if a < b {
 		return a
