@@ -360,7 +360,7 @@ func (client *Client) isRecentTicket(tck *edge.DeviceTicket) bool {
 		if header.Number() == 0 {
 			return false
 		}
-		epoch := uint64(header.Timestamp()) / 2_592_000
+		epoch := edge.TicketEpochFromTimestamp(header.Timestamp())
 		return tck.Epoch >= epoch
 	}
 
@@ -590,7 +590,9 @@ func (client *Client) GetObject(deviceID [20]byte) (*edge.DeviceTicket, error) {
 		return nil, err
 	}
 	if device, ok := rawObject.(*edge.DeviceTicket); ok {
-		device.BlockHash, err = client.ResolveBlockHash(device.BlockNumber)
+		if device.Version != 2 {
+			device.BlockHash, err = client.ResolveBlockHash(device.BlockNumber)
+		}
 		return device, err
 	}
 	if err, ok := rawObject.(error); ok {
@@ -662,9 +664,11 @@ func (client *Client) SubmitTicketForUsage(minBytes *big.Int) {
 			ticket.TotalBytes = new(big.Int).SetUint64(minUsage)
 		}
 		err = client.submitTicket(ticket)
-		if err == nil {
-			client.lastTicket = ticket
+		if err != nil {
+			client.Log().Error("failed to submit ticket: %v", err)
+			return
 		}
+		client.lastTicket = ticket
 	})
 }
 
@@ -792,10 +796,7 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 	lvbn, lvbh := client.LastValid()
 
 	ticket := &edge.DeviceTicket{
-		Version:          1,
 		ServerID:         serverID,
-		BlockNumber:      lvbn,
-		BlockHash:        lvbh[:],
 		FleetAddr:        client.config.FleetAddr,
 		TotalConnections: big.NewInt(int64(client.s.TotalConnections())),
 		TotalBytes:       big.NewInt(int64(total)),
@@ -804,13 +805,45 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 
 	prim, secd := client.clientMan.PeekNearestAddresses()
 
-	if prim != nil {
-		if *prim == serverID {
-			if secd != nil {
-				ticket.LocalAddr = append([]byte{1}, secd[:]...)
+	if client.config.UsesTicketV1() {
+		ticket.Version = 1
+		ticket.BlockNumber = lvbn
+		ticket.BlockHash = lvbh[:]
+		if prim != nil {
+			if *prim == serverID {
+				if secd != nil {
+					ticket.LocalAddr = append([]byte{1}, secd[:]...)
+				}
+			} else {
+				ticket.LocalAddr = append([]byte{0}, prim[:]...)
 			}
-		} else {
-			ticket.LocalAddr = append([]byte{0}, prim[:]...)
+		}
+	} else {
+		header := client.GetBlockHeaderValid(lvbn)
+		if header.Number() == 0 {
+			return nil, fmt.Errorf("no valid block header for ticket epoch")
+		}
+		timestamp := header.Timestamp()
+		epoch := edge.TicketEpochFromTimestamp(timestamp)
+		if epoch == 0 {
+			epoch = 1
+		}
+		ticket.Version = 2
+		ticket.ChainID = client.config.TicketChainID()
+		ticket.Epoch = epoch
+		preferred := []edge.Address{serverID}
+		if prim != nil {
+			if *prim == serverID {
+				if secd != nil {
+					preferred = append(preferred, *secd)
+				}
+			} else {
+				preferred = []edge.Address{*prim, serverID}
+			}
+		}
+		ticket.LocalAddr, err = edge.CreateTicketLocalAddress(preferred, timestamp)
+		if err != nil {
+			return nil, err
 		}
 	}
 
@@ -835,7 +868,8 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 // SubmitTicket submit ticket to server
 // TODO: resend when got too old error
 func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
-	call, err := client.CastContext(nil, "ticket", uint64(ticket.BlockNumber), ticket.FleetAddr[:], ticket.TotalConnections, ticket.TotalBytes, ticket.LocalAddr, ticket.DeviceSig)
+	args := ticket.SubmitArgs()
+	call, err := client.CastContext(nil, ticket.SubmitMethod(), args...)
 	if err != nil {
 		return fmt.Errorf("failed to submit ticket: %v", err)
 	}
@@ -851,7 +885,9 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 				ssl := client.s
 				sid, _ := ssl.GetServerID()
 				lastTicket.ServerID = sid
-				lastTicket.FleetAddr = client.config.FleetAddr
+				if lastTicket.Version == 1 {
+					lastTicket.FleetAddr = client.config.FleetAddr
+				}
 
 				if !lastTicket.ValidateDeviceSig(client.config.ClientAddr) {
 					lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)

@@ -13,6 +13,12 @@ import (
 	"github.com/diodechain/diode_client/crypto"
 	"github.com/diodechain/diode_client/crypto/secp256k1"
 	"github.com/diodechain/diode_client/util"
+	"github.com/ethereum/go-ethereum/rlp"
+)
+
+const (
+	// TicketEpochSeconds is the epoch length for ticket v2 (30 days).
+	TicketEpochSeconds = 2_592_000
 )
 
 var (
@@ -41,6 +47,71 @@ type DeviceTicket struct {
 	CacheTime     time.Time
 	deviceAddress util.Address
 	Err           error
+}
+
+// TicketEpochFromTimestamp returns the ticket v2 epoch for a block timestamp.
+func TicketEpochFromTimestamp(timestamp uint64) uint64 {
+	return timestamp / TicketEpochSeconds
+}
+
+// SubmitMethod returns the Edge RPC method name for this ticket version.
+func (ct *DeviceTicket) SubmitMethod() string {
+	if ct.Version == 2 {
+		return "ticketv2"
+	}
+	return "ticket"
+}
+
+// SubmitArgs returns Edge RPC arguments for ticket submission.
+func (ct *DeviceTicket) SubmitArgs() []interface{} {
+	if ct.Version == 2 {
+		return []interface{}{
+			ct.ChainID,
+			ct.Epoch,
+			ct.FleetAddr[:],
+			ct.TotalConnections,
+			ct.TotalBytes,
+			ct.LocalAddr,
+			ct.DeviceSig,
+		}
+	}
+	return []interface{}{
+		ct.BlockNumber,
+		ct.FleetAddr[:],
+		ct.TotalConnections,
+		ct.TotalBytes,
+		ct.LocalAddr,
+		ct.DeviceSig,
+	}
+}
+
+// CreateTicketLocalAddress builds v2 local_address metadata (0x02 + RLP), matching diode_client_ex.
+func CreateTicketLocalAddress(preferred []Address, timestamp uint64) ([]byte, error) {
+	addrs := make([]interface{}, len(preferred))
+	for i, a := range preferred {
+		addrs[i] = a[:]
+	}
+	meta, err := rlp.EncodeToBytes([]interface{}{
+		[]interface{}{[]byte("s"), addrs},
+		[]interface{}{[]byte("t"), rlpUintBytes(timestamp)},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return append([]byte{2}, meta...), nil
+}
+
+func rlpUintBytes(n uint64) []byte {
+	if n == 0 {
+		return []byte{}
+	}
+	var buf [8]byte
+	binary.BigEndian.PutUint64(buf[:], n)
+	i := 0
+	for i < len(buf)-1 && buf[i] == 0 {
+		i++
+	}
+	return buf[i:]
 }
 
 // ValidateValues checks length of byte[] arrays and returns an error message

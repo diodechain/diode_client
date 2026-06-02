@@ -33,6 +33,17 @@ func TestParseSapphireRPCResponse(t *testing.T) {
 	}
 }
 
+func TestNewMessageSupportsTicketv2(t *testing.T) {
+	msgBuf := &bytes.Buffer{}
+	parse, err := NewMessage(msgBuf, 42, "ticketv2", uint64(1284), uint64(1), []byte{1}, []byte{}, []byte{}, []byte{}, []byte{})
+	if err != nil {
+		t.Fatalf("NewMessage() returned error: %v", err)
+	}
+	if parse == nil {
+		t.Fatal("expected parse callback for ticketv2")
+	}
+}
+
 func TestNewMessageSupportsSapphireRPC(t *testing.T) {
 	msgBuf := &bytes.Buffer{}
 	parse, err := NewMessage(msgBuf, 42, "sapphire:rpc", "eth_chainId", "[]")

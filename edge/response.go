@@ -109,6 +109,20 @@ type ticketTooLowResponse struct {
 	}
 }
 
+type ticketTooLowResponseV2 struct {
+	RequestID uint64
+	Payload   struct {
+		Type             string
+		Result           string
+		ChainID          uint64
+		Epoch            uint64
+		TotalConnections *big.Int
+		TotalBytes       *big.Int
+		LocalAddr        []byte
+		DeviceSig        []byte
+	}
+}
+
 type accountResponse struct {
 	RequestID uint64
 	Payload   struct {

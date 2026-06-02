@@ -203,23 +203,39 @@ func parseDeviceTicketResponse(buffer []byte) (interface{}, error) {
 		ticket := DeviceTicket{}
 		return ticket, nil
 	} else if bytes.Contains(buffer, ticketTooLowPivot) {
-		var response ticketTooLowResponse
+		var responseV2 ticketTooLowResponseV2
 		decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+		errV2 := decodeStream.Decode(&responseV2)
+		if errV2 == nil && responseV2.Payload.Result == "too_low" {
+			return DeviceTicket{
+				Version:          2,
+				ChainID:          responseV2.Payload.ChainID,
+				Epoch:            responseV2.Payload.Epoch,
+				TotalConnections: responseV2.Payload.TotalConnections,
+				TotalBytes:       responseV2.Payload.TotalBytes,
+				LocalAddr:        responseV2.Payload.LocalAddr,
+				DeviceSig:        responseV2.Payload.DeviceSig,
+				Err:              ErrTicketTooLow,
+			}, nil
+		}
+		decodeStream.Reset(bytes.NewReader(buffer), 0)
+		var response ticketTooLowResponse
 		err := decodeStream.Decode(&response)
 		if err != nil {
+			if errV2 != nil {
+				return nil, fmt.Errorf("failed decoding too_low response: %w & %w", err, errV2)
+			}
 			return nil, err
 		}
-		err = ErrTicketTooLow
-		ticket := DeviceTicket{
+		return DeviceTicket{
 			Version:          1,
 			BlockHash:        response.Payload.BlockHash,
 			TotalConnections: response.Payload.TotalConnections,
 			TotalBytes:       response.Payload.TotalBytes,
 			LocalAddr:        response.Payload.LocalAddr,
 			DeviceSig:        response.Payload.DeviceSig,
-			Err:              err,
-		}
-		return ticket, nil
+			Err:              ErrTicketTooLow,
+		}, nil
 	} else if bytes.Contains(buffer, ticketTooOldPivot) {
 		var response ticketTooOldResponse
 		decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
@@ -882,7 +898,7 @@ func NewMessage(writer io.Writer, requestID uint64, method string, args ...inter
 		return parseAccountValueResponse, nil
 	case "glmr:getaccountvalue":
 		return parseMoonAccountValueResponse, nil
-	case "ticket":
+	case "ticket", "ticketv2":
 		return parseDeviceTicketResponse, nil
 	case "portopen":
 		return parsePortOpenResponse, nil
