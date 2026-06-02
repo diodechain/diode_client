@@ -78,6 +78,8 @@ func ParseLocalAddr(local []byte, serverID Address) LocalAddrInfo {
 	}
 }
 
+// parseMetadataLocalAddr decodes the RLP body after the 0x02 prefix.
+// Unknown key/value pairs are ignored so future metadata fields stay forward compatible.
 func parseMetadataLocalAddr(meta []byte) LocalAddrInfo {
 	var info LocalAddrInfo
 	var pairs []interface{}
@@ -85,23 +87,31 @@ func parseMetadataLocalAddr(meta []byte) LocalAddrInfo {
 		return info
 	}
 	for _, p := range pairs {
-		pair, ok := p.([]interface{})
-		if !ok || len(pair) != 2 {
-			continue
+		applyMetadataPair(&info, p)
+	}
+	return info
+}
+
+func applyMetadataPair(info *LocalAddrInfo, raw interface{}) {
+	pair, ok := raw.([]interface{})
+	if !ok || len(pair) != 2 {
+		return
+	}
+	key, ok := pair[0].([]byte)
+	if !ok {
+		return
+	}
+	switch string(key) {
+	case "s":
+		if addrs := decodePreferredAddresses(pair[1]); len(addrs) > 0 {
+			info.Preferred = addrs
 		}
-		key, ok := pair[0].([]byte)
-		if !ok {
-			continue
-		}
-		switch string(key) {
-		case "s":
-			info.Preferred = decodePreferredAddresses(pair[1])
-		case "t":
-			info.Timestamp = rlpUintFromBytes(bytesAsSlice(pair[1]))
+	case "t":
+		if b := bytesAsSlice(pair[1]); b != nil {
+			info.Timestamp = rlpUintFromBytes(b)
 			info.HasTimestamp = true
 		}
 	}
-	return info
 }
 
 func bytesAsSlice(raw interface{}) []byte {

@@ -6,6 +6,8 @@ package edge
 import (
 	"math/big"
 	"testing"
+
+	"github.com/ethereum/go-ethereum/rlp"
 )
 
 func TestParseLocalAddrFormats(t *testing.T) {
@@ -42,6 +44,103 @@ func TestParseLocalAddrFormats(t *testing.T) {
 	if len(md.Preferred) != 2 || md.Preferred[0] != server {
 		t.Fatalf("metadata preferred: %#v", md.Preferred)
 	}
+}
+
+func TestParseMetadataForwardCompatible(t *testing.T) {
+	var server, other Address
+	server[19] = 1
+	other[19] = 2
+	const ts = uint64(1_700_000_000)
+
+	base := func(extra ...interface{}) LocalAddrInfo {
+		pairs := append([]interface{}{}, extra...)
+		pairs = append(pairs,
+			[]interface{}{[]byte("s"), []interface{}{server[:], other[:]}},
+			[]interface{}{[]byte("t"), rlpUintBytes(ts)},
+		)
+		meta, err := rlp.EncodeToBytes(pairs)
+		if err != nil {
+			t.Fatalf("encode metadata: %v", err)
+		}
+		return ParseLocalAddr(append([]byte{localAddrMetadataPrefix}, meta...), server)
+	}
+
+	assertKnown := func(t *testing.T, info LocalAddrInfo) {
+		t.Helper()
+		if info.Format != LocalAddrFormatMetadata {
+			t.Fatalf("format = %v, want metadata", info.Format)
+		}
+		if !info.HasTimestamp || info.Timestamp != ts {
+			t.Fatalf("timestamp = %#v (has=%v), want %d", info.Timestamp, info.HasTimestamp, ts)
+		}
+		if len(info.Preferred) != 2 || info.Preferred[0] != server || info.Preferred[1] != other {
+			t.Fatalf("preferred = %#v", info.Preferred)
+		}
+	}
+
+	t.Run("unknown field before known keys", func(t *testing.T) {
+		assertKnown(t, base(
+			[]interface{}{[]byte("future_flag"), []byte{1}},
+			[]interface{}{[]byte("relay_hint"), []interface{}{[]byte("ignored")}},
+		))
+	})
+
+	t.Run("unknown field between s and t", func(t *testing.T) {
+		meta, err := rlp.EncodeToBytes([]interface{}{
+			[]interface{}{[]byte("s"), []interface{}{server[:], other[:]}},
+			[]interface{}{[]byte("version"), rlpUintBytes(3)},
+			[]interface{}{[]byte("t"), rlpUintBytes(ts)},
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		assertKnown(t, ParseLocalAddr(append([]byte{localAddrMetadataPrefix}, meta...), server))
+	})
+
+	t.Run("unknown field after known keys", func(t *testing.T) {
+		assertKnown(t, base(
+			[]interface{}{[]byte("z"), []interface{}{
+				[]interface{}{[]byte("nested"), rlpUintBytes(99)},
+			}},
+		))
+	})
+
+	t.Run("malformed pairs are skipped", func(t *testing.T) {
+		meta, err := rlp.EncodeToBytes([]interface{}{
+			[]interface{}{[]byte("orphan")},                        // not a pair
+			[]interface{}{[]byte("s"), []interface{}{server[:]}},   // valid
+			[]interface{}{[]byte("t")},                             // short pair
+			[]interface{}{[]byte("t"), rlpUintBytes(ts)},           // valid
+			[]interface{}{[]byte("bad"), []byte("x"), []byte("y")}, // long pair
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		info := ParseLocalAddr(append([]byte{localAddrMetadataPrefix}, meta...), server)
+		if info.Format != LocalAddrFormatMetadata || !info.HasTimestamp || info.Timestamp != ts {
+			t.Fatalf("expected s/t from valid pairs only: %#v", info)
+		}
+		if len(info.Preferred) != 1 || info.Preferred[0] != server {
+			t.Fatalf("preferred = %#v", info.Preferred)
+		}
+	})
+
+	t.Run("unknown t-like key does not set timestamp", func(t *testing.T) {
+		meta, err := rlp.EncodeToBytes([]interface{}{
+			[]interface{}{[]byte("s"), []interface{}{server[:]}},
+			[]interface{}{[]byte("timestamp"), rlpUintBytes(ts)}, // wrong key name
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		info := ParseLocalAddr(append([]byte{localAddrMetadataPrefix}, meta...), server)
+		if info.HasTimestamp {
+			t.Fatalf("unexpected timestamp from unknown key: %#v", info)
+		}
+		if len(info.Preferred) != 1 || info.Preferred[0] != server {
+			t.Fatalf("preferred = %#v", info.Preferred)
+		}
+	})
 }
 
 func TestIsRecentByMetadataTimestamp(t *testing.T) {
