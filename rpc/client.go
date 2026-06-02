@@ -857,9 +857,7 @@ func (client *Client) submitTicket(ticket *edge.DeviceTicket) error {
 				ssl := client.s
 				sid, _ := ssl.GetServerID()
 				lastTicket.ServerID = sid
-				if lastTicket.Version == 1 {
-					lastTicket.FleetAddr = client.config.FleetAddr
-				}
+				lastTicket.FleetAddr = client.config.FleetAddr
 
 				if !lastTicket.ValidateDeviceSig(client.config.ClientAddr) {
 					lastTicket.LocalAddr = util.DecodeForce(lastTicket.LocalAddr)

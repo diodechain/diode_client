@@ -221,7 +221,9 @@ func (ct *DeviceTicket) AgeMetric() *big.Int {
 	if ct.Version == 2 {
 		m.SetUint64(ct.Epoch)
 		m.Mul(m, new(big.Int).SetUint64(epochMul))
-		m.Add(m, ct.TotalBytes)
+		if ct.TotalBytes != nil {
+			m.Add(m, ct.TotalBytes)
+		}
 		return m
 	}
 	return new(big.Int).SetUint64(ct.BlockNumber)
