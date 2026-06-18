@@ -13,6 +13,9 @@ func (c *remoteWriter) Write(data []byte) (n int, err error) {
 	err = c.port.SendRemote(data)
 	if err == nil {
 		n = len(data)
+		if transferDebugEnabled() {
+			tdAddBytes(&tdCopyToRemoteBytes, n)
+		}
 	}
 	return
 }

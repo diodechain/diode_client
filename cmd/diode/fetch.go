@@ -198,8 +198,12 @@ func fetchHandler() (err error) {
 	}
 
 	if f != nil {
-		io.Copy(f, src)
+		_, copyErr := io.Copy(f, src)
 		f.Close()
+		if copyErr != nil {
+			return copyErr
+		}
 	}
+	rpc.LogTransferDebugSummary("fetch")
 	return
 }

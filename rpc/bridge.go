@@ -229,6 +229,10 @@ func (client *Client) handleInboundRequest(inboundRequest interface{}) {
 			return
 		}
 		decData := portSend.Data
+		if transferDebugEnabled() {
+			tdInboundPortsend.Add(1)
+			tdAddBytes(&tdInboundPortsendB, len(decData))
+		}
 		// start to write data
 		deviceKey := client.GetDeviceKey(portSend.Ref)
 		cachedConnDevice := client.pool.GetPort(deviceKey)
@@ -443,9 +447,11 @@ func validateRLPValue(k rlp.Kind, content []byte) error {
 	return nil
 }
 
+const inboundMessageQueueDepth = 256
+
 // recvMessageLoop infinite loop to read message from server
 func (client *Client) recvMessageLoop() {
-	msgBuffer := make(chan edge.Message, 20)
+	msgBuffer := make(chan edge.Message, inboundMessageQueueDepth)
 	defer close(msgBuffer)
 
 	go func() {
@@ -473,11 +479,21 @@ func (client *Client) recvMessageLoop() {
 			return
 		}
 		if msg.Len > 0 {
+			if transferDebugEnabled() {
+				tdSSLReadMsgs.Add(1)
+				tdAddBytes(&tdSSLReadBytes, msg.Len)
+			}
 			select {
 			case msgBuffer <- msg:
 			default:
-				// client.Log().Debug("Read queue full\n" + client.timer.Dump())
-				msgBuffer <- msg
+				if transferDebugEnabled() {
+					tdMsgBufferFull.Add(1)
+					t0 := time.Now()
+					msgBuffer <- msg
+					tdMsgBufferBlockNs.Add(uint64(time.Since(t0)))
+				} else {
+					msgBuffer <- msg
+				}
 			}
 		}
 	}
