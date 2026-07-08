@@ -13,12 +13,15 @@ import (
 	"io"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/zap"
 	"github.com/dominicletz/genserver"
 )
+
+const localBufferChunk = 64 * 1024
 
 type ConnectedPort struct {
 	srv *genserver.GenServer
@@ -37,16 +40,19 @@ type ConnectedPort struct {
 	localErr         error
 	host             string
 
-	bufferRunning  bool
 	closeWhenEmpty bool
 	localBuffer    bytes.Buffer
 	bufferLock     sync.Mutex
+	bufferCond     *sync.Cond
+	bufferOnce     sync.Once
+	closedFlag     uint32
 }
 
 // New returns a new connected port
 func NewConnectedPort(requestId int64, ref string, deviceID Address, client *Client, portNumber int) *ConnectedPort {
 	host, _ := client.Host()
 	port := &ConnectedPort{Ref: ref, DeviceID: deviceID, client: client, PortNumber: portNumber, srv: genserver.New("Port"), host: host}
+	port.bufferCond = sync.NewCond(&port.bufferLock)
 	port.Log().Debug("%d: Open port %p", requestId, port)
 	port.srv.Terminate = func() {
 		port.Log().Debug("%d: Close port %p", requestId, port)
@@ -60,53 +66,53 @@ func NewConnectedPort(requestId int64, ref string, deviceID Address, client *Cli
 }
 
 func (port *ConnectedPort) bufferRunner() {
-	readBuffer := make([]byte, 1024)
+	readBuffer := make([]byte, localBufferChunk)
 	conn := port.Conn
 	closeWhenEmpty := 0
 
 	if conn == nil {
-		// conn was closed before started
 		return
 	}
 
 	for port.localErr == nil {
 		port.bufferLock.Lock()
-		r, err := port.localBuffer.Read(readBuffer)
-		// fmt.Printf("port.localBuffer.Read(readBuffer) = %v\n", r)
-		if port.closeWhenEmpty && r == 0 {
-			closeWhenEmpty = closeWhenEmpty + 1
-		}
-		port.bufferLock.Unlock()
-		if r == 0 {
-			// This double wait is an issue but we need it atm --
-			// it means we have some port.SendLocal() in the codebase that is triggered
-			// after a port.Close() call... -- so we just wait 100ms for the last write to come in.
-			if closeWhenEmpty == 1 {
-				// fmt.Printf("stopping with closeWhenEmpty (1)\n")
+		for port.localBuffer.Len() == 0 && port.localErr == nil {
+			if port.closeWhenEmpty {
+				closeWhenEmpty++
+				if closeWhenEmpty >= 2 {
+					port.bufferLock.Unlock()
+					conn.Close()
+					return
+				}
+				port.bufferLock.Unlock()
+				// Trailing SendLocal may still arrive after Close(); grace once.
 				time.Sleep(100 * time.Millisecond)
+				port.bufferLock.Lock()
+				continue
 			}
-			if closeWhenEmpty == 2 {
-				// fmt.Printf("stopping with closeWhenEmpty (2)\n")
-				conn.Close()
-				return
-			}
-			time.Sleep(10 * time.Millisecond)
+			port.bufferCond.Wait()
+		}
+		if port.localErr != nil {
+			port.bufferLock.Unlock()
+			break
+		}
+		if port.localBuffer.Len() == 0 {
+			port.bufferLock.Unlock()
 			continue
 		}
-		if err != nil {
-			fmt.Printf("wait what?\n")
+		r, err := port.localBuffer.Read(readBuffer)
+		port.bufferLock.Unlock()
+		if err != nil && err != io.EOF {
 			port.localErr = err
 			break
 		}
-		// for port.Conn == nil {
-		// 	fmt.Printf("port.Conn == nil but got %v bytes to write\n", r)
-		// 	time.Sleep(10 * time.Millisecond)
-		// }
+		if r == 0 {
+			continue
+		}
 		if port.client == nil {
 			break
 		}
 		n, err := conn.Write(readBuffer[:r])
-
 		if err != nil {
 			port.localErr = err
 			break
@@ -178,6 +184,7 @@ func (port *ConnectedPort) close() {
 	if port.closed() {
 		return
 	}
+	atomic.StoreUint32(&port.closedFlag, 1)
 	if port.remoteErr == nil {
 		port.remoteErr = io.EOF
 	}
@@ -192,14 +199,14 @@ func (port *ConnectedPort) close() {
 	port.client.CastPortClose(port.Ref)
 	port.bufferLock.Lock()
 	port.closeWhenEmpty = true
+	port.bufferCond.Broadcast()
 	port.bufferLock.Unlock()
 	port.Conn = nil
 }
 
 // Closed returns true if this has been closed
 func (port *ConnectedPort) Closed() (closed bool) {
-	port.srv.Call(func() { closed = port.closed() })
-	return
+	return atomic.LoadUint32(&port.closedFlag) != 0
 }
 
 func (port *ConnectedPort) closed() bool {
@@ -208,29 +215,26 @@ func (port *ConnectedPort) closed() bool {
 
 // SendLocal sends the data south-bound to the device
 func (port *ConnectedPort) SendLocal(data []byte) (err error) {
-	port.srv.Call(func() {
-		if port.remoteErr != nil {
-			err = port.remoteErr
-			return
-		}
-		if port.Conn == nil {
-			err = fmt.Errorf("connection not yet open")
-			return
-		}
-		if !port.bufferRunning {
-			go port.bufferRunner()
-			port.bufferRunning = true
-		}
-	})
-	if err != nil {
-		port.Close()
-		return
+	if atomic.LoadUint32(&port.closedFlag) != 0 {
+		return io.EOF
 	}
 
+	port.bufferOnce.Do(func() { go port.bufferRunner() })
+
 	port.bufferLock.Lock()
-	port.localBuffer.Write(data)
+	if port.remoteErr != nil {
+		err = port.remoteErr
+	} else if port.Conn == nil {
+		err = fmt.Errorf("connection not yet open")
+	} else {
+		port.localBuffer.Write(data)
+		port.bufferCond.Signal()
+	}
 	port.bufferLock.Unlock()
-	return
+	if err != nil {
+		port.Close()
+	}
+	return err
 }
 
 // Copy copies data from the local connection to the rpc until end

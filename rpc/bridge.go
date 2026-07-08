@@ -443,9 +443,11 @@ func validateRLPValue(k rlp.Kind, content []byte) error {
 	return nil
 }
 
+const inboundMessageQueueDepth = 256
+
 // recvMessageLoop infinite loop to read message from server
 func (client *Client) recvMessageLoop() {
-	msgBuffer := make(chan edge.Message, 20)
+	msgBuffer := make(chan edge.Message, inboundMessageQueueDepth)
 	defer close(msgBuffer)
 
 	go func() {
@@ -476,7 +478,6 @@ func (client *Client) recvMessageLoop() {
 			select {
 			case msgBuffer <- msg:
 			default:
-				// client.Log().Debug("Read queue full\n" + client.timer.Dump())
 				msgBuffer <- msg
 			}
 		}
