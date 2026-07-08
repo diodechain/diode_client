@@ -165,6 +165,9 @@ func (client *Client) connectWithRetries() (s *SSL, lastDialDuration time.Durati
 	if err == nil {
 		return s, lastDialDuration, nil
 	}
+	if isFastFailDialError(err) {
+		return nil, 0, fmt.Errorf("failed to connect to host: %s", client.host)
+	}
 	for i := 1; i <= client.config.RetryTimes; i++ {
 		dur := client.backoff.Duration()
 		client.Log().Info("Retry to connect (%d/%d), waiting %s", i, client.config.RetryTimes, dur.String())

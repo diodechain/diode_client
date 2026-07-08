@@ -92,10 +92,6 @@ func (resolver *Resolver) fetchDeviceTicket(primary *Client, deviceID Address, p
 	if preferred != (Address{}) {
 		if specific := resolver.clientManager.GetClient(preferred); specific != nil {
 			clients = prependClient(clients, specific)
-		} else if direct, err := resolver.clientManager.GetClientOrConnect(preferred); err == nil {
-			clients = prependClient(clients, direct)
-		} else {
-			resolver.logger.Debug("failed to proactively connect to preferred server %s: %v", preferred.HexString(), err)
 		}
 	}
 	clients = uniqueClients(clients)
@@ -135,12 +131,8 @@ func (resolver *Resolver) fetchDeviceTicket(primary *Client, deviceID Address, p
 		}
 		triedServers[srvID] = true
 
-		homeClient, connErr := resolver.clientManager.GetClientOrConnect(srvID)
-		if connErr != nil {
-			resolver.logger.Warn("failed to reach preferred server %s: %v", srvID.HexString(), connErr)
-			continue
-		}
-		if homeClient == client {
+		homeClient := resolver.clientManager.GetClient(srvID)
+		if homeClient == nil || homeClient == client {
 			continue
 		}
 
@@ -181,6 +173,29 @@ func uniqueClients(list []*Client) []*Client {
 	return res
 }
 
+// ticketRelayHints returns relay IDs from the device ticket metadata, in try order.
+func ticketRelayHints(device *edge.DeviceTicket) []util.Address {
+	if device == nil {
+		return nil
+	}
+	hints := make([]util.Address, 0, 3)
+	for _, serverID := range device.GetServerIDs() {
+		hints = appendAddressIfNotExists(hints, serverID)
+	}
+	if device.ServerID != (Address{}) {
+		hints = appendAddressIfNotExists(hints, device.ServerID)
+	}
+	return hints
+}
+
+func mergeRelayHints(ticketHints, existing []util.Address) []util.Address {
+	merged := append([]util.Address(nil), ticketHints...)
+	for _, serverID := range existing {
+		merged = appendAddressIfNotExists(merged, serverID)
+	}
+	return merged
+}
+
 func (resolver *Resolver) fetchAndValidate(client *Client, deviceID Address) (*edge.DeviceTicket, error) {
 	device, err := client.GetObject(deviceID)
 	if err != nil {
@@ -194,11 +209,13 @@ func (resolver *Resolver) fetchAndValidate(client *Client, deviceID Address) (*e
 		return device, err
 	}
 
+	hints := ticketRelayHints(device)
 	cache := resolver.datapool.GetCacheDevice(deviceID)
 	if cache != nil {
 		cache.deviceTicket = device
+		cache.serverIDs = mergeRelayHints(hints, cache.serverIDs)
 	} else {
-		cache = &DeviceCache{deviceTicket: device, serverIDs: []util.Address{client.serverID}}
+		cache = &DeviceCache{deviceTicket: device, serverIDs: hints}
 	}
 
 	resolver.datapool.SetCacheDevice(deviceID, cache)
