@@ -107,6 +107,17 @@ func (e RPCError) Error() string {
 	return e.Err.Message
 }
 
+// isFastFailDialError reports dial errors where retry/backoff cannot help.
+func isFastFailDialError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "no route to host") ||
+		strings.Contains(msg, "network is unreachable")
+}
+
 // IsTransientRPCError reports whether err indicates a connection or client
 // actor failure that may succeed on another relay (e.g. dropped connection,
 // dead genserver after Close).

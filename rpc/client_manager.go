@@ -622,10 +622,14 @@ func (cm *ClientManager) connect(nodeID util.Address, host string) (ret *Client,
 				waiters = len(req.waiting)
 			}
 		})
-		cm.Config.Logger.Warn("ClientManager.connect: timeout or failure nodeID=%s host=%s waiter_depth=%d", nodeID.HexString(), host, waiters)
+		cm.warnHostFailureOnce(host, "manager-connect", "ClientManager.connect: timeout or failure nodeID=%s host=%s waiter_depth=%d", nodeID.HexString(), host, waiters)
 	}
 
 	return
+}
+
+func (cm *ClientManager) warnHostFailureOnce(host, kind, format string, args ...interface{}) {
+	warnHostFailureOnce(host, kind, format, cm.Config.Logger, args...)
 }
 
 func (cm *ClientManager) resetBlockquickState(reason string) {

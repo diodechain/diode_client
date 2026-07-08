@@ -408,14 +408,14 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 		serverIDs []util.Address
 	}
 
-	defaultClients := socksServer.clientManager.GetDefaultClients()
-	socksServer.logger.Debug("%d: Found %d default clients", requestId, len(defaultClients))
-	defaultIds := make([]util.Address, 0, len(defaultClients))
-	for _, client := range defaultClients {
+	connectedClients := socksServer.clientManager.ClientsByLatency()
+	socksServer.logger.Debug("%d: Found %d connected clients", requestId, len(connectedClients))
+	connectedIDs := make([]util.Address, 0, len(connectedClients))
+	for _, client := range connectedClients {
 		if client == nil {
 			continue
 		}
-		defaultIds = append(defaultIds, client.serverID)
+		connectedIDs = append(connectedIDs, client.serverID)
 	}
 
 	// Get max ports once before the loop
@@ -440,7 +440,10 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 			}
 		}
 
-		serverIDs := make([]util.Address, 0)
+		serverIDs := ticketRelayHints(device)
+		for _, serverID := range serverIDs {
+			socksServer.logger.Debug("Found device %s on server %s", deviceID.HexString(), serverID.HexString())
+		}
 		cache := socksServer.datapool.GetCacheDevice(deviceID)
 		if cache != nil {
 			for _, serverID := range cache.serverIDs {
@@ -448,13 +451,8 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 			}
 		}
 
-		for _, serverID := range device.GetServerIDs() {
-			socksServer.logger.Debug("Found device %s on server %s", deviceID.HexString(), serverID.HexString())
-			serverIDs = appendAddressIfNotExists(serverIDs, serverID)
-		}
-
-		for _, defaultID := range defaultIds {
-			serverIDs = appendAddressIfNotExists(serverIDs, defaultID)
+		for _, connectedID := range connectedIDs {
+			serverIDs = appendAddressIfNotExists(serverIDs, connectedID)
 		}
 
 		candidates = append(candidates, candidate{deviceID, serverIDs})
@@ -479,31 +477,34 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 			errors := make([]error, 0)
 
 			for _, serverID := range serverIDs {
-				client, err := socksServer.GetServer(serverID)
-				if err != nil {
-					socksServer.logger.Error("%d: GetServer() failed: %v", requestId, err)
-					errors = append(errors, err)
+				client := socksServer.clientManager.GetClient(serverID)
+				if client == nil {
+					socksServer.logger.Debug("%d: relay %s not connected, trying next", requestId, serverID.HexString())
 					continue
 				}
 
 				var conn *ConnectedPort
-				conn, err = doCreatePort(client, deviceID, port, portName, mode, requestId)
-				if err != nil {
+				conn, portErr := doCreatePort(client, deviceID, port, portName, mode, requestId)
+				if portErr != nil {
 					url, _ := client.Host()
-					socksServer.logger.Debug("%d: doCreatePort() failed: %v via %v", requestId, err, url)
-					errors = append(errors, err)
+					socksServer.logger.Debug("%d: doCreatePort() failed: %v via %v", requestId, portErr, url)
+					errors = append(errors, portErr)
 					continue
 				}
 
 				select {
 				case ports <- conn:
 					cache := socksServer.datapool.GetCacheDevice(deviceID)
+					var newCache *DeviceCache
 					if cache != nil {
-						cache.serverIDs = appendAddressIfNotExists(cache.serverIDs, serverID)
+						newCache = &DeviceCache{
+							deviceTicket: cache.deviceTicket,
+							serverIDs:    appendAddressIfNotExists(append([]util.Address(nil), cache.serverIDs...), serverID),
+						}
 					} else {
-						cache = &DeviceCache{deviceTicket: nil, serverIDs: appendAddressIfNotExists(make([]util.Address, 0), serverID)}
+						newCache = &DeviceCache{deviceTicket: nil, serverIDs: appendAddressIfNotExists(make([]util.Address, 0), serverID)}
 					}
-					socksServer.datapool.SetCacheDevice(deviceID, cache)
+					socksServer.datapool.SetCacheDevice(deviceID, newCache)
 					return
 				default:
 					conn.Shutdown()
