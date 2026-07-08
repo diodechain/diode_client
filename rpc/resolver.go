@@ -99,6 +99,15 @@ func (resolver *Resolver) fetchDeviceTicket(primary *Client, deviceID Address, p
 		return nil, fmt.Errorf("no relay connections available")
 	}
 
+	getClient := resolver.clientManager.GetClient
+	startBackground := resolver.clientManager.StartConnectBackground
+	pendingRelays := make([]util.Address, 0, 2)
+	pendingSeen := make(map[Address]bool)
+	trackPending := func(nodeID Address) {
+		trackPendingRelay(&pendingRelays, pendingSeen, getClient, startBackground, nodeID)
+	}
+	trackPending(preferred)
+
 	var lastTicket *edge.DeviceTicket
 	var lastErr error
 	triedServers := make(map[Address]bool)
@@ -130,13 +139,28 @@ func (resolver *Resolver) fetchDeviceTicket(primary *Client, deviceID Address, p
 			continue
 		}
 		triedServers[srvID] = true
+		trackPending(srvID)
 
-		homeClient := resolver.clientManager.GetClient(srvID)
+		homeClient := getClient(srvID)
 		if homeClient == nil || homeClient == client {
 			continue
 		}
 
 		ticket, err = resolver.fetchAndValidate(homeClient, deviceID)
+		if err == nil {
+			return ticket, nil
+		}
+		lastTicket = ticket
+		lastErr = err
+	}
+
+	for _, srvID := range pendingRelays {
+		homeClient, err := resolver.clientManager.GetClientOrConnect(srvID)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		ticket, err := resolver.fetchAndValidate(homeClient, deviceID)
 		if err == nil {
 			return ticket, nil
 		}

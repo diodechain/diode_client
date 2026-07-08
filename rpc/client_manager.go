@@ -531,6 +531,20 @@ func (cm *ClientManager) GetClient(nodeID util.Address) (client *Client) {
 	return client
 }
 
+// StartConnectBackground begins connecting to nodeID without blocking the caller.
+// Duplicate calls are harmless; connect deduplicates in-flight dials per node.
+func (cm *ClientManager) StartConnectBackground(nodeID util.Address) {
+	if nodeID == (util.Address{}) {
+		return
+	}
+	if cm.GetClient(nodeID) != nil {
+		return
+	}
+	go func() {
+		_, _ = cm.GetClientOrConnect(nodeID)
+	}()
+}
+
 func (cm *ClientManager) GetClientOrConnect(nodeID util.Address) (client *Client, err error) {
 	if client = cm.GetClient(nodeID); client != nil {
 		return

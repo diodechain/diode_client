@@ -458,6 +458,18 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 		candidates = append(candidates, candidate{deviceID, serverIDs})
 	}
 
+	pendingRelays := make([]util.Address, 0)
+	pendingSeen := make(map[util.Address]bool)
+	getClient := socksServer.clientManager.GetClient
+	startBackground := socksServer.clientManager.StartConnectBackground
+	for _, candidate := range candidates {
+		for _, target := range orderedRelayTargets(getClient, candidate.serverIDs) {
+			if target.Client == nil {
+				trackPendingRelay(&pendingRelays, pendingSeen, getClient, startBackground, target.NodeID)
+			}
+		}
+	}
+
 	ports := make(chan *ConnectedPort, 1)
 	var (
 		failedErrors   []error
@@ -474,35 +486,28 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 				<-maxConcurrency
 			}()
 			maxConcurrency <- struct{}{}
-			errors := make([]error, 0)
+			targets := orderedRelayTargets(getClient, serverIDs)
+			createPort := func(client *Client) (*ConnectedPort, error) {
+				return doCreatePort(client, deviceID, port, portName, mode, requestId)
+			}
+			waitRelay := func(nodeID util.Address) (*Client, error) {
+				return socksServer.clientManager.GetClientOrConnect(nodeID)
+			}
 
-			for _, serverID := range serverIDs {
-				client := socksServer.clientManager.GetClient(serverID)
-				if client == nil {
-					socksServer.logger.Debug("%d: relay %s not connected, trying next", requestId, serverID.HexString())
-					continue
-				}
-
-				var conn *ConnectedPort
-				conn, portErr := doCreatePort(client, deviceID, port, portName, mode, requestId)
-				if portErr != nil {
-					url, _ := client.Host()
-					socksServer.logger.Debug("%d: doCreatePort() failed: %v via %v", requestId, portErr, url)
-					errors = append(errors, portErr)
-					continue
-				}
-
+			conn, tryErrors := tryPortOpenOnRelays(targets, startBackground, waitRelay, createPort)
+			if conn != nil {
 				select {
 				case ports <- conn:
 					cache := socksServer.datapool.GetCacheDevice(deviceID)
 					var newCache *DeviceCache
+					successServerID := conn.client.serverID
 					if cache != nil {
 						newCache = &DeviceCache{
 							deviceTicket: cache.deviceTicket,
-							serverIDs:    appendAddressIfNotExists(append([]util.Address(nil), cache.serverIDs...), serverID),
+							serverIDs:    appendAddressIfNotExists(append([]util.Address(nil), cache.serverIDs...), successServerID),
 						}
 					} else {
-						newCache = &DeviceCache{deviceTicket: nil, serverIDs: appendAddressIfNotExists(make([]util.Address, 0), serverID)}
+						newCache = &DeviceCache{deviceTicket: nil, serverIDs: appendAddressIfNotExists(make([]util.Address, 0), successServerID)}
 					}
 					socksServer.datapool.SetCacheDevice(deviceID, newCache)
 					return
@@ -512,9 +517,9 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 				}
 			}
 
-			if len(errors) > 0 {
+			if len(tryErrors) > 0 {
 				failedErrorsMu.Lock()
-				failedErrors = append(failedErrors, errors...)
+				failedErrors = append(failedErrors, tryErrors...)
 				failedErrorsMu.Unlock()
 			}
 		}(candidate.deviceID, candidate.serverIDs)
