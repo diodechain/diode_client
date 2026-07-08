@@ -49,6 +49,7 @@ var (
 	errClientClosed                   = fmt.Errorf("rpc client was closed")
 	errPortOpenTimeout                = fmt.Errorf("portopen timeout")
 	startupBlockMismatchWarned uint32
+	hostFailureWarned          sync.Map
 )
 
 // Client struct for rpc client
@@ -1676,12 +1677,45 @@ func (client *Client) Socket() (ssl *SSL) {
 	return
 }
 
+// warnHostFailureOnce logs a relay failure at Warn once per normalized host and kind.
+func warnHostFailureOnce(host, kind, format string, logger *config.Logger, args ...interface{}) {
+	if hostFailureAlreadyWarned(host, kind) {
+		logger.Debug(format, args...)
+		return
+	}
+	logger.Warn(format, args...)
+}
+
+func hostFailureWarnKey(host, kind string) (string, bool) {
+	norm := normalizeHostPort(host)
+	if norm == "" {
+		norm = strings.TrimSpace(host)
+	}
+	if norm == "" {
+		return "", false
+	}
+	return kind + "\x00" + norm, true
+}
+
+func hostFailureAlreadyWarned(host, kind string) bool {
+	key, ok := hostFailureWarnKey(host, kind)
+	if !ok {
+		return false
+	}
+	_, loaded := hostFailureWarned.LoadOrStore(key, struct{}{})
+	return loaded
+}
+
+func (client *Client) warnFailureOnce(kind, format string, args ...interface{}) {
+	warnHostFailureOnce(client.host, kind, format, client.Log(), args...)
+}
+
 // Start process rpc inbound message and outbound message
 func (client *Client) Start() {
 	go func() {
 		if err := client.doStart(); err != nil {
 			if !client.closed.Load() {
-				client.Log().Warn("Client connect failed: %v", err)
+				client.warnFailureOnce("connect", "Client connect failed: %v", err)
 			}
 			client.srv.Shutdown(0)
 			return
@@ -1696,7 +1730,7 @@ func (client *Client) Start() {
 						client.Log().Debug("%s", msg)
 					}
 				} else {
-					client.Log().Warn("Client start failed: %v", err)
+					client.warnFailureOnce("start", "Client start failed: %v", err)
 				}
 				client.Close()
 			}
