@@ -495,12 +495,16 @@ func (socksServer *Server) doConnectDevice(requestId int64, deviceName string, p
 				select {
 				case ports <- conn:
 					cache := socksServer.datapool.GetCacheDevice(deviceID)
+					var newCache *DeviceCache
 					if cache != nil {
-						cache.serverIDs = appendAddressIfNotExists(cache.serverIDs, serverID)
+						newCache = &DeviceCache{
+							deviceTicket: cache.deviceTicket,
+							serverIDs:    appendAddressIfNotExists(append([]util.Address(nil), cache.serverIDs...), serverID),
+						}
 					} else {
-						cache = &DeviceCache{deviceTicket: nil, serverIDs: appendAddressIfNotExists(make([]util.Address, 0), serverID)}
+						newCache = &DeviceCache{deviceTicket: nil, serverIDs: appendAddressIfNotExists(make([]util.Address, 0), serverID)}
 					}
-					socksServer.datapool.SetCacheDevice(deviceID, cache)
+					socksServer.datapool.SetCacheDevice(deviceID, newCache)
 					return
 				default:
 					conn.Shutdown()

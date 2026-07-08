@@ -211,14 +211,17 @@ func (resolver *Resolver) fetchAndValidate(client *Client, deviceID Address) (*e
 
 	hints := ticketRelayHints(device)
 	cache := resolver.datapool.GetCacheDevice(deviceID)
+	var newCache *DeviceCache
 	if cache != nil {
-		cache.deviceTicket = device
-		cache.serverIDs = mergeRelayHints(hints, cache.serverIDs)
+		newCache = &DeviceCache{
+			deviceTicket: device,
+			serverIDs:    mergeRelayHints(hints, cache.serverIDs),
+		}
 	} else {
-		cache = &DeviceCache{deviceTicket: device, serverIDs: hints}
+		newCache = &DeviceCache{deviceTicket: device, serverIDs: hints}
 	}
 
-	resolver.datapool.SetCacheDevice(deviceID, cache)
+	resolver.datapool.SetCacheDevice(deviceID, newCache)
 	return device, nil
 }
 
