@@ -67,9 +67,11 @@ func NewConnectedPort(requestId int64, ref string, deviceID Address, client *Cli
 
 func (port *ConnectedPort) bufferRunner() {
 	readBuffer := make([]byte, localBufferChunk)
-	conn := port.Conn
 	closeWhenEmpty := 0
 
+	port.bufferLock.Lock()
+	conn := port.Conn
+	port.bufferLock.Unlock()
 	if conn == nil {
 		return
 	}
@@ -80,8 +82,11 @@ func (port *ConnectedPort) bufferRunner() {
 			if port.closeWhenEmpty {
 				closeWhenEmpty++
 				if closeWhenEmpty >= 2 {
+					conn = port.Conn
 					port.bufferLock.Unlock()
-					conn.Close()
+					if conn != nil {
+						conn.Close()
+					}
 					return
 				}
 				port.bufferLock.Unlock()
@@ -101,6 +106,7 @@ func (port *ConnectedPort) bufferRunner() {
 			continue
 		}
 		r, err := port.localBuffer.Read(readBuffer)
+		conn = port.Conn
 		port.bufferLock.Unlock()
 		if err != nil && err != io.EOF {
 			port.localErr = err
@@ -109,7 +115,7 @@ func (port *ConnectedPort) bufferRunner() {
 		if r == 0 {
 			continue
 		}
-		if port.client == nil {
+		if port.client == nil || conn == nil {
 			break
 		}
 		n, err := conn.Write(readBuffer[:r])
@@ -200,8 +206,8 @@ func (port *ConnectedPort) close() {
 	port.bufferLock.Lock()
 	port.closeWhenEmpty = true
 	port.bufferCond.Broadcast()
-	port.bufferLock.Unlock()
 	port.Conn = nil
+	port.bufferLock.Unlock()
 }
 
 // Closed returns true if this has been closed
@@ -290,13 +296,18 @@ func (port *ConnectedPort) upgradeTLS(fn func(*E2EServer) error) error {
 		port.Log().Error("Failed to tunnel openssl client: %v", err.Error())
 		return err
 	}
-	e2eServer := port.NewE2EServer(port.Conn, port.DeviceID, port.client.pool)
+	port.bufferLock.Lock()
+	oldConn := port.Conn
+	port.bufferLock.Unlock()
+	e2eServer := port.NewE2EServer(oldConn, port.DeviceID, port.client.pool)
 	err := fn(e2eServer)
 	if err != nil {
 		port.Log().Error("Failed to tunnel openssl client: %v", err.Error())
 		return err
 	}
+	port.bufferLock.Lock()
 	port.Conn = NewE2EConn(e2eServer)
+	port.bufferLock.Unlock()
 	return nil
 }
 

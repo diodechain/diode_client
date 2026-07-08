@@ -475,11 +475,7 @@ func (client *Client) recvMessageLoop() {
 			return
 		}
 		if msg.Len > 0 {
-			select {
-			case msgBuffer <- msg:
-			default:
-				msgBuffer <- msg
-			}
+			msgBuffer <- msg
 		}
 	}
 }
