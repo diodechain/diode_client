@@ -5,6 +5,7 @@ package rpc
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/ecdsa"
 	"crypto/x509"
 	"encoding/binary"
@@ -311,6 +312,16 @@ func LoadPrivateKey(bytes []byte) ([]byte, error) {
 
 func EnsurePrivatePEM() []byte {
 	key, _ := db.DB.Get("private")
+
+	if normalized, err := crypto.NormalizePrivatePEM(key); err == nil && ValidatePrivatePEM(normalized) {
+		if !bytes.Equal(key, normalized) {
+			if err := db.DB.Put("private", normalized); err != nil {
+				config.AppConfig.Logger.Error("Failed to save normalized ec key: %v", err)
+				os.Exit(129)
+			}
+		}
+		return normalized
+	}
 
 	if !ValidatePrivatePEM(key) {
 		privKey, err := openssl.GenerateECKey(openssl.Secp256k1)

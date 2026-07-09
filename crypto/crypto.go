@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/asn1"
 	"encoding/hex"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"log"
@@ -19,6 +20,8 @@ const ecPrivKeyVersion = 1
 
 var (
 	secp256k1N, _ = new(big.Int).SetString("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364141", 16)
+	// Secp256k1NamedCurveOID is the ASN.1 OID for the secp256k1 named curve (1.3.132.0.10).
+	Secp256k1NamedCurveOID = asn1.ObjectIdentifier{1, 3, 132, 0, 10}
 )
 
 // Sha3 hash
@@ -92,6 +95,78 @@ func DerToECDSA(derD []byte) (*ecdsa.PrivateKey, error) {
 		return nil, fmt.Errorf("x509: unknown EC private key version %d", privKey.Version)
 	}
 	return toECDSA(privKey.PrivateKey, true)
+}
+
+// PrivateDERUsesNamedCurve reports whether der is an SEC1 ECPrivateKey using the secp256k1 named-curve OID.
+func PrivateDERUsesNamedCurve(der []byte) bool {
+	var raw ECPrivateKey
+	if _, err := asn1.Unmarshal(der, &raw); err != nil {
+		return false
+	}
+	return raw.NamedCurveOID.Equal(Secp256k1NamedCurveOID)
+}
+
+// NormalizePrivatePEM re-encodes a secp256k1 private key PEM to named-curve SEC1 format.
+// Relays expect the compact SPKI produced from that encoding during the TLS handshake.
+// Keys already in named-curve form are returned unchanged.
+func NormalizePrivatePEM(pemBytes []byte) ([]byte, error) {
+	if pemBytes == nil {
+		return nil, errors.New("empty private key pem")
+	}
+	block, _ := pem.Decode(pemBytes)
+	if block == nil || block.Bytes == nil {
+		return nil, errors.New("invalid private key pem")
+	}
+	if PrivateDERUsesNamedCurve(block.Bytes) {
+		return pemBytes, nil
+	}
+	priv, err := privateKeyFromSEC1DER(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+	return marshalNamedCurvePrivatePEM(priv)
+}
+
+func privateKeyFromSEC1DER(der []byte) (*ecdsa.PrivateKey, error) {
+	var raw ECPrivateKey
+	if _, err := asn1.Unmarshal(der, &raw); err != nil {
+		return nil, fmt.Errorf("failed to parse EC private key: %w", err)
+	}
+	if raw.Version != ecPrivKeyVersion {
+		return nil, fmt.Errorf("unknown EC private key version %d", raw.Version)
+	}
+	if len(raw.PrivateKey) == 0 {
+		return nil, errors.New("empty EC private key scalar")
+	}
+	priv, err := toECDSA(raw.PrivateKey, true)
+	if err == nil {
+		return priv, nil
+	}
+	priv, looseErr := toECDSA(raw.PrivateKey, false)
+	if looseErr != nil {
+		return nil, err
+	}
+	return priv, nil
+}
+
+func marshalNamedCurvePrivatePEM(priv *ecdsa.PrivateKey) ([]byte, error) {
+	if priv == nil || priv.D == nil {
+		return nil, errors.New("invalid private key")
+	}
+	pub := MarshalPubkey(&priv.PublicKey)
+	if pub == nil {
+		return nil, errors.New("invalid public key")
+	}
+	der, err := asn1.Marshal(ECPrivateKey{
+		Version:       ecPrivKeyVersion,
+		PrivateKey:    Secp256k1ScalarBytes(priv),
+		NamedCurveOID: Secp256k1NamedCurveOID,
+		PublicKey:     asn1.BitString{Bytes: pub, BitLength: len(pub) * 8},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal EC private key: %w", err)
+	}
+	return pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: der}), nil
 }
 
 // Secp256k1ScalarBytes returns priv.D as exactly 32 big-endian bytes (leading zeros as needed).
