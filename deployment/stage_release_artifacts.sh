@@ -1,19 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
+# Map CI artifact downloads to final release assets (same output as extract.exs).
 ARTIFACTS_ROOT="${1:-./artifacts}"
-STAGING_DIR="${2:-./release-staging}"
+OUT_DIR="${2:-./release-staging/out}"
 
 DIST_ZIPS=(
   diode_windows_amd64.zip
   diode_darwin_arm64.zip
   diode_darwin_amd64.zip
-)
-
-LINUX_ZIPS=(
-  diode_linux_arm.zip
-  diode_linux_arm64.zip
-  diode_linux_amd64_bullseye.zip
 )
 
 require_dir() {
@@ -26,10 +21,10 @@ require_dir() {
 zip_dist_artifact() {
   local name="$1"
   local src="${ARTIFACTS_ROOT}/${name}"
-  local dst="${STAGING_DIR}/${name}"
+  local dst="${OUT_DIR}/${name}"
 
   require_dir "$src"
-  if [ ! "$(find "$src" -mindepth 1 -maxdepth 1 | wc -l)" -gt 0 ]; then
+  if [ -z "$(find "$src" -mindepth 1 -maxdepth 1 -print -quit)" ]; then
     echo "empty artifact directory: $src" >&2
     exit 1
   fi
@@ -38,11 +33,10 @@ zip_dist_artifact() {
   (cd "$src" && zip -1 -j "$dst" ./*)
 }
 
-zip_pkg_artifact() {
+copy_pkg_artifact() {
   local artifact_name="$1"
-  local zip_name="$2"
+  local out_name="$2"
   local src="${ARTIFACTS_ROOT}/${artifact_name}"
-  local dst="${STAGING_DIR}/${zip_name}"
   local pkg
 
   require_dir "$src"
@@ -52,37 +46,35 @@ zip_pkg_artifact() {
     exit 1
   fi
 
-  rm -f "$dst"
-  zip -1 -j "$dst" "$pkg"
+  cp "$pkg" "${OUT_DIR}/${out_name}"
 }
 
-copy_zip_artifact() {
-  local name="$1"
-  local src_dir="${ARTIFACTS_ROOT}/${name}"
-  local src_file="${src_dir}/${name}"
-  local dst="${STAGING_DIR}/${name}"
+unzip_linux_artifact() {
+  local artifact_name="$1"
+  local out_name="$2"
+  local zip_file="${ARTIFACTS_ROOT}/${artifact_name}/${artifact_name}"
 
-  require_dir "$src_dir"
-  if [ ! -f "$src_file" ]; then
-    echo "missing zip file: $src_file" >&2
+  require_dir "${ARTIFACTS_ROOT}/${artifact_name}"
+  if [ ! -f "$zip_file" ]; then
+    echo "missing zip file: $zip_file" >&2
     exit 1
   fi
 
-  cp "$src_file" "$dst"
+  unzip -p "$zip_file" > "${OUT_DIR}/${out_name}"
 }
 
-mkdir -p "$STAGING_DIR"
-STAGING_DIR="$(cd "$STAGING_DIR" && pwd)"
+mkdir -p "$OUT_DIR"
+OUT_DIR="$(cd "$OUT_DIR" && pwd)"
 
 for name in "${DIST_ZIPS[@]}"; do
   zip_dist_artifact "$name"
 done
 
-zip_pkg_artifact macOS-ARM64 macOS-ARM64.zip
-zip_pkg_artifact macOS-X64 macOS-X64.zip
+copy_pkg_artifact macOS-ARM64 diode_darwin_arm64.pkg
+copy_pkg_artifact macOS-X64 diode_darwin_amd64.pkg
 
-for name in "${LINUX_ZIPS[@]}"; do
-  copy_zip_artifact "$name"
-done
+unzip_linux_artifact diode_linux_arm.zip diode_linux_arm.zip
+unzip_linux_artifact diode_linux_arm64.zip diode_linux_arm64.zip
+unzip_linux_artifact diode_linux_amd64_bullseye.zip diode_linux_amd64.zip
 
-echo "staged release artifacts in ${STAGING_DIR}"
+echo "release artifacts in ${OUT_DIR}"

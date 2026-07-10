@@ -7,7 +7,7 @@ if [ -z "$TAG" ]; then
   exit 1
 fi
 
-PREV="$(git tag -l 'v*' --sort=-v:refname | awk -v t="$TAG" '$0==t {if (getline > 0) print; exit}')"
+PREV="$(git describe --tags --abbrev=0 "${TAG}^" 2>/dev/null || true)"
 if [ -n "$PREV" ]; then
   git log "${PREV}..${TAG}" --pretty=format:'%h %s'
 else

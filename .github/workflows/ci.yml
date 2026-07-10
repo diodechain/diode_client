@@ -147,15 +147,9 @@ jobs:
       with:
         path: artifacts
 
-    - run: bash deployment/stage_release_artifacts.sh artifacts release-staging
+    - run: bash deployment/stage_release_artifacts.sh artifacts release-staging/out
 
-    - uses: erlef/setup-beam@v1
-      with:
-        elixir-version: '1.17'
-
-    - run: cd release-staging && elixir ../deployment/extract.exs
-
-    - run: bash deployment/release_notes.sh > release-notes.txt
+    - run: bash deployment/release_notes.sh "${{ github.ref_name }}" > release-notes.txt
 
     - uses: softprops/action-gh-release@v2
       with:
