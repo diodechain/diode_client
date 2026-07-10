@@ -130,3 +130,38 @@ jobs:
       with:
         name: "diode_linux_amd64_bullseye.zip"
         path: ${{ github.workspace }}/.github/diode_linux_amd64_bullseye.zip
+
+  create_draft_release:
+    name: "Create draft release"
+    needs: [download_and_run_test, build_linux_arm]
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - run: bash deployment/stage_release_artifacts.sh artifacts release-staging
+
+    - uses: erlef/setup-beam@v1
+      with:
+        elixir-version: '1.17'
+
+    - run: cd release-staging && elixir ../deployment/extract.exs
+
+    - run: bash deployment/release_notes.sh > release-notes.txt
+
+    - uses: softprops/action-gh-release@v2
+      with:
+        draft: true
+        tag_name: ${{ github.ref_name }}
+        name: ${{ github.ref_name }}
+        body_path: release-notes.txt
+        files: release-staging/out/*
+        fail_on_unmatched_files: true
