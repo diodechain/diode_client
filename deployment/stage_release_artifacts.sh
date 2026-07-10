@@ -46,7 +46,7 @@ zip_pkg_artifact() {
   local pkg
 
   require_dir "$src"
-  pkg="$(find "$src" -maxdepth 1 -name '*.pkg' -print -quit)"
+  pkg="$(find "$src" -maxdepth 1 -name '*.pkg' | head -n 1)"
   if [ -z "$pkg" ]; then
     echo "missing pkg in artifact directory: $src" >&2
     exit 1
@@ -72,6 +72,7 @@ copy_zip_artifact() {
 }
 
 mkdir -p "$STAGING_DIR"
+STAGING_DIR="$(cd "$STAGING_DIR" && pwd)"
 
 for name in "${DIST_ZIPS[@]}"; do
   zip_dist_artifact "$name"
