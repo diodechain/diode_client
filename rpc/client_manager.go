@@ -48,6 +48,19 @@ type ClientManager struct {
 	defaultPortOpen2Handler func(*edge.PortOpen2) error
 
 	defaultClientsGroup *singleflight.Group
+
+	hostConnectRetries map[string]*hostConnectRetry
+	refillTimer        *time.Timer
+}
+
+const (
+	hostConnectRetryMin = 5 * time.Second
+	hostConnectRetryMax = 60 * time.Second
+)
+
+type hostConnectRetry struct {
+	backoff    Backoff
+	retryAfter time.Time
 }
 
 type nodeRequest struct {
@@ -66,7 +79,8 @@ func NewClientManager(cfg *config.Config) *ClientManager {
 		Config:              cfg,
 		targetClients:       5,
 		portOpen2Handlers:   make(map[string]func(*edge.PortOpen2) error),
-		defaultClientsGroup: &singleflight.Group{},
+		defaultClientsGroup:  &singleflight.Group{},
+		hostConnectRetries:   make(map[string]*hostConnectRetry),
 	}
 	if !config.AppConfig.LogDateTime {
 		cm.srv.DeadlockCallback = nil
@@ -438,9 +452,100 @@ func (cm *ClientManager) Stop() {
 	})
 }
 
-func (cm *ClientManager) doAddClient() {
+func (cm *ClientManager) doAddClient() bool {
 	host := cm.doSelectNextHost()
+	if host == "" {
+		return false
+	}
 	cm.startClient(host)
+	return true
+}
+
+func (cm *ClientManager) hostConnectRetryReady(host string) bool {
+	state := cm.hostConnectRetries[host]
+	if state == nil {
+		return true
+	}
+	return !time.Now().Before(state.retryAfter)
+}
+
+func (cm *ClientManager) recordHostConnectFailure(host string) {
+	if host == "" {
+		return
+	}
+	state, ok := cm.hostConnectRetries[host]
+	if !ok {
+		state = &hostConnectRetry{
+			backoff: Backoff{
+				Min:    hostConnectRetryMin,
+				Max:    hostConnectRetryMax,
+				Factor: 2,
+				Jitter: true,
+			},
+		}
+		cm.hostConnectRetries[host] = state
+	}
+	delay := state.backoff.Duration()
+	state.retryAfter = time.Now().Add(delay)
+	cm.Config.Logger.Debug("Relay connect backoff for %s: retry in %v", host, delay)
+}
+
+func (cm *ClientManager) clearHostConnectRetry(host string) {
+	delete(cm.hostConnectRetries, host)
+}
+
+func (cm *ClientManager) refillClients() {
+	for len(cm.clients) < cm.targetClients {
+		if !cm.doAddClient() {
+			break
+		}
+	}
+	cm.scheduleRefillIfNeeded()
+}
+
+func (cm *ClientManager) scheduleRefillIfNeeded() {
+	if len(cm.clients) >= cm.targetClients || cm.targetClients == 0 {
+		if cm.refillTimer != nil {
+			cm.refillTimer.Stop()
+			cm.refillTimer = nil
+		}
+		return
+	}
+	next := cm.nextHostRetryTime()
+	if next.IsZero() {
+		return
+	}
+	wait := time.Until(next)
+	if wait < 0 {
+		wait = 0
+	}
+	if cm.refillTimer != nil {
+		cm.refillTimer.Stop()
+	}
+	cm.refillTimer = time.AfterFunc(wait, func() {
+		cm.srv.Cast(func() {
+			cm.refillTimer = nil
+			cm.refillClients()
+		})
+	})
+}
+
+func (cm *ClientManager) nextHostRetryTime() time.Time {
+	inUse := make(map[string]bool, len(cm.clients))
+	for _, c := range cm.clients {
+		inUse[c.host] = true
+	}
+
+	var next time.Time
+	for host, state := range cm.hostConnectRetries {
+		if inUse[host] || !state.retryAfter.After(time.Now()) {
+			continue
+		}
+		if next.IsZero() || state.retryAfter.Before(next) {
+			next = state.retryAfter
+		}
+	}
+	return next
 }
 
 func (cm *ClientManager) startClient(host string) *Client {
@@ -458,6 +563,7 @@ func (cm *ClientManager) startClient(host string) *Client {
 		}
 		cm.Config.Logger.Debug("Added relay#%d [%s] @ %s", n, nodeID.HexString(), host)
 		cm.srv.Cast(func() {
+			cm.clearHostConnectRetry(host)
 			cm.clientMap[nodeID] = client
 			for _, c := range cm.waitingAny {
 				c.ReRun()
@@ -484,8 +590,10 @@ func (cm *ClientManager) detachClient(client *Client) {
 		return
 	}
 	cm.srv.Cast(func() {
+		wasConnected := false
 		for key, c := range cm.clientMap {
 			if c == client {
+				wasConnected = true
 				delete(cm.clientMap, key)
 				break
 			}
@@ -506,9 +614,10 @@ func (cm *ClientManager) detachClient(client *Client) {
 			}
 		}
 
-		for x := len(cm.clients); x < cm.targetClients; x++ {
-			cm.doAddClient()
+		if !wasConnected {
+			cm.recordHostConnectFailure(client.host)
 		}
+		cm.refillClients()
 
 		if cm.targetClients == 0 {
 			cm.srv.Shutdown(0)
@@ -870,9 +979,13 @@ func (cm *ClientManager) doSelectNextHost() string {
 
 	var candidates []string
 	for _, c := range cm.Config.RemoteRPCAddrs {
-		if _, ok := hosts[c]; !ok {
-			candidates = append(candidates, c)
+		if _, ok := hosts[c]; ok {
+			continue
 		}
+		if !cm.hostConnectRetryReady(c) {
+			continue
+		}
+		candidates = append(candidates, c)
 	}
 
 	if len(candidates) > 0 {
