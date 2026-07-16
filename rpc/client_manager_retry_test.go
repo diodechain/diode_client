@@ -11,8 +11,7 @@ import (
 )
 
 func TestHostConnectRetryBackoff(t *testing.T) {
-	t.Parallel()
-
+	// Not parallel: mutates global config.AppConfig (same pattern as client_manager_getdefault_test.go).
 	prevConfig := config.AppConfig
 	defer func() { config.AppConfig = prevConfig }()
 
@@ -49,8 +48,7 @@ func TestHostConnectRetryBackoff(t *testing.T) {
 }
 
 func TestDoSelectNextHostSkipsBackoff(t *testing.T) {
-	t.Parallel()
-
+	// Not parallel: mutates global config.AppConfig (same pattern as client_manager_getdefault_test.go).
 	prevConfig := config.AppConfig
 	defer func() { config.AppConfig = prevConfig }()
 
