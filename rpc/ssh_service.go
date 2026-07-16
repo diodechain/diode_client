@@ -48,6 +48,7 @@ type sshProcessHandle struct {
 	close  func() error
 	// copyWG counts stdout/stderr proxy goroutines; waited before closing the SSH channel
 	// so clients observe full command output (see proxySSHProcessIO / waitForProcess).
+	// All copyWG.Add calls must finish before waitForProcess runs (no concurrent Add/Wait).
 	copyWG sync.WaitGroup
 }
 
@@ -496,7 +497,9 @@ func handleSSHSessionStart(req *ssh.Request, proc *sshProcessHandle, localUser s
 	if err != nil || !handled {
 		return next, err
 	}
-	go proxySSHProcessIO(channel, next)
+	// proxySSHProcessIO must run synchronously so copyWG.Add completes before
+	// waitForProcess can call Wait (concurrent Add/Wait is a data race).
+	proxySSHProcessIO(channel, next)
 	go waitForProcess(next)
 	return next, nil
 }
