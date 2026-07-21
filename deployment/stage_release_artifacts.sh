@@ -49,7 +49,7 @@ copy_pkg_artifact() {
   cp "$pkg" "${OUT_DIR}/${out_name}"
 }
 
-unzip_linux_artifact() {
+copy_linux_artifact() {
   local artifact_name="$1"
   local out_name="$2"
   local zip_file="${ARTIFACTS_ROOT}/${artifact_name}/${artifact_name}"
@@ -60,7 +60,9 @@ unzip_linux_artifact() {
     exit 1
   fi
 
-  unzip -p "$zip_file" > "${OUT_DIR}/${out_name}"
+  # download-artifact already unwrapped the Actions outer zip; copy the
+  # uploaded archive as-is (same as extract.exs), do not unzip again.
+  cp "$zip_file" "${OUT_DIR}/${out_name}"
 }
 
 mkdir -p "$OUT_DIR"
@@ -73,8 +75,8 @@ done
 copy_pkg_artifact macOS-ARM64 diode_darwin_arm64.pkg
 copy_pkg_artifact macOS-X64 diode_darwin_amd64.pkg
 
-unzip_linux_artifact diode_linux_arm.zip diode_linux_arm.zip
-unzip_linux_artifact diode_linux_arm64.zip diode_linux_arm64.zip
-unzip_linux_artifact diode_linux_amd64_bullseye.zip diode_linux_amd64.zip
+copy_linux_artifact diode_linux_arm.zip diode_linux_arm.zip
+copy_linux_artifact diode_linux_arm64.zip diode_linux_arm64.zip
+copy_linux_artifact diode_linux_amd64_bullseye.zip diode_linux_amd64.zip
 
 echo "release artifacts in ${OUT_DIR}"
