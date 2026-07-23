@@ -75,6 +75,9 @@ func (port *ConnectedPort) bufferRunner() {
 	if conn == nil {
 		return
 	}
+	// Always close the captured local conn when this runner exits so SOCKS /
+	// ProxyCommand readers observe EOF even if port.Conn was already cleared.
+	defer conn.Close()
 
 	for port.localErr == nil {
 		port.bufferLock.Lock()
@@ -82,11 +85,7 @@ func (port *ConnectedPort) bufferRunner() {
 			if port.closeWhenEmpty {
 				closeWhenEmpty++
 				if closeWhenEmpty >= 2 {
-					conn = port.Conn
 					port.bufferLock.Unlock()
-					if conn != nil {
-						conn.Close()
-					}
 					return
 				}
 				port.bufferLock.Unlock()
@@ -106,7 +105,12 @@ func (port *ConnectedPort) bufferRunner() {
 			continue
 		}
 		r, err := port.localBuffer.Read(readBuffer)
-		conn = port.Conn
+		// Prefer the live Conn; after close() clears it, keep flushing on the
+		// captured conn until this runner exits and defer-closes it.
+		writeConn := port.Conn
+		if writeConn == nil {
+			writeConn = conn
+		}
 		port.bufferLock.Unlock()
 		if err != nil && err != io.EOF {
 			port.localErr = err
@@ -115,10 +119,10 @@ func (port *ConnectedPort) bufferRunner() {
 		if r == 0 {
 			continue
 		}
-		if port.client == nil || conn == nil {
+		if writeConn == nil {
 			break
 		}
-		n, err := conn.Write(readBuffer[:r])
+		n, err := writeConn.Write(readBuffer[:r])
 		if err != nil {
 			port.localErr = err
 			break
@@ -200,14 +204,22 @@ func (port *ConnectedPort) close() {
 		}
 		deviceKey := port.client.GetDeviceKey(port.Ref)
 		port.client.pool.SetPort(deviceKey, nil)
+		// send portclose request and channel
+		port.client.CastPortClose(port.Ref)
 	}
-	// send portclose request and channel
-	port.client.CastPortClose(port.Ref)
 	port.bufferLock.Lock()
+	conn := port.Conn
 	port.closeWhenEmpty = true
 	port.bufferCond.Broadcast()
 	port.Conn = nil
 	port.bufferLock.Unlock()
+	if conn == nil {
+		return
+	}
+	// Close the local socket immediately so SOCKS / ssh-proxy readers observe
+	// EOF when a relay drops. Waiting only on bufferRunner used to hang forever
+	// when Conn was cleared first (or when no SendLocal had started the runner).
+	_ = conn.Close()
 }
 
 // Closed returns true if this has been closed

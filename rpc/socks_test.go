@@ -98,6 +98,30 @@ func TestSocksServerUDPConnClose(t *testing.T) {
 	}
 }
 
+func TestHandleUDPClosedConnectionIsQuiet(t *testing.T) {
+	appCfg := setupSocksTestConfig(t)
+	cm := NewClientManager(appCfg)
+	server, err := NewSocksServer(Config{EnableSocks: false, Addr: "127.0.0.1:0"}, cm)
+	if err != nil {
+		t.Fatalf("NewSocksServer: %v", err)
+	}
+	defer server.Close()
+
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("ListenPacket: %v", err)
+	}
+	_ = pc.Close()
+
+	err = server.handleUDP(pc, make([]byte, 2048))
+	if err == nil {
+		t.Fatal("expected ReadFrom error from closed packet conn")
+	}
+	if !errors.Is(err, net.ErrClosed) && !isClosedNetworkConnError(err) {
+		t.Fatalf("expected closed-network error, got %v", err)
+	}
+}
+
 func TestSocksServerDynamicToggle(t *testing.T) {
 	appCfg := setupSocksTestConfig(t)
 	cm := NewClientManager(appCfg)

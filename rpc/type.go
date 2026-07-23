@@ -8,6 +8,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"net"
 	"strings"
 	"sync"
 	"time"
@@ -149,13 +150,25 @@ func IsTransientRPCError(err error) bool {
 	if strings.Contains(msg, "broken pipe") {
 		return true
 	}
-	if strings.Contains(msg, "use of closed network connection") {
+	if isClosedNetworkConnError(err) {
 		return true
 	}
 	if strings.Contains(msg, "connection refused") {
 		return true
 	}
 	return false
+}
+
+// isClosedNetworkConnError reports the platform phrasing used when Read/Accept
+// wakes on a intentionally closed socket.
+func isClosedNetworkConnError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, net.ErrClosed) {
+		return true
+	}
+	return strings.Contains(strings.ToLower(err.Error()), "use of closed network connection")
 }
 
 // WindowSize returns the current blockquick window size

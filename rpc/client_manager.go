@@ -79,8 +79,8 @@ func NewClientManager(cfg *config.Config) *ClientManager {
 		Config:              cfg,
 		targetClients:       5,
 		portOpen2Handlers:   make(map[string]func(*edge.PortOpen2) error),
-		defaultClientsGroup:  &singleflight.Group{},
-		hostConnectRetries:   make(map[string]*hostConnectRetry),
+		defaultClientsGroup: &singleflight.Group{},
+		hostConnectRetries:  make(map[string]*hostConnectRetry),
 	}
 	if !config.AppConfig.LogDateTime {
 		cm.srv.DeadlockCallback = nil
@@ -680,12 +680,40 @@ func (cm *ClientManager) GetClientOrConnect(nodeID util.Address) (client *Client
 		serverObj.EdgePort = 41046
 	}
 
-	host := net.JoinHostPort(string(serverObj.Host), fmt.Sprintf("%d", serverObj.EdgePort))
+	// Prefer the configured diodeaddrs entry (DNS name) when this node ID is
+	// already known, so logs/backoff keys stay consistent with config-seeded
+	// clients instead of the network-object IP from GetNode.
+	host := cm.configuredRPCAddrForNode(nodeID)
+	if host == "" {
+		host = net.JoinHostPort(string(serverObj.Host), fmt.Sprintf("%d", serverObj.EdgePort))
+	}
 	client, err = cm.connect(nodeID, host)
 	if err != nil {
 		err = fmt.Errorf("couldn't connect to server: '%s' with error '%v'", host, err)
 	}
 	return
+}
+
+// configuredRPCAddrForNode returns the exact RemoteRPCAddrs entry for nodeID
+// when present (e.g. diode://0x…@eu1.prenet.diode.io:41046). Empty if unknown.
+func (cm *ClientManager) configuredRPCAddrForNode(nodeID util.Address) string {
+	if cm == nil || cm.Config == nil || nodeID == (util.Address{}) {
+		return ""
+	}
+	for _, addr := range cm.Config.RemoteRPCAddrs {
+		parsed, err := url.Parse(addr)
+		if err != nil || parsed.User == nil || parsed.User.Username() == "" {
+			continue
+		}
+		id, err := util.DecodeAddress(parsed.User.Username())
+		if err != nil {
+			continue
+		}
+		if id == nodeID {
+			return addr
+		}
+	}
+	return ""
 }
 
 func (cm *ClientManager) connect(nodeID util.Address, host string) (ret *Client, err error) {

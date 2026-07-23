@@ -961,6 +961,11 @@ func (socksServer *Server) Start() error {
 func (socksServer *Server) handleUDP(udpconn net.PacketConn, packet []byte) error {
 	n, addr, err := udpconn.ReadFrom(packet)
 	if err != nil {
+		// Closing the UDP socket during SOCKS shutdown (e.g. diode ssh exit)
+		// unblocks ReadFrom with a closed-connection error; treat like bind Accept.
+		if socksServer.Closed() || errors.Is(err, net.ErrClosed) || isClosedNetworkConnError(err) {
+			return err
+		}
 		socksServer.logger.Error("handleUDP error: %v", err)
 		return err
 	}
