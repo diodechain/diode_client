@@ -7,6 +7,8 @@ package config
 import (
 	"fmt"
 	"math"
+	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +19,7 @@ import (
 	"github.com/shirou/gopsutil/v4/load"
 	"github.com/shirou/gopsutil/v4/mem"
 	"github.com/shirou/gopsutil/v4/net"
+	"github.com/shirou/gopsutil/v4/process"
 )
 
 // logStatsProcessStart is set in init for accurate uptime in [STATS] lines.
@@ -102,6 +105,8 @@ func StartLogStats(cfg *Config) (stop func()) {
 		b.WriteString("[STATS]")
 		b.WriteString(formatUptimeField())
 		appendMem(&b, warn)
+		appendProcessMem(&b, warn)
+		appendRuntimeMem(&b)
 		appendCPU(&b, warn)
 		appendLoad(&b, warn)
 		appendDisk(cfg, &b, warn)
@@ -147,6 +152,37 @@ func appendMem(b *strings.Builder, warn func(error)) {
 	total := vm.Total / 1024 / 1024
 	usedPct := int(math.Round(vm.UsedPercent))
 	fmt.Fprintf(b, " mem_avail_mb=%d mem_total_mb=%d mem_used_pct=%d", avail, total, usedPct)
+}
+
+// appendProcessMem adds this process's RSS so container growth is visible in captured logs
+// without needing remote pprof collection.
+func appendProcessMem(b *strings.Builder, warn func(error)) {
+	p, err := process.NewProcess(int32(os.Getpid()))
+	if err != nil {
+		warn(err)
+		return
+	}
+	mi, err := p.MemoryInfo()
+	if err != nil {
+		warn(err)
+		return
+	}
+	fmt.Fprintf(b, " proc_rss_mb=%d", mi.RSS/1024/1024)
+}
+
+// appendRuntimeMem adds Go heap / stack / GC / goroutine counters for leak triage from logs.
+func appendRuntimeMem(b *strings.Builder) {
+	var ms runtime.MemStats
+	runtime.ReadMemStats(&ms)
+	fmt.Fprintf(b,
+		" heap_alloc_mb=%d heap_inuse_mb=%d heap_sys_mb=%d stack_inuse_mb=%d goroutines=%d num_gc=%d",
+		ms.HeapAlloc/1024/1024,
+		ms.HeapInuse/1024/1024,
+		ms.HeapSys/1024/1024,
+		ms.StackInuse/1024/1024,
+		runtime.NumGoroutine(),
+		ms.NumGC,
+	)
 }
 
 func appendCPU(b *strings.Builder, warn func(error)) {

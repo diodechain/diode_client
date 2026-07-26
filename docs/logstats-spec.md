@@ -42,12 +42,15 @@ This document is a **design spec**; behavior matches intent here once implemente
 
 All entries are prefixed with **`[STATS]`**. Prefer **one line per tick** (easy to grep) or a **small fixed set of lines** per tick; avoid unbounded cardinality.
 
-Focusing on **host / OS signals** operators care about (memory pressure, CPU, disk headroom, network activity), not Go runtime internals.
+Focusing on **host / OS signals** operators care about (memory pressure, CPU, disk headroom, network activity), plus **process and Go runtime memory** so captured logs can triage CLI RSS growth without remote pprof.
 
 | Metric | Notes |
 |--------|--------|
 | **Uptime** | Time since **process** start—cheap, no extra deps (`time.Since(start)`). **Always include** in the default `[STATS]` line. |
-| **Memory** | **Available** and **total** RAM (OS-level), and/or **used %**—surfaces pressure before OOM. |
+| **Host memory** | **Available** and **total** RAM (OS-level), and/or **used %**—surfaces host pressure before OOM. |
+| **Process RSS** | **`proc_rss_mb`** — this process’s resident set size (what containers typically kill on). |
+| **Go heap** | **`heap_alloc_mb`**, **`heap_inuse_mb`**, **`heap_sys_mb`**, **`stack_inuse_mb`** from `runtime.MemStats`. |
+| **Goroutines / GC** | **`goroutines`**, **`num_gc`** — rising goroutines often track connection/session leaks; `num_gc` shows GC is still running. |
 | **CPU** | **Percent** over the interval (process and/or system—document which). |
 | **Load average** | e.g. **1 / 5 / 15 minute** values where the OS exposes them. |
 | **Disk** | **Available** and **total** space on the filesystem for the volume containing **`-dbpath`**. |
@@ -58,10 +61,18 @@ Host metrics are typically gathered via **`gopsutil`** or equivalent OS APIs.
 **Formatting example (informative):**
 
 ```text
-[L] INFO [STATS] uptime=1h2m3s mem_avail_mb=1024 mem_total_mb=16384 mem_used_pct=42 cpu_pct=12.3 load1=0.45 load5=0.52 load15=0.48 disk_dbpath_avail_mb=50000 disk_dbpath_total_mb=512000 net_rx_bytes_delta=1250000 net_tx_bytes_delta=890000
+[L] INFO [STATS] uptime=1h2m3s mem_avail_mb=1024 mem_total_mb=16384 mem_used_pct=42 proc_rss_mb=57 heap_alloc_mb=18 heap_inuse_mb=22 heap_sys_mb=40 stack_inuse_mb=2 goroutines=84 num_gc=120 cpu_pct=12.3 load1=0.45 load5=0.52 load15=0.48 disk_dbpath_avail_mb=50000 disk_dbpath_total_mb=512000 net_rx_bytes_delta=1250000 net_tx_bytes_delta=890000
 ```
 
 Exact key names and units are implementation-defined; keep **stable** enough for scripts.
+
+**Leak triage from logs (informative):**
+
+| Pattern | Likely cause |
+|---------|----------------|
+| `proc_rss_mb` ↑ and `heap_alloc_mb` / `heap_inuse_mb` ↑ | Go object / cache retention |
+| `proc_rss_mb` ↑ and `goroutines` ↑ | goroutine / connection leak |
+| `proc_rss_mb` ↑ while Go heap + goroutines stay flat | CGo/OpenSSL, mmap, thread stacks, or OS retention outside Go heap |
 
 ---
 
