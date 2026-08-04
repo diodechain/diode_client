@@ -5,6 +5,7 @@ package config
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,6 +27,25 @@ func logToFileReady(cfg *Config) bool {
 	return (cfg.LogMode&LogToFile) > 0 && cfg.LogFilePath != ""
 }
 
+// zapFilePath formats a filesystem path for zap OutputPaths.
+// Zap treats OutputPaths as URLs; Windows drive letters (C:\...) become
+// schemes like "c" unless rewritten as file:// URLs.
+func zapFilePath(path string) string {
+	if path == "" {
+		return path
+	}
+	// Already a URI (file://, stdout, stderr, …).
+	if strings.Contains(path, "://") {
+		return path
+	}
+	if len(path) > 1 && path[1] == ':' {
+		// Drive-letter absolute path → file:///C:/...
+		slash := filepath.ToSlash(path)
+		return (&url.URL{Scheme: "file", Path: "/" + slash}).String()
+	}
+	return path
+}
+
 func newZapLoggerLegacy(cfg *Config) (logger *zap.Logger, err error) {
 	zapCfg := zap.NewProductionConfig()
 	if cfg.LogDateTime || cfg.Debug {
@@ -39,8 +59,9 @@ func newZapLoggerLegacy(cfg *Config) (logger *zap.Logger, err error) {
 		if err = os.MkdirAll(filepath.Dir(cfg.LogFilePath), 0700); err != nil {
 			return nil, err
 		}
-		zapCfg.OutputPaths = []string{cfg.LogFilePath}
-		zapCfg.ErrorOutputPaths = []string{cfg.LogFilePath}
+		sink := zapFilePath(cfg.LogFilePath)
+		zapCfg.OutputPaths = []string{sink}
+		zapCfg.ErrorOutputPaths = []string{sink}
 		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
 	} else {
 		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
