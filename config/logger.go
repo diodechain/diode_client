@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/diodechain/zap"
@@ -21,6 +22,18 @@ type Logger struct {
 	logger *zap.Logger
 }
 
+func logToFileReady(cfg *Config) bool {
+	return (cfg.LogMode&LogToFile) > 0 && cfg.LogFilePath != ""
+}
+
+func ensureLogFileParent(path string) error {
+	dir := filepath.Dir(path)
+	if dir == "" || dir == "." {
+		return nil
+	}
+	return os.MkdirAll(dir, 0700)
+}
+
 func newZapLoggerLegacy(cfg *Config) (logger *zap.Logger, err error) {
 	zapCfg := zap.NewProductionConfig()
 	if cfg.LogDateTime || cfg.Debug {
@@ -30,15 +43,13 @@ func newZapLoggerLegacy(cfg *Config) (logger *zap.Logger, err error) {
 	}
 	zapCfg.EncoderConfig.CallerKey = ""
 	zapCfg.DisableStacktrace = true
-	if (cfg.LogMode & LogToFile) > 0 {
-		_, err = os.Stat(cfg.LogFilePath)
-		if err == nil || os.IsExist(err) {
-			zapCfg.OutputPaths = []string{cfg.LogFilePath}
-			zapCfg.ErrorOutputPaths = []string{cfg.LogFilePath}
-			zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
-		} else {
-			zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
+	if logToFileReady(cfg) {
+		if err = ensureLogFileParent(cfg.LogFilePath); err != nil {
+			return nil, err
 		}
+		zapCfg.OutputPaths = []string{cfg.LogFilePath}
+		zapCfg.ErrorOutputPaths = []string{cfg.LogFilePath}
+		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
 	} else {
 		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
 	}
@@ -95,13 +106,8 @@ func buildEncoderConfigForTee(cfg *Config) zapcore.EncoderConfig {
 	}
 	zapCfg.EncoderConfig.CallerKey = ""
 	zapCfg.DisableStacktrace = true
-	if (cfg.LogMode & LogToFile) > 0 {
-		_, err := os.Stat(cfg.LogFilePath)
-		if err == nil || os.IsExist(err) {
-			zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
-		} else {
-			zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-		}
+	if logToFileReady(cfg) {
+		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
 	} else {
 		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
 	}

@@ -74,6 +74,36 @@ type sshLikeToolOptions struct {
 	validateLabel string
 }
 
+// isSSHLikeCommand reports whether name is a diode subcommand that bridges
+// OpenSSH over a temporary local client and should keep logs off the TTY.
+func isSSHLikeCommand(name string) bool {
+	return name == sshCommandName || name == scpCommandName
+}
+
+// maybeDefaultSSHLogPath returns util.DefaultSSHLogPath when cmd is ssh/scp
+// and logFilePath is unset; otherwise it returns empty string (no change).
+func maybeDefaultSSHLogPath(cmd, logFilePath string) string {
+	if logFilePath != "" || !isSSHLikeCommand(cmd) {
+		return ""
+	}
+	return util.DefaultSSHLogPath()
+}
+
+// printSSHFatal records a setup failure on the configured logger and, when
+// operational logs are file-only, also mirrors the message to stderr so
+// os.Exit does not leave a silent failure for the operator.
+func printSSHFatal(cfg *config.Config, label string, err error) {
+	cfg.PrintError(label, err)
+	if cfg == nil || (cfg.LogMode&config.LogToFile) == 0 {
+		return
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "%s: %v\n", label, err)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "%s\n", label)
+}
+
 // runSSHLikeTool runs an OpenSSH tool (ssh, scp) over a temporary local
 // SOCKS proxy that bridges into the Diode network, using an ephemeral
 // identity and a ProxyCommand that tunnels via `diode ssh-proxy`.
@@ -86,12 +116,12 @@ func runSSHLikeTool(opts sshLikeToolOptions) error {
 	cfg.Logger.Warn("%s command is still BETA, parameters may change", opts.commandName)
 
 	if err := app.Start(); err != nil {
-		cfg.PrintError("Could not start local Diode client", err)
+		printSSHFatal(cfg, "Could not start local Diode client", err)
 		os.Exit(1)
 	}
 	proxyAddr, cleanupProxy, err := startSSHLocalSocksProxy()
 	if err != nil {
-		cfg.PrintError("Could not start local Diode SOCKS proxy", err)
+		printSSHFatal(cfg, "Could not start local Diode SOCKS proxy", err)
 		os.Exit(1)
 	}
 	defer cleanupProxy()
@@ -99,7 +129,7 @@ func runSSHLikeTool(opts sshLikeToolOptions) error {
 
 	diodeExe, err := os.Executable()
 	if err != nil {
-		cfg.PrintError("Could not determine diode executable path", err)
+		printSSHFatal(cfg, "Could not determine diode executable path", err)
 		os.Exit(1)
 	}
 
@@ -113,7 +143,7 @@ func runSSHLikeTool(opts sshLikeToolOptions) error {
 	}
 	if cmdIndex == -1 {
 		msg := fmt.Sprintf("%s command not found", opts.commandName)
-		cfg.PrintError(msg, errors.New(msg))
+		printSSHFatal(cfg, msg, errors.New(msg))
 		os.Exit(1)
 	}
 	passArgs := normalizeSSHArgs(os_args[cmdIndex+1:])
@@ -124,21 +154,21 @@ func runSSHLikeTool(opts sshLikeToolOptions) error {
 			if label == "" {
 				label = fmt.Sprintf("Invalid %s argument", opts.commandName)
 			}
-			cfg.PrintError(label, err)
+			printSSHFatal(cfg, label, err)
 			os.Exit(1)
 		}
 	}
 
 	identityFile, cleanup, err := createEphemeralSSHIdentity()
 	if err != nil {
-		cfg.PrintError("Could not create ephemeral ssh identity", err)
+		printSSHFatal(cfg, "Could not create ephemeral ssh identity", err)
 		os.Exit(1)
 	}
 	defer cleanup()
 
 	toolPath, err := findOpenSSHTool(toolName)
 	if err != nil {
-		cfg.PrintError(fmt.Sprintf("%s not found", toolName), err)
+		printSSHFatal(cfg, fmt.Sprintf("%s not found", toolName), err)
 		os.Exit(1)
 	}
 
@@ -154,7 +184,7 @@ func runSSHLikeTool(opts sshLikeToolOptions) error {
 		if errors.As(err, &exitErr) {
 			os.Exit(exitErr.ExitCode())
 		}
-		cfg.PrintError(fmt.Sprintf("Could not execute %s", toolName), err)
+		printSSHFatal(cfg, fmt.Sprintf("Could not execute %s", toolName), err)
 		os.Exit(1)
 	}
 	return nil

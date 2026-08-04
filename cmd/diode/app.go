@@ -32,8 +32,6 @@ var (
 	diodeCmd = command.Command{
 		Name:     "diode",
 		HelpText: " Diode network command line interface",
-		PreRun:   prepareDiode,
-		PostRun:  cleanDiode,
 	}
 	bootDiodeAddrs = [6]string{
 		"diode://0xceca2f8cf1983b4cf0c1ba51fd382c2bc37aba58@us1.prenet.diode.io:41046",
@@ -46,6 +44,11 @@ var (
 )
 
 func init() {
+	// Assign hooks after diodeCmd exists so prepareDiode can read Flag.Arg without
+	// an package-init cycle (diodeCmd → prepareDiode → diodeCmd).
+	diodeCmd.PreRun = prepareDiode
+	diodeCmd.PostRun = cleanDiode
+
 	cfg := &config.Config{ChainID: config.DefaultChainID}
 	diodeCmd.Flag.StringVar(&cfg.DBPath, "dbpath", util.DefaultDBPath(), "file path to db file")
 	diodeCmd.Flag.IntVar(&cfg.RetryTimes, "retrytimes", 3, "retry times to connect the remote rpc server")
@@ -107,6 +110,12 @@ func prepareDiode() error {
 				cfg.LoadFromFile = true
 			}
 		}
+	}
+
+	// ssh/scp share a TTY with OpenSSH; keep diode operational logs off the console
+	// unless the operator explicitly chose a log file path.
+	if path := maybeDefaultSSHLogPath(diodeCmd.Flag.Arg(0), cfg.LogFilePath); path != "" {
+		cfg.LogFilePath = path
 	}
 
 	if len(cfg.LogFilePath) > 0 {

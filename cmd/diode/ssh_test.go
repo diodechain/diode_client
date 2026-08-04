@@ -6,12 +6,14 @@ package main
 import (
 	"errors"
 	"net"
+	"path"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/rpc"
+	"github.com/diodechain/diode_client/util"
 )
 
 // Regression: SSH must listen on an ephemeral port, not shared 127.0.0.1:1080 (see rpc/socks.go).
@@ -208,5 +210,42 @@ func TestFindOpenSSHToolWindowsInstallHelp(t *testing.T) {
 				t.Fatalf("expected %q in error %q", part, err.Error())
 			}
 		}
+	}
+}
+
+func TestIsSSHLikeCommand(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		want bool
+	}{
+		{"ssh", true},
+		{"scp", true},
+		{"ssh-proxy", false},
+		{"socksd", false},
+		{"", false},
+	} {
+		if got := isSSHLikeCommand(tc.name); got != tc.want {
+			t.Fatalf("isSSHLikeCommand(%q) = %v, want %v", tc.name, got, tc.want)
+		}
+	}
+}
+
+func TestMaybeDefaultSSHLogPath(t *testing.T) {
+	wantDefault := util.DefaultSSHLogPath()
+	if !strings.HasSuffix(wantDefault, path.Join("diode", "ssh.log")) {
+		t.Fatalf("util.DefaultSSHLogPath() = %q, unexpected shape", wantDefault)
+	}
+
+	if got := maybeDefaultSSHLogPath("ssh", ""); got != wantDefault {
+		t.Fatalf("maybeDefaultSSHLogPath(ssh, \"\") = %q, want %q", got, wantDefault)
+	}
+	if got := maybeDefaultSSHLogPath("scp", ""); got != wantDefault {
+		t.Fatalf("maybeDefaultSSHLogPath(scp, \"\") = %q, want %q", got, wantDefault)
+	}
+	if got := maybeDefaultSSHLogPath("ssh", "/explicit/path.log"); got != "" {
+		t.Fatalf("maybeDefaultSSHLogPath with explicit path = %q, want empty", got)
+	}
+	if got := maybeDefaultSSHLogPath("socksd", ""); got != "" {
+		t.Fatalf("maybeDefaultSSHLogPath(socksd, \"\") = %q, want empty", got)
 	}
 }
