@@ -6,6 +6,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/diodechain/zap"
@@ -19,89 +20,37 @@ const (
 // Logger represent log service for client
 type Logger struct {
 	logger *zap.Logger
+	// file is set when logging to a local path; retained so Close can release
+	// the handle (needed on Windows so temp dirs can delete the log file).
+	file *os.File
 }
 
-func newZapLoggerLegacy(cfg *Config) (logger *zap.Logger, err error) {
-	zapCfg := zap.NewProductionConfig()
-	if cfg.LogDateTime || cfg.Debug {
-		zapCfg.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
-	} else {
-		zapCfg.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
-	}
-	zapCfg.EncoderConfig.CallerKey = ""
-	zapCfg.DisableStacktrace = true
-	if (cfg.LogMode & LogToFile) > 0 {
-		_, err = os.Stat(cfg.LogFilePath)
-		if err == nil || os.IsExist(err) {
-			zapCfg.OutputPaths = []string{cfg.LogFilePath}
-			zapCfg.ErrorOutputPaths = []string{cfg.LogFilePath}
-			zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
-		} else {
-			zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-		}
-	} else {
-		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-	}
-	if !cfg.LogDateTime {
-		zapCfg.EncoderConfig.TimeKey = ""
-	} else {
-		zapCfg.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(termDatetimeTempl)
-	}
-	zapCfg.Sampling = nil
-	zapCfg.Encoding = "consoleraw"
-	zapCfg.EncoderConfig.ConsoleSeparator = " "
-	zapCfg.EncoderConfig.LevelKey = "[L]"
-	return zapCfg.Build()
+func logToFileReady(cfg *Config) bool {
+	return (cfg.LogMode&LogToFile) > 0 && cfg.LogFilePath != ""
 }
 
-func newZapLogger(cfg *Config) (logger *zap.Logger, err error) {
-	var remote zapcore.WriteSyncer
-	if cfg.LogTargetRemote != nil {
-		if ws, ok := cfg.LogTargetRemote.(zapcore.WriteSyncer); ok {
-			remote = ws
-		}
-	}
-	if remote == nil {
-		return newZapLoggerLegacy(cfg)
-	}
-
-	// Tee: build primary the same way as legacy, then add a second core for remote.
-	primary, err := newZapLoggerLegacy(cfg)
-	if err != nil {
+func openLogFile(path string) (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
 		return nil, err
 	}
-	// Extract the single core from the legacy logger (zap always has at least one).
-	cores := primary.Core()
-	encCfg := buildEncoderConfigForTee(cfg)
-	level := levelEnablerForTee(cfg)
-	encR := zapcore.NewConsoleEncoder(encCfg)
-	remoteCore := zapcore.NewCore(encR, remote, level)
-	return zap.New(zapcore.NewTee(cores, remoteCore)), nil
+	// Open the path with os.OpenFile rather than zap OutputPaths: zap parses
+	// OutputPaths as URLs, so Windows drive letters (C:\...) break as schemes.
+	return os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 }
 
-func levelEnablerForTee(cfg *Config) zapcore.LevelEnabler {
+func loggerLevel(cfg *Config) zap.AtomicLevel {
 	if cfg.LogDateTime || cfg.Debug {
 		return zap.NewAtomicLevelAt(zap.DebugLevel)
 	}
 	return zap.NewAtomicLevelAt(zap.InfoLevel)
 }
 
-func buildEncoderConfigForTee(cfg *Config) zapcore.EncoderConfig {
+func loggerEncoderConfig(cfg *Config) zapcore.EncoderConfig {
 	zapCfg := zap.NewProductionConfig()
-	if cfg.LogDateTime || cfg.Debug {
-		zapCfg.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
-	} else {
-		zapCfg.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
-	}
 	zapCfg.EncoderConfig.CallerKey = ""
 	zapCfg.DisableStacktrace = true
-	if (cfg.LogMode & LogToFile) > 0 {
-		_, err := os.Stat(cfg.LogFilePath)
-		if err == nil || os.IsExist(err) {
-			zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
-		} else {
-			zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-		}
+	if logToFileReady(cfg) {
+		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
 	} else {
 		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
 	}
@@ -115,19 +64,86 @@ func buildEncoderConfigForTee(cfg *Config) zapcore.EncoderConfig {
 	return zapCfg.EncoderConfig
 }
 
+func newZapLoggerLegacy(cfg *Config) (logger *zap.Logger, file *os.File, err error) {
+	level := loggerLevel(cfg)
+	encCfg := loggerEncoderConfig(cfg)
+
+	if logToFileReady(cfg) {
+		file, err = openLogFile(cfg.LogFilePath)
+		if err != nil {
+			return nil, nil, err
+		}
+		core := zapcore.NewCore(zapcore.NewConsoleEncoder(encCfg), zapcore.AddSync(file), level)
+		return zap.New(core), file, nil
+	}
+
+	zapCfg := zap.NewProductionConfig()
+	zapCfg.Level = level
+	zapCfg.EncoderConfig = encCfg
+	zapCfg.DisableStacktrace = true
+	zapCfg.Sampling = nil
+	zapCfg.Encoding = "consoleraw"
+	logger, err = zapCfg.Build()
+	return logger, nil, err
+}
+
+func newZapLogger(cfg *Config) (logger *zap.Logger, file *os.File, err error) {
+	var remote zapcore.WriteSyncer
+	if cfg.LogTargetRemote != nil {
+		if ws, ok := cfg.LogTargetRemote.(zapcore.WriteSyncer); ok {
+			remote = ws
+		}
+	}
+	if remote == nil {
+		return newZapLoggerLegacy(cfg)
+	}
+
+	// Tee: build primary the same way as legacy, then add a second core for remote.
+	primary, file, err := newZapLoggerLegacy(cfg)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Extract the single core from the legacy logger (zap always has at least one).
+	cores := primary.Core()
+	encCfg := loggerEncoderConfig(cfg)
+	level := loggerLevel(cfg)
+	encR := zapcore.NewConsoleEncoder(encCfg)
+	remoteCore := zapcore.NewCore(encR, remote, level)
+	return zap.New(zapcore.NewTee(cores, remoteCore)), file, nil
+}
+
 // NewLogger initialize logger with given config
 func NewLogger(cfg *Config) (l Logger, err error) {
-	l.logger, err = newZapLogger(cfg)
+	l.logger, l.file, err = newZapLogger(cfg)
 	return
+}
+
+// Close flushes and releases an underlying log file, if any.
+func (l *Logger) Close() error {
+	if l == nil {
+		return nil
+	}
+	if l.logger != nil {
+		_ = l.logger.Sync()
+	}
+	if l.file == nil {
+		return nil
+	}
+	err := l.file.Close()
+	l.file = nil
+	return err
 }
 
 // ReloadLogger replaces cfg.Logger using current cfg (e.g. after LogTargetRemote is set).
 func ReloadLogger(cfg *Config) error {
-	logger, err := newZapLogger(cfg)
+	logger, file, err := newZapLogger(cfg)
 	if err != nil {
 		return err
 	}
-	cfg.Logger = &Logger{logger: logger}
+	if cfg.Logger != nil {
+		_ = cfg.Logger.Close()
+	}
+	cfg.Logger = &Logger{logger: logger, file: file}
 	return nil
 }
 
