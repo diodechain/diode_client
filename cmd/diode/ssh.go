@@ -75,12 +75,32 @@ type sshLikeToolOptions struct {
 }
 
 // maybeDefaultSSHLogPath returns util.DefaultSSHLogPath for diode ssh/scp when
-// logFilePath is unset so operational logs stay off the shared OpenSSH TTY.
+// logFilePath is unset so operational logs can be deferred off the OpenSSH TTY.
 func maybeDefaultSSHLogPath(cmd, logFilePath string) string {
 	if logFilePath != "" || (cmd != sshCommandName && cmd != scpCommandName) {
 		return ""
 	}
 	return util.DefaultSSHLogPath()
+}
+
+// sshDeferredLogPath is set in prepareDiode for ssh/scp when using the default
+// log file: stay on console for initiation lines, then applySSHLogRedirect
+// switches logging to the file before OpenSSH takes the TTY.
+var sshDeferredLogPath string
+
+// applySSHLogRedirect moves diode logs from console to the deferred default file
+// after initiation output. No-op when the path is empty (explicit -logfilepath
+// or non-ssh). The redirect notice is printed on the still-active console logger.
+func applySSHLogRedirect(cfg *config.Config) error {
+	path := sshDeferredLogPath
+	if path == "" {
+		return nil
+	}
+	sshDeferredLogPath = ""
+	cfg.PrintInfo(fmt.Sprintf("Redirecting diode log to %s", path))
+	cfg.LogFilePath = path
+	cfg.LogMode = config.LogToFile
+	return config.ReloadLogger(cfg)
 }
 
 // printSSHFatal records a setup failure and, when logs are file-only, also
@@ -162,6 +182,12 @@ func runSSHLikeTool(opts sshLikeToolOptions) error {
 	toolPath, err := findOpenSSHTool(toolName)
 	if err != nil {
 		printSSHFatal(cfg, fmt.Sprintf("%s not found", toolName), err)
+		os.Exit(1)
+	}
+
+	// Hand the TTY to OpenSSH next; send further diode operational logs to file.
+	if err := applySSHLogRedirect(cfg); err != nil {
+		printSSHFatal(cfg, "Could not redirect diode log", err)
 		os.Exit(1)
 	}
 

@@ -112,11 +112,9 @@ func prepareDiode() error {
 		}
 	}
 
-	// ssh/scp share a TTY with OpenSSH; keep diode operational logs off the console
-	// unless the operator explicitly chose a log file path.
-	if path := maybeDefaultSSHLogPath(diodeCmd.Flag.Arg(0), cfg.LogFilePath); path != "" {
-		cfg.LogFilePath = path
-	}
+	// For ssh/scp without an explicit log file, defer file logging until after
+	// client initiation lines have printed (see applySSHLogRedirect).
+	sshDeferredLogPath = maybeDefaultSSHLogPath(diodeCmd.Flag.Arg(0), cfg.LogFilePath)
 
 	if len(cfg.LogFilePath) > 0 {
 		cfg.LogMode = config.LogToFile

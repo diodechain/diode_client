@@ -6,6 +6,8 @@ package main
 import (
 	"errors"
 	"net"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -229,5 +231,69 @@ func TestMaybeDefaultSSHLogPath(t *testing.T) {
 	}
 	if got := maybeDefaultSSHLogPath("ssh-proxy", ""); got != "" {
 		t.Fatalf("maybeDefaultSSHLogPath(ssh-proxy, \"\") = %q, want empty", got)
+	}
+}
+
+func TestApplySSHLogRedirect(t *testing.T) {
+	origCfg := config.AppConfig
+	origDeferred := sshDeferredLogPath
+	t.Cleanup(func() {
+		if config.AppConfig != nil && config.AppConfig.Logger != nil {
+			_ = config.AppConfig.Logger.Close()
+		}
+		config.AppConfig = origCfg
+		sshDeferredLogPath = origDeferred
+	})
+
+	// No pending path: leave console mode alone.
+	sshDeferredLogPath = ""
+	cfg := &config.Config{LogMode: config.LogToConsole}
+	logger, err := config.NewLogger(cfg)
+	if err != nil {
+		t.Fatalf("NewLogger: %v", err)
+	}
+	cfg.Logger = &logger
+	config.AppConfig = cfg
+	if err := applySSHLogRedirect(cfg); err != nil {
+		t.Fatalf("applySSHLogRedirect empty: %v", err)
+	}
+	if cfg.LogMode != config.LogToConsole || cfg.LogFilePath != "" {
+		t.Fatalf("empty defer should not change log mode; mode=%d path=%q", cfg.LogMode, cfg.LogFilePath)
+	}
+
+	// Deferred path: print notice (logged), switch to file, clear deferred slot.
+	logPath := filepath.Join(t.TempDir(), "ssh.log")
+	sshDeferredLogPath = logPath
+	cfg2 := &config.Config{LogMode: config.LogToConsole}
+	logger2, err := config.NewLogger(cfg2)
+	if err != nil {
+		t.Fatalf("NewLogger2: %v", err)
+	}
+	cfg2.Logger = &logger2
+	config.AppConfig = cfg2
+	if err := applySSHLogRedirect(cfg2); err != nil {
+		t.Fatalf("applySSHLogRedirect: %v", err)
+	}
+	t.Cleanup(func() { _ = cfg2.Logger.Close() })
+	if sshDeferredLogPath != "" {
+		t.Fatalf("deferred path should be cleared, got %q", sshDeferredLogPath)
+	}
+	if cfg2.LogMode != config.LogToFile || cfg2.LogFilePath != logPath {
+		t.Fatalf("want file mode at %q, got mode=%d path=%q", logPath, cfg2.LogMode, cfg2.LogFilePath)
+	}
+	// Second call is no-op.
+	if err := applySSHLogRedirect(cfg2); err != nil {
+		t.Fatalf("second apply: %v", err)
+	}
+	cfg2.Logger.Info("after-redirect")
+	if err := cfg2.Logger.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	data, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if !strings.Contains(string(data), "after-redirect") {
+		t.Fatalf("expected log file contents, got %q", data)
 	}
 }
