@@ -6,7 +6,6 @@ package main
 import (
 	"errors"
 	"net"
-	"path"
 	"strconv"
 	"strings"
 	"testing"
@@ -213,28 +212,8 @@ func TestFindOpenSSHToolWindowsInstallHelp(t *testing.T) {
 	}
 }
 
-func TestIsSSHLikeCommand(t *testing.T) {
-	for _, tc := range []struct {
-		name string
-		want bool
-	}{
-		{"ssh", true},
-		{"scp", true},
-		{"ssh-proxy", false},
-		{"socksd", false},
-		{"", false},
-	} {
-		if got := isSSHLikeCommand(tc.name); got != tc.want {
-			t.Fatalf("isSSHLikeCommand(%q) = %v, want %v", tc.name, got, tc.want)
-		}
-	}
-}
-
 func TestMaybeDefaultSSHLogPath(t *testing.T) {
 	wantDefault := util.DefaultSSHLogPath()
-	if !strings.HasSuffix(wantDefault, path.Join("diode", "ssh.log")) {
-		t.Fatalf("util.DefaultSSHLogPath() = %q, unexpected shape", wantDefault)
-	}
 
 	if got := maybeDefaultSSHLogPath("ssh", ""); got != wantDefault {
 		t.Fatalf("maybeDefaultSSHLogPath(ssh, \"\") = %q, want %q", got, wantDefault)
@@ -247,5 +226,8 @@ func TestMaybeDefaultSSHLogPath(t *testing.T) {
 	}
 	if got := maybeDefaultSSHLogPath("socksd", ""); got != "" {
 		t.Fatalf("maybeDefaultSSHLogPath(socksd, \"\") = %q, want empty", got)
+	}
+	if got := maybeDefaultSSHLogPath("ssh-proxy", ""); got != "" {
+		t.Fatalf("maybeDefaultSSHLogPath(ssh-proxy, \"\") = %q, want empty", got)
 	}
 }

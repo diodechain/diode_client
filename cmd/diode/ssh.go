@@ -74,27 +74,20 @@ type sshLikeToolOptions struct {
 	validateLabel string
 }
 
-// isSSHLikeCommand reports whether name is a diode subcommand that bridges
-// OpenSSH over a temporary local client and should keep logs off the TTY.
-func isSSHLikeCommand(name string) bool {
-	return name == sshCommandName || name == scpCommandName
-}
-
-// maybeDefaultSSHLogPath returns util.DefaultSSHLogPath when cmd is ssh/scp
-// and logFilePath is unset; otherwise it returns empty string (no change).
+// maybeDefaultSSHLogPath returns util.DefaultSSHLogPath for diode ssh/scp when
+// logFilePath is unset so operational logs stay off the shared OpenSSH TTY.
 func maybeDefaultSSHLogPath(cmd, logFilePath string) string {
-	if logFilePath != "" || !isSSHLikeCommand(cmd) {
+	if logFilePath != "" || (cmd != sshCommandName && cmd != scpCommandName) {
 		return ""
 	}
 	return util.DefaultSSHLogPath()
 }
 
-// printSSHFatal records a setup failure on the configured logger and, when
-// operational logs are file-only, also mirrors the message to stderr so
-// os.Exit does not leave a silent failure for the operator.
+// printSSHFatal records a setup failure and, when logs are file-only, also
+// mirrors to stderr so os.Exit is not silent for the operator.
 func printSSHFatal(cfg *config.Config, label string, err error) {
 	cfg.PrintError(label, err)
-	if cfg == nil || (cfg.LogMode&config.LogToFile) == 0 {
+	if (cfg.LogMode & config.LogToFile) == 0 {
 		return
 	}
 	if err != nil {

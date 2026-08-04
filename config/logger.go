@@ -26,14 +26,6 @@ func logToFileReady(cfg *Config) bool {
 	return (cfg.LogMode&LogToFile) > 0 && cfg.LogFilePath != ""
 }
 
-func ensureLogFileParent(path string) error {
-	dir := filepath.Dir(path)
-	if dir == "" || dir == "." {
-		return nil
-	}
-	return os.MkdirAll(dir, 0700)
-}
-
 func newZapLoggerLegacy(cfg *Config) (logger *zap.Logger, err error) {
 	zapCfg := zap.NewProductionConfig()
 	if cfg.LogDateTime || cfg.Debug {
@@ -44,7 +36,7 @@ func newZapLoggerLegacy(cfg *Config) (logger *zap.Logger, err error) {
 	zapCfg.EncoderConfig.CallerKey = ""
 	zapCfg.DisableStacktrace = true
 	if logToFileReady(cfg) {
-		if err = ensureLogFileParent(cfg.LogFilePath); err != nil {
+		if err = os.MkdirAll(filepath.Dir(cfg.LogFilePath), 0700); err != nil {
 			return nil, err
 		}
 		zapCfg.OutputPaths = []string{cfg.LogFilePath}
