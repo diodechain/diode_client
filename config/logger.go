@@ -20,6 +20,9 @@ const (
 // Logger represent log service for client
 type Logger struct {
 	logger *zap.Logger
+	// file is set when logging to a local path; retained so Close can release
+	// the handle (needed on Windows so temp dirs can delete the log file).
+	file *os.File
 }
 
 func logToFileReady(cfg *Config) bool {
@@ -61,17 +64,17 @@ func loggerEncoderConfig(cfg *Config) zapcore.EncoderConfig {
 	return zapCfg.EncoderConfig
 }
 
-func newZapLoggerLegacy(cfg *Config) (logger *zap.Logger, err error) {
+func newZapLoggerLegacy(cfg *Config) (logger *zap.Logger, file *os.File, err error) {
 	level := loggerLevel(cfg)
 	encCfg := loggerEncoderConfig(cfg)
 
 	if logToFileReady(cfg) {
-		f, err := openLogFile(cfg.LogFilePath)
+		file, err = openLogFile(cfg.LogFilePath)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		core := zapcore.NewCore(zapcore.NewConsoleEncoder(encCfg), zapcore.AddSync(f), level)
-		return zap.New(core), nil
+		core := zapcore.NewCore(zapcore.NewConsoleEncoder(encCfg), zapcore.AddSync(file), level)
+		return zap.New(core), file, nil
 	}
 
 	zapCfg := zap.NewProductionConfig()
@@ -80,10 +83,11 @@ func newZapLoggerLegacy(cfg *Config) (logger *zap.Logger, err error) {
 	zapCfg.DisableStacktrace = true
 	zapCfg.Sampling = nil
 	zapCfg.Encoding = "consoleraw"
-	return zapCfg.Build()
+	logger, err = zapCfg.Build()
+	return logger, nil, err
 }
 
-func newZapLogger(cfg *Config) (logger *zap.Logger, err error) {
+func newZapLogger(cfg *Config) (logger *zap.Logger, file *os.File, err error) {
 	var remote zapcore.WriteSyncer
 	if cfg.LogTargetRemote != nil {
 		if ws, ok := cfg.LogTargetRemote.(zapcore.WriteSyncer); ok {
@@ -95,9 +99,9 @@ func newZapLogger(cfg *Config) (logger *zap.Logger, err error) {
 	}
 
 	// Tee: build primary the same way as legacy, then add a second core for remote.
-	primary, err := newZapLoggerLegacy(cfg)
+	primary, file, err := newZapLoggerLegacy(cfg)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	// Extract the single core from the legacy logger (zap always has at least one).
 	cores := primary.Core()
@@ -105,22 +109,41 @@ func newZapLogger(cfg *Config) (logger *zap.Logger, err error) {
 	level := loggerLevel(cfg)
 	encR := zapcore.NewConsoleEncoder(encCfg)
 	remoteCore := zapcore.NewCore(encR, remote, level)
-	return zap.New(zapcore.NewTee(cores, remoteCore)), nil
+	return zap.New(zapcore.NewTee(cores, remoteCore)), file, nil
 }
 
 // NewLogger initialize logger with given config
 func NewLogger(cfg *Config) (l Logger, err error) {
-	l.logger, err = newZapLogger(cfg)
+	l.logger, l.file, err = newZapLogger(cfg)
 	return
+}
+
+// Close flushes and releases an underlying log file, if any.
+func (l *Logger) Close() error {
+	if l == nil {
+		return nil
+	}
+	if l.logger != nil {
+		_ = l.logger.Sync()
+	}
+	if l.file == nil {
+		return nil
+	}
+	err := l.file.Close()
+	l.file = nil
+	return err
 }
 
 // ReloadLogger replaces cfg.Logger using current cfg (e.g. after LogTargetRemote is set).
 func ReloadLogger(cfg *Config) error {
-	logger, err := newZapLogger(cfg)
+	logger, file, err := newZapLogger(cfg)
 	if err != nil {
 		return err
 	}
-	cfg.Logger = &Logger{logger: logger}
+	if cfg.Logger != nil {
+		_ = cfg.Logger.Close()
+	}
+	cfg.Logger = &Logger{logger: logger, file: file}
 	return nil
 }
 

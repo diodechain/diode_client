@@ -28,6 +28,7 @@ func TestNewLoggerCreatesMissingLogFile(t *testing.T) {
 		t.Fatalf("NewLogger(): %v", err)
 	}
 	cfg.Logger = &logger
+	t.Cleanup(func() { _ = cfg.Logger.Close() })
 
 	marker := "logger-file-create-test-marker"
 	cfg.Logger.Info("%s", marker)
@@ -39,6 +40,10 @@ func TestNewLoggerCreatesMissingLogFile(t *testing.T) {
 	}
 	if !strings.Contains(string(data), marker) {
 		t.Fatalf("log file missing marker %q; contents=%q", marker, data)
+	}
+	// Close before TempDir cleanup (Windows cannot delete open files).
+	if err := cfg.Logger.Close(); err != nil {
+		t.Fatalf("Close(): %v", err)
 	}
 }
 
@@ -53,9 +58,13 @@ func TestNewLoggerAcceptsDrivePath(t *testing.T) {
 		t.Fatalf("NewLogger on absolute path %q: %v", logPath, err)
 	}
 	cfg.Logger = &logger
+	t.Cleanup(func() { _ = cfg.Logger.Close() })
 	cfg.Logger.Info("drive-path-ok")
 	_ = cfg.Logger.logger.Sync()
 	if _, err := os.Stat(logPath); err != nil {
 		t.Fatalf("log not created at %q: %v", logPath, err)
+	}
+	if err := cfg.Logger.Close(); err != nil {
+		t.Fatalf("Close(): %v", err)
 	}
 }
