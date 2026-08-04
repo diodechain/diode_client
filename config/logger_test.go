@@ -7,31 +7,9 @@ package config
 import (
 	"os"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
 )
-
-func TestZapFilePathWindowsDrive(t *testing.T) {
-	got := zapFilePath(`D:\a\_temp\client.log`)
-	if !strings.HasPrefix(got, "file:///") {
-		t.Fatalf("zapFilePath(drive) = %q, want file:/// prefix", got)
-	}
-	if !strings.Contains(strings.ToUpper(got), "D:") {
-		t.Fatalf("zapFilePath(drive) = %q, want drive letter in path", got)
-	}
-	// Must not leave bare D: as a URL scheme.
-	if strings.HasPrefix(got, "D:") || strings.HasPrefix(got, "d:") {
-		t.Fatalf("zapFilePath left bare drive path: %q", got)
-	}
-}
-
-func TestZapFilePathUnixUnchanged(t *testing.T) {
-	got := zapFilePath("/tmp/diode/ssh.log")
-	if got != "/tmp/diode/ssh.log" {
-		t.Fatalf("zapFilePath(unix) = %q, want unchanged", got)
-	}
-}
 
 func TestNewLoggerCreatesMissingLogFile(t *testing.T) {
 	dir := t.TempDir()
@@ -64,26 +42,20 @@ func TestNewLoggerCreatesMissingLogFile(t *testing.T) {
 	}
 }
 
-func TestNewLoggerAcceptsWindowsStylePath(t *testing.T) {
-	// Regression for zap parsing drive letters as URI schemes.
-	if runtime.GOOS != "windows" {
-		sink := zapFilePath(`C:\Users\test\diode\ssh.log`)
-		if !strings.HasPrefix(sink, "file:///") {
-			t.Fatalf("expected file URL on drive path, got %q", sink)
-		}
-		return
-	}
+func TestNewLoggerAcceptsDrivePath(t *testing.T) {
+	// Absolute TempDir paths use drive letters on Windows; openLogFile must not
+	// route them through zap OutputPaths URL parsing.
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "ssh.log")
 	cfg := &Config{LogMode: LogToFile, LogFilePath: logPath}
 	logger, err := NewLogger(cfg)
 	if err != nil {
-		t.Fatalf("NewLogger on Windows path: %v", err)
+		t.Fatalf("NewLogger on absolute path %q: %v", logPath, err)
 	}
 	cfg.Logger = &logger
-	cfg.Logger.Info("windows-log-ok")
+	cfg.Logger.Info("drive-path-ok")
 	_ = cfg.Logger.logger.Sync()
 	if _, err := os.Stat(logPath); err != nil {
-		t.Fatalf("log not created: %v", err)
+		t.Fatalf("log not created at %q: %v", logPath, err)
 	}
 }

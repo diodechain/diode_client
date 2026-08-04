@@ -5,7 +5,6 @@ package config
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,41 +26,27 @@ func logToFileReady(cfg *Config) bool {
 	return (cfg.LogMode&LogToFile) > 0 && cfg.LogFilePath != ""
 }
 
-// zapFilePath formats a filesystem path for zap OutputPaths.
-// Zap treats OutputPaths as URLs; Windows drive letters (C:\...) become
-// schemes like "c" unless rewritten as file:// URLs.
-func zapFilePath(path string) string {
-	if path == "" {
-		return path
+func openLogFile(path string) (*os.File, error) {
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return nil, err
 	}
-	// Already a URI (file://, stdout, stderr, …).
-	if strings.Contains(path, "://") {
-		return path
-	}
-	if len(path) > 1 && path[1] == ':' {
-		// Drive-letter absolute path → file:///C:/...
-		slash := filepath.ToSlash(path)
-		return (&url.URL{Scheme: "file", Path: "/" + slash}).String()
-	}
-	return path
+	// Open the path with os.OpenFile rather than zap OutputPaths: zap parses
+	// OutputPaths as URLs, so Windows drive letters (C:\...) break as schemes.
+	return os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 }
 
-func newZapLoggerLegacy(cfg *Config) (logger *zap.Logger, err error) {
-	zapCfg := zap.NewProductionConfig()
+func loggerLevel(cfg *Config) zap.AtomicLevel {
 	if cfg.LogDateTime || cfg.Debug {
-		zapCfg.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
-	} else {
-		zapCfg.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
+		return zap.NewAtomicLevelAt(zap.DebugLevel)
 	}
+	return zap.NewAtomicLevelAt(zap.InfoLevel)
+}
+
+func loggerEncoderConfig(cfg *Config) zapcore.EncoderConfig {
+	zapCfg := zap.NewProductionConfig()
 	zapCfg.EncoderConfig.CallerKey = ""
 	zapCfg.DisableStacktrace = true
 	if logToFileReady(cfg) {
-		if err = os.MkdirAll(filepath.Dir(cfg.LogFilePath), 0700); err != nil {
-			return nil, err
-		}
-		sink := zapFilePath(cfg.LogFilePath)
-		zapCfg.OutputPaths = []string{sink}
-		zapCfg.ErrorOutputPaths = []string{sink}
 		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
 	} else {
 		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
@@ -71,10 +56,30 @@ func newZapLoggerLegacy(cfg *Config) (logger *zap.Logger, err error) {
 	} else {
 		zapCfg.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(termDatetimeTempl)
 	}
-	zapCfg.Sampling = nil
-	zapCfg.Encoding = "consoleraw"
 	zapCfg.EncoderConfig.ConsoleSeparator = " "
 	zapCfg.EncoderConfig.LevelKey = "[L]"
+	return zapCfg.EncoderConfig
+}
+
+func newZapLoggerLegacy(cfg *Config) (logger *zap.Logger, err error) {
+	level := loggerLevel(cfg)
+	encCfg := loggerEncoderConfig(cfg)
+
+	if logToFileReady(cfg) {
+		f, err := openLogFile(cfg.LogFilePath)
+		if err != nil {
+			return nil, err
+		}
+		core := zapcore.NewCore(zapcore.NewConsoleEncoder(encCfg), zapcore.AddSync(f), level)
+		return zap.New(core), nil
+	}
+
+	zapCfg := zap.NewProductionConfig()
+	zapCfg.Level = level
+	zapCfg.EncoderConfig = encCfg
+	zapCfg.DisableStacktrace = true
+	zapCfg.Sampling = nil
+	zapCfg.Encoding = "consoleraw"
 	return zapCfg.Build()
 }
 
@@ -96,42 +101,11 @@ func newZapLogger(cfg *Config) (logger *zap.Logger, err error) {
 	}
 	// Extract the single core from the legacy logger (zap always has at least one).
 	cores := primary.Core()
-	encCfg := buildEncoderConfigForTee(cfg)
-	level := levelEnablerForTee(cfg)
+	encCfg := loggerEncoderConfig(cfg)
+	level := loggerLevel(cfg)
 	encR := zapcore.NewConsoleEncoder(encCfg)
 	remoteCore := zapcore.NewCore(encR, remote, level)
 	return zap.New(zapcore.NewTee(cores, remoteCore)), nil
-}
-
-func levelEnablerForTee(cfg *Config) zapcore.LevelEnabler {
-	if cfg.LogDateTime || cfg.Debug {
-		return zap.NewAtomicLevelAt(zap.DebugLevel)
-	}
-	return zap.NewAtomicLevelAt(zap.InfoLevel)
-}
-
-func buildEncoderConfigForTee(cfg *Config) zapcore.EncoderConfig {
-	zapCfg := zap.NewProductionConfig()
-	if cfg.LogDateTime || cfg.Debug {
-		zapCfg.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
-	} else {
-		zapCfg.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
-	}
-	zapCfg.EncoderConfig.CallerKey = ""
-	zapCfg.DisableStacktrace = true
-	if logToFileReady(cfg) {
-		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
-	} else {
-		zapCfg.EncoderConfig.EncodeLevel = zapcore.CapitalColorLevelEncoder
-	}
-	if !cfg.LogDateTime {
-		zapCfg.EncoderConfig.TimeKey = ""
-	} else {
-		zapCfg.EncoderConfig.EncodeTime = zapcore.TimeEncoderOfLayout(termDatetimeTempl)
-	}
-	zapCfg.EncoderConfig.ConsoleSeparator = " "
-	zapCfg.EncoderConfig.LevelKey = "[L]"
-	return zapCfg.EncoderConfig
 }
 
 // NewLogger initialize logger with given config
