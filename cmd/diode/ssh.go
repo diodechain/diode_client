@@ -91,6 +91,7 @@ var sshDeferredLogPath string
 // applySSHLogRedirect moves diode logs from console to the deferred default file
 // after initiation output. No-op when the path is empty (explicit -logfilepath
 // or non-ssh). The redirect notice is printed on the still-active console logger.
+// Timestamps are enabled for the file logger so ssh.log lines are correlatable.
 func applySSHLogRedirect(cfg *config.Config) error {
 	path := sshDeferredLogPath
 	if path == "" {
@@ -100,6 +101,7 @@ func applySSHLogRedirect(cfg *config.Config) error {
 	cfg.PrintInfo(fmt.Sprintf("Redirecting diode log to %s", path))
 	cfg.LogFilePath = path
 	cfg.LogMode = config.LogToFile
+	cfg.LogDateTime = true
 	return config.ReloadLogger(cfg)
 }
 

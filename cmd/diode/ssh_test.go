@@ -8,6 +8,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -281,6 +282,9 @@ func TestApplySSHLogRedirect(t *testing.T) {
 	if cfg2.LogMode != config.LogToFile || cfg2.LogFilePath != logPath {
 		t.Fatalf("want file mode at %q, got mode=%d path=%q", logPath, cfg2.LogMode, cfg2.LogFilePath)
 	}
+	if !cfg2.LogDateTime {
+		t.Fatalf("redirect should enable LogDateTime, got false")
+	}
 	// Second call is no-op.
 	if err := applySSHLogRedirect(cfg2); err != nil {
 		t.Fatalf("second apply: %v", err)
@@ -293,7 +297,12 @@ func TestApplySSHLogRedirect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
+	t.Logf("redirected log sample: %s", strings.TrimSpace(string(data)))
 	if !strings.Contains(string(data), "after-redirect") {
 		t.Fatalf("expected log file contents, got %q", data)
+	}
+	// Redirected ssh logs include timestamps (MM/DD/YYYY HH:MM:SS prefix).
+	if !regexp.MustCompile(`\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2}`).Match(data) {
+		t.Fatalf("expected timestamp in log file, got %q", data)
 	}
 }
