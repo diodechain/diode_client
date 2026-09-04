@@ -68,6 +68,21 @@ type blockHeaderResponse struct {
 	}
 }
 
+// BlockReference contains the block fields needed by ticket logic.
+type BlockReference struct {
+	Number    uint64
+	Timestamp uint64
+	Hash      []byte
+}
+
+type moonBlockHeaderResponse struct {
+	RequestID uint64
+	Payload   struct {
+		Type  string
+		Items []Item
+	}
+}
+
 type blockquickResponse struct {
 	RequestID uint64
 	Payload   struct {
@@ -248,8 +263,7 @@ type transactionResponse struct {
 func findItemInItems(items interface{}, key string) (item Item, err error) {
 	val := reflect.ValueOf(items)
 	switch val.Kind() {
-	case reflect.Slice:
-	case reflect.Array:
+	case reflect.Slice, reflect.Array:
 		var ok bool
 		i := 0
 		len := val.Len()

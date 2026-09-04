@@ -67,6 +67,9 @@ type Client struct {
 	config               *config.Config
 	bq                   *blockquick.Window
 	lastTicket           *edge.DeviceTicket
+	ticketHeadMu         sync.Mutex
+	moonbeamHead         edge.BlockReference
+	moonbeamHeadAt       time.Time
 	latencySum           int64
 	latencyCount         int64
 	serverID             util.Address
@@ -360,12 +363,20 @@ func (client *Client) isRecentTicket(tck *edge.DeviceTicket) bool {
 	if tck == nil {
 		return false
 	}
-	lvbn, _ := client.LastValid()
-	header := client.GetBlockHeaderValid(lvbn)
-	if header.Number() == 0 {
+	var chainID uint64
+	switch tck.Version {
+	case 1:
+		chainID = config.DiodeChainID
+	case 2:
+		chainID = tck.ChainID
+	default:
 		return false
 	}
-	return tck.IsRecentAtPeak(header.Number(), header.Timestamp())
+	head, err := client.ticketChainHead(chainID)
+	if err != nil {
+		return false
+	}
+	return tck.IsRecentAtPeak(head.Number, head.Timestamp)
 }
 
 // ValidateNetwork validate blockchain network is secure and valid
@@ -627,19 +638,20 @@ func (client *Client) greet() error {
 
 // SubmitTicketForUsage submits a ticket covering at least minBytes.
 func (client *Client) SubmitTicketForUsage(minBytes *big.Int) {
+	if minBytes == nil {
+		return
+	}
+	if minBytes.Sign() < 0 {
+		client.Log().Warn("ticket_request has negative usage: %s", minBytes.String())
+		return
+	}
+	if !minBytes.IsUint64() {
+		client.Log().Warn("ticket_request usage too large: %s", minBytes.String())
+		return
+	}
+
 	client.srv.Cast(func() {
 		if client.bq == nil || client.closed.Load() || client.s == nil {
-			return
-		}
-		if minBytes == nil {
-			return
-		}
-		if minBytes.Sign() < 0 {
-			client.Log().Warn("ticket_request has negative usage: %s", minBytes.String())
-			return
-		}
-		if !minBytes.IsUint64() {
-			client.Log().Warn("ticket_request usage too large: %s", minBytes.String())
 			return
 		}
 		minUsage := minBytes.Uint64() + ticketBound
@@ -649,7 +661,23 @@ func (client *Client) SubmitTicketForUsage(minBytes *big.Int) {
 			client.s.setTotalBytes(minUsage)
 		}
 
-		ticket, err := client.newTicket()
+		chainID := client.config.TicketChainID()
+		go client.createAndSubmitTicket(chainID, minUsage)
+	})
+}
+
+func (client *Client) createAndSubmitTicket(chainID, minUsage uint64) {
+	head, err := client.ticketChainHead(chainID)
+	if err != nil {
+		client.Log().Error("failed to create new ticket: %v", err)
+		return
+	}
+
+	client.srv.Cast(func() {
+		if client.bq == nil || client.closed.Load() || client.s == nil {
+			return
+		}
+		ticket, err := client.newTicket(chainID, head)
 		if err != nil {
 			client.Log().Error("failed to create new ticket: %v", err)
 			return
@@ -657,8 +685,7 @@ func (client *Client) SubmitTicketForUsage(minBytes *big.Int) {
 		if ticket.TotalBytes.Uint64() < minUsage {
 			ticket.TotalBytes = new(big.Int).SetUint64(minUsage)
 		}
-		err = client.submitTicket(ticket)
-		if err != nil {
+		if err := client.submitTicket(ticket); err != nil {
 			client.Log().Error("failed to submit ticket: %v", err)
 			return
 		}
@@ -779,15 +806,14 @@ func parseSapphireRPCResult(method string, payload []byte) (json.RawMessage, err
 	return env.Result, nil
 }
 
-// NewTicket returns ticket
-func (client *Client) newTicket() (*edge.DeviceTicket, error) {
+// newTicket creates a ticket from the supplied chain head.
+func (client *Client) newTicket(chainID uint64, head edge.BlockReference) (*edge.DeviceTicket, error) {
 	serverID, err := client.s.GetServerID()
 	if err != nil {
 		return nil, err
 	}
 	total := client.s.TotalBytes()
 	client.s.UpdateCounter(total)
-	lvbn, lvbh := client.LastValid()
 
 	ticket := &edge.DeviceTicket{
 		ServerID:         serverID,
@@ -798,29 +824,9 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 	}
 
 	prim, secd := client.clientMan.PeekNearestAddresses()
-	header := client.GetBlockHeaderValid(lvbn)
-	if header.Number() == 0 {
-		return nil, fmt.Errorf("no valid block header for ticket")
-	}
-	timestamp := header.Timestamp()
 	preferred := edge.PreferredTicketServers(serverID, prim, secd)
-	ticket.LocalAddr, err = edge.CreateTicketLocalAddress(preferred, timestamp)
-	if err != nil {
+	if err := applyTicketChainReference(ticket, chainID, head, preferred); err != nil {
 		return nil, err
-	}
-
-	if client.config.UsesTicketV1() {
-		ticket.Version = 1
-		ticket.BlockNumber = lvbn
-		ticket.BlockHash = lvbh[:]
-	} else {
-		epoch := edge.TicketEpochFromTimestamp(timestamp)
-		if epoch == 0 {
-			epoch = 1
-		}
-		ticket.Version = 2
-		ticket.ChainID = client.config.TicketChainID()
-		ticket.Epoch = epoch
 	}
 
 	if err := ticket.ValidateValues(); err != nil {

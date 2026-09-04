@@ -29,8 +29,10 @@ const (
 const (
 	// DiodeChainID is the Diode L1 chain id (ticket v1).
 	DiodeChainID = 15
+	// MoonbeamChainID is the Moonbeam chain id (ticket v2).
+	MoonbeamChainID = 1284
 	// DefaultChainID is Moonbeam; used for ticket v2 when chain_id is unset.
-	DefaultChainID = 1284
+	DefaultChainID = MoonbeamChainID
 )
 
 var (

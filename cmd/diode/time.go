@@ -13,7 +13,7 @@ import (
 )
 
 var (
-	ErrFailedToFetchHeader = fmt.Errorf("can't load last valid block")
+	ErrFailedToFetchHeader = fmt.Errorf("can't load ticket chain head")
 	averageBlockTime       = 15
 	timeCmd                = &command.Command{
 		Name:        "time",
@@ -31,14 +31,16 @@ func timeHandler() (err error) {
 	}
 	cfg := config.AppConfig
 	return app.clientManager.CallWithClientFailover("diode time", func(client *rpc.Client) error {
-		blocknr, _ := client.LastValid()
-		header := client.GetBlockHeaderValid(blocknr)
-		if header.Number() == 0 {
+		head, err := client.GetTicketChainHead()
+		if err != nil {
+			return err
+		}
+		if head.Number == 0 {
 			return ErrFailedToFetchHeader
 		}
 
-		t0 := int(header.Timestamp())
-		t1 := t0 + (rpc.WindowSize() * averageBlockTime)
+		t0 := head.Timestamp
+		t1 := t0 + uint64(rpc.WindowSize()*averageBlockTime)
 
 		tm0 := time.Unix(int64(t0), 0)
 		tm1 := time.Unix(int64(t1), 0)
