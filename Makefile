@@ -66,7 +66,7 @@ format: runtime
 .PHONY: lint
 lint: runtime
 	go vet ./...
-	cd tools && go install honnef.co/go/tools/cmd/staticcheck@latest
+	cd tools && go install honnef.co/go/tools/cmd/staticcheck@v0.7.0
 	$(GOBIN)/staticcheck -go 1.25 ./...
 
 # Exclude rules from security check:
