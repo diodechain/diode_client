@@ -360,12 +360,20 @@ func (client *Client) isRecentTicket(tck *edge.DeviceTicket) bool {
 	if tck == nil {
 		return false
 	}
-	lvbn, _ := client.LastValid()
-	header := client.GetBlockHeaderValid(lvbn)
-	if header.Number() == 0 {
+	var chainID uint64
+	switch tck.Version {
+	case 1:
+		chainID = config.DiodeChainID
+	case 2:
+		chainID = tck.ChainID
+	default:
 		return false
 	}
-	return tck.IsRecentAtPeak(header.Number(), header.Timestamp())
+	head, err := client.ticketChainHead(chainID)
+	if err != nil {
+		return false
+	}
+	return tck.IsRecentAtPeak(head.Number, head.Timestamp)
 }
 
 // ValidateNetwork validate blockchain network is secure and valid
@@ -787,7 +795,11 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 	}
 	total := client.s.TotalBytes()
 	client.s.UpdateCounter(total)
-	lvbn, lvbh := client.LastValid()
+	chainID := client.config.TicketChainID()
+	head, err := client.ticketChainHead(chainID)
+	if err != nil {
+		return nil, err
+	}
 
 	ticket := &edge.DeviceTicket{
 		ServerID:         serverID,
@@ -798,29 +810,9 @@ func (client *Client) newTicket() (*edge.DeviceTicket, error) {
 	}
 
 	prim, secd := client.clientMan.PeekNearestAddresses()
-	header := client.GetBlockHeaderValid(lvbn)
-	if header.Number() == 0 {
-		return nil, fmt.Errorf("no valid block header for ticket")
-	}
-	timestamp := header.Timestamp()
 	preferred := edge.PreferredTicketServers(serverID, prim, secd)
-	ticket.LocalAddr, err = edge.CreateTicketLocalAddress(preferred, timestamp)
-	if err != nil {
+	if err := applyTicketChainReference(ticket, chainID, head, preferred); err != nil {
 		return nil, err
-	}
-
-	if client.config.UsesTicketV1() {
-		ticket.Version = 1
-		ticket.BlockNumber = lvbn
-		ticket.BlockHash = lvbh[:]
-	} else {
-		epoch := edge.TicketEpochFromTimestamp(timestamp)
-		if epoch == 0 {
-			epoch = 1
-		}
-		ticket.Version = 2
-		ticket.ChainID = client.config.TicketChainID()
-		ticket.Epoch = epoch
 	}
 
 	if err := ticket.ValidateValues(); err != nil {

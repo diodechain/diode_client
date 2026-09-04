@@ -179,6 +179,56 @@ func parseBlockHeaderResponse(buffer []byte) (interface{}, error) {
 	return header, nil
 }
 
+func parseMoonBlockHeaderResponse(buffer []byte) (interface{}, error) {
+	var response moonBlockHeaderResponse
+	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
+	if err := decodeStream.Decode(&response); err != nil {
+		return nil, err
+	}
+	if response.Payload.Type != string(responsePivot) {
+		return nil, fmt.Errorf("unexpected moonbeam block header response type: %q", response.Payload.Type)
+	}
+
+	numberItem, err := findItemInItems(response.Payload.Items, "number")
+	if err != nil {
+		return nil, fmt.Errorf("moonbeam block header missing number: %w", err)
+	}
+	timestampItem, err := findItemInItems(response.Payload.Items, "timestamp")
+	if err != nil {
+		return nil, fmt.Errorf("moonbeam block header missing timestamp: %w", err)
+	}
+	number, err := decodeMoonBlockHeaderUint(numberItem.Value, "number")
+	if err != nil {
+		return nil, err
+	}
+	timestamp, err := decodeMoonBlockHeaderUint(timestampItem.Value, "timestamp")
+	if err != nil {
+		return nil, err
+	}
+
+	var hash []byte
+	hashItem, findErr := findItemInItems(response.Payload.Items, "block_hash")
+	if findErr != nil {
+		hashItem, findErr = findItemInItems(response.Payload.Items, "hash")
+	}
+	if findErr == nil {
+		hash = hashItem.Value
+	}
+	return BlockReference{
+		Number:    number,
+		Timestamp: timestamp,
+		Hash:      hash,
+	}, nil
+}
+
+func decodeMoonBlockHeaderUint(raw []byte, field string) (uint64, error) {
+	value := new(big.Int).SetBytes(raw)
+	if !value.IsUint64() {
+		return 0, fmt.Errorf("moonbeam block header %s is out of uint64 range", field)
+	}
+	return value.Uint64(), nil
+}
+
 func parseBlockquickResponse(buffer []byte) (interface{}, error) {
 	var response blockquickResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
@@ -908,6 +958,10 @@ func NewMessage(writer io.Writer, requestID uint64, method string, args ...inter
 		return parseBlockHeaderResponse, nil
 	case "getblockquick2":
 		return parseBlockquickResponse, nil
+	case "glmr:getblockpeak":
+		return parseBlockPeakResponse, nil
+	case "glmr:getblockheader":
+		return parseMoonBlockHeaderResponse, nil
 	case "getaccount":
 		return parseAccountResponse, nil
 	case "getaccountroots":
