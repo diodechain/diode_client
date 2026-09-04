@@ -6,6 +6,7 @@ package rpc
 import (
 	"bytes"
 	"testing"
+	"time"
 
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/edge"
@@ -84,5 +85,29 @@ func TestTicketChainHeadRejectsUnsupportedChain(t *testing.T) {
 	client := &Client{}
 	if _, err := client.ticketChainHead(9999); err == nil {
 		t.Fatal("expected unsupported chain error")
+	}
+}
+
+func TestMoonbeamTicketChainHeadUsesFreshCache(t *testing.T) {
+	head := edge.BlockReference{
+		Number:    123,
+		Timestamp: 1_785_888_000,
+		Hash:      bytes.Repeat([]byte{0xef}, 32),
+	}
+	client := &Client{
+		moonbeamHead:   head,
+		moonbeamHeadAt: time.Now(),
+	}
+
+	got, err := client.moonbeamTicketChainHead()
+	if err != nil {
+		t.Fatalf("moonbeamTicketChainHead() returned error: %v", err)
+	}
+	if got.Number != head.Number || got.Timestamp != head.Timestamp {
+		t.Fatalf("unexpected cached head: %+v", got)
+	}
+	got.Hash[0] ^= 0xff
+	if got.Hash[0] == client.moonbeamHead.Hash[0] {
+		t.Fatal("cached block hash was not copied")
 	}
 }

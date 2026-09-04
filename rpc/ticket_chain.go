@@ -5,10 +5,13 @@ package rpc
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/diodechain/diode_client/config"
 	"github.com/diodechain/diode_client/edge"
 )
+
+const moonbeamHeadCacheTTL = 15 * time.Second
 
 // GetMoonBlockPeak returns the latest Moonbeam block number reported by the relay.
 func (client *Client) GetMoonBlockPeak() (uint64, error) {
@@ -102,6 +105,13 @@ func (client *Client) diodeTicketChainHead() (edge.BlockReference, error) {
 }
 
 func (client *Client) moonbeamTicketChainHead() (edge.BlockReference, error) {
+	client.ticketHeadMu.Lock()
+	defer client.ticketHeadMu.Unlock()
+
+	if !client.moonbeamHeadAt.IsZero() && time.Since(client.moonbeamHeadAt) < moonbeamHeadCacheTTL {
+		return cloneBlockReference(client.moonbeamHead), nil
+	}
+
 	blockNumber, err := client.GetMoonBlockPeak()
 	if err != nil {
 		return edge.BlockReference{}, err
@@ -121,5 +131,12 @@ func (client *Client) moonbeamTicketChainHead() (edge.BlockReference, error) {
 			header.Number,
 		)
 	}
-	return header, nil
+	client.moonbeamHead = cloneBlockReference(header)
+	client.moonbeamHeadAt = time.Now()
+	return cloneBlockReference(header), nil
+}
+
+func cloneBlockReference(reference edge.BlockReference) edge.BlockReference {
+	reference.Hash = append([]byte(nil), reference.Hash...)
+	return reference
 }

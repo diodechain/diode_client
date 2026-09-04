@@ -67,6 +67,9 @@ type Client struct {
 	config               *config.Config
 	bq                   *blockquick.Window
 	lastTicket           *edge.DeviceTicket
+	ticketHeadMu         sync.Mutex
+	moonbeamHead         edge.BlockReference
+	moonbeamHeadAt       time.Time
 	latencySum           int64
 	latencyCount         int64
 	serverID             util.Address
@@ -635,19 +638,20 @@ func (client *Client) greet() error {
 
 // SubmitTicketForUsage submits a ticket covering at least minBytes.
 func (client *Client) SubmitTicketForUsage(minBytes *big.Int) {
+	if minBytes == nil {
+		return
+	}
+	if minBytes.Sign() < 0 {
+		client.Log().Warn("ticket_request has negative usage: %s", minBytes.String())
+		return
+	}
+	if !minBytes.IsUint64() {
+		client.Log().Warn("ticket_request usage too large: %s", minBytes.String())
+		return
+	}
+
 	client.srv.Cast(func() {
 		if client.bq == nil || client.closed.Load() || client.s == nil {
-			return
-		}
-		if minBytes == nil {
-			return
-		}
-		if minBytes.Sign() < 0 {
-			client.Log().Warn("ticket_request has negative usage: %s", minBytes.String())
-			return
-		}
-		if !minBytes.IsUint64() {
-			client.Log().Warn("ticket_request usage too large: %s", minBytes.String())
 			return
 		}
 		minUsage := minBytes.Uint64() + ticketBound
@@ -657,7 +661,23 @@ func (client *Client) SubmitTicketForUsage(minBytes *big.Int) {
 			client.s.setTotalBytes(minUsage)
 		}
 
-		ticket, err := client.newTicket()
+		chainID := client.config.TicketChainID()
+		go client.createAndSubmitTicket(chainID, minUsage)
+	})
+}
+
+func (client *Client) createAndSubmitTicket(chainID, minUsage uint64) {
+	head, err := client.ticketChainHead(chainID)
+	if err != nil {
+		client.Log().Error("failed to create new ticket: %v", err)
+		return
+	}
+
+	client.srv.Cast(func() {
+		if client.bq == nil || client.closed.Load() || client.s == nil {
+			return
+		}
+		ticket, err := client.newTicket(chainID, head)
 		if err != nil {
 			client.Log().Error("failed to create new ticket: %v", err)
 			return
@@ -665,8 +685,7 @@ func (client *Client) SubmitTicketForUsage(minBytes *big.Int) {
 		if ticket.TotalBytes.Uint64() < minUsage {
 			ticket.TotalBytes = new(big.Int).SetUint64(minUsage)
 		}
-		err = client.submitTicket(ticket)
-		if err != nil {
+		if err := client.submitTicket(ticket); err != nil {
 			client.Log().Error("failed to submit ticket: %v", err)
 			return
 		}
@@ -787,19 +806,14 @@ func parseSapphireRPCResult(method string, payload []byte) (json.RawMessage, err
 	return env.Result, nil
 }
 
-// NewTicket returns ticket
-func (client *Client) newTicket() (*edge.DeviceTicket, error) {
+// newTicket creates a ticket from the supplied chain head.
+func (client *Client) newTicket(chainID uint64, head edge.BlockReference) (*edge.DeviceTicket, error) {
 	serverID, err := client.s.GetServerID()
 	if err != nil {
 		return nil, err
 	}
 	total := client.s.TotalBytes()
 	client.s.UpdateCounter(total)
-	chainID := client.config.TicketChainID()
-	head, err := client.ticketChainHead(chainID)
-	if err != nil {
-		return nil, err
-	}
 
 	ticket := &edge.DeviceTicket{
 		ServerID:         serverID,
