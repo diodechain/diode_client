@@ -7,8 +7,12 @@ ENV CC="arm-linux-gnueabihf-gcc -O3 -march=armv8-a"
 ENV CXX="arm-linux-gnueabihf-g++ -O3 -march=armv8-a"
 ENV CGO_ENABLED=1
 
-# Bullseye security InRelease expired after LTS; do not drop it or perl breaks.
-RUN apt-get -o Acquire::Check-Valid-Until=false update -y && \
+# Live debian-security indexes remain, but the pool 404s after Bullseye LTS.
+RUN sed -i \
+      -e 's|http://deb.debian.org/debian-security|http://snapshot.debian.org/archive/debian-security/20260831T000000Z|g' \
+      -e 's|http://security.debian.org/debian-security|http://snapshot.debian.org/archive/debian-security/20260831T000000Z|g' \
+      /etc/apt/sources.list && \
+    apt-get -o Acquire::Check-Valid-Until=false update -y && \
     apt-get install -y git && \
     apt-get install -y build-essential && \
     apt-get install -y pkg-config && \
