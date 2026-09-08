@@ -3,15 +3,16 @@ FROM debian:bullseye
 ENV GOOS=linux
 ENV CGO_ENABLED=1
 
-# Bullseye security Release files expired after LTS; still verify signatures.
-RUN echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until && \
+# Bullseye LTS ended; live security mirrors serve expired Release files.
+RUN set -eux; \
+    sed -i \
+      -e 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' \
+      -e 's|http://security.debian.org/debian-security|http://archive.debian.org/debian-security|g' \
+      -e '/bullseye-updates/d' \
+      /etc/apt/sources.list; \
+    echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until; \
     apt-get update -y && \
-    apt-get install -y git && \
-    apt-get install -y build-essential && \
-    apt-get install -y pkg-config && \
-    apt-get install -y upx && \
-    apt-get install -y zip && \
-    apt-get install -y wget
+    apt-get install -y git build-essential pkg-config upx zip wget
 
 # install golang
 RUN echo "Build and install golang......"
