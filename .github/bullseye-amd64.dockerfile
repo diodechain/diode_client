@@ -3,7 +3,9 @@ FROM debian:bullseye
 ENV GOOS=linux
 ENV CGO_ENABLED=1
 
-RUN apt-get update -y && \
+# Bullseye security Release files expired after LTS; still verify signatures.
+RUN echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until && \
+    apt-get update -y && \
     apt-get install -y git && \
     apt-get install -y build-essential && \
     apt-get install -y pkg-config && \
