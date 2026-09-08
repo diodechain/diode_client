@@ -3,10 +3,13 @@ FROM debian/eol:bullseye
 ENV GOOS=linux
 ENV CGO_ENABLED=1
 
-# Bullseye security InRelease expired after LTS. These packages come from main.
+# debian-security InRelease expired after Bullseye LTS. Build deps are in main.
 RUN set -eux; \
-    find /etc/apt -type f \( -name 'sources.list' -o -name '*.list' -o -name '*.sources' \) \
-      -exec sed -i '/debian-security/s/^/# /' {} +; \
+    printf '%s\n' \
+      'deb http://archive.debian.org/debian bullseye main' \
+      'deb http://archive.debian.org/debian bullseye-updates main' \
+      > /etc/apt/sources.list; \
+    rm -f /etc/apt/sources.list.d/debian.sources; \
     apt-get -o Acquire::Check-Valid-Until=false update -y && \
     apt-get install -y git build-essential pkg-config upx zip wget
 
