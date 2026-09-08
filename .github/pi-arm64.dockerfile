@@ -7,15 +7,14 @@ ENV CC="arm-linux-gnueabihf-gcc -O3 -march=armv8-a"
 ENV CXX="arm-linux-gnueabihf-g++ -O3 -march=armv8-a"
 ENV CGO_ENABLED=1
 
-# debian-security InRelease expired after Bullseye LTS. Build deps are in main.
-RUN set -eux; \
-    printf '%s\n' \
-      'deb http://archive.debian.org/debian bullseye main' \
-      'deb http://archive.debian.org/debian bullseye-updates main' \
-      > /etc/apt/sources.list; \
-    rm -f /etc/apt/sources.list.d/debian.sources; \
-    apt-get -o Acquire::Check-Valid-Until=false update -y && \
-    apt-get install -y git build-essential pkg-config upx zip wget
+# Bullseye security InRelease expired after LTS; do not drop it or perl breaks.
+RUN apt-get -o Acquire::Check-Valid-Until=false update -y && \
+    apt-get install -y git && \
+    apt-get install -y build-essential && \
+    apt-get install -y pkg-config && \
+    apt-get install -y upx && \
+    apt-get install -y zip && \
+    apt-get install -y wget
 
 # for building raspberry pi firmware
 RUN echo "Download raspberrypi tools......"
