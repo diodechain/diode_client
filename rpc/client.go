@@ -74,6 +74,8 @@ type Client struct {
 	latencyCount         int64
 	serverID             util.Address
 	onConnect            func(util.Address)
+	// connectedAt is set when the relay is added to the client map.
+	connectedAt time.Time
 	bqFailures           int
 	rebuildingBlockquick uint32
 	// close event
@@ -438,12 +440,13 @@ func (client *Client) validateNetwork() error {
 		return err
 	}
 
-	blockrange := []uint64{}
-	for _, block := range blocks {
-		// due to blocks order by block number, break loop here
-		blockrange = append(blockrange, block.Number())
+	if len(blocks) == 0 {
+		client.Log().Debug("received blockrange: empty")
+	} else {
+		first := blocks[0].Number()
+		last := blocks[len(blocks)-1].Number()
+		client.Log().Debug("received blockrange: %d-%d (%d)", first, last, len(blocks))
 	}
-	client.Log().Debug("received blockrange: %v (%v)", blockrange, len(blockrange))
 
 	for _, block := range blocks {
 		// due to blocks order by block number, break loop here

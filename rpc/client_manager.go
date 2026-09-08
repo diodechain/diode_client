@@ -56,11 +56,17 @@ type ClientManager struct {
 const (
 	hostConnectRetryMin = 5 * time.Second
 	hostConnectRetryMax = 60 * time.Second
+	// relaySessionMin is how long a connected relay must stay up before a drop
+	// is treated as a normal disconnect. Shorter sessions get one immediate
+	// retry, then the same host backoff as a failed dial.
+	relaySessionMin = 30 * time.Second
 )
 
 type hostConnectRetry struct {
 	backoff    Backoff
 	retryAfter time.Time
+	// shortLived counts connects that died before relaySessionMin.
+	shortLived int
 }
 
 type nodeRequest struct {
@@ -494,6 +500,50 @@ func (cm *ClientManager) clearHostConnectRetry(host string) {
 	delete(cm.hostConnectRetries, host)
 }
 
+// noteHostConnected clears dial backoff for a host that reached the relay map.
+// shortLived is left in place until the session proves stable.
+func (cm *ClientManager) noteHostConnected(host string) {
+	state := cm.hostConnectRetries[host]
+	if state == nil {
+		return
+	}
+	state.retryAfter = time.Time{}
+}
+
+// noteHostSessionEnded applies connect backoff after a host fails to stay up.
+// A session shorter than relaySessionMin is allowed one immediate repeat.
+func (cm *ClientManager) noteHostSessionEnded(host string, connected bool, connectedAt time.Time) {
+	if host == "" {
+		return
+	}
+	if !connected {
+		cm.recordHostConnectFailure(host)
+		return
+	}
+	if !connectedAt.IsZero() && time.Since(connectedAt) >= relaySessionMin {
+		cm.clearHostConnectRetry(host)
+		return
+	}
+
+	state, ok := cm.hostConnectRetries[host]
+	if !ok {
+		state = &hostConnectRetry{
+			backoff: Backoff{
+				Min:    hostConnectRetryMin,
+				Max:    hostConnectRetryMax,
+				Factor: 2,
+				Jitter: true,
+			},
+		}
+		cm.hostConnectRetries[host] = state
+	}
+	if state.shortLived >= 1 {
+		cm.recordHostConnectFailure(host)
+		return
+	}
+	state.shortLived++
+}
+
 func (cm *ClientManager) refillClients() {
 	for len(cm.clients) < cm.targetClients {
 		if !cm.doAddClient() {
@@ -563,7 +613,8 @@ func (cm *ClientManager) startClient(host string) *Client {
 		}
 		cm.Config.Logger.Debug("Added relay#%d [%s] @ %s", n, nodeID.HexString(), host)
 		cm.srv.Cast(func() {
-			cm.clearHostConnectRetry(host)
+			client.connectedAt = time.Now()
+			cm.noteHostConnected(host)
 			cm.clientMap[nodeID] = client
 			for _, c := range cm.waitingAny {
 				c.ReRun()
@@ -614,9 +665,7 @@ func (cm *ClientManager) detachClient(client *Client) {
 			}
 		}
 
-		if !wasConnected {
-			cm.recordHostConnectFailure(client.host)
-		}
+		cm.noteHostSessionEnded(client.host, wasConnected, client.connectedAt)
 		cm.refillClients()
 
 		if cm.targetClients == 0 {
@@ -761,6 +810,11 @@ func (cm *ClientManager) connect(nodeID util.Address, host string) (ret *Client,
 		}()
 
 		if req.client == nil || req.client.Closing() {
+			if !cm.hostConnectRetryReady(req.host) {
+				ret = nil
+				err = fmt.Errorf("relay %s is in connect backoff", req.host)
+				return true
+			}
 			req.client = cm.startClient(req.host)
 		}
 		return false
