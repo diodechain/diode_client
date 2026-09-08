@@ -1,4 +1,4 @@
-FROM debian:bullseye
+FROM debian/eol:bullseye
 LABEL crosscompie={pi-arm32}
 
 ENV GOOS=linux
@@ -8,16 +8,13 @@ ENV CC="arm-linux-gnueabihf-gcc -O3 -march=armv6 -mfloat-abi=hard -mfpu=vfp"
 ENV CXX="arm-linux-gnueabihf-g++ -O3 -march=armv6 -mfloat-abi=hard -mfpu=vfp"
 ENV CGO_ENABLED=1
 
-# Bullseye LTS ended; live security mirrors serve expired Release files.
-RUN set -eux; \
-    sed -i \
-      -e 's|http://deb.debian.org/debian|http://archive.debian.org/debian|g' \
-      -e 's|http://security.debian.org/debian-security|http://archive.debian.org/debian-security|g' \
-      -e '/bullseye-updates/d' \
-      /etc/apt/sources.list; \
-    echo 'Acquire::Check-Valid-Until "false";' > /etc/apt/apt.conf.d/99no-check-valid-until; \
-    apt-get update -y && \
-    apt-get install -y git build-essential pkg-config upx zip wget
+RUN apt-get update -y && \
+    apt-get install -y git && \
+    apt-get install -y build-essential && \
+    apt-get install -y pkg-config && \
+    apt-get install -y upx && \
+    apt-get install -y zip && \
+    apt-get install -y wget
 
 # for building raspberry pi firmware
 RUN echo "Download raspberrypi tools......"
