@@ -7,13 +7,12 @@ ENV CC="arm-linux-gnueabihf-gcc -O3 -march=armv8-a"
 ENV CXX="arm-linux-gnueabihf-g++ -O3 -march=armv8-a"
 ENV CGO_ENABLED=1
 
-RUN apt-get update -y && \
-    apt-get install -y git && \
-    apt-get install -y build-essential && \
-    apt-get install -y pkg-config && \
-    apt-get install -y upx && \
-    apt-get install -y zip && \
-    apt-get install -y wget
+# Bullseye security InRelease expired after LTS. These packages come from main.
+RUN set -eux; \
+    find /etc/apt -type f \( -name 'sources.list' -o -name '*.list' -o -name '*.sources' \) \
+      -exec sed -i '/debian-security/s/^/# /' {} +; \
+    apt-get -o Acquire::Check-Valid-Until=false update -y && \
+    apt-get install -y git build-essential pkg-config upx zip wget
 
 # for building raspberry pi firmware
 RUN echo "Download raspberrypi tools......"
