@@ -12,6 +12,54 @@ import (
 	"github.com/diodechain/diode_client/edge"
 )
 
+func TestParseHostBNSLabel(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		host     string
+		isWS     bool
+		mode     string
+		deviceID string
+		port     int
+		wantErr  bool
+	}{
+		{host: "division1.acme.com", mode: "rw", deviceID: "division1", port: 80},
+		{host: "division2.acme.com:443", mode: "rw", deviceID: "division2", port: 443},
+		{host: "division1-8080.acme.com", mode: "rw", deviceID: "division1", port: 8080},
+		{host: "r-division1.acme.com", mode: "r", deviceID: "division1", port: 80},
+		{host: "west11.division1.acme.com", mode: "rw", deviceID: "west11", port: 80},
+		{host: "r-west11-8080.division1.acme.com", mode: "r", deviceID: "west11", port: 8080},
+		{host: "west11.division1.diode.link", mode: "rw", deviceID: "west11", port: 80},
+		{host: "division1.acme.co.uk", mode: "rw", deviceID: "division1", port: 80},
+		{host: "west.division1.acme.com", wantErr: true},
+		{host: "acme.com", mode: "rw", deviceID: "acme", port: 80},
+		{host: "acme.co.uk", mode: "rw", deviceID: "acme", port: 80},
+		{host: "division1.diode.link", mode: "rw", deviceID: "division1", port: 80},
+		{host: "division1.diode", mode: "rw", deviceID: "division1", port: 80},
+		{host: "division1.diode.ws", isWS: true, mode: "rw", deviceID: "division1", port: 80},
+		{host: "div1.acme.com", wantErr: true},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.host, func(t *testing.T) {
+			t.Parallel()
+			isWS, mode, deviceID, port, err := parseHost(tt.host)
+			if tt.wantErr {
+				if err == nil {
+					t.Fatalf("parseHost(%q) succeeded, want error", tt.host)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("parseHost(%q) error = %v", tt.host, err)
+			}
+			if isWS != tt.isWS || mode != tt.mode || deviceID != tt.deviceID || port != tt.port {
+				t.Fatalf("parseHost(%q) = (%v, %q, %q, %d), want (%v, %q, %q, %d)",
+					tt.host, isWS, mode, deviceID, port, tt.isWS, tt.mode, tt.deviceID, tt.port)
+			}
+		})
+	}
+}
+
 func TestFormatConnectCandidateErrors(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

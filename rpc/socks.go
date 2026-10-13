@@ -792,9 +792,10 @@ func parseHost(host string) (isWS bool, mode string, deviceID string, port int, 
 		return
 	}
 
-	idx := strings.LastIndex(sub, ".")
-	if idx >= 0 {
-		sub = sub[idx+1:]
+	// The deepest label is the BNS name. Parent labels are DNS structure only.
+	// west11.division1.acme.com and west11.division1.diode.link both resolve "west11".
+	if idx := strings.Index(sub, "."); idx >= 0 {
+		sub = sub[:idx]
 	}
 
 	isWS = (domain == "diode.ws")
@@ -807,11 +808,7 @@ func parseHost(host string) (isWS bool, mode string, deviceID string, port int, 
 		mode = modeHostPort[1]
 		mode = mode[:len(mode)-1]
 	}
-	if domain == "diode.link" || domain == "diode" || domain == "diode.ws" {
-		deviceID = modeHostPort[2]
-	} else {
-		deviceID = domain[0 : len(domain)-len(suffix)-1]
-	}
+	deviceID = modeHostPort[2]
 	if len(modeHostPort[3]) > 0 {
 		strPort = modeHostPort[3][1:]
 	}

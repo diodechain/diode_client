@@ -89,6 +89,39 @@ func internalError(w http.ResponseWriter, str string) {
 	httpError(w, 500, str)
 }
 
+// decideOnDemandCert reports whether an on-demand TLS certificate may be issued
+// for name. The certificate is for the requested hostname; the BNS lookup uses
+// the deepest label.
+func decideOnDemandCert(name string, rejectDomains []string, deviceAllowed func(deviceID string) error) error {
+	if strings.Count(name, ".") > 3 {
+		return fmt.Errorf("rejecting invalid domain %v", name)
+	}
+	for _, domain := range rejectDomains {
+		if domainRejected(name, domain) {
+			return fmt.Errorf("rejecting domain %v because it is in the reject list", name)
+		}
+	}
+
+	_, _, deviceID, _, err := parseHost(name)
+	if err != nil {
+		return err
+	}
+	if err = deviceAllowed(deviceID); err != nil {
+		return fmt.Errorf("device was not allowed %v", err)
+	}
+	return nil
+}
+
+// domainRejected reports whether name is domain or a subdomain of it.
+// Empty entries are ignored so an unset REJECT_DOMAINS list does not block issuance.
+func domainRejected(name, domain string) bool {
+	domain = strings.TrimSpace(strings.TrimPrefix(domain, "."))
+	if domain == "" {
+		return false
+	}
+	return name == domain || strings.HasSuffix(name, "."+domain)
+}
+
 // isAllowedDevice validate whether the device is allowed to request the certificate
 // TODO: add enable/disable in bns smart contract
 func (proxyServer *ProxyServer) isAllowedDevice(deviceName string) (err error) {
@@ -308,26 +341,7 @@ func (proxyServer *ProxyServer) Start() error {
 			certmagicCfg := certmagic.NewDefault()
 			certmagicCfg.OnDemand = &certmagic.OnDemandConfig{
 				DecisionFunc: func(name string) error {
-					dots := strings.Count(name, ".")
-					if dots > 3 {
-						return fmt.Errorf("rejecting invalid domain %v", name)
-					}
-
-					for _, domain := range rejectDomains {
-						if strings.HasSuffix(name, domain) {
-							return fmt.Errorf("rejecting domain %v because it is in the reject list", name)
-						}
-					}
-
-					_, _, deviceID, _, err := parseHost(name)
-					if err != nil {
-						return err
-					}
-					err = proxyServer.isAllowedDevice(deviceID)
-					if err != nil {
-						return fmt.Errorf("device was not allowed %v", err)
-					}
-					return nil
+					return decideOnDemandCert(name, rejectDomains, proxyServer.isAllowedDevice)
 				},
 			}
 
