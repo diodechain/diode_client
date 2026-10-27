@@ -781,39 +781,122 @@ func parseHost(host string) (isWS bool, mode string, deviceID string, port int, 
 		return
 	}
 
-	var sub string
-	if len(host) > len(domain) {
-		sub = host[0 : len(host)-len(domain)-1]
-	} else {
-		// apex domain
-		// TODO: support different suffix and subdomain in BNS
-		deviceID = domain[0 : len(domain)-len(suffix)-1]
-		port, err = strconv.Atoi(strPort[:])
+	isWS = strings.EqualFold(domain, "diode.ws")
+	zone := zoneLabel(domain, suffix)
+	if len(host) == len(domain) {
+		deviceID = zone
+		port, err = strconv.Atoi(strPort)
+		return
+	}
+	sub := host[0 : len(host)-len(domain)-1]
+
+	if isDiodeZone(domain) {
+		// The label next to the Diode suffix is the BNS name.
+		if idx := strings.LastIndex(sub, "."); idx >= 0 {
+			sub = sub[idx+1:]
+		}
+		modeHostPort := subdomainPattern.FindStringSubmatch(sub)
+		if len(modeHostPort) != 4 {
+			err = fmt.Errorf("subdomain pattern not supported %v", sub)
+			return
+		}
+		if len(modeHostPort[1]) > 0 {
+			mode = modeHostPort[1]
+			mode = mode[:len(mode)-1]
+		}
+		deviceID = modeHostPort[2]
+		if len(modeHostPort[3]) > 0 {
+			strPort = modeHostPort[3][1:]
+		}
+		port, err = strconv.Atoi(strPort)
 		return
 	}
 
-	// The deepest label is the BNS name. Parent labels are DNS structure only.
-	// west11.division1.acme.com and west11.division1.diode.link both resolve "west11".
-	if idx := strings.Index(sub, "."); idx >= 0 {
-		sub = sub[:idx]
-	}
-
-	isWS = (domain == "diode.ws")
-	modeHostPort := subdomainPattern.FindStringSubmatch(sub)
-	if len(modeHostPort) != 4 {
-		err = fmt.Errorf("subdomain pattern not supported %v", sub)
+	// Custom zone: deviceID stays the registrable BNS name. Prefix labels are
+	// resolved later from PX: properties on that name.
+	labels := strings.Split(sub, ".")
+	_, edgeMode, edgePort, splitErr := splitEdgeLabel(labels[0])
+	if splitErr != nil {
+		err = splitErr
 		return
 	}
-	if len(modeHostPort[1]) > 0 {
-		mode = modeHostPort[1]
-		mode = mode[:len(mode)-1]
+	if edgeMode != "" {
+		mode = edgeMode
 	}
-	deviceID = modeHostPort[2]
-	if len(modeHostPort[3]) > 0 {
-		strPort = modeHostPort[3][1:]
+	deviceID = zone
+	if edgePort != "" {
+		strPort = edgePort
 	}
+	port, err = strconv.Atoi(strPort)
+	return
+}
 
-	port, err = strconv.Atoi(strPort[:])
+func isDiodeZone(domain string) bool {
+	switch strings.ToLower(domain) {
+	case "diode.link", "diode", "diode.ws":
+		return true
+	default:
+		return false
+	}
+}
+
+func zoneLabel(domain, suffix string) string {
+	return strings.ToLower(domain[:len(domain)-len(suffix)-1])
+}
+
+// customPrefixLabels returns the lowercased prefix labels under a custom zone.
+// Apex names return the zone and an empty label list. Diode names return ok=false.
+func customPrefixLabels(host string) (labels []string, zone string, ok bool) {
+	if _, raw := splitRawAddressHost(host); raw {
+		return nil, "", false
+	}
+	if idx := strings.LastIndex(host, ":"); idx != -1 {
+		host = host[:idx]
+	}
+	suffix, icann := publicsuffix.PublicSuffix(host)
+	if !icann && suffix != "diode" {
+		return nil, "", false
+	}
+	domain, err := publicsuffix.EffectiveTLDPlusOne(host)
+	if err != nil || isDiodeZone(domain) || len(host) <= len(domain) {
+		if err == nil && !isDiodeZone(domain) {
+			return nil, zoneLabel(domain, suffix), err == nil && len(host) <= len(domain)
+		}
+		return nil, "", false
+	}
+	sub := host[:len(host)-len(domain)-1]
+	parts := strings.Split(sub, ".")
+	name, _, _, err := splitEdgeLabel(parts[0])
+	if err != nil {
+		return nil, "", false
+	}
+	parts[0] = name
+	for i := range parts {
+		parts[i] = strings.ToLower(parts[i])
+	}
+	return parts, zoneLabel(domain, suffix), true
+}
+
+var (
+	edgeModePrefix = regexp.MustCompile(`^([rws]{1,3})-(.+)$`)
+	edgePortSuffix = regexp.MustCompile(`^(.+)-([1-9][0-9]*)$`)
+)
+
+func splitEdgeLabel(label string) (name, mode, port string, err error) {
+	label = strings.ToLower(label)
+	if m := edgeModePrefix.FindStringSubmatch(label); m != nil {
+		mode = m[1]
+		label = m[2]
+	}
+	if m := edgePortSuffix.FindStringSubmatch(label); m != nil {
+		label = m[1]
+		port = m[2]
+	}
+	if label == "" || strings.HasPrefix(label, "-") || strings.HasSuffix(label, "-") {
+		err = fmt.Errorf("subdomain pattern not supported %s", label)
+		return
+	}
+	name = label
 	return
 }
 
