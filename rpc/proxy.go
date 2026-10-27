@@ -89,6 +89,61 @@ func internalError(w http.ResponseWriter, str string) {
 	httpError(w, 500, str)
 }
 
+// decideOnDemandCert reports whether an on-demand TLS certificate may be issued
+// for name. The certificate is for the requested hostname. A custom zone is
+// allowed when its BNS name resolves; a Diode name is allowed when that device name resolves.
+func decideOnDemandCert(name string, rejectDomains []string, deviceAllowed func(deviceID string) error) error {
+	if strings.Count(name, ".") > 3 {
+		return fmt.Errorf("rejecting invalid domain %v", name)
+	}
+	for _, domain := range rejectDomains {
+		if domainRejected(name, domain) {
+			return fmt.Errorf("rejecting domain %v because it is in the reject list", name)
+		}
+	}
+
+	_, _, deviceID, _, err := parseHost(name)
+	if err != nil {
+		return err
+	}
+	if err = deviceAllowed(deviceID); err != nil {
+		return fmt.Errorf("device was not allowed %v", err)
+	}
+	return nil
+}
+
+// domainRejected reports whether name is domain or a subdomain of it.
+// Empty entries are ignored so an unset REJECT_DOMAINS list does not block issuance.
+func domainRejected(name, domain string) bool {
+	domain = strings.TrimSpace(strings.TrimPrefix(domain, "."))
+	if domain == "" {
+		return false
+	}
+	return name == domain || strings.HasSuffix(name, "."+domain)
+}
+
+// resolveGatewayDevice applies PX: records for a custom zone. Diode names and
+// apex names keep the deviceID from parseHost.
+func (proxyServer *ProxyServer) resolveGatewayDevice(host, deviceID string) (string, error) {
+	labels, zone, ok := customPrefixLabels(host)
+	if !ok || len(labels) == 0 {
+		return deviceID, nil
+	}
+	client := proxyServer.socksServer.clientManager.GetNearestClient()
+	if client == nil {
+		return "", fmt.Errorf("server not found")
+	}
+	destination, found, err := client.ResolvePrefixDestination(zone, labels)
+	if err != nil {
+		return "", err
+	}
+	if !found {
+		return deviceID, nil
+	}
+	proxyServer.logger.Debug("BNS prefix %s resolved to %s", host, destination)
+	return destination, nil
+}
+
 // isAllowedDevice validate whether the device is allowed to request the certificate
 // TODO: add enable/disable in bns smart contract
 func (proxyServer *ProxyServer) isAllowedDevice(deviceName string) (err error) {
@@ -308,26 +363,7 @@ func (proxyServer *ProxyServer) Start() error {
 			certmagicCfg := certmagic.NewDefault()
 			certmagicCfg.OnDemand = &certmagic.OnDemandConfig{
 				DecisionFunc: func(name string) error {
-					dots := strings.Count(name, ".")
-					if dots > 3 {
-						return fmt.Errorf("rejecting invalid domain %v", name)
-					}
-
-					for _, domain := range rejectDomains {
-						if strings.HasSuffix(name, domain) {
-							return fmt.Errorf("rejecting domain %v because it is in the reject list", name)
-						}
-					}
-
-					_, _, deviceID, _, err := parseHost(name)
-					if err != nil {
-						return err
-					}
-					err = proxyServer.isAllowedDevice(deviceID)
-					if err != nil {
-						return fmt.Errorf("device was not allowed %v", err)
-					}
-					return nil
+					return decideOnDemandCert(name, rejectDomains, proxyServer.isAllowedDevice)
 				},
 			}
 

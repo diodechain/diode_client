@@ -126,6 +126,9 @@ type Config struct {
 	BNSTransfer             string           `yaml:"-" json:"-"`
 	BNSLookup               string           `yaml:"-" json:"-"`
 	BNSAccount              string           `yaml:"-" json:"-"`
+	BNSSetProperty          string           `yaml:"-" json:"-"`
+	BNSGetProperty          string           `yaml:"-" json:"-"`
+	BNSDeleteProperty       string           `yaml:"-" json:"-"`
 	Experimental            bool             `yaml:"-" json:"-"`
 	LoadFromFile            bool             `yaml:"-" json:"-"`
 	QueryAddress            string           `yaml:"-" json:"-"`
