@@ -1,4 +1,4 @@
-FROM debian:bullseye
+FROM debian/eol:bullseye
 
 ENV GOOS=linux
 ENV CGO_ENABLED=1

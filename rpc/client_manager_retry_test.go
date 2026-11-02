@@ -47,6 +47,38 @@ func TestHostConnectRetryBackoff(t *testing.T) {
 	})
 }
 
+func TestShortLivedRelaySessionAllowsOneImmediateRetry(t *testing.T) {
+	prevConfig := config.AppConfig
+	defer func() { config.AppConfig = prevConfig }()
+
+	cfg := &config.Config{Debug: true}
+	logger, _ := config.NewLogger(cfg)
+	cfg.Logger = &logger
+	config.AppConfig = cfg
+	cm := NewClientManager(cfg)
+	host := "diode://0xdead@flaky.example:41046"
+
+	cm.srv.Call(func() {
+		cm.noteHostSessionEnded(host, true, time.Now())
+		if !cm.hostConnectRetryReady(host) {
+			t.Fatal("first short session should allow an immediate retry")
+		}
+		if cm.hostConnectRetries[host] == nil || cm.hostConnectRetries[host].shortLived != 1 {
+			t.Fatalf("shortLived = %#v", cm.hostConnectRetries[host])
+		}
+
+		cm.noteHostSessionEnded(host, true, time.Now())
+		if cm.hostConnectRetryReady(host) {
+			t.Fatal("second short session should enter connect backoff")
+		}
+
+		cm.noteHostSessionEnded(host, true, time.Now().Add(-relaySessionMin))
+		if !cm.hostConnectRetryReady(host) || cm.hostConnectRetries[host] != nil {
+			t.Fatal("stable session should clear host backoff")
+		}
+	})
+}
+
 func TestDoSelectNextHostSkipsBackoff(t *testing.T) {
 	// Not parallel: mutates global config.AppConfig (same pattern as client_manager_getdefault_test.go).
 	prevConfig := config.AppConfig

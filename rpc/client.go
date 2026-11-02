@@ -54,26 +54,28 @@ var (
 
 // Client struct for rpc client
 type Client struct {
-	host                 string
-	backoff              Backoff
-	s                    *SSL
-	enableMetrics        bool
-	metrics              *Metrics
-	Verbose              bool
-	clientMan            *ClientManager
-	cm                   *callManager
-	localTimeout         time.Duration
-	pool                 *DataPool
-	config               *config.Config
-	bq                   *blockquick.Window
-	lastTicket           *edge.DeviceTicket
-	ticketHeadMu         sync.Mutex
-	moonbeamHead         edge.BlockReference
-	moonbeamHeadAt       time.Time
-	latencySum           int64
-	latencyCount         int64
-	serverID             util.Address
-	onConnect            func(util.Address)
+	host           string
+	backoff        Backoff
+	s              *SSL
+	enableMetrics  bool
+	metrics        *Metrics
+	Verbose        bool
+	clientMan      *ClientManager
+	cm             *callManager
+	localTimeout   time.Duration
+	pool           *DataPool
+	config         *config.Config
+	bq             *blockquick.Window
+	lastTicket     *edge.DeviceTicket
+	ticketHeadMu   sync.Mutex
+	moonbeamHead   edge.BlockReference
+	moonbeamHeadAt time.Time
+	latencySum     int64
+	latencyCount   int64
+	serverID       util.Address
+	onConnect      func(util.Address)
+	// connectedAt is set when the relay is added to the client map.
+	connectedAt          time.Time
 	bqFailures           int
 	rebuildingBlockquick uint32
 	// close event
@@ -438,12 +440,13 @@ func (client *Client) validateNetwork() error {
 		return err
 	}
 
-	blockrange := []uint64{}
-	for _, block := range blocks {
-		// due to blocks order by block number, break loop here
-		blockrange = append(blockrange, block.Number())
+	if len(blocks) == 0 {
+		client.Log().Debug("received blockrange: empty")
+	} else {
+		first := blocks[0].Number()
+		last := blocks[len(blocks)-1].Number()
+		client.Log().Debug("received blockrange: %d-%d (%d)", first, last, len(blocks))
 	}
-	client.Log().Debug("received blockrange: %v (%v)", blockrange, len(blockrange))
 
 	for _, block := range blocks {
 		// due to blocks order by block number, break loop here
@@ -451,6 +454,7 @@ func (client *Client) validateNetwork() error {
 			break
 		}
 		if err := win.AddBlock(block, true); err != nil {
+			logBlockrangeDetail(client, blocks)
 			return err
 		}
 	}
@@ -458,6 +462,7 @@ func (client *Client) validateNetwork() error {
 	newlvbn, _ := win.Last()
 	if newlvbn == lvbn {
 		if peak-windowSize > lvbn {
+			logBlockrangeDetail(client, blocks)
 			return fmt.Errorf("couldn't validate any new blocks %v < %v", lvbn, peak)
 		}
 	}
@@ -467,6 +472,18 @@ func (client *Client) validateNetwork() error {
 	}
 	client.storeLastValid()
 	return nil
+}
+
+func logBlockrangeDetail(client *Client, blocks []blockquick.BlockHeader) {
+	if len(blocks) == 0 {
+		client.Log().Debug("received blockrange detail: empty")
+		return
+	}
+	numbers := make([]uint64, len(blocks))
+	for i, block := range blocks {
+		numbers[i] = block.Number()
+	}
+	client.Log().Debug("received blockrange detail: %v", numbers)
 }
 
 /**

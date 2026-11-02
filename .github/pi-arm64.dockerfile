@@ -1,4 +1,4 @@
-FROM debian:bullseye
+FROM debian/eol:bullseye
 LABEL crosscompie={pi-arm64}
 
 ENV GOOS=linux
