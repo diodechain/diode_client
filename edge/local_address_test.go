@@ -177,7 +177,7 @@ func TestDeviceTicketIsRecentAtPeak(t *testing.T) {
 	tck := &DeviceTicket{
 		Version:     2,
 		Epoch:       TicketEpochFromTimestamp(peakTS),
-		ChainID:     1284,
+		ChainID:     8453,
 		ServerID:    server,
 		LocalAddr:   la,
 		BlockNumber: peakBlock,

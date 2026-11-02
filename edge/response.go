@@ -75,7 +75,7 @@ type BlockReference struct {
 	Hash      []byte
 }
 
-type moonBlockHeaderResponse struct {
+type baseBlockHeaderResponse struct {
 	RequestID uint64
 	Payload   struct {
 		Type  string
@@ -163,7 +163,7 @@ type accountValueResponse struct {
 	}
 }
 
-type moonAccountValueResponse struct {
+type baseAccountValueResponse struct {
 	RequestID uint64
 	Payload   struct {
 		Type  string

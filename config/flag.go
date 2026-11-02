@@ -29,10 +29,12 @@ const (
 const (
 	// DiodeChainID is the Diode L1 chain id (ticket v1).
 	DiodeChainID = 15
-	// MoonbeamChainID is the Moonbeam chain id (ticket v2).
+	// BaseChainID is the Base chain id (ticket v2).
+	BaseChainID = 8453
+	// MoonbeamChainID is the retired Moonbeam chain id. TicketChainID maps it to Base.
 	MoonbeamChainID = 1284
-	// DefaultChainID is Moonbeam; used for ticket v2 when chain_id is unset.
-	DefaultChainID = MoonbeamChainID
+	// DefaultChainID is Base; used for ticket v2 when chain_id is unset.
+	DefaultChainID = BaseChainID
 )
 
 var (
@@ -377,9 +379,10 @@ func (cfg *Config) GetMaxPortsPerDevice() int {
 	return cfg.MaxPortsPerDevice
 }
 
-// TicketChainID returns the configured chain id for tickets, defaulting to Moonbeam.
+// TicketChainID returns the configured chain id for tickets, defaulting to Base.
+// A stored Moonbeam chain id resolves to Base because that chain has shut down.
 func (cfg *Config) TicketChainID() uint64 {
-	if cfg == nil || cfg.ChainID == 0 {
+	if cfg == nil || cfg.ChainID == 0 || cfg.ChainID == MoonbeamChainID {
 		return DefaultChainID
 	}
 	return cfg.ChainID

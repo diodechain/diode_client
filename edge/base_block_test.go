@@ -11,8 +11,8 @@ import (
 	"github.com/diodechain/diode_client/rlp"
 )
 
-func TestParseMoonBlockHeaderResponse(t *testing.T) {
-	var response moonBlockHeaderResponse
+func TestParseBaseBlockHeaderResponse(t *testing.T) {
+	var response baseBlockHeaderResponse
 	response.RequestID = 7
 	response.Payload.Type = "response"
 	response.Payload.Items = []Item{
@@ -25,9 +25,9 @@ func TestParseMoonBlockHeaderResponse(t *testing.T) {
 		t.Fatalf("failed to encode response: %v", err)
 	}
 
-	raw, err := parseMoonBlockHeaderResponse(encoded)
+	raw, err := parseBaseBlockHeaderResponse(encoded)
 	if err != nil {
-		t.Fatalf("parseMoonBlockHeaderResponse() returned error: %v", err)
+		t.Fatalf("parseBaseBlockHeaderResponse() returned error: %v", err)
 	}
 	got, ok := raw.(BlockReference)
 	if !ok {
@@ -41,8 +41,8 @@ func TestParseMoonBlockHeaderResponse(t *testing.T) {
 	}
 }
 
-func TestParseMoonBlockHeaderResponseRejectsMissingTimestamp(t *testing.T) {
-	var response moonBlockHeaderResponse
+func TestParseBaseBlockHeaderResponseRejectsMissingTimestamp(t *testing.T) {
+	var response baseBlockHeaderResponse
 	response.Payload.Type = "response"
 	response.Payload.Items = []Item{
 		{Key: "number", Value: uintBytes(1)},
@@ -52,15 +52,15 @@ func TestParseMoonBlockHeaderResponseRejectsMissingTimestamp(t *testing.T) {
 		t.Fatalf("failed to encode response: %v", err)
 	}
 
-	if _, err := parseMoonBlockHeaderResponse(encoded); err == nil {
+	if _, err := parseBaseBlockHeaderResponse(encoded); err == nil {
 		t.Fatal("expected missing timestamp error")
 	}
 }
 
-func TestNewMessageSupportsMoonbeamBlockRPC(t *testing.T) {
+func TestNewMessageSupportsBaseBlockRPC(t *testing.T) {
 	t.Run("peak", func(t *testing.T) {
 		msgBuf := &bytes.Buffer{}
-		parse, err := NewMessage(msgBuf, 42, "glmr:getblockpeak")
+		parse, err := NewMessage(msgBuf, 42, "base:getblockpeak")
 		if err != nil {
 			t.Fatalf("NewMessage() returned error: %v", err)
 		}
@@ -84,12 +84,12 @@ func TestNewMessageSupportsMoonbeamBlockRPC(t *testing.T) {
 
 	t.Run("header", func(t *testing.T) {
 		msgBuf := &bytes.Buffer{}
-		parse, err := NewMessage(msgBuf, 42, "glmr:getblockheader", uint64(123))
+		parse, err := NewMessage(msgBuf, 42, "base:getblockheader", uint64(123))
 		if err != nil {
 			t.Fatalf("NewMessage() returned error: %v", err)
 		}
 
-		var response moonBlockHeaderResponse
+		var response baseBlockHeaderResponse
 		response.RequestID = 42
 		response.Payload.Type = "response"
 		response.Payload.Items = []Item{

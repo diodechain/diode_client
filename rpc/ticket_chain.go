@@ -11,30 +11,30 @@ import (
 	"github.com/diodechain/diode_client/edge"
 )
 
-const moonbeamHeadCacheTTL = 15 * time.Second
+const baseHeadCacheTTL = 15 * time.Second
 
-// GetMoonBlockPeak returns the latest Moonbeam block number reported by the relay.
-func (client *Client) GetMoonBlockPeak() (uint64, error) {
-	rawPeak, err := client.CallContext("glmr:getblockpeak")
+// GetBaseBlockPeak returns the latest Base block number reported by the relay.
+func (client *Client) GetBaseBlockPeak() (uint64, error) {
+	rawPeak, err := client.CallContext("base:getblockpeak")
 	if err != nil {
-		return 0, fmt.Errorf("failed to fetch Moonbeam block peak: %w", err)
+		return 0, fmt.Errorf("failed to fetch Base block peak: %w", err)
 	}
 	peak, ok := rawPeak.(uint64)
 	if !ok {
-		return 0, fmt.Errorf("moonbeam block peak has unexpected type %T", rawPeak)
+		return 0, fmt.Errorf("base block peak has unexpected type %T", rawPeak)
 	}
 	return peak, nil
 }
 
-// GetMoonBlockHeader returns a Moonbeam block reference from the relay.
-func (client *Client) GetMoonBlockHeader(blockNumber uint64) (edge.BlockReference, error) {
-	rawHeader, err := client.CallContext("glmr:getblockheader", blockNumber)
+// GetBaseBlockHeader returns a Base block reference from the relay.
+func (client *Client) GetBaseBlockHeader(blockNumber uint64) (edge.BlockReference, error) {
+	rawHeader, err := client.CallContext("base:getblockheader", blockNumber)
 	if err != nil {
-		return edge.BlockReference{}, fmt.Errorf("failed to fetch Moonbeam block %d: %w", blockNumber, err)
+		return edge.BlockReference{}, fmt.Errorf("failed to fetch Base block %d: %w", blockNumber, err)
 	}
 	header, ok := rawHeader.(edge.BlockReference)
 	if !ok {
-		return edge.BlockReference{}, fmt.Errorf("moonbeam block header has unexpected type %T", rawHeader)
+		return edge.BlockReference{}, fmt.Errorf("base block header has unexpected type %T", rawHeader)
 	}
 	return header, nil
 }
@@ -43,8 +43,8 @@ func (client *Client) ticketChainHead(chainID uint64) (edge.BlockReference, erro
 	switch chainID {
 	case config.DiodeChainID:
 		return client.diodeTicketChainHead()
-	case config.MoonbeamChainID:
-		return client.moonbeamTicketChainHead()
+	case config.BaseChainID:
+		return client.baseTicketChainHead()
 	default:
 		return edge.BlockReference{}, fmt.Errorf("unsupported ticket chain id: %d", chainID)
 	}
@@ -75,7 +75,7 @@ func applyTicketChainReference(
 		ticket.Version = 1
 		ticket.BlockNumber = head.Number
 		ticket.BlockHash = head.Hash
-	case config.MoonbeamChainID:
+	case config.BaseChainID:
 		epoch := edge.TicketEpochFromTimestamp(head.Timestamp)
 		if epoch == 0 {
 			epoch = 1
@@ -104,35 +104,35 @@ func (client *Client) diodeTicketChainHead() (edge.BlockReference, error) {
 	}, nil
 }
 
-func (client *Client) moonbeamTicketChainHead() (edge.BlockReference, error) {
+func (client *Client) baseTicketChainHead() (edge.BlockReference, error) {
 	client.ticketHeadMu.Lock()
 	defer client.ticketHeadMu.Unlock()
 
-	if !client.moonbeamHeadAt.IsZero() && time.Since(client.moonbeamHeadAt) < moonbeamHeadCacheTTL {
-		return cloneBlockReference(client.moonbeamHead), nil
+	if !client.baseHeadAt.IsZero() && time.Since(client.baseHeadAt) < baseHeadCacheTTL {
+		return cloneBlockReference(client.baseHead), nil
 	}
 
-	blockNumber, err := client.GetMoonBlockPeak()
+	blockNumber, err := client.GetBaseBlockPeak()
 	if err != nil {
 		return edge.BlockReference{}, err
 	}
 	if blockNumber == 0 {
-		return edge.BlockReference{}, fmt.Errorf("moonbeam block peak is zero")
+		return edge.BlockReference{}, fmt.Errorf("base block peak is zero")
 	}
 
-	header, err := client.GetMoonBlockHeader(blockNumber)
+	header, err := client.GetBaseBlockHeader(blockNumber)
 	if err != nil {
 		return edge.BlockReference{}, err
 	}
 	if header.Number != blockNumber {
 		return edge.BlockReference{}, fmt.Errorf(
-			"moonbeam block header number mismatch: requested %d, got %d",
+			"base block header number mismatch: requested %d, got %d",
 			blockNumber,
 			header.Number,
 		)
 	}
-	client.moonbeamHead = cloneBlockReference(header)
-	client.moonbeamHeadAt = time.Now()
+	client.baseHead = cloneBlockReference(header)
+	client.baseHeadAt = time.Now()
 	return cloneBlockReference(header), nil
 }
 

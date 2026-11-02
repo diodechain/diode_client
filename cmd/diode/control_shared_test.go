@@ -251,6 +251,26 @@ func TestSharedControlRegistryMetadata(t *testing.T) {
 	}
 }
 
+func TestChainIDPersistenceUsesBaseDefault(t *testing.T) {
+	cfg := newSharedControlTestConfig(t)
+
+	cfg.ChainID = config.BaseChainID
+	if _, remove, err := sharedControlDBValue(cfg, "chain_id"); err != nil || !remove {
+		t.Fatalf("default Base chain id remove=%v err=%v", remove, err)
+	}
+
+	cfg.ChainID = config.MoonbeamChainID
+	if _, remove, err := sharedControlDBValue(cfg, "chain_id"); err != nil || !remove {
+		t.Fatalf("retired Moonbeam chain id remove=%v err=%v", remove, err)
+	}
+
+	cfg.ChainID = config.DiodeChainID
+	value, remove, err := sharedControlDBValue(cfg, "chain_id")
+	if err != nil || remove || string(value) != "15" {
+		t.Fatalf("diode chain id value=%q remove=%v err=%v", value, remove, err)
+	}
+}
+
 func TestPersistSharedControlStateRoundTripsJSONLists(t *testing.T) {
 	cfg := newSharedControlTestConfig(t)
 	setupSharedControlTestEnv(t, cfg)
