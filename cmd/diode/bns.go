@@ -19,11 +19,20 @@ import (
 
 var (
 	bnsCmd = &command.Command{
-		Name:        "bns",
-		HelpText:    `  Register/Update name service on diode blockchain.`,
-		ExampleText: `  diode bns -register hello-world=0x......`,
-		Run:         bnsHandler,
-		Type:        command.OneOffCommand,
+		Name:     "bns",
+		HelpText: `  Register, lookup, transfer, and set properties on Blockchain Name Service names.`,
+		ExampleText: `  diode bns -register hello-world=0x......
+  diode bns -lookup hello-world
+  diode bns -set-property acme:PX:division1=0x......
+  diode bns -get-property acme:PX:division1
+  diode bns -delete-property acme:PX:division1
+
+  Gateway names under a custom domain use PX: properties on the zone BNS name.
+  division1.acme.com uses key PX:division1. A longer name checks the full
+  prefix first (PX:west.division1) and then the shorter key (PX:division1).
+  The value is one 0x address. You must own the BNS name to set or delete.`,
+		Run:  bnsHandler,
+		Type: command.OneOffCommand,
 	}
 	bnsPattern = regexp.MustCompile(`^[0-9a-z-]+$`)
 )
@@ -36,6 +45,9 @@ func init() {
 	bnsCmd.Flag.StringVar(&cfg.BNSTransfer, "transfer", "", "Transfer an existing BNS name with <name>=<new_owner>.")
 	bnsCmd.Flag.StringVar(&cfg.BNSLookup, "lookup", "", "Lookup a given BNS name.")
 	bnsCmd.Flag.StringVar(&cfg.BNSAccount, "account", "", "Display the account information of a given BNS name")
+	bnsCmd.Flag.StringVar(&cfg.BNSSetProperty, "set-property", "", "Set or replace a property on a BNS name you own: <name>:<key>=<value>. The name is the text before the first colon; the key may contain colons and must not contain '='. Gateway subdomain records use key PX:<labels> and a 0x address value, for example acme:PX:division1=0x...... Writes the Diode L1 BNS contract and waits for confirmation.")
+	bnsCmd.Flag.StringVar(&cfg.BNSGetProperty, "get-property", "", "Read one property: <name>:<key>. Example: acme:PX:division1. Uses the same chain order as gateway resolution.")
+	bnsCmd.Flag.StringVar(&cfg.BNSDeleteProperty, "delete-property", "", "Delete a property from a BNS name you own: <name>:<key>. Example: acme:PX:division1. Waits for confirmation.")
 }
 
 func isValidBNS(name string) (isValid bool) {
@@ -85,8 +97,17 @@ func bnsHandler() (err error) {
 	if done, err = handleLookupAccount(); done || err != nil {
 		return
 	}
+	if done, err = handleGetProperty(); done || err != nil {
+		return
+	}
+	if done, err = handleSetProperty(); done || err != nil {
+		return
+	}
+	if done, err = handleDeleteProperty(); done || err != nil {
+		return
+	}
 
-	cfg.PrintError("Argument Error: ", fmt.Errorf("provide -register <name>=<address> or -lookup <name> or -account <name> or -unregister <name> or -transfer <name>=<new_owner> argument"))
+	cfg.PrintError("Argument Error: ", fmt.Errorf("provide -register <name>=<address> or -lookup <name> or -account <name> or -unregister <name> or -transfer <name>=<new_owner> or -set-property <name>:<key>=<value> or -get-property <name>:<key> or -delete-property <name>:<key> argument"))
 	return
 }
 
@@ -375,6 +396,179 @@ func handleUnregister() (done bool, err error) {
 	wait(client, func() bool {
 		owner, _ := client.ResolveBNSOwner(bnsName)
 		return owner == [20]byte{}
+	})
+	return
+}
+
+func splitPropertyArg(raw string, wantValue bool) (name, key, value string, err error) {
+	name, rest, ok := strings.Cut(strings.TrimSpace(raw), ":")
+	if !ok || name == "" || rest == "" {
+		err = fmt.Errorf("property argument must be <name>:<key> or <name>:<key>=<value>")
+		return
+	}
+	name = strings.ToLower(name)
+	if !isValidBNS(name) {
+		err = fmt.Errorf("BNS name should be more than 7 or less than 32 characters (0-9A-Za-z-)")
+		return
+	}
+	if wantValue {
+		key, value, ok = strings.Cut(rest, "=")
+		if !ok || key == "" || value == "" {
+			err = fmt.Errorf("property argument must be <name>:<key>=<value>")
+			return
+		}
+		return
+	}
+	if strings.Contains(rest, "=") || rest == "" {
+		err = fmt.Errorf("property argument must be <name>:<key>")
+		return
+	}
+	key = rest
+	return
+}
+
+func handleGetProperty() (done bool, err error) {
+	cfg := config.AppConfig
+	if len(cfg.BNSGetProperty) == 0 {
+		return
+	}
+	done = true
+	name, key, _, err := splitPropertyArg(cfg.BNSGetProperty, false)
+	if err != nil {
+		cfg.PrintError("Argument Error: ", err)
+		return
+	}
+	var value string
+	var found bool
+	err = app.clientManager.CallWithClientFailover("bns get property", func(client *rpc.Client) error {
+		properties, e := client.BNSProperties(name)
+		if e != nil {
+			return e
+		}
+		value, found = contract.PropertyValue(properties, key)
+		return nil
+	})
+	if err != nil {
+		cfg.PrintError("Couldn't read property: ", err)
+		return
+	}
+	if !found {
+		err = fmt.Errorf("property %s was not found", key)
+		cfg.PrintError("Couldn't read property: ", err)
+		return
+	}
+	cfg.PrintLabel("Property: ", fmt.Sprintf("%s:%s=%s", name, key, value))
+	return
+}
+
+func handleSetProperty() (done bool, err error) {
+	cfg := config.AppConfig
+	if len(cfg.BNSSetProperty) == 0 {
+		return
+	}
+	done = true
+	name, key, value, err := splitPropertyArg(cfg.BNSSetProperty, true)
+	if err != nil {
+		cfg.PrintError("Argument Error: ", err)
+		return
+	}
+	client := app.clientManager.GetNearestClient()
+	owner, err := client.ResolveBNSOwner(name)
+	if err != nil {
+		cfg.PrintError("Couldn't resolve BNS owner: ", err)
+		return
+	}
+	if owner != cfg.ClientAddr {
+		err = fmt.Errorf("bns domain is owned by %s", owner.HexString())
+		cfg.PrintError("BNS property can't be set", err)
+		return
+	}
+	bnsContract, err := contract.NewBNSContract()
+	if err != nil {
+		cfg.PrintError("Cannot create BNS contract instance: ", err)
+		return
+	}
+	data, err := bnsContract.SetPropertyKV(name, key, value)
+	if err != nil {
+		cfg.PrintError("Cannot encode property: ", err)
+		return
+	}
+	nonce := client.GetAccountNonce(0, cfg.ClientAddr)
+	ntx := edge.NewTransaction(nonce, 0, 10000000, contract.BNSAddr, 0, data, 0)
+	_, err = client.SendTransaction(ntx)
+	if err != nil {
+		cfg.PrintError("Cannot set BNS property: ", err)
+		return
+	}
+	cfg.PrintLabel("Setting property: ", fmt.Sprintf("%s:%s=%s", name, key, value))
+	wait(client, func() bool {
+		properties, readErr := client.BNSProperties(name)
+		if readErr != nil {
+			return false
+		}
+		got, ok := contract.PropertyValue(properties, key)
+		return ok && got == value
+	})
+	return
+}
+
+func handleDeleteProperty() (done bool, err error) {
+	cfg := config.AppConfig
+	if len(cfg.BNSDeleteProperty) == 0 {
+		return
+	}
+	done = true
+	name, key, _, err := splitPropertyArg(cfg.BNSDeleteProperty, false)
+	if err != nil {
+		cfg.PrintError("Argument Error: ", err)
+		return
+	}
+	client := app.clientManager.GetNearestClient()
+	owner, err := client.ResolveBNSOwner(name)
+	if err != nil {
+		cfg.PrintError("Couldn't resolve BNS owner: ", err)
+		return
+	}
+	if owner != cfg.ClientAddr {
+		err = fmt.Errorf("bns domain is owned by %s", owner.HexString())
+		cfg.PrintError("BNS property can't be deleted", err)
+		return
+	}
+	properties, err := client.BNSProperties(name)
+	if err != nil {
+		cfg.PrintError("Couldn't read property: ", err)
+		return
+	}
+	idx := contract.PropertyIndex(properties, key)
+	if idx < 0 {
+		err = fmt.Errorf("property %s was not found", key)
+		cfg.PrintError("Couldn't delete property: ", err)
+		return
+	}
+	bnsContract, err := contract.NewBNSContract()
+	if err != nil {
+		cfg.PrintError("Cannot create BNS contract instance: ", err)
+		return
+	}
+	data, err := bnsContract.DeleteProperty(name, idx)
+	if err != nil {
+		cfg.PrintError("Cannot encode property delete: ", err)
+		return
+	}
+	nonce := client.GetAccountNonce(0, cfg.ClientAddr)
+	ntx := edge.NewTransaction(nonce, 0, 10000000, contract.BNSAddr, 0, data, 0)
+	_, err = client.SendTransaction(ntx)
+	if err != nil {
+		cfg.PrintError("Cannot delete BNS property: ", err)
+		return
+	}
+	cfg.PrintLabel("Deleting property: ", fmt.Sprintf("%s:%s", name, key))
+	wait(client, func() bool {
+		properties, readErr := client.BNSProperties(name)
+		if readErr != nil {
+			return false
+		}
+		return contract.PropertyIndex(properties, key) < 0
 	})
 	return
 }

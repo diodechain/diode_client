@@ -66,6 +66,13 @@ func (pl *proxyListener) run() {
 				pl.proxy.logger.Error("[%s] Failed to parseHost(%v '%v')", tlsConn.RemoteAddr().String(), name, deviceID)
 				return
 			}
+			deviceID, err = pl.proxy.resolveGatewayDevice(name, deviceID)
+			if err != nil {
+				pl.proxy.logger.Error("[%s] Failed to resolve BNS prefix(%v): %v", tlsConn.RemoteAddr().String(), name, err)
+				rawHttpError(conn, 404, err.Error())
+				conn.Close()
+				return
+			}
 
 			if isWS {
 				pl.ret <- proxyListenerRet{conn, nil}

@@ -53,6 +53,9 @@ func queryHandler() (err error) {
 				return e
 			}
 			cfg.PrintLabel("Account Type: ", addrType)
+			if addrType == "driveMember" || addrType == "drive" {
+				printIdentityMembers(cfg, client, addr)
+			}
 			return nil
 		}); err != nil {
 			cfg.PrintError("Couldn't resolve account type: ", err)
@@ -91,4 +94,29 @@ func queryHandler() (err error) {
 	}
 
 	return
+}
+
+// printIdentityMembers prints DriveMember owner + Members() (Diode L1 slots and Moonbeam).
+// Support portals parse lines of the form "Member: 0x...".
+func printIdentityMembers(cfg *config.Config, client *rpc.Client, addr util.Address) {
+	seen := map[util.Address]struct{}{}
+	lists := make([][]util.Address, 0, 2)
+	if members, err := client.ResolveDiodeMembers(addr); err == nil {
+		lists = append(lists, members)
+	}
+	if members, err := client.ResolveMoonMembers(addr); err == nil {
+		lists = append(lists, members)
+	}
+	for _, members := range lists {
+		for _, member := range members {
+			if member == (util.Address{}) {
+				continue
+			}
+			if _, ok := seen[member]; ok {
+				continue
+			}
+			seen[member] = struct{}{}
+			cfg.PrintLabel("Member: ", member.HexString())
+		}
+	}
 }
