@@ -72,9 +72,13 @@ func (pl *proxyListener) run() {
 				return
 			}
 
+			// Inject X-Forwarded-For, X-Real-IP, and Forwarded so the backend sees the original client.
+			clientAddr := tlsConn.RemoteAddr().String()
+			conn = newForwardedHeaderConn(conn, clientAddr)
+
 			protocol := config.TLSProtocol
 			var connPort *ConnectedPort
-			connPort, err = pl.proxy.socksServer.connectDeviceFrom(deviceID, port, protocol, mode, tlsConn.RemoteAddr().String(), func(*ConnectedPort) (net.Conn, error) {
+			connPort, err = pl.proxy.socksServer.connectDeviceFrom(deviceID, port, protocol, mode, clientAddr, func(*ConnectedPort) (net.Conn, error) {
 				return conn, nil
 			})
 
