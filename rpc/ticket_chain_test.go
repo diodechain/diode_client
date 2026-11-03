@@ -88,6 +88,101 @@ func TestTicketChainHeadRejectsUnsupportedChain(t *testing.T) {
 	}
 }
 
+func TestTicketChainHeadReadsLegacyMoonbeamAsBase(t *testing.T) {
+	const timestamp = uint64(1_785_888_000)
+	client := cachedBaseHeadClient(timestamp)
+
+	got, err := client.ticketChainHead(config.MoonbeamChainID)
+	if err != nil {
+		t.Fatalf("ticketChainHead(%d) returned error: %v", config.MoonbeamChainID, err)
+	}
+	if got.Number != client.baseHead.Number || got.Timestamp != timestamp {
+		t.Fatalf("legacy Moonbeam head = %+v, want Base head number %d timestamp %d", got, client.baseHead.Number, timestamp)
+	}
+	got.Hash[0] ^= 0xff
+	if got.Hash[0] == client.baseHead.Hash[0] {
+		t.Fatal("cached block hash was not copied")
+	}
+}
+
+func TestIsRecentTicketAcceptsLegacyMoonbeamChain(t *testing.T) {
+	const peakTS = uint64(1_785_888_000)
+	var serverID edge.Address
+	serverID[0] = 3
+	localAddr, err := edge.CreateTicketLocalAddress([]edge.Address{serverID}, peakTS)
+	if err != nil {
+		t.Fatalf("CreateTicketLocalAddress() returned error: %v", err)
+	}
+	client := cachedBaseHeadClient(peakTS)
+
+	recent := &edge.DeviceTicket{
+		Version:   2,
+		ChainID:   config.MoonbeamChainID,
+		Epoch:     edge.TicketEpochFromTimestamp(peakTS),
+		ServerID:  serverID,
+		LocalAddr: localAddr,
+	}
+	if !client.isRecentTicket(recent) {
+		t.Fatal("legacy Moonbeam ticket should stay recent against the Base head")
+	}
+
+	epochOnly := &edge.DeviceTicket{
+		Version: 2,
+		ChainID: config.MoonbeamChainID,
+		Epoch:   edge.TicketEpochFromTimestamp(peakTS),
+	}
+	if !client.isRecentTicket(epochOnly) {
+		t.Fatal("legacy Moonbeam ticket without metadata should stay recent in the current epoch")
+	}
+
+	baseTicket := *recent
+	baseTicket.ChainID = config.BaseChainID
+	if !client.isRecentTicket(&baseTicket) {
+		t.Fatal("Base ticket should stay recent against the Base head")
+	}
+}
+
+func TestIsRecentTicketRejectsStaleLegacyMoonbeamChain(t *testing.T) {
+	const peakTS = uint64(1_785_888_000)
+	var serverID edge.Address
+	serverID[0] = 4
+	oldTS := peakTS - edge.MaxTicketTimestampLag - 1
+	localAddr, err := edge.CreateTicketLocalAddress([]edge.Address{serverID}, oldTS)
+	if err != nil {
+		t.Fatalf("CreateTicketLocalAddress() returned error: %v", err)
+	}
+	client := cachedBaseHeadClient(peakTS)
+	stale := &edge.DeviceTicket{
+		Version:   2,
+		ChainID:   config.MoonbeamChainID,
+		Epoch:     edge.TicketEpochFromTimestamp(oldTS),
+		ServerID:  serverID,
+		LocalAddr: localAddr,
+	}
+	if client.isRecentTicket(stale) {
+		t.Fatal("stale legacy Moonbeam ticket should be outdated")
+	}
+}
+
+func TestApplyTicketChainReferenceRejectsLegacyMoonbeam(t *testing.T) {
+	ticket := &edge.DeviceTicket{}
+	head := edge.BlockReference{Number: 1, Timestamp: 1_785_888_000}
+	if err := applyTicketChainReference(ticket, config.MoonbeamChainID, head, nil); err == nil {
+		t.Fatal("new tickets should be written as Base, not the retired Moonbeam chain id")
+	}
+}
+
+func cachedBaseHeadClient(timestamp uint64) *Client {
+	return &Client{
+		baseHead: edge.BlockReference{
+			Number:    123,
+			Timestamp: timestamp,
+			Hash:      bytes.Repeat([]byte{0xab}, 32),
+		},
+		baseHeadAt: time.Now(),
+	}
+}
+
 func TestBaseTicketChainHeadUsesFreshCache(t *testing.T) {
 	head := edge.BlockReference{
 		Number:    123,

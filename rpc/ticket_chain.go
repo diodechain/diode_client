@@ -43,7 +43,9 @@ func (client *Client) ticketChainHead(chainID uint64) (edge.BlockReference, erro
 	switch chainID {
 	case config.DiodeChainID:
 		return client.diodeTicketChainHead()
-	case config.BaseChainID:
+	case config.BaseChainID, config.MoonbeamChainID:
+		// Tickets already on the network may still carry retired Moonbeam id 1284.
+		// Read those against the Base head. New tickets are written as Base.
 		return client.baseTicketChainHead()
 	default:
 		return edge.BlockReference{}, fmt.Errorf("unsupported ticket chain id: %d", chainID)

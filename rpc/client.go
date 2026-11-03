@@ -368,6 +368,7 @@ func (client *Client) isRecentTicket(tck *edge.DeviceTicket) bool {
 	case 1:
 		chainID = config.DiodeChainID
 	case 2:
+		// Retired Moonbeam id 1284 is still valid here; ticketChainHead reads it against Base.
 		chainID = tck.ChainID
 	default:
 		return false
