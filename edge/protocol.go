@@ -179,29 +179,29 @@ func parseBlockHeaderResponse(buffer []byte) (interface{}, error) {
 	return header, nil
 }
 
-func parseMoonBlockHeaderResponse(buffer []byte) (interface{}, error) {
-	var response moonBlockHeaderResponse
+func parseBaseBlockHeaderResponse(buffer []byte) (interface{}, error) {
+	var response baseBlockHeaderResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	if err := decodeStream.Decode(&response); err != nil {
 		return nil, err
 	}
 	if response.Payload.Type != string(responsePivot) {
-		return nil, fmt.Errorf("unexpected moonbeam block header response type: %q", response.Payload.Type)
+		return nil, fmt.Errorf("unexpected base block header response type: %q", response.Payload.Type)
 	}
 
 	numberItem, err := findItemInItems(response.Payload.Items, "number")
 	if err != nil {
-		return nil, fmt.Errorf("moonbeam block header missing number: %w", err)
+		return nil, fmt.Errorf("base block header missing number: %w", err)
 	}
 	timestampItem, err := findItemInItems(response.Payload.Items, "timestamp")
 	if err != nil {
-		return nil, fmt.Errorf("moonbeam block header missing timestamp: %w", err)
+		return nil, fmt.Errorf("base block header missing timestamp: %w", err)
 	}
-	number, err := decodeMoonBlockHeaderUint(numberItem.Value, "number")
+	number, err := decodeBaseBlockHeaderUint(numberItem.Value, "number")
 	if err != nil {
 		return nil, err
 	}
-	timestamp, err := decodeMoonBlockHeaderUint(timestampItem.Value, "timestamp")
+	timestamp, err := decodeBaseBlockHeaderUint(timestampItem.Value, "timestamp")
 	if err != nil {
 		return nil, err
 	}
@@ -221,10 +221,10 @@ func parseMoonBlockHeaderResponse(buffer []byte) (interface{}, error) {
 	}, nil
 }
 
-func decodeMoonBlockHeaderUint(raw []byte, field string) (uint64, error) {
+func decodeBaseBlockHeaderUint(raw []byte, field string) (uint64, error) {
 	value := new(big.Int).SetBytes(raw)
 	if !value.IsUint64() {
-		return 0, fmt.Errorf("moonbeam block header %s is out of uint64 range", field)
+		return 0, fmt.Errorf("base block header %s is out of uint64 range", field)
 	}
 	return value.Uint64(), nil
 }
@@ -413,8 +413,8 @@ func parseAccountValueResponse(buffer []byte) (interface{}, error) {
 	return accountValue, nil
 }
 
-func parseMoonAccountValueResponse(buffer []byte) (interface{}, error) {
-	var response moonAccountValueResponse
+func parseBaseAccountValueResponse(buffer []byte) (interface{}, error) {
+	var response baseAccountValueResponse
 	decodeStream := rlp.NewStream(bytes.NewReader(buffer), 0)
 	err := decodeStream.Decode(&response)
 	if err != nil {
@@ -958,18 +958,18 @@ func NewMessage(writer io.Writer, requestID uint64, method string, args ...inter
 		return parseBlockHeaderResponse, nil
 	case "getblockquick2":
 		return parseBlockquickResponse, nil
-	case "glmr:getblockpeak":
+	case "base:getblockpeak":
 		return parseBlockPeakResponse, nil
-	case "glmr:getblockheader":
-		return parseMoonBlockHeaderResponse, nil
+	case "base:getblockheader":
+		return parseBaseBlockHeaderResponse, nil
 	case "getaccount":
 		return parseAccountResponse, nil
 	case "getaccountroots":
 		return parseAccountRootsResponse, nil
 	case "getaccountvalue":
 		return parseAccountValueResponse, nil
-	case "glmr:getaccountvalue":
-		return parseMoonAccountValueResponse, nil
+	case "base:getaccountvalue":
+		return parseBaseAccountValueResponse, nil
 	case "ticket", "ticketv2":
 		return parseDeviceTicketResponse, nil
 	case "portopen":

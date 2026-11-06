@@ -40,7 +40,7 @@ func TestSubmitMethodAndArgs(t *testing.T) {
 
 	v2 := &DeviceTicket{
 		Version:          2,
-		ChainID:          1284,
+		ChainID:          8453,
 		Epoch:            3,
 		FleetAddr:        Address{2},
 		TotalConnections: big.NewInt(1),
@@ -52,7 +52,7 @@ func TestSubmitMethodAndArgs(t *testing.T) {
 		t.Fatalf("v2 method = %q", v2.SubmitMethod())
 	}
 	args2 := v2.SubmitArgs()
-	if len(args2) != 7 || args2[0].(uint64) != 1284 || args2[1].(uint64) != 3 {
+	if len(args2) != 7 || args2[0].(uint64) != 8453 || args2[1].(uint64) != 3 {
 		t.Fatalf("unexpected v2 args: %#v", args2)
 	}
 }
@@ -116,7 +116,7 @@ func TestDeviceTicketV2SignRoundTrip(t *testing.T) {
 	}
 	ticket := &DeviceTicket{
 		Version:          2,
-		ChainID:          1284,
+		ChainID:          8453,
 		Epoch:            42,
 		ServerID:         Address{9},
 		FleetAddr:        Address{8},
@@ -184,7 +184,7 @@ func TestParseTooLowResponse(t *testing.T) {
 			LocalAddr        []byte
 			DeviceSig        []byte
 		}{
-			Type: "response", Result: "too_low", ChainID: 1284, Epoch: 686,
+			Type: "response", Result: "too_low", ChainID: 8453, Epoch: 686,
 			TotalConnections: big.NewInt(3), TotalBytes: big.NewInt(8192),
 			LocalAddr: local, DeviceSig: []byte{0xaa, 0xbb},
 		},
@@ -197,7 +197,7 @@ func TestParseTooLowResponse(t *testing.T) {
 		t.Fatal(err)
 	}
 	ticket = v2.(DeviceTicket)
-	if ticket.Version != 2 || ticket.ChainID != 1284 || ticket.Epoch != 686 || ticket.FleetAddr != (Address{}) {
+	if ticket.Version != 2 || ticket.ChainID != 8453 || ticket.Epoch != 686 || ticket.FleetAddr != (Address{}) {
 		t.Fatalf("v2: %+v", ticket)
 	}
 
@@ -259,7 +259,7 @@ func TestTooLowTicketValidate(t *testing.T) {
 					t.Fatal(err)
 				}
 				return &DeviceTicket{
-					Version: 2, ServerID: serverID, ChainID: 1284, Epoch: 686,
+					Version: 2, ServerID: serverID, ChainID: 8453, Epoch: 686,
 					FleetAddr: fleetAddr, TotalConnections: big.NewInt(2),
 					TotalBytes: big.NewInt(8192), LocalAddr: local,
 				}

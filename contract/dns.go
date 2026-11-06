@@ -22,7 +22,9 @@ const (
 )
 
 var BNSAddr = [20]byte{175, 96, 250, 165, 205, 132, 11, 114, 71, 66, 241, 175, 17, 97, 104, 39, 97, 18, 214, 166}
-var MoonBNSAddr = [20]byte{138, 9, 62, 58, 131, 246, 58, 0, 255, 252, 71, 41, 170, 85, 72, 40, 69, 164, 146, 148}
+
+// BaseBNSAddr is the BNS contract on Base (0x87C1D1304944A9EA16AF18CB777E3CEE0D3DACEA).
+var BaseBNSAddr = [20]byte{135, 193, 209, 48, 73, 68, 169, 234, 22, 175, 24, 203, 119, 126, 60, 238, 13, 61, 172, 234}
 
 // BNSContract is fleet contract struct
 type BNSContract struct {
